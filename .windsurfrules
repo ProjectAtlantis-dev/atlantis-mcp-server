@@ -1,0 +1,13 @@
+
+# rules
+- plan work first
+- do work
+  - verify between steps
+- verify against plan
+- ask before modifying existing files
+- ask before installing new packages, try to stick to existing packages
+- use meaningful logging so we can debug (quality over quantity)
+
+
+# overview
+- the goal of this project is to stand up a very minimal mcp (model context protocol) server in python using the brand new but not well documented websockets protocol

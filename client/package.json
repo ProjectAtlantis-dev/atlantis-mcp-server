@@ -1,0 +1,5 @@
+{
+    "name": "project-atlantis",
+    "version": "1.0.0",
+    "bin": "./node-mcp-client/index.js"
+  }

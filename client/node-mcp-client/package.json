@@ -1,0 +1,25 @@
+{
+  "name": "atlantis-mcp",
+  "version": "1.0.2",
+  "description": "MCP for Project Atlantis",
+  "main": "index.js",
+  "bin": {
+    "atlantis-mcp": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "python",
+    "bridge",
+    "atlantis"
+  ],
+  "author": "meow_catatonic",
+  "license": "MIT",
+  "dependencies": {
+    "websocket": "^1.0.35",
+    "yargs": "^17.7.2"
+  }
+}

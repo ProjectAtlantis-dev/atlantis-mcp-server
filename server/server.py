@@ -136,18 +136,6 @@ class DynamicAdditionServer(Server):
             # Start with our built-in tools
             tools = [
                 Tool(
-                    name="add",
-                    description="Add two numbers together",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "a": {"type": "number"},
-                            "b": {"type": "number"}
-                        },
-                        "required": ["a", "b"]
-                    }
-                ),
-                Tool(
                     name="register_function",
                     description="Register a new Python function as a tool",
                     inputSchema={
@@ -160,7 +148,7 @@ class DynamicAdditionServer(Server):
                         },
                         "required": ["name", "code", "input_schema"]
                     }
-                )
+                ),
             ]
             
             # Scan the tools directory for .py files
@@ -191,18 +179,7 @@ class DynamicAdditionServer(Server):
             """Handle a tool call"""
             logger.info(f"🧰 TOOL CALLED: {name}")
             
-            if name == "add":
-                a = args.get("a", 0)
-                b = args.get("b", 0)
-                
-                logger.info(f"📊 ADDING: {a} + {b}")
-                result = a + b
-                logger.info(f"✅ RESULT: {result}")
-                
-                # Return a text content item with the result
-                return [TextContent(type="text", text=str(result))]
-            
-            elif name == "register_function":
+            if name == "register_function":
                 return await self._register_function(args)
             
             # Check if this is a dynamically registered tool
@@ -223,10 +200,10 @@ class DynamicAdditionServer(Server):
                         
                         # Execute the function with the provided arguments
                         if inspect.iscoroutinefunction(func):
-                            result = await func(args)
+                            result = await func(**args)
                         else:
                             # Run non-async function in an executor to avoid blocking
-                            result = await asyncio.to_thread(func, args)
+                            result = await asyncio.to_thread(func, **args)
                             
                         logger.info(f"✅ DYNAMIC TOOL RESULT: {result}")
                         
@@ -332,7 +309,23 @@ class DynamicAdditionServer(Server):
             if not hasattr(module, func_name):
                 raise ValueError(f"Function {func_name} not found in module {name}")
                 
-            return getattr(module, func_name)
+            func = getattr(module, func_name)
+            
+            # Get the function signature
+            signature = inspect.signature(func)
+            
+            def wrapper(**kwargs):
+                # Validate the input arguments against the function signature
+                try:
+                    bound_args = signature.bind(**kwargs)
+                    bound_args.apply_defaults()
+                except TypeError as e:
+                    raise ValueError(f"Invalid input arguments: {str(e)}")
+                
+                # Call the function with the validated arguments
+                return func(**bound_args.arguments)
+            
+            return wrapper
             
         except Exception as e:
             logger.error(f"❌ ERROR LOADING FUNCTION FROM {file_path}: {str(e)}")
@@ -373,6 +366,12 @@ class DynamicAdditionServer(Server):
                 # Check if the function is defined
                 if func_name not in namespace:
                     raise ValueError(f"Function {func_name} was not defined in the code")
+                
+                # Check if the function accepts named parameters and not just a single 'args' parameter
+                func = namespace[func_name]
+                sig = inspect.signature(func)
+                if len(sig.parameters) < 1:
+                    raise ValueError(f"Function {func_name} must have at least one parameter")
             except Exception as e:
                 raise ValueError(f"Invalid function code: {str(e)}")
             

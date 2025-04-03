@@ -148,6 +148,17 @@ class DynamicAdditionServer(Server):
                         "required": ["name", "code"]
                     }
                 ),
+                Tool( # Add definition for get_tool_code
+                    name="get_tool_code",
+                    description="Get the Python source code for a dynamically registered tool",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "description": "The name of the tool to get code for"}
+                        },
+                        "required": ["name"]
+                    }
+                ),
             ]
             
             # Scan the tools directory for .py files
@@ -180,7 +191,10 @@ class DynamicAdditionServer(Server):
             
             if name == "register_function":
                 return await self._register_function(args)
-            
+
+            elif name == "get_tool_code": # Add routing for get_tool_code
+                return await self._get_tool_code(args)
+
             # Check if this is a dynamically registered tool
             else:
                 # Check if we have a file for this tool
@@ -436,6 +450,36 @@ Input schema:
             import traceback
             logger.debug(f"Traceback: {traceback.format_exc()}")
             return [TextContent(type="text", text=f"Error registering function: {str(e)}")]
+
+    async def _get_tool_code(self, args: dict) -> list[TextContent]:
+        """Get the Python source code for a dynamically registered tool"""
+        name = args.get("name")
+        if not name:
+            return [TextContent(type="text", text="Error: Tool name not provided")]
+
+        logger.info(f"📄 GETTING CODE FOR TOOL: {name}")
+
+        # Construct the expected path to the tool's Python file
+        tool_path = os.path.join(TOOLS_DIR, f"{name}.py")
+
+        # Check if the tool file exists
+        if not os.path.exists(tool_path):
+            logger.warning(f"⚠️ Tool file not found: {tool_path}")
+            return [TextContent(type="text", text=f"Error: Tool '{name}' not found.")]
+
+        try:
+            # Read the tool code from the file
+            with open(tool_path, 'r') as f:
+                code = f.read()
+
+            logger.info(f"✅ SUCCESSFULLY RETRIEVED CODE FOR: {name}")
+            # Return the code as text content
+            return [TextContent(type="text", text=code)]
+        except Exception as e:
+            logger.error(f"❌ ERROR READING TOOL FILE {tool_path}: {str(e)}")
+            import traceback
+            logger.debug(f"Traceback: {traceback.format_exc()}")
+            return [TextContent(type="text", text=f"Error reading tool code for '{name}': {str(e)}")]
 
 # Create our MCP server instance
 mcp_server = DynamicAdditionServer()

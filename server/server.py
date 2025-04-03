@@ -144,9 +144,8 @@ class DynamicAdditionServer(Server):
                             "name": {"type": "string"},
                             "description": {"type": "string"},
                             "code": {"type": "string"},
-                            "input_schema": {"type": "object"}
                         },
-                        "required": ["name", "code", "input_schema"]
+                        "required": ["name", "code"]
                     }
                 ),
             ]

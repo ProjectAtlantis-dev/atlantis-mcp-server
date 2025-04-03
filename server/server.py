@@ -338,7 +338,6 @@ class DynamicAdditionServer(Server):
         name = args.get("name")
         code = args.get("code")
         description = args.get("description", f"Dynamically registered tool: {name}")
-        input_schema = args.get("input_schema", {"type": "object"})
         
         # Validate the tool name (must be a valid Python identifier)
         if not name or not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name):
@@ -375,9 +374,44 @@ class DynamicAdditionServer(Server):
             except Exception as e:
                 raise ValueError(f"Invalid function code: {str(e)}")
             
-            # Format the input schema as a comment
+            # Auto-generate input schema from function signature
+            properties = {}
+            required = []
+            for param_name, param in sig.parameters.items():
+                param_type = "string" # Default type if annotation is missing
+                if param.annotation != inspect.Parameter.empty:
+                    # Basic type mapping (can be expanded)
+                    if param.annotation == str:
+                        param_type = "string"
+                    elif param.annotation == int:
+                        param_type = "integer"
+                    elif param.annotation == float:
+                        param_type = "number"
+                    elif param.annotation == bool:
+                        param_type = "boolean"
+                    elif param.annotation == list:
+                        param_type = "array"
+                    elif param.annotation == dict:
+                        param_type = "object"
+                    # Add more complex type mappings if needed (e.g., typing.List[str])
+
+                properties[param_name] = {"type": param_type}
+                if param.default == inspect.Parameter.empty:
+                    required.append(param_name)
+                else:
+                    # Add default value to schema description if present
+                    properties[param_name]["default"] = param.default
+
+            input_schema = {
+                "type": "object",
+                "properties": properties
+            }
+            if required:
+                input_schema["required"] = required
+
+            # Format the generated input schema as a comment
             schema_str = json.dumps(input_schema, indent=2)
-            
+
             # The code is valid, now save it to a file with proper formatting and metadata in comments
             module_code = f"""# Dynamic tool: {name}
 # Description: {description}

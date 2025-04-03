@@ -39,7 +39,39 @@ async def test_mcp_add():
                 logger.info(f"📦 AVAILABLE TOOLS ({len(tools_result.tools)}):")
                 for tool in tools_result.tools:
                     logger.info(f"   🔧 {tool.name}: {tool.description}")
-                
+
+                # --- Test dynamic function registration --- START ---
+                logger.info("🔧 REGISTERING A DYNAMIC 'greet' FUNCTION (SCHEMA AUTO-DETECTED)")
+                greet_code = """
+def greet(name: str, times: int = 1) -> str:
+    \"\"\"Greets a person multiple times.\"\"\"
+    greetings = []
+    for _ in range(times):
+        greetings.append(f'Hello, {name}!')
+    return ' '.join(greetings)
+"""
+                register_args = {
+                    "name": "greet",
+                    "code": greet_code,
+                    "description": "A dynamically registered greeting function"
+                    # No input_schema provided!
+                }
+                try:
+                    register_result = await session.call_tool("register_function", register_args)
+                    for item in register_result.content:
+                        if isinstance(item, TextContent):
+                            logger.info(f"✅ REGISTRATION RESULT: {item.text}")
+                except Exception as e:
+                    logger.error(f"❌ FAILED TO REGISTER FUNCTION: {str(e)}")
+
+                # List tools again to see if the new one appears
+                logger.info("🔍 LISTING AVAILABLE TOOLS AGAIN")
+                tools_result_after_register = await session.list_tools()
+                logger.info(f"📦 AVAILABLE TOOLS ({len(tools_result_after_register.tools)}):")
+                for tool in tools_result_after_register.tools:
+                    logger.info(f"   🔧 {tool.name}: {tool.description}")
+                # --- Test dynamic function registration --- END ---
+
                 # Call the add tool with two numbers
                 a, b = 5, 7
                 logger.info(f"🧮 CALLING ADD TOOL: {a} + {b}")

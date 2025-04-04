@@ -28,8 +28,8 @@ logging.basicConfig(
 logger = logging.getLogger("mcp_server")
 logger.setLevel(logging.DEBUG)
 
-# Directory to store dynamic tool files
-TOOLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dynamic_tools")
+# Directory to store dynamic function files
+FUNCTIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dynamic_functions")
 
 # Path for the PID file
 PID_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_server.pid")
@@ -38,8 +38,8 @@ PID_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_server.
 HOST = "0.0.0.0"  # Listen on all interfaces by default
 PORT = 8000
 
-# Create tools directory if it doesn't exist
-os.makedirs(TOOLS_DIR, exist_ok=True)
+# Create functions directory if it doesn't exist
+os.makedirs(FUNCTIONS_DIR, exist_ok=True)
 
 # Flag to track if we're in shutdown process
 is_shutting_down = False
@@ -154,29 +154,29 @@ class DynamicAdditionServer(Server):
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "name": {"type": "string", "description": "The name of the tool to get code for"}
+                            "name": {"type": "string", "description": "The name of the function to get code for"}
                         },
                         "required": ["name"]
                     }
                 ),
                 Tool( # Add definition for remove_dynamic_tool
-                    name="remove_dynamic_tool",
+                    name="remove_function",
                     description="Remove a dynamically registered Python function",
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "name": {"type": "string", "description": "The name of the tool to remove"}
+                            "name": {"type": "string", "description": "The name of the function to remove"}
                         },
                         "required": ["name"]
                     }
                 ),
             ]
 
-            # Scan the tools directory for .py files
-            dynamic_tools = self._discover_tools()
+            # Scan the functions directory for .py files
+            dynamic_functions = self._discover_functions()
 
-            # Add all discovered tools to the list
-            tools.extend(dynamic_tools)
+            # Add all discovered functions to the list
+            tools.extend(dynamic_functions)
 
             return tools
 
@@ -204,26 +204,26 @@ class DynamicAdditionServer(Server):
                 return await self._register_function(args)
 
             elif name == "get_function": # Corrected name check
-                return await self._get_tool_code(args)
+                return await self._get_function_code(args)
 
-            elif name == "remove_dynamic_tool": # Add routing for remove_dynamic_tool
-                return await self._remove_dynamic_tool(args)
+            elif name == "remove_function": # Add routing for remove_function
+                return await self._remove_function(args)
 
-            # Check if this is a dynamically registered tool
+            # Check if this is a dynamically registered function
             else:
-                # Check if we have a file for this tool
-                tool_path = os.path.join(TOOLS_DIR, f"{name}.py")
-                if os.path.exists(tool_path):
+                # Check if we have a file for this function
+                function_path = os.path.join(FUNCTIONS_DIR, f"{name}.py")
+                if os.path.exists(function_path):
                     try:
                         # Load metadata from the file
-                        metadata = self._extract_metadata_from_file(tool_path)
+                        metadata = self._extract_metadata_from_file(function_path)
                         if not metadata or "func_name" not in metadata:
-                            raise ValueError(f"Could not extract metadata from {tool_path}")
+                            raise ValueError(f"Could not extract metadata from {function_path}")
 
                         # Load the function dynamically
-                        func = self._load_function_from_file(name, tool_path, metadata["func_name"])
+                        func = self._load_function_from_file(name, function_path, metadata["func_name"])
 
-                        logger.info(f"🔧 EXECUTING DYNAMIC TOOL: {name}")
+                        logger.info(f"🔧 EXECUTING DYNAMIC FUNCTION: {name}")
 
                         # Execute the function with the provided arguments
                         if inspect.iscoroutinefunction(func):
@@ -232,24 +232,24 @@ class DynamicAdditionServer(Server):
                             # Run non-async function in an executor to avoid blocking
                             result = await asyncio.to_thread(func, **args)
 
-                        logger.info(f"✅ DYNAMIC TOOL RESULT: {result}")
+                        logger.info(f"✅ DYNAMIC FUNCTION RESULT: {result}")
 
                         # Return the result as text
                         return [TextContent(type="text", text=str(result))]
                     except Exception as e:
-                        logger.error(f"❌ ERROR EXECUTING DYNAMIC TOOL {name}: {str(e)}")
+                        logger.error(f"❌ ERROR EXECUTING DYNAMIC FUNCTION {name}: {str(e)}")
                         import traceback
                         logger.debug(f"Traceback: {traceback.format_exc()}")
                         return [TextContent(type="text", text=f"Error: {str(e)}")]
                 else:
-                    logger.warning(f"❌ UNKNOWN TOOL: {name}")
-                    return [TextContent(type="text", text=f"Unknown tool: {name}")]
+                    logger.warning(f"❌ UNKNOWN FUNCTION: {name}")
+                    return [TextContent(type="text", text=f"Unknown function: {name}")]
 
     def _extract_metadata_from_file(self, file_path):
         """Extract metadata from the Python file comments"""
         metadata = {
             "func_name": None,
-            "description": "Dynamically registered tool",
+            "description": "Dynamically registered function",
             "input_schema": {"type": "object"}
         }
 
@@ -257,10 +257,10 @@ class DynamicAdditionServer(Server):
             with open(file_path, "r") as f:
                 content = f.read()
 
-            # Extract the tool name from the file name
+            # Extract the function name from the file name
             basename = os.path.basename(file_path)
-            tool_name = os.path.splitext(basename)[0]
-            metadata["name"] = tool_name
+            function_name = os.path.splitext(basename)[0]
+            metadata["name"] = function_name
 
             # Extract description from comments
             desc_match = re.search(r'#\s*Description:\s*(.+)', content)
@@ -289,34 +289,34 @@ class DynamicAdditionServer(Server):
             logger.debug(f"Traceback: {traceback.format_exc()}")
             return None
 
-    def _discover_tools(self):
-        """Scan the tools directory and discover all available tools"""
-        tools = []
+    def _discover_functions(self):
+        """Scan the functions directory and discover all available functions"""
+        functions = []
 
         try:
-            # List all .py files in the tools directory, excluding __init__.py
-            for filename in os.listdir(TOOLS_DIR):
+            # List all .py files in the functions directory, excluding __init__.py
+            for filename in os.listdir(FUNCTIONS_DIR):
                 if filename.endswith(".py") and filename != "__init__.py":
-                    file_path = os.path.join(TOOLS_DIR, filename)
+                    file_path = os.path.join(FUNCTIONS_DIR, filename)
 
-                    # Extract the tool name from the file name
-                    tool_name = os.path.splitext(filename)[0]
+                    # Extract the function name from the file name
+                    function_name = os.path.splitext(filename)[0]
 
                     # Extract metadata from the file
                     metadata = self._extract_metadata_from_file(file_path)
                     if metadata:
                         # Create a Tool object from the metadata
-                        tools.append(Tool(
-                            name=tool_name,
-                            description=metadata.get("description", f"Dynamic tool: {tool_name}"),
+                        functions.append(Tool(
+                            name=function_name,
+                            description=metadata.get("description", f"Dynamic function: {function_name}"),
                             inputSchema=metadata.get("input_schema", {"type": "object"})
                         ))
-                        logger.debug(f"🔍 DISCOVERED TOOL: {tool_name}")
+                        logger.debug(f"🔍 DISCOVERED FUNCTION: {function_name}")
 
-            logger.info(f"🔍 DISCOVERED {len(tools)} DYNAMIC TOOLS")
-            return tools
+            logger.info(f"🔍 DISCOVERED {len(functions)} DYNAMIC FUNCTIONS")
+            return functions
         except Exception as e:
-            logger.error(f"❌ ERROR DISCOVERING TOOLS: {str(e)}")
+            logger.error(f"❌ ERROR DISCOVERING FUNCTIONS: {str(e)}")
             import traceback
             logger.debug(f"Traceback: {traceback.format_exc()}")
             return []
@@ -364,11 +364,11 @@ class DynamicAdditionServer(Server):
         """Register a new Python function as a tool"""
         name = args.get("name")
         code = args.get("code")
-        description = args.get("description", f"Dynamically registered tool: {name}")
+        description = args.get("description", f"Dynamically registered function: {name}")
 
-        # Validate the tool name (must be a valid Python identifier)
+        # Validate the function name (must be a valid Python identifier)
         if not name or not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name):
-            return [TextContent(type="text", text=f"Invalid tool name: {name}. Must be a valid Python identifier.")]
+            return [TextContent(type="text", text=f"Invalid function name: {name}. Must be a valid Python identifier.")]
 
         logger.info(f"🔄 REGISTERING NEW FUNCTION: {name}")
 
@@ -381,7 +381,7 @@ class DynamicAdditionServer(Server):
             func_name = func_match.group(1)
 
             # Create a file for the function
-            file_path = os.path.join(TOOLS_DIR, f"{name}.py")
+            file_path = os.path.join(FUNCTIONS_DIR, f"{name}.py")
 
             # Create a namespace to safely test the code first
             namespace = {}
@@ -440,7 +440,7 @@ class DynamicAdditionServer(Server):
             schema_str = json.dumps(input_schema, indent=2)
 
             # The code is valid, now save it to a file with proper formatting and metadata in comments
-            module_code = f"""# Dynamic tool: {name}
+            module_code = f"""# Dynamic function: {name}
 # Description: {description}
 # Generated by MCP Dynamic Function Server
 
@@ -465,62 +465,62 @@ Input schema:
             logger.debug(f"Traceback: {traceback.format_exc()}")
             return [TextContent(type="text", text=f"Error registering function: {str(e)}")]
 
-    async def _get_tool_code(self, args: dict) -> list[TextContent]:
-        """Get the Python source code for a dynamically registered tool"""
+    async def _get_function_code(self, args: dict) -> list[TextContent]:
+        """Get the Python source code for a dynamically registered function"""
         name = args.get("name")
         if not name:
-            return [TextContent(type="text", text="Error: Tool name not provided")]
+            return [TextContent(type="text", text="Error: Function name not provided")]
 
-        logger.info(f"📄 GETTING CODE FOR TOOL: {name}")
+        logger.info(f"📄 GETTING CODE FOR FUNCTION: {name}")
 
-        # Construct the expected path to the tool's Python file
-        tool_path = os.path.join(TOOLS_DIR, f"{name}.py")
+        # Construct the expected path to the function's Python file
+        function_path = os.path.join(FUNCTIONS_DIR, f"{name}.py")
 
-        # Check if the tool file exists
-        if not os.path.exists(tool_path):
-            logger.warning(f"⚠️ Tool file not found: {tool_path}")
-            return [TextContent(type="text", text=f"Error: Tool '{name}' not found.")]
+        # Check if the function file exists
+        if not os.path.exists(function_path):
+            logger.warning(f"⚠️ Function file not found: {function_path}")
+            return [TextContent(type="text", text=f"Error: Function '{name}' not found.")]
 
         try:
-            # Read the tool code from the file
-            with open(tool_path, 'r') as f:
+            # Read the function code from the file
+            with open(function_path, 'r') as f:
                 code = f.read()
 
             logger.info(f"✅ SUCCESSFULLY RETRIEVED CODE FOR: {name}")
             # Return the code as text content
             return [TextContent(type="text", text=code)]
         except Exception as e:
-            logger.error(f"❌ ERROR READING TOOL FILE {tool_path}: {str(e)}")
+            logger.error(f"❌ ERROR READING FUNCTION FILE {function_path}: {str(e)}")
             import traceback
             logger.debug(f"Traceback: {traceback.format_exc()}")
-            return [TextContent(type="text", text=f"Error reading tool code for '{name}': {str(e)}")]
+            return [TextContent(type="text", text=f"Error reading function code for '{name}': {str(e)}")]
 
-    async def _remove_dynamic_tool(self, args: dict) -> list[TextContent]:
-        """Remove a dynamically registered tool by deleting its file"""
+    async def _remove_function(self, args: dict) -> list[TextContent]:
+        """Remove a dynamically registered function by deleting its file"""
         name = args.get("name")
         if not name:
-            return [TextContent(type="text", text="Error: Tool name not provided")]
+            return [TextContent(type="text", text="Error: Function name not provided")]
 
-        logger.info(f"🗑️ REMOVING TOOL: {name}")
+        logger.info(f"🗑️ REMOVING FUNCTION: {name}")
 
-        # Construct the expected path to the tool's Python file
-        tool_path = os.path.join(TOOLS_DIR, f"{name}.py")
+        # Construct the expected path to the function's Python file
+        function_path = os.path.join(FUNCTIONS_DIR, f"{name}.py")
 
-        # Check if the tool file exists
-        if not os.path.exists(tool_path):
-            logger.warning(f"⚠️ Tool file not found for removal: {tool_path}")
-            return [TextContent(type="text", text=f"Error: Tool '{name}' not found.")]
+        # Check if the function file exists
+        if not os.path.exists(function_path):
+            logger.warning(f"⚠️ Function file not found for removal: {function_path}")
+            return [TextContent(type="text", text=f"Error: Function '{name}' not found.")]
 
         try:
-            # Delete the tool file
-            os.remove(tool_path)
-            logger.info(f"✅ SUCCESSFULLY REMOVED TOOL: {name}")
-            return [TextContent(type="text", text=f"Successfully removed tool: {name}")]
+            # Delete the function file
+            os.remove(function_path)
+            logger.info(f"✅ SUCCESSFULLY REMOVED FUNCTION: {name}")
+            return [TextContent(type="text", text=f"Successfully removed function: {name}")]
         except Exception as e:
-            logger.error(f"❌ ERROR REMOVING TOOL FILE {tool_path}: {str(e)}")
+            logger.error(f"❌ ERROR REMOVING FUNCTION FILE {function_path}: {str(e)}")
             import traceback
             logger.debug(f"Traceback: {traceback.format_exc()}")
-            return [TextContent(type="text", text=f"Error removing tool '{name}': {str(e)}")]
+            return [TextContent(type="text", text=f"Error removing function '{name}': {str(e)}")]
 
 
 # Create our MCP server instance

@@ -159,6 +159,17 @@ class DynamicAdditionServer(Server):
                         "required": ["name"]
                     }
                 ),
+                Tool( # Add definition for remove_dynamic_tool
+                    name="remove_dynamic_tool",
+                    description="Remove a dynamically registered Python function",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "description": "The name of the tool to remove"}
+                        },
+                        "required": ["name"]
+                    }
+                ),
             ]
 
             # Scan the tools directory for .py files
@@ -192,8 +203,11 @@ class DynamicAdditionServer(Server):
             if name == "register_function":
                 return await self._register_function(args)
 
-            elif name == "get_tool_code": # Add routing for get_tool_code
+            elif name == "get_function": # Corrected name check
                 return await self._get_tool_code(args)
+
+            elif name == "remove_dynamic_tool": # Add routing for remove_dynamic_tool
+                return await self._remove_dynamic_tool(args)
 
             # Check if this is a dynamically registered tool
             else:
@@ -480,6 +494,34 @@ Input schema:
             import traceback
             logger.debug(f"Traceback: {traceback.format_exc()}")
             return [TextContent(type="text", text=f"Error reading tool code for '{name}': {str(e)}")]
+
+    async def _remove_dynamic_tool(self, args: dict) -> list[TextContent]:
+        """Remove a dynamically registered tool by deleting its file"""
+        name = args.get("name")
+        if not name:
+            return [TextContent(type="text", text="Error: Tool name not provided")]
+
+        logger.info(f"🗑️ REMOVING TOOL: {name}")
+
+        # Construct the expected path to the tool's Python file
+        tool_path = os.path.join(TOOLS_DIR, f"{name}.py")
+
+        # Check if the tool file exists
+        if not os.path.exists(tool_path):
+            logger.warning(f"⚠️ Tool file not found for removal: {tool_path}")
+            return [TextContent(type="text", text=f"Error: Tool '{name}' not found.")]
+
+        try:
+            # Delete the tool file
+            os.remove(tool_path)
+            logger.info(f"✅ SUCCESSFULLY REMOVED TOOL: {name}")
+            return [TextContent(type="text", text=f"Successfully removed tool: {name}")]
+        except Exception as e:
+            logger.error(f"❌ ERROR REMOVING TOOL FILE {tool_path}: {str(e)}")
+            import traceback
+            logger.debug(f"Traceback: {traceback.format_exc()}")
+            return [TextContent(type="text", text=f"Error removing tool '{name}': {str(e)}")]
+
 
 # Create our MCP server instance
 mcp_server = DynamicAdditionServer()

@@ -12,6 +12,15 @@ import sys
 import psutil
 import time
 from typing import Any, Callable, Dict, List, Optional, Union
+
+# NOTE: This server uses two different socket protocols:
+# 1. Standard WebSockets: When acting as a SERVER to accept connections from node-mcp-client
+# 2. Socket.IO: When acting as a CLIENT to connect to the cloud Node.js server
+#
+# Each server dictates its own protocol, and clients must adapt accordingly.
+# - The node-mcp-client connects via standard WebSockets to our server.py
+# - Our server.py connects via Socket.IO to the cloud server
+# - Both ultimately route to the same MCP handlers in the DynamicAdditionServer class
 import socketio
 from mcp.server import Server
 from mcp.server.websocket import websocket_server
@@ -545,7 +554,21 @@ Input schema:
 
 # ServiceClient class to manage the connection to the cloud server via Socket.IO
 class ServiceClient:
-    """Manages the Socket.IO connection to the cloud server's service namespace"""
+    """Socket.IO client for connecting to the cloud server
+    
+    This class implements a Socket.IO CLIENT to connect TO the cloud server.
+    Socket.IO is different from standard WebSockets - it adds features like:
+    - Automatic reconnection
+    - Fallback to long polling when WebSockets aren't available
+    - Built-in event system with namespaces
+    - Authentication handling
+    
+    While server.py acts as a WebSocket SERVER for the node-mcp-client,
+    it must act as a Socket.IO CLIENT to connect to the cloud server.
+    Each server dictates which protocol clients must use to connect.
+    
+    Manages the Socket.IO connection to the cloud server's service namespace.
+    """
     def __init__(self, server_url: str, namespace: str, service_id: str, api_key: str, mcp_server):
         self.server_url = server_url
         self.namespace = namespace
@@ -675,7 +698,15 @@ class ServiceClient:
         })
     
     async def _process_mcp_request(self, request: dict) -> Union[dict, None]:
-        """Process an MCP JSON-RPC request from the cloud server"""
+        """Process an MCP JSON-RPC request from the cloud server
+        
+        This method takes requests received over Socket.IO from the cloud server
+        and routes them to the same handlers that process WebSocket requests.
+        
+        Despite the different transport protocols (Socket.IO vs WebSockets),
+        both connection types ultimately use the same underlying MCP handlers
+        like handle_list_tools() to process requests.
+        """
         request_id = request.get("id", "unknown-id")
         method = request.get("method", "")
         params = request.get("params", {})
@@ -778,7 +809,7 @@ class ServiceClient:
 # Create our MCP server instance
 mcp_server = DynamicAdditionServer()
 
-# Create our service client
+# Create our service client (Socket.IO client to connect to cloud server)
 cloud_connection = ServiceClient(
     server_url=CLOUD_SERVER_URL,
     namespace=CLOUD_SERVICE_NAMESPACE,
@@ -789,7 +820,14 @@ cloud_connection = ServiceClient(
 
 # Create a Starlette app with websocket support
 async def handle_websocket(websocket):
-    """Handle MCP websocket connections"""
+    """Handle MCP websocket connections from node-mcp-client
+    
+    This function handles standard WebSocket connections from clients like node-mcp-client.
+    We act as a WebSocket SERVER here, which is different from how we act as a Socket.IO CLIENT
+    when connecting to the cloud server.
+    
+    Both connection types ultimately route to the same MCP handlers in DynamicAdditionServer.
+    """
     logger.info(f"⚡ NEW CONNECTION: {websocket.client}")
 
     try:

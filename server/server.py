@@ -654,10 +654,17 @@ class ServiceClient:
         @self.sio.event(namespace=self.namespace)
         async def service_message(data):
             logger.info(f"☁️ RECEIVED SERVICE MESSAGE: {data}")
-            # Process the message and send response if needed
-            response = await self._process_service_message(data)
-            if response:
-                await self.send_message('service_response', response)
+            # Check if this is an MCP JSON-RPC request
+            if isinstance(data, dict) and 'jsonrpc' in data and 'method' in data:
+                # This is an MCP JSON-RPC request
+                response = await self._process_mcp_request(data)
+                if response:
+                    await self.send_message('service_response', response)
+            else:
+                # Process as a regular service message
+                response = await self._process_service_message(data)
+                if response:
+                    await self.send_message('service_response', response)
     
     async def _send_service_ready(self):
         """Send a message to the cloud server indicating we're ready"""
@@ -667,27 +674,71 @@ class ServiceClient:
             'status': 'ready'
         })
     
+    async def _process_mcp_request(self, request: dict) -> Union[dict, None]:
+        """Process an MCP JSON-RPC request from the cloud server"""
+        request_id = request.get("id", "unknown-id")
+        method = request.get("method", "")
+        params = request.get("params", {})
+        
+        logger.info(f"☁️ Processing MCP request: {method} (ID: {request_id})")
+        
+        response = {
+            "jsonrpc": "2.0",
+            "id": request_id
+        }
+        
+        try:
+            # Map MCP JSON-RPC methods to MCP server methods
+            if method == "tools/list":
+                logger.info(f"☁️ Forwarding tools/list request to MCP server")
+                # The mcp_server already has a list_tools handler
+                tools_list = await self.mcp_server.handle_list_tools()
+                response["result"] = {"tools": tools_list}
+                
+            elif method == "tools/call":
+                # Extract tool details from params
+                tool_name = params.get("name")
+                tool_args = params.get("args", {})
+                
+                if not tool_name:
+                    response["error"] = {"code": -32602, "message": "Invalid params: missing tool name"}
+                else:
+                    logger.info(f"☁️ Executing tool from cloud: {tool_name}")
+                    # Use our MCP server to handle the tool call
+                    result = await self.mcp_server.handle_call_tool(tool_name, tool_args)
+                    response["result"] = {"result": result}
+                    
+            else:
+                # Unknown method
+                logger.warning(f"⚠️ Unknown MCP method: {method}")
+                response["error"] = {"code": -32601, "message": f"Method not found: {method}"}
+                
+        except Exception as e:
+            # Exception during processing
+            logger.error(f"❌ ERROR PROCESSING MCP REQUEST: {str(e)}")
+            import traceback
+            logger.debug(f"Traceback: {traceback.format_exc()}")
+            response["error"] = {"code": -32000, "message": f"Server error: {str(e)}"}
+            
+        return response
+            
     async def _process_service_message(self, message: dict) -> Union[dict, None]:
-        """Process a message from the cloud server"""
-        # Check if it's an MCP tool execution request
+        """Process a non-MCP service message from the cloud server"""
+        # Handle regular service messages (non-MCP JSON-RPC)
         message_type = message.get("type", "unknown")
         logger.info(f"☁️ Processing service message of type: {message_type}")
         
         # Handle different message types
         if message_type == "call_tool":
-            # Forward tool call to our MCP server
+            # Legacy format for tool calls
             tool_name = message.get("name")
             tool_args = message.get("args", {})
             logger.info(f"☁️ Forwarding tool call: {tool_name}")
             
             try:
                 # Use the MCP server to handle the tool call
-                # This is a placeholder - implement the actual call
-                # result = await self.mcp_server.handle_call_tool(tool_name, tool_args)
-                # return {"type": "tool_result", "result": result}
-                
-                # For now, just acknowledge receipt
-                return {"type": "ack", "status": "received", "tool": tool_name}
+                call_result = await self.mcp_server.handle_call_tool(tool_name, tool_args)
+                return {"type": "tool_result", "result": call_result}
             except Exception as e:
                 logger.error(f"❌ ERROR EXECUTING TOOL {tool_name}: {str(e)}")
                 return {"type": "error", "tool": tool_name, "error": str(e)}

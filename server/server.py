@@ -10,9 +10,12 @@ import re
 import signal
 import sys
 import psutil
-from typing import Any, Callable, Dict, List, Optional
+import time
+import websockets
+from typing import Any, Callable, Dict, List, Optional, Union
 from mcp.server import Server
 from mcp.server.websocket import websocket_server
+from mcp.client.websocket import websocket_client
 from mcp.types import Tool, TextContent, CallToolResult
 from starlette.applications import Starlette
 from starlette.routing import WebSocketRoute
@@ -38,11 +41,19 @@ PID_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_server.
 HOST = "0.0.0.0"  # Listen on all interfaces by default
 PORT = 8000
 
+# Cloud server configuration
+CLOUD_SERVER_HOST = "localhost"
+CLOUD_SERVER_PORT = 3010
+CLOUD_SERVER_URL = f"ws://{CLOUD_SERVER_HOST}:{CLOUD_SERVER_PORT}/mcp"
+CLOUD_CONNECTION_RETRY_SECONDS = 5
+CLOUD_CONNECTION_MAX_RETRIES = 5  # Set to None for infinite retries
+
 # Create functions directory if it doesn't exist
 os.makedirs(FUNCTIONS_DIR, exist_ok=True)
 
-# Flag to track if we're in shutdown process
+# Flags to track server state
 is_shutting_down = False
+cloud_connection_active = False
 
 # Check if a server is already running
 def check_server_running():
@@ -96,6 +107,10 @@ def handle_sigint(signum, frame):
         is_shutting_down = True
         print("\n🐱 Meow! Graceful shutdown in progress... Press Ctrl+C again to force exit! 🐱")
         print("🧹 Cleaning up resources and closing connections...")
+        # Signal the cloud connection to close
+        if 'cloud_connection' in globals() and cloud_connection is not None:
+            logger.info("☁️ Closing cloud server connection...")
+            asyncio.create_task(cloud_connection.disconnect())
         remove_pid_file()
     else:
         print("\n🚨 Forced exit! 🚨")
@@ -523,8 +538,161 @@ Input schema:
             return [TextContent(type="text", text=f"Error removing function '{name}': {str(e)}")]
 
 
+# CloudConnectionManager class to manage our connection to the cloud server
+class CloudConnectionManager:
+    """Manages the WebSocket connection to the cloud server"""
+    def __init__(self, server_url: str, mcp_server):
+        self.server_url = server_url
+        self.mcp_server = mcp_server
+        self.connection_task = None
+        self.streams = None
+        self.is_connected = False
+        self.retry_count = 0
+        self.connection_active = True
+        
+    async def connect(self):
+        """Establish a WebSocket connection to the cloud server"""
+        logger.info(f"☁️ CONNECTING TO CLOUD SERVER: {self.server_url}")
+        self.connection_active = True
+        self.connection_task = asyncio.create_task(self._maintain_connection())
+        return self.connection_task
+        
+    async def _maintain_connection(self):
+        """Maintains the connection to the cloud server with retries"""
+        while self.connection_active and not is_shutting_down:
+            try:
+                # Connect to the cloud server using the official websocket client
+                logger.info(f"☁️ Attempting connection to cloud server (attempt {self.retry_count + 1})")
+                async with websocket_client(self.server_url) as streams:
+                    self.streams = streams
+                    self.is_connected = True
+                    self.retry_count = 0  # Reset retry counter on successful connection
+                    logger.info("✅ CONNECTED TO CLOUD SERVER!")
+                    
+                    # Here we handle messages from the cloud server
+                    await self._handle_cloud_messages()
+                    
+            except Exception as e:
+                if is_shutting_down:
+                    logger.info("☁️ Shutting down, stopping cloud connection attempts")
+                    break
+                    
+                self.is_connected = False
+                self.streams = None
+                
+                if CLOUD_CONNECTION_MAX_RETRIES is not None and self.retry_count >= CLOUD_CONNECTION_MAX_RETRIES:
+                    logger.error(f"❌ FAILED TO CONNECT TO CLOUD SERVER AFTER {self.retry_count} ATTEMPTS: {str(e)}")
+                    logger.error("❌ GIVING UP ON CLOUD CONNECTION!")
+                    break
+                
+                self.retry_count += 1
+                logger.warning(f"⚠️ CLOUD SERVER CONNECTION ERROR (attempt {self.retry_count}): {str(e)}")
+                
+                # Print a more detailed stack trace for debugging
+                import traceback
+                logger.debug(f"Traceback: {traceback.format_exc()}")
+                
+                # Wait before retrying
+                logger.info(f"☁️ RETRYING CONNECTION IN {CLOUD_CONNECTION_RETRY_SECONDS} SECONDS...")
+                await asyncio.sleep(CLOUD_CONNECTION_RETRY_SECONDS)
+        
+        logger.info("☁️ Cloud connection maintenance loop ended")
+    
+    async def _handle_cloud_messages(self):
+        """Handle messages from the cloud server"""
+        if not self.streams or not self.is_connected:
+            logger.error("❌ Cannot handle messages: No active connection")
+            return
+            
+        reader, writer = self.streams
+        try:
+            while self.is_connected and not is_shutting_down:
+                # Read message from cloud server
+                message = await reader.read()
+                if message is None:
+                    logger.info("☁️ Cloud server closed connection")
+                    break
+                    
+                logger.debug(f"☁️ RECEIVED MESSAGE FROM CLOUD: {message}")
+                
+                # Process the message and potentially use the mcp_server to handle it
+                # This is where you would handle MCP requests from the cloud
+                try:
+                    # Example of processing a message - implement your specific logic here
+                    response = await self._process_cloud_message(message)
+                    
+                    # Send response back to cloud if needed
+                    if response:
+                        await writer.write(response)
+                        logger.debug(f"☁️ SENT RESPONSE TO CLOUD: {response}")
+                        
+                except Exception as e:
+                    logger.error(f"❌ ERROR PROCESSING CLOUD MESSAGE: {str(e)}")
+                    import traceback
+                    logger.debug(f"Traceback: {traceback.format_exc()}")
+                    
+        except Exception as e:
+            if not is_shutting_down:
+                logger.error(f"❌ ERROR IN CLOUD MESSAGE HANDLER: {str(e)}")
+                import traceback
+                logger.debug(f"Traceback: {traceback.format_exc()}")
+        finally:
+            self.is_connected = False
+            self.streams = None
+            logger.info("☁️ Cloud message handler ended")
+    
+    async def _process_cloud_message(self, message: dict) -> Union[dict, None]:
+        """Process a message from the cloud server"""
+        # This is where you would implement specific message handling logic
+        # For now, we'll just log the message type
+        message_type = message.get("type", "unknown")
+        logger.info(f"☁️ Processing cloud message of type: {message_type}")
+        
+        # Handle different message types
+        if message_type == "call_tool":
+            # Example: Forward tool call to our MCP server
+            tool_name = message.get("name")
+            tool_args = message.get("args", {})
+            logger.info(f"☁️ Forwarding tool call: {tool_name}")
+            
+            # Use the MCP server to handle the tool call
+            # This is just a placeholder - implement your specific handling
+            # result = await self.mcp_server.handle_call_tool(tool_name, tool_args)
+            # return {"type": "tool_result", "result": result}
+            
+        # Return None if no response is needed
+        return None
+    
+    async def send_message(self, message: dict) -> bool:
+        """Send a message to the cloud server"""
+        if not self.is_connected or not self.streams:
+            logger.warning("⚠️ Cannot send message: No active cloud connection")
+            return False
+            
+        try:
+            _, writer = self.streams
+            await writer.write(message)
+            logger.debug(f"☁️ SENT MESSAGE TO CLOUD: {message}")
+            return True
+        except Exception as e:
+            logger.error(f"❌ ERROR SENDING MESSAGE TO CLOUD: {str(e)}")
+            import traceback
+            logger.debug(f"Traceback: {traceback.format_exc()}")
+            return False
+    
+    async def disconnect(self):
+        """Disconnect from the cloud server"""
+        logger.info("☁️ Disconnecting from cloud server")
+        self.connection_active = False
+        self.is_connected = False
+        # The connection will be closed when the WebSocket context manager exits
+        # or when the connection maintenance loop ends
+
 # Create our MCP server instance
 mcp_server = DynamicAdditionServer()
+
+# Create our cloud connection manager
+cloud_connection = CloudConnectionManager(CLOUD_SERVER_URL, mcp_server)
 
 # Create a Starlette app with websocket support
 async def handle_websocket(websocket):
@@ -563,13 +731,62 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MCP WebSocket Server")
     parser.add_argument("--host", default=HOST, help="Host to bind the server to")
     parser.add_argument("--port", type=int, default=PORT, help="Port to bind the server to")
+    parser.add_argument("--cloud-host", default=CLOUD_SERVER_HOST, help="Cloud server host to connect to")
+    parser.add_argument("--cloud-port", type=int, default=CLOUD_SERVER_PORT, help="Cloud server port to connect to")
+    parser.add_argument("--no-cloud", action="store_true", help="Disable cloud server connection")
     args = parser.parse_args()
 
     # Update host and port from command line arguments
     HOST = args.host
     PORT = args.port
+    
+    # Update cloud server settings if provided
+    if args.cloud_host != CLOUD_SERVER_HOST or args.cloud_port != CLOUD_SERVER_PORT:
+        CLOUD_SERVER_HOST = args.cloud_host
+        CLOUD_SERVER_PORT = args.cloud_port
+        CLOUD_SERVER_URL = f"ws://{CLOUD_SERVER_HOST}:{CLOUD_SERVER_PORT}/mcp"
+        # Update the cloud connection URL
+        cloud_connection.server_url = CLOUD_SERVER_URL
 
-    # Run the server
-    logger.info(f"🌟 STARTING MCP WEBSOCKET SERVER AT ws://{HOST}:{PORT}/mcp")
-    # Set Uvicorn log level to warning to reduce noise
-    uvicorn.run(app, host=HOST, port=PORT, log_level="warning")
+    # Set up the event loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    # Start the Uvicorn server
+    config = uvicorn.Config(app, host=HOST, port=PORT, log_level="warning")
+    server = uvicorn.Server(config)
+    
+    # Create tasks for the server and cloud connection
+    server_task = loop.create_task(server.serve())
+    cloud_task = None
+    
+    try:
+        # Start the server
+        logger.info(f"🌟 STARTING MCP WEBSOCKET SERVER AT ws://{HOST}:{PORT}/mcp")
+        
+        # Connect to cloud server if enabled
+        if not args.no_cloud:
+            logger.info(f"☁️ CLOUD SERVER CONNECTION ENABLED: {CLOUD_SERVER_URL}")
+            cloud_task = loop.create_task(cloud_connection.connect())
+        else:
+            logger.info("☁️ CLOUD SERVER CONNECTION DISABLED")
+        
+        # Run the event loop until the server is interrupted
+        loop.run_until_complete(server_task)
+    except KeyboardInterrupt:
+        logger.info("👋 RECEIVED KEYBOARD INTERRUPT")
+    finally:
+        # Cancel any pending tasks
+        if cloud_task and not cloud_task.done():
+            cloud_task.cancel()
+        server_task.cancel()
+        
+        # Clean up the loop
+        pending = asyncio.all_tasks(loop=loop)
+        for task in pending:
+            task.cancel()
+            
+        logger.info("🧹 CLEANING UP TASKS")
+        loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        loop.close()
+        logger.info("👋 SERVER SHUTDOWN COMPLETE")

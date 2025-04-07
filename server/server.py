@@ -149,128 +149,156 @@ class DynamicAdditionServer(Server):
 
     def __init__(self):
         super().__init__("Dynamic Function Server")
-        # No need to load a registry at startup - we'll scan files directly
 
         # Register tool handlers using SDK decorators
+        # These now wrap the actual logic methods defined below
 
-        # Define the tools list handler
         @self.list_tools()
         async def handle_list_tools() -> list[Tool]:
-            """Return a list of available tools"""
-            logger.info("📋 TOOLS LIST REQUESTED")
+            """SDK Handler for tools/list"""
+            return await self._get_tools_list()
 
-            # Start with our built-in tools
-            tools = [
-                Tool(
-                    name="register_function",
-                    description="Install or update a Python function",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "name": {"type": "string"},
-                            "description": {"type": "string"},
-                            "code": {"type": "string"},
-                        },
-                        "required": ["name", "code"]
-                    }
-                ),
-                Tool( # Add definition for get_tool_code
-                    name="get_function",
-                    description="Get the source code for a Python function",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "name": {"type": "string", "description": "The name of the function to get code for"}
-                        },
-                        "required": ["name"]
-                    }
-                ),
-                Tool( # Add definition for remove_dynamic_tool
-                    name="remove_function",
-                    description="Remove a dynamically registered Python function",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "name": {"type": "string", "description": "The name of the function to remove"}
-                        },
-                        "required": ["name"]
-                    }
-                ),
-            ]
-
-            # Scan the functions directory for .py files
-            dynamic_functions = self._discover_functions()
-
-            # Add all discovered functions to the list
-            tools.extend(dynamic_functions)
-
-            return tools
-
-        # Define stub for list_prompts handler
         @self.list_prompts()
         async def handle_list_prompts() -> list:
-            """Return a list of available prompts (empty stub)"""
-            logger.info("📋 PROMPTS LIST REQUESTED")
-            return []
+            """SDK Handler for prompts/list"""
+            return await self._get_prompts_list()
 
-        # Define stub for list_resources handler
         @self.list_resources()
         async def handle_list_resources() -> list:
-            """Return a list of available resources (empty stub)"""
-            logger.info("📋 RESOURCES LIST REQUESTED")
-            return []
+            """SDK Handler for resources/list"""
+            return await self._get_resources_list()
 
-        # Define the tool call handler
         @self.call_tool()
         async def handle_call_tool(name: str, args: dict) -> list[TextContent]:
-            """Handle a tool call"""
-            logger.info(f"🧰 TOOL CALLED: {name}")
+            """SDK Handler for tools/call"""
+            return await self._execute_tool(name=name, args=args)
+
+    # --- Core Logic Methods (callable directly) ---
+
+    async def _get_tools_list(self) -> list[Tool]:
+        """Core logic to return a list of available tools"""
+        logger.info("📋 TOOLS LIST LOGIC EXECUTED")
+
+        # Start with our built-in tools
+        tools = [
+            Tool(
+                name="register_function",
+                description="Install or update a Python function",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "description": {"type": "string"},
+                        "code": {"type": "string"},
+                    },
+                    "required": ["name", "code"]
+                }
+            ),
+            Tool( # Add definition for get_tool_code
+                name="get_function",
+                description="Get the source code for a Python function",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "The name of the function to get code for"}
+                    },
+                    "required": ["name"]
+                }
+            ),
+            Tool( # Add definition for remove_dynamic_tool
+                name="remove_function",
+                description="Remove a dynamically registered Python function",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "The name of the function to remove"}
+                    },
+                    "required": ["name"]
+                }
+            ),
+        ]
+
+        # Scan the functions directory for .py files
+        dynamic_functions = self._discover_functions()
+
+        # Add all discovered functions to the list
+        tools.extend(dynamic_functions)
+
+        return tools
+
+    async def _get_prompts_list(self) -> list:
+        """Core logic to return a list of available prompts (empty stub)"""
+        logger.info("📋 PROMPTS LIST LOGIC EXECUTED")
+        return []
+
+    async def _get_resources_list(self) -> list:
+        """Core logic to return a list of available resources (empty stub)"""
+        logger.info("📋 RESOURCES LIST LOGIC EXECUTED")
+        return []
+
+    async def _execute_tool(self, name: str, args: dict) -> list[TextContent]:
+        """Core logic to handle a tool call. Ensures result is List[TextContent(type='text')]"""
+        logger.info(f"🧰 TOOL EXECUTION LOGIC: {name}")
+
+        try:
+            result_value: Any = None # Variable to hold the raw result before wrapping
 
             if name == "register_function":
-                return await self._register_function(args)
+                result_value = await self._register_function(args)
 
             elif name == "get_function": # Corrected name check
-                return await self._get_function_code(args)
+                result_value = await self._get_function_code(args)
 
             elif name == "remove_function": # Add routing for remove_function
-                return await self._remove_function(args)
+                result_value = await self._remove_function(args)
 
             # Check if this is a dynamically registered function
             else:
-                # Check if we have a file for this function
                 function_path = os.path.join(FUNCTIONS_DIR, f"{name}.py")
                 if os.path.exists(function_path):
-                    try:
-                        # Load metadata from the file
-                        metadata = self._extract_metadata_from_file(function_path)
-                        if not metadata or "func_name" not in metadata:
-                            raise ValueError(f"Could not extract metadata from {function_path}")
+                    metadata = self._extract_metadata_from_file(function_path)
+                    if not metadata or "func_name" not in metadata:
+                        raise ValueError(f"Could not extract metadata from {function_path}")
 
-                        # Load the function dynamically
-                        func = self._load_function_from_file(name, function_path, metadata["func_name"])
+                    func = self._load_function_from_file(name, function_path, metadata["func_name"])
+                    logger.info(f"🔧 EXECUTING DYNAMIC FUNCTION: {name}")
 
-                        logger.info(f"🔧 EXECUTING DYNAMIC FUNCTION: {name}")
+                    if inspect.iscoroutinefunction(func):
+                        raw_dynamic_result = await func(**args)
+                    else:
+                        raw_dynamic_result = await asyncio.to_thread(func, **args)
 
-                        # Execute the function with the provided arguments
-                        if inspect.iscoroutinefunction(func):
-                            result = await func(**args)
-                        else:
-                            # Run non-async function in an executor to avoid blocking
-                            result = await asyncio.to_thread(func, **args)
-
-                        logger.info(f"✅ DYNAMIC FUNCTION RESULT: {result}")
-
-                        # Return the result as text
-                        return [TextContent(type="text", text=str(result))]
-                    except Exception as e:
-                        logger.error(f"❌ ERROR EXECUTING DYNAMIC FUNCTION {name}: {str(e)}")
-                        import traceback
-                        logger.debug(f"Traceback: {traceback.format_exc()}")
-                        return [TextContent(type="text", text=f"Error: {str(e)}")]
+                    logger.info(f"✅ DYNAMIC FUNCTION RESULT: {raw_dynamic_result}")
+                    result_value = raw_dynamic_result # Assign raw result to be wrapped later
                 else:
-                    logger.warning(f"❌ UNKNOWN FUNCTION: {name}")
-                    return [TextContent(type="text", text=f"Unknown function: {name}")]
+                    raise ValueError(f"Unknown tool name: {name}")
 
+            # --- Wrap the result_value in List[TextContent] --- VITAL STEP
+            if isinstance(result_value, list) and all(isinstance(item, TextContent) for item in result_value):
+                 # Already in correct format (e.g., from _register_function etc.)
+                 # Ensure type field is present if SDK helpers didn't add it
+                 # (This is defensive, assuming helpers might also return just {'text':...})
+                 for item in result_value:
+                      if not hasattr(item, 'type') or item.type != 'text':
+                           # If type is missing or wrong, force it (might lose other fields if TextContent model changes)
+                           logger.warning(f"Tool {name} helper returned TextContent without type='text', correcting.")
+                           item.type = 'text' # Modify in place if possible, or reconstruct
+                 return result_value
+            elif isinstance(result_value, str):
+                 return [TextContent(type="text", text=result_value)] # Wrap string
+            else:
+                 # Attempt to convert other types to string representation
+                 logger.warning(f"Tool {name} returned non-standard type {type(result_value)}, converting to string.")
+                 return [TextContent(type="text", text=str(result_value))] # Wrap converted string
+
+        except Exception as e:
+             logger.error(f"❌ Error executing tool '{name}': {e}")
+             import traceback
+             logger.debug(f"Traceback: {traceback.format_exc()}")
+             # Return error message as TextContent, ensuring type="text"
+             return [TextContent(type="text", text=f"Error executing tool '{name}': {e}")]
+
+    # --- Helper Methods for Dynamic Functions ---
     def _extract_metadata_from_file(self, file_path):
         """Extract metadata from the Python file comments"""
         metadata = {
@@ -686,38 +714,64 @@ class ServiceClient:
                 logger.warning(f"⚠️ Received non-JSON-RPC message, ignoring: {data}")
 
     async def _process_mcp_request(self, request: dict) -> Union[dict, None]:
-        """Process an MCP JSON-RPC request from the cloud server by forwarding it
-        to the underlying MCP Server instance from the SDK.
-
-        This method takes requests received over Socket.IO from the cloud server
-        and routes them to the same handlers that process WebSocket requests.
-
-        Despite the different transport protocols (Socket.IO vs WebSockets),
-        both connection types ultimately use the same underlying MCP handlers
-        like handle_list_tools() to process requests.
+        """Process an MCP JSON-RPC request from the cloud server by manually routing
+        to the appropriate logic method in the DynamicAdditionServer.
         """
-        request_id = request.get("id") # Get ID for logging/potential errors
-        method = request.get("method", "unknown")
+        request_id = request.get("id")
+        method = request.get("method")
+        params = request.get("params", {})
 
-        logger.info(f"☁️ Forwarding MCP request to SDK: {method} (ID: {request_id})")
+        logger.info(f"☁️ Processing MCP request via manual routing: {method} (ID: {request_id})")
+
+        response = {
+            "jsonrpc": "2.0",
+            "id": request_id
+        }
 
         try:
-            # Let the MCP SDK Server instance handle the request routing and execution
-            response = await self.mcp_server.process_request(request) # Assumed SDK method
-            return response
+            if method == "tools/list":
+                # Call the core logic method directly
+                result_list = await self.mcp_server._get_tools_list()
+                # Convert Tool objects to dictionaries for JSON serialization using model_dump()
+                response["result"] = {"tools": [tool.model_dump() for tool in result_list]} # Use model_dump()
+
+            elif method == "tools/call":
+                tool_name = params.get("name")
+                tool_args = params.get("arguments") # MCP spec uses 'arguments'
+
+                if tool_name is None or tool_args is None:
+                    response["error"] = {"code": -32602, "message": "Invalid params: missing tool name or arguments"}
+                else:
+                    logger.debug(f"☁️ Calling _execute_tool for: {tool_name}")
+                    # Call the core logic method directly
+                    call_result_list = await self.mcp_server._execute_tool(name=tool_name, args=tool_args)
+                    # The _execute_tool method ensures result is List[TextContent]
+                    # Convert TextContent objects to dictionaries for JSON serialization using model_dump()
+                    response["result"] = {"contents": [content.model_dump() for content in call_result_list]} # Use model_dump() & use 'contents' key
+
+            elif method == "prompts/list":
+                 # Call the core logic method directly
+                result_list = await self.mcp_server._get_prompts_list()
+                response["result"] = {"prompts": result_list} # Assuming prompts are already serializable
+
+            elif method == "resources/list":
+                 # Call the core logic method directly
+                result_list = await self.mcp_server._get_resources_list()
+                response["result"] = {"resources": result_list} # Assuming resources are already serializable
+
+            else:
+                # Unknown method
+                logger.warning(f"⚠️ Unknown MCP method: {method}")
+                response["error"] = {"code": -32601, "message": f"Method not found: {method}"}
 
         except Exception as e:
-            # Exception during processing within the SDK
-            logger.error(f"❌ ERROR PROCESSING MCP REQUEST VIA SDK: {str(e)}")
+            # General exception during processing
+            logger.error(f"❌ ERROR PROCESSING MCP REQUEST: {str(e)}")
             import traceback
             logger.debug(f"Traceback: {traceback.format_exc()}")
-            # Construct a standard JSON-RPC error response
-            error_response = {
-                "jsonrpc": "2.0",
-                "id": request_id, # Use the original request ID
-                "error": {"code": -32000, "message": f"Server error during SDK processing: {str(e)}"}
-            }
-            return error_response
+            response["error"] = {"code": -32000, "message": f"Server error: {str(e)}"}
+
+        return response
 
     async def send_message(self, event: str, data: dict) -> bool:
         """Send a message to the cloud server"""

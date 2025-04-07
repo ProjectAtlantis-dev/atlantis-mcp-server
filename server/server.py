@@ -566,13 +566,14 @@ class ServiceClient:
 
     Manages the Socket.IO connection to the cloud server's service namespace.
     """
-    def __init__(self, server_url: str, namespace: str, email: str, api_key: str, mcp_server):
+    def __init__(self, server_url: str, namespace: str, email: str, api_key: str, serviceName: str, mcp_server):
         self.server_url = server_url
 
         self.namespace = namespace
 
         self.email = email
         self.api_key = api_key
+        self.serviceName = serviceName
 
         self.mcp_server = mcp_server
         self.sio = None
@@ -609,7 +610,8 @@ class ServiceClient:
                     auth={
                         "email": self.email,
                         "apiKey": self.api_key,
-                        "hostname": hostname  # Added hostname for whitelisting
+                        "hostname": hostname,
+                        "serviceName": self.serviceName
                     }
                 )
 
@@ -850,6 +852,7 @@ if __name__ == "__main__":
     parser.add_argument("--cloud-namespace", default=CLOUD_SERVICE_NAMESPACE, help="Cloud server Socket.IO namespace")
     parser.add_argument("--email", help="Service email for cloud authentication")
     parser.add_argument("--api-key", help="Service API key for cloud authentication")
+    parser.add_argument("--service-name", help="Desired service name")
     parser.add_argument("--no-cloud", action="store_true", help="Disable cloud server connection")
     args = parser.parse_args()
 
@@ -883,9 +886,9 @@ if __name__ == "__main__":
 
         # Connect to cloud server if enabled
         if not args.no_cloud:
-            if not args.email or not args.api_key:
-                logger.error("❌ CLOUD SERVER CONNECTION REQUIRES EMAIL AND API KEY")
-                logger.error("❌ Use --email and --api-key to specify credentials")
+            if not args.email or not args.api_key or not args.service_name:
+                logger.error("❌ CLOUD SERVER CONNECTION REQUIRES EMAIL, API KEY AND SERVICE NAME")
+                logger.error("❌ Use --email and --api-key to specify credentials, --service-name to specify desired service name")
                 logger.info("☁️ CLOUD SERVER CONNECTION DISABLED")
             else:
                 logger.info(f"☁️ CLOUD SERVER CONNECTION ENABLED: {CLOUD_SERVER_URL}")
@@ -895,6 +898,7 @@ if __name__ == "__main__":
                     namespace=CLOUD_SERVICE_NAMESPACE,
                     email=args.email,
                     api_key=args.api_key,
+                    serviceName=args.service_name,
                     mcp_server=mcp_server
                 )
                 cloud_task = loop.create_task(cloud_connection.connect())

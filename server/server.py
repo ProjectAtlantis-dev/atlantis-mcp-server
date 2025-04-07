@@ -674,7 +674,7 @@ class ServiceClient:
         # Service message event
         @self.sio.event(namespace=self.namespace)
         async def service_message(data):
-            logger.info(f"☁️ RECEIVED SERVICE MESSAGE: {data}")
+            logger.debug(f"☁️ RAW RECEIVED SERVICE MESSAGE: {data}")
             # Check if this is an MCP JSON-RPC request
             if isinstance(data, dict) and 'jsonrpc' in data and 'method' in data:
                 # This is an MCP JSON-RPC request
@@ -682,11 +682,8 @@ class ServiceClient:
                 if response:
                     await self.send_message('service_response', response)
             else:
-                # Process as a regular service message
-                response = await self._process_service_message(data)
-                if response:
-                    await self.send_message('service_response', response)
-
+                # Ignore non-JSON-RPC messages or log a warning
+                logger.warning(f"⚠️ Received non-JSON-RPC message, ignoring: {data}")
 
     async def _process_mcp_request(self, request: dict) -> Union[dict, None]:
         """Process an MCP JSON-RPC request from the cloud server
@@ -743,30 +740,6 @@ class ServiceClient:
             response["error"] = {"code": -32000, "message": f"Server error: {str(e)}"}
 
         return response
-
-    async def _process_service_message(self, message: dict) -> Union[dict, None]:
-        """Process a non-MCP service message from the cloud server"""
-        # Handle regular service messages (non-MCP JSON-RPC)
-        message_type = message.get("type", "unknown")
-        logger.info(f"☁️ Processing service message of type: {message_type}")
-
-        # Handle different message types
-        if message_type == "call_tool":
-            # Legacy format for tool calls
-            tool_name = message.get("name")
-            tool_args = message.get("args", {})
-            logger.info(f"☁️ Forwarding tool call: {tool_name}")
-
-            try:
-                # Use the MCP server to handle the tool call
-                call_result = await self.mcp_server.handle_call_tool(tool_name, tool_args)
-                return {"type": "tool_result", "result": call_result}
-            except Exception as e:
-                logger.error(f"❌ ERROR EXECUTING TOOL {tool_name}: {str(e)}")
-                return {"type": "error", "tool": tool_name, "error": str(e)}
-
-        # Return None if no response is needed or message type not recognized
-        return None
 
     async def send_message(self, event: str, data: dict) -> bool:
         """Send a message to the cloud server"""

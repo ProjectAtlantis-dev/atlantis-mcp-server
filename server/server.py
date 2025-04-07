@@ -568,9 +568,12 @@ class ServiceClient:
     """
     def __init__(self, server_url: str, namespace: str, email: str, api_key: str, mcp_server):
         self.server_url = server_url
+
         self.namespace = namespace
+
         self.email = email
         self.api_key = api_key
+
         self.mcp_server = mcp_server
         self.sio = None
         self.connection_task = None

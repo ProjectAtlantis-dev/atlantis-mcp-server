@@ -595,16 +595,18 @@ class ServiceClient:
                 # Register event handlers
                 self._register_event_handlers()
 
-                # Connect to the cloud server using Socket.IO
                 logger.info(f"☁️ Attempting connection to cloud server (attempt {self.retry_count + 1})")
 
-                # Connect with authentication data
+                # Connect with authentication data including hostname
+                import socket
+                hostname = socket.gethostname()
                 await self.sio.connect(
                     self.server_url,
                     namespaces=[self.namespace],
                     auth={
-                        "email": self.email,  # Must match exact casing expected by Node.js server
-                        "apiKey": self.api_key         # Must match exact casing expected by Node.js server
+                        "email": self.email,
+                        "apiKey": self.api_key,
+                        "hostname": hostname  # Added hostname for whitelisting
                     }
                 )
 

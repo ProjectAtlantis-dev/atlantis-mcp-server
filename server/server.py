@@ -58,9 +58,6 @@ CLOUD_SERVICE_NAMESPACE = "/service"  # Socket.IO namespace for service-to-servi
 CLOUD_CONNECTION_RETRY_SECONDS = 5
 CLOUD_CONNECTION_MAX_RETRIES = 5  # Set to None for infinite retries
 
-# Service authentication
-SERVICE_ID = "bot-service"  # Our service identifier
-SERVICE_API_KEY = "bot-dev-key"  # API key for authentication
 
 # Create functions directory if it doesn't exist
 os.makedirs(FUNCTIONS_DIR, exist_ok=True)
@@ -555,24 +552,24 @@ Input schema:
 # ServiceClient class to manage the connection to the cloud server via Socket.IO
 class ServiceClient:
     """Socket.IO client for connecting to the cloud server
-    
+
     This class implements a Socket.IO CLIENT to connect TO the cloud server.
     Socket.IO is different from standard WebSockets - it adds features like:
     - Automatic reconnection
     - Fallback to long polling when WebSockets aren't available
     - Built-in event system with namespaces
     - Authentication handling
-    
+
     While server.py acts as a WebSocket SERVER for the node-mcp-client,
     it must act as a Socket.IO CLIENT to connect to the cloud server.
     Each server dictates which protocol clients must use to connect.
-    
+
     Manages the Socket.IO connection to the cloud server's service namespace.
     """
-    def __init__(self, server_url: str, namespace: str, service_id: str, api_key: str, mcp_server):
+    def __init__(self, server_url: str, namespace: str, email: str, api_key: str, mcp_server):
         self.server_url = server_url
         self.namespace = namespace
-        self.service_id = service_id
+        self.email = email
         self.api_key = api_key
         self.mcp_server = mcp_server
         self.sio = None
@@ -580,99 +577,93 @@ class ServiceClient:
         self.is_connected = False
         self.retry_count = 0
         self.connection_active = True
-        
+
     async def connect(self):
         """Establish a Socket.IO connection to the cloud server"""
         logger.info(f"☁️ CONNECTING TO CLOUD SERVER: {self.server_url} (namespace: {self.namespace})")
         self.connection_active = True
         self.connection_task = asyncio.create_task(self._maintain_connection())
         return self.connection_task
-        
+
     async def _maintain_connection(self):
         """Maintains the connection to the cloud server with retries"""
         while self.connection_active and not is_shutting_down:
             try:
                 # Create a new Socket.IO client instance
                 self.sio = socketio.AsyncClient()
-                
+
                 # Register event handlers
                 self._register_event_handlers()
-                
+
                 # Connect to the cloud server using Socket.IO
                 logger.info(f"☁️ Attempting connection to cloud server (attempt {self.retry_count + 1})")
-                
+
                 # Connect with authentication data
                 await self.sio.connect(
-                    self.server_url, 
+                    self.server_url,
                     namespaces=[self.namespace],
                     auth={
-                        "serviceId": self.service_id,  # Must match exact casing expected by Node.js server
+                        "email": self.email,  # Must match exact casing expected by Node.js server
                         "apiKey": self.api_key         # Must match exact casing expected by Node.js server
                     }
                 )
-                
+
                 self.is_connected = True
                 self.retry_count = 0  # Reset retry counter on successful connection
                 logger.info("✅ CONNECTED TO CLOUD SERVER!")
-                
+
                 # Wait for disconnection
                 await self.sio.wait()
                 logger.info("☁️ Socket.IO connection closed")
-                    
+
             except Exception as e:
                 if is_shutting_down:
                     logger.info("☁️ Shutting down, stopping cloud connection attempts")
                     break
-                    
+
                 self.is_connected = False
                 self.sio = None
-                
+
                 if CLOUD_CONNECTION_MAX_RETRIES is not None and self.retry_count >= CLOUD_CONNECTION_MAX_RETRIES:
                     logger.error(f"❌ FAILED TO CONNECT TO CLOUD SERVER AFTER {self.retry_count} ATTEMPTS: {str(e)}")
                     logger.error("❌ GIVING UP ON CLOUD CONNECTION!")
                     break
-                
+
                 self.retry_count += 1
                 logger.warning(f"⚠️ CLOUD SERVER CONNECTION ERROR (attempt {self.retry_count}): {str(e)}")
-                
+
                 # Print a more detailed stack trace for debugging
                 import traceback
                 logger.debug(f"Traceback: {traceback.format_exc()}")
-                
+
                 # Wait before retrying
                 logger.info(f"☁️ RETRYING CONNECTION IN {CLOUD_CONNECTION_RETRY_SECONDS} SECONDS...")
                 await asyncio.sleep(CLOUD_CONNECTION_RETRY_SECONDS)
-        
+
         logger.info("☁️ Cloud connection maintenance loop ended")
-    
+
     def _register_event_handlers(self):
         """Register Socket.IO event handlers"""
         if not self.sio:
             return
-            
+
         # Connection established event
         @self.sio.event(namespace=self.namespace)
         def connect():
             logger.info(f"✅ CONNECTED TO CLOUD SERVER NAMESPACE: {self.namespace}")
-        
+
         # Connection error event
         @self.sio.event(namespace=self.namespace)
         def connect_error(data):
             logger.error(f"❌ CONNECTION ERROR: {data}")
-        
+
         # Disconnection event
         @self.sio.event(namespace=self.namespace)
         def disconnect():
             logger.info(f"☁️ DISCONNECTED FROM CLOUD SERVER")
             self.is_connected = False
-        
-        # Service connected confirmation event
-        @self.sio.event(namespace=self.namespace)
-        def service_connected():
-            logger.info(f"✅ SERVICE CONNECTION CONFIRMED")
-            # Let the cloud server know we're ready to handle MCP requests
-            asyncio.create_task(self._send_service_ready())
-        
+
+
         # Service message event
         @self.sio.event(namespace=self.namespace)
         async def service_message(data):
@@ -688,21 +679,14 @@ class ServiceClient:
                 response = await self._process_service_message(data)
                 if response:
                     await self.send_message('service_response', response)
-    
-    async def _send_service_ready(self):
-        """Send a message to the cloud server indicating we're ready"""
-        await self.send_message('service_ready', {
-            'service': self.service_id,
-            'capabilities': ['mcp_tool_execution', 'dynamic_tool_registration'],
-            'status': 'ready'
-        })
-    
+
+
     async def _process_mcp_request(self, request: dict) -> Union[dict, None]:
         """Process an MCP JSON-RPC request from the cloud server
-        
+
         This method takes requests received over Socket.IO from the cloud server
         and routes them to the same handlers that process WebSocket requests.
-        
+
         Despite the different transport protocols (Socket.IO vs WebSockets),
         both connection types ultimately use the same underlying MCP handlers
         like handle_list_tools() to process requests.
@@ -710,14 +694,14 @@ class ServiceClient:
         request_id = request.get("id", "unknown-id")
         method = request.get("method", "")
         params = request.get("params", {})
-        
+
         logger.info(f"☁️ Processing MCP request: {method} (ID: {request_id})")
-        
+
         response = {
             "jsonrpc": "2.0",
             "id": request_id
         }
-        
+
         try:
             # Map MCP JSON-RPC methods to MCP server methods
             if method == "tools/list":
@@ -725,12 +709,12 @@ class ServiceClient:
                 # The mcp_server already has a list_tools handler
                 tools_list = await self.mcp_server.handle_list_tools()
                 response["result"] = {"tools": tools_list}
-                
+
             elif method == "tools/call":
                 # Extract tool details from params
                 tool_name = params.get("name")
                 tool_args = params.get("args", {})
-                
+
                 if not tool_name:
                     response["error"] = {"code": -32602, "message": "Invalid params: missing tool name"}
                 else:
@@ -738,34 +722,34 @@ class ServiceClient:
                     # Use our MCP server to handle the tool call
                     result = await self.mcp_server.handle_call_tool(tool_name, tool_args)
                     response["result"] = {"result": result}
-                    
+
             else:
                 # Unknown method
                 logger.warning(f"⚠️ Unknown MCP method: {method}")
                 response["error"] = {"code": -32601, "message": f"Method not found: {method}"}
-                
+
         except Exception as e:
             # Exception during processing
             logger.error(f"❌ ERROR PROCESSING MCP REQUEST: {str(e)}")
             import traceback
             logger.debug(f"Traceback: {traceback.format_exc()}")
             response["error"] = {"code": -32000, "message": f"Server error: {str(e)}"}
-            
+
         return response
-            
+
     async def _process_service_message(self, message: dict) -> Union[dict, None]:
         """Process a non-MCP service message from the cloud server"""
         # Handle regular service messages (non-MCP JSON-RPC)
         message_type = message.get("type", "unknown")
         logger.info(f"☁️ Processing service message of type: {message_type}")
-        
+
         # Handle different message types
         if message_type == "call_tool":
             # Legacy format for tool calls
             tool_name = message.get("name")
             tool_args = message.get("args", {})
             logger.info(f"☁️ Forwarding tool call: {tool_name}")
-            
+
             try:
                 # Use the MCP server to handle the tool call
                 call_result = await self.mcp_server.handle_call_tool(tool_name, tool_args)
@@ -773,16 +757,16 @@ class ServiceClient:
             except Exception as e:
                 logger.error(f"❌ ERROR EXECUTING TOOL {tool_name}: {str(e)}")
                 return {"type": "error", "tool": tool_name, "error": str(e)}
-                
+
         # Return None if no response is needed or message type not recognized
         return None
-    
+
     async def send_message(self, event: str, data: dict) -> bool:
         """Send a message to the cloud server"""
         if not self.is_connected or not self.sio:
             logger.warning(f"⚠️ Cannot send {event}: No active cloud connection")
             return False
-            
+
         try:
             await self.sio.emit(event, data, namespace=self.namespace)
             logger.debug(f"☁️ SENT {event} TO CLOUD: {data}")
@@ -792,40 +776,34 @@ class ServiceClient:
             import traceback
             logger.debug(f"Traceback: {traceback.format_exc()}")
             return False
-    
+
     async def disconnect(self):
         """Disconnect from the cloud server"""
         logger.info("☁️ Disconnecting from cloud server")
         self.connection_active = False
-        
+
         if self.sio and self.is_connected:
             try:
                 await self.sio.disconnect()
             except Exception as e:
                 logger.error(f"❌ ERROR DISCONNECTING: {str(e)}")
-        
+
         self.is_connected = False
 
 # Create our MCP server instance
 mcp_server = DynamicAdditionServer()
 
-# Create our service client (Socket.IO client to connect to cloud server)
-cloud_connection = ServiceClient(
-    server_url=CLOUD_SERVER_URL,
-    namespace=CLOUD_SERVICE_NAMESPACE,
-    service_id=SERVICE_ID,
-    api_key=SERVICE_API_KEY,
-    mcp_server=mcp_server
-)
+# We'll create the cloud connection later after parsing arguments
+cloud_connection = None
 
 # Create a Starlette app with websocket support
 async def handle_websocket(websocket):
     """Handle MCP websocket connections from node-mcp-client
-    
+
     This function handles standard WebSocket connections from clients like node-mcp-client.
     We act as a WebSocket SERVER here, which is different from how we act as a Socket.IO CLIENT
     when connecting to the cloud server.
-    
+
     Both connection types ultimately route to the same MCP handlers in DynamicAdditionServer.
     """
     logger.info(f"⚡ NEW CONNECTION: {websocket.client}")
@@ -865,15 +843,15 @@ if __name__ == "__main__":
     parser.add_argument("--cloud-host", default=CLOUD_SERVER_HOST, help="Cloud server host to connect to")
     parser.add_argument("--cloud-port", type=int, default=CLOUD_SERVER_PORT, help="Cloud server port to connect to")
     parser.add_argument("--cloud-namespace", default=CLOUD_SERVICE_NAMESPACE, help="Cloud server Socket.IO namespace")
-    parser.add_argument("--service-id", default=SERVICE_ID, help="Service identifier for cloud authentication")
-    parser.add_argument("--service-key", default=SERVICE_API_KEY, help="Service API key for cloud authentication")
+    parser.add_argument("--email", help="Service email for cloud authentication")
+    parser.add_argument("--api-key", help="Service API key for cloud authentication")
     parser.add_argument("--no-cloud", action="store_true", help="Disable cloud server connection")
     args = parser.parse_args()
 
     # Update host and port from command line arguments
     HOST = args.host
     PORT = args.port
-    
+
     # Update cloud server settings if provided
     if args.cloud_host != CLOUD_SERVER_HOST or args.cloud_port != CLOUD_SERVER_PORT:
         CLOUD_SERVER_HOST = args.cloud_host
@@ -889,22 +867,35 @@ if __name__ == "__main__":
     # Start the Uvicorn server
     config = uvicorn.Config(app, host=HOST, port=PORT, log_level="warning")
     server = uvicorn.Server(config)
-    
+
     # Create tasks for the server and cloud connection
     server_task = loop.create_task(server.serve())
     cloud_task = None
-    
+
     try:
         # Start the server
         logger.info(f"🌟 STARTING MCP WEBSOCKET SERVER AT ws://{HOST}:{PORT}/mcp")
-        
+
         # Connect to cloud server if enabled
         if not args.no_cloud:
-            logger.info(f"☁️ CLOUD SERVER CONNECTION ENABLED: {CLOUD_SERVER_URL}")
-            cloud_task = loop.create_task(cloud_connection.connect())
+            if not args.email or not args.api_key:
+                logger.error("❌ CLOUD SERVER CONNECTION REQUIRES EMAIL AND API KEY")
+                logger.error("❌ Use --email and --api-key to specify credentials")
+                logger.info("☁️ CLOUD SERVER CONNECTION DISABLED")
+            else:
+                logger.info(f"☁️ CLOUD SERVER CONNECTION ENABLED: {CLOUD_SERVER_URL}")
+                # Create the cloud connection with the provided credentials
+                cloud_connection = ServiceClient(
+                    server_url=CLOUD_SERVER_URL,
+                    namespace=CLOUD_SERVICE_NAMESPACE,
+                    email=args.email,
+                    api_key=args.api_key,
+                    mcp_server=mcp_server
+                )
+                cloud_task = loop.create_task(cloud_connection.connect())
         else:
             logger.info("☁️ CLOUD SERVER CONNECTION DISABLED")
-        
+
         # Run the event loop until the server is interrupted
         loop.run_until_complete(server_task)
     except KeyboardInterrupt:
@@ -914,12 +905,12 @@ if __name__ == "__main__":
         if cloud_task and not cloud_task.done():
             cloud_task.cancel()
         server_task.cancel()
-        
+
         # Clean up the loop
         pending = asyncio.all_tasks(loop=loop)
         for task in pending:
             task.cancel()
-            
+
         logger.info("🧹 CLEANING UP TASKS")
         loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
         loop.close()

@@ -686,7 +686,8 @@ class ServiceClient:
                 logger.warning(f"⚠️ Received non-JSON-RPC message, ignoring: {data}")
 
     async def _process_mcp_request(self, request: dict) -> Union[dict, None]:
-        """Process an MCP JSON-RPC request from the cloud server
+        """Process an MCP JSON-RPC request from the cloud server by forwarding it
+        to the underlying MCP Server instance from the SDK.
 
         This method takes requests received over Socket.IO from the cloud server
         and routes them to the same handlers that process WebSocket requests.
@@ -695,51 +696,28 @@ class ServiceClient:
         both connection types ultimately use the same underlying MCP handlers
         like handle_list_tools() to process requests.
         """
-        request_id = request.get("id", "unknown-id")
-        method = request.get("method", "")
-        params = request.get("params", {})
+        request_id = request.get("id") # Get ID for logging/potential errors
+        method = request.get("method", "unknown")
 
-        logger.info(f"☁️ Processing MCP request: {method} (ID: {request_id})")
-
-        response = {
-            "jsonrpc": "2.0",
-            "id": request_id
-        }
+        logger.info(f"☁️ Forwarding MCP request to SDK: {method} (ID: {request_id})")
 
         try:
-            # Map MCP JSON-RPC methods to MCP server methods
-            if method == "tools/list":
-                logger.info(f"☁️ Forwarding tools/list request to MCP server")
-                # The mcp_server already has a list_tools handler
-                tools_list = await self.mcp_server.handle_list_tools()
-                response["result"] = {"tools": tools_list}
-
-            elif method == "tools/call":
-                # Extract tool details from params
-                tool_name = params.get("name")
-                tool_args = params.get("args", {})
-
-                if not tool_name:
-                    response["error"] = {"code": -32602, "message": "Invalid params: missing tool name"}
-                else:
-                    logger.info(f"☁️ Executing tool from cloud: {tool_name}")
-                    # Use our MCP server to handle the tool call
-                    result = await self.mcp_server.handle_call_tool(tool_name, tool_args)
-                    response["result"] = {"result": result}
-
-            else:
-                # Unknown method
-                logger.warning(f"⚠️ Unknown MCP method: {method}")
-                response["error"] = {"code": -32601, "message": f"Method not found: {method}"}
+            # Let the MCP SDK Server instance handle the request routing and execution
+            response = await self.mcp_server.process_request(request) # Assumed SDK method
+            return response
 
         except Exception as e:
-            # Exception during processing
-            logger.error(f"❌ ERROR PROCESSING MCP REQUEST: {str(e)}")
+            # Exception during processing within the SDK
+            logger.error(f"❌ ERROR PROCESSING MCP REQUEST VIA SDK: {str(e)}")
             import traceback
             logger.debug(f"Traceback: {traceback.format_exc()}")
-            response["error"] = {"code": -32000, "message": f"Server error: {str(e)}"}
-
-        return response
+            # Construct a standard JSON-RPC error response
+            error_response = {
+                "jsonrpc": "2.0",
+                "id": request_id, # Use the original request ID
+                "error": {"code": -32000, "message": f"Server error during SDK processing: {str(e)}"}
+            }
+            return error_response
 
     async def send_message(self, event: str, data: dict) -> bool:
         """Send a message to the cloud server"""

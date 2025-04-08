@@ -755,7 +755,7 @@ class ServiceClient:
                     call_result_list = await self.mcp_server._execute_tool(name=tool_name, args=tool_args)
                     # The _execute_tool method ensures result is List[TextContent]
                     # Convert TextContent objects to dictionaries for JSON serialization using model_dump()
-                    response["result"] = {"contents": [content.model_dump() for content in call_result_list]} # Use model_dump() & use 'contents' key
+                    response["result"] = {"contents": [content.model_dump(include={'type', 'text'}) for content in call_result_list]} # Use model_dump() & include
 
             elif method == "prompts/list":
                  # Call the core logic method directly

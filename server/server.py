@@ -12,6 +12,7 @@ import sys
 import psutil
 import time
 from typing import Any, Callable, Dict, List, Optional, Union
+import datetime
 import random
 import socketio
 from mcp.server import Server
@@ -354,6 +355,15 @@ class DynamicAdditionServer(Server):
             for filename in os.listdir(FUNCTIONS_DIR):
                 if filename.endswith(".py") and filename != "__init__.py":
                     file_path = os.path.join(FUNCTIONS_DIR, filename)
+
+                    # --- Log timestamp --- >
+                    try:
+                        mtime = os.path.getmtime(file_path)
+                        timestamp_str = datetime.datetime.fromtimestamp(mtime).isoformat()
+                        logger.debug(f"📄 Processing {filename}, last updated: {timestamp_str}")
+                    except OSError as e:
+                        logger.warning(f"⚠️ Could not get mtime for {filename}: {e}")
+                    # --- End log timestamp --->
 
                     # Extract the function name from the file name
                     function_name = os.path.splitext(filename)[0]

@@ -12,15 +12,7 @@ import sys
 import psutil
 import time
 from typing import Any, Callable, Dict, List, Optional, Union
-
-# NOTE: This server uses two different socket protocols:
-# 1. Standard WebSockets: When acting as a SERVER to accept connections from node-mcp-client
-# 2. Socket.IO: When acting as a CLIENT to connect to the cloud Node.js server
-#
-# Each server dictates its own protocol, and clients must adapt accordingly.
-# - The node-mcp-client connects via standard WebSockets to our server.py
-# - Our server.py connects via Socket.IO to the cloud server
-# - Both ultimately route to the same MCP handlers in the DynamicAdditionServer class
+import random
 import socketio
 from mcp.server import Server
 from mcp.server.websocket import websocket_server
@@ -30,6 +22,16 @@ from starlette.applications import Starlette
 from starlette.routing import WebSocketRoute
 import uvicorn
 import argparse
+
+
+# NOTE: This server uses two different socket protocols:
+# 1. Standard WebSockets: When acting as a SERVER to accept connections from node-mcp-client
+# 2. Socket.IO: When acting as a CLIENT to connect to the cloud Node.js server
+#
+# Each server dictates its own protocol, and clients must adapt accordingly.
+# - The node-mcp-client connects via standard WebSockets to our server.py
+# - Our server.py connects via Socket.IO to the cloud server
+# - Both ultimately route to the same MCP handlers in the DynamicAdditionServer class
 
 # Configure logging - focus on our application logs
 logging.basicConfig(
@@ -55,9 +57,9 @@ CLOUD_SERVER_HOST = "localhost"
 CLOUD_SERVER_PORT = 3010
 CLOUD_SERVER_URL = f"http://{CLOUD_SERVER_HOST}:{CLOUD_SERVER_PORT}"
 CLOUD_SERVICE_NAMESPACE = "/service"  # Socket.IO namespace for service-to-service communication
-CLOUD_CONNECTION_RETRY_SECONDS = 5
-CLOUD_CONNECTION_MAX_RETRIES = 5  # Set to None for infinite retries
-
+CLOUD_CONNECTION_RETRY_SECONDS = 5  # Initial delay in seconds
+CLOUD_CONNECTION_MAX_RETRIES = 10 # Maximum number of retries before giving up (None for infinite)
+CLOUD_CONNECTION_MAX_BACKOFF_SECONDS = 60 # Maximum delay for exponential backoff
 
 # Create functions directory if it doesn't exist
 os.makedirs(FUNCTIONS_DIR, exist_ok=True)
@@ -643,10 +645,6 @@ class ServiceClient:
                     }
                 )
 
-                self.is_connected = True
-                self.retry_count = 0  # Reset retry counter on successful connection
-                logger.info("✅ CONNECTED TO CLOUD SERVER!")
-
                 # Wait for disconnection
                 await self.sio.wait()
                 logger.info("☁️ Socket.IO connection closed")
@@ -671,9 +669,14 @@ class ServiceClient:
                 import traceback
                 logger.debug(f"Traceback: {traceback.format_exc()}")
 
+                # Calculate exponential backoff delay with jitter
+                backoff_delay = CLOUD_CONNECTION_RETRY_SECONDS * (2 ** self.retry_count)
+                jitter = random.uniform(0, 1) # Add random jitter (0-1 seconds)
+                actual_delay = min(backoff_delay + jitter, CLOUD_CONNECTION_MAX_BACKOFF_SECONDS)
+
                 # Wait before retrying
-                logger.info(f"☁️ RETRYING CONNECTION IN {CLOUD_CONNECTION_RETRY_SECONDS} SECONDS...")
-                await asyncio.sleep(CLOUD_CONNECTION_RETRY_SECONDS)
+                logger.info(f"☁️ RETRYING CONNECTION IN {actual_delay:.2f} SECONDS...")
+                await asyncio.sleep(actual_delay)
 
         logger.info("☁️ Cloud connection maintenance loop ended")
 
@@ -685,9 +688,12 @@ class ServiceClient:
         # Connection established event
         @self.sio.event(namespace=self.namespace)
         async def connect(): # Ensure handler is async
-            logger.info(f"✅ CONNECTED TO CLOUD SERVER NAMESPACE: {self.namespace}")
+            self.is_connected = True
+            self.retry_count = 0  # Reset retry counter on successful connection
+            logger.info("✅ CONNECTED TO CLOUD SERVER!")
+
             # Emit the client event upon successful connection
-            await self.send_message('client', {'status': 'connected'}) 
+            await self.send_message('client', {'status': 'connected'})
 
         # Connection error event
         @self.sio.event(namespace=self.namespace)

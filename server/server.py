@@ -789,7 +789,8 @@ class ServiceClient:
 
         try:
             await self.sio.emit(event, data, namespace=self.namespace)
-            logger.debug(f"☁️ SENT {event} TO CLOUD: {data}")
+            # logger.debug(f"☁️ SENT {event} TO CLOUD: {data}")
+            logger.debug(f"☁️ SENT {event} TO CLOUD")
             return True
         except Exception as e:
             logger.error(f"❌ ERROR SENDING {event} TO CLOUD: {str(e)}")

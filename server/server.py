@@ -684,8 +684,10 @@ class ServiceClient:
 
         # Connection established event
         @self.sio.event(namespace=self.namespace)
-        def connect():
+        async def connect(): # Ensure handler is async
             logger.info(f"✅ CONNECTED TO CLOUD SERVER NAMESPACE: {self.namespace}")
+            # Emit the client event upon successful connection
+            await self.send_message('client', {'status': 'connected'}) 
 
         # Connection error event
         @self.sio.event(namespace=self.namespace)

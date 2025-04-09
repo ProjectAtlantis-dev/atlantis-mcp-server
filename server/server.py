@@ -528,8 +528,23 @@ Input schema:
                 f.write(module_code)
 
             logger.info(f"✅ SUCCESSFULLY REGISTERED FUNCTION: {name}")
-            return [TextContent(type="text", text=f"Successfully registered function: {name}")]
+            
+            # Send notification that tools list has changed
+            try:
+                # Get the current session
+                ctx = self.request_context
+                # Create and send a ToolListChangedNotification
+                notification = ToolListChangedNotification(
+                    method="notifications/tools/list_changed",
+                    params=NotificationParams()
+                )
+                await ctx.session.send_notification(notification)
+                logger.info(f"📢 SENT TOOL LIST CHANGED NOTIFICATION")
+            except Exception as e:
+                # Log a warning instead of returning an error, registration succeeded.
+                logger.warning(f"⚠️ COULD NOT SEND TOOL LIST CHANGED NOTIFICATION: {str(e)}")
 
+            return [TextContent(type="text", text=f"Successfully registered function: {name}")]
         except Exception as e:
             logger.error(f"❌ ERROR REGISTERING FUNCTION: {str(e)}")
             import traceback
@@ -597,6 +612,22 @@ Input schema:
             # Delete the function file
             os.remove(function_path)
             logger.info(f"✅ SUCCESSFULLY REMOVED FUNCTION: {name}")
+            
+            # Send notification that tools list has changed
+            try:
+                # Get the current session
+                ctx = self.request_context
+                # Create and send a ToolListChangedNotification
+                notification = ToolListChangedNotification(
+                    method="notifications/tools/list_changed",
+                    params=NotificationParams()
+                )
+                await ctx.session.send_notification(notification)
+                logger.info(f"📢 SENT TOOL LIST CHANGED NOTIFICATION")
+            except Exception as e:
+                # Log a warning instead of returning an error, removal succeeded.
+                logger.warning(f"⚠️ COULD NOT SEND TOOL LIST CHANGED NOTIFICATION: {str(e)}")
+            
             return [TextContent(type="text", text=f"Successfully removed function: {name}")]
         except Exception as e:
             logger.error(f"❌ ERROR REMOVING FUNCTION FILE {function_path}: {str(e)}")

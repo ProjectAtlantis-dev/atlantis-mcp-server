@@ -537,12 +537,12 @@ Input schema:
             return [TextContent(type="text", text=f"Error registering function: {str(e)}")]
 
     async def _get_function_code(self, args: dict) -> list[TextContent]:
-        """Get the Python source code for a dynamically registered function"""
+        """Get the Python source code and description for a dynamically registered function"""
         name = args.get("name")
         if not name:
-            return [TextContent(type="text", text="Error: Function name not provided")]
+            return [TextContent(type="text", text=json.dumps({"error": "Function name not provided"}))]
 
-        logger.info(f"📄 GETTING CODE FOR FUNCTION: {name}")
+        logger.info(f"📄 GETTING CODE AND DESC FOR FUNCTION: {name}")
 
         # Construct the expected path to the function's Python file
         function_path = os.path.join(FUNCTIONS_DIR, f"{name}.py")
@@ -550,21 +550,32 @@ Input schema:
         # Check if the function file exists
         if not os.path.exists(function_path):
             logger.warning(f"⚠️ Function file not found: {function_path}")
-            return [TextContent(type="text", text=f"Error: Function '{name}' not found.")]
+            return [TextContent(type="text", text=json.dumps({"error": f"Function '{name}' not found."}))]
 
         try:
             # Read the function code from the file
             with open(function_path, 'r') as f:
                 code = f.read()
 
-            logger.info(f"✅ SUCCESSFULLY RETRIEVED CODE FOR: {name}")
-            # Return the code as text content
-            return [TextContent(type="text", text=code)]
+            # Extract metadata to get the description
+            metadata = self._extract_metadata_from_file(function_path)
+            description = metadata.get("description", None) # Get description or None
+
+            # Prepare the result as a dictionary
+            result_data = {
+                "name": name,
+                "code": code,
+                "description": description
+            }
+
+            logger.info(f"✅ SUCCESSFULLY RETRIEVED CODE AND DESC FOR: {name}")
+            # Return the result as a JSON string
+            return [TextContent(type="text", text=json.dumps(result_data))]
         except Exception as e:
-            logger.error(f"❌ ERROR READING FUNCTION FILE {function_path}: {str(e)}")
+            logger.error(f"❌ ERROR READING FUNCTION FILE OR METADATA {function_path}: {str(e)}")
             import traceback
             logger.debug(f"Traceback: {traceback.format_exc()}")
-            return [TextContent(type="text", text=f"Error reading function code for '{name}': {str(e)}")]
+            return [TextContent(type="text", text=json.dumps({"error": f"Error reading function data for '{name}': {str(e)}"}))]
 
     async def _remove_function(self, args: dict) -> list[TextContent]:
         """Remove a dynamically registered function by deleting its file"""

@@ -1,6 +1,6 @@
 {
   "name": "atlantis-mcp",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "MCP for Project Atlantis",
   "main": "index.js",
   "bin": {

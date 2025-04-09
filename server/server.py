@@ -18,7 +18,7 @@ import socketio
 from mcp.server import Server
 from mcp.server.websocket import websocket_server
 from mcp.client.websocket import websocket_client
-from mcp.types import Tool, TextContent, CallToolResult
+from mcp.types import Tool, TextContent, CallToolResult, ToolListChangedNotification, NotificationParams
 from starlette.applications import Starlette
 from starlette.routing import WebSocketRoute
 import uvicorn

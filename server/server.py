@@ -356,15 +356,6 @@ class DynamicAdditionServer(Server):
                 if filename.endswith(".py") and filename != "__init__.py":
                     file_path = os.path.join(FUNCTIONS_DIR, filename)
 
-                    # --- Log timestamp --- >
-                    try:
-                        mtime = os.path.getmtime(file_path)
-                        timestamp_str = datetime.datetime.fromtimestamp(mtime).isoformat()
-                        logger.debug(f"📄 Processing {filename}, last updated: {timestamp_str}")
-                    except OSError as e:
-                        logger.warning(f"⚠️ Could not get mtime for {filename}: {e}")
-                    # --- End log timestamp --->
-
                     # Extract the function name from the file name
                     function_name = os.path.splitext(filename)[0]
 
@@ -372,11 +363,25 @@ class DynamicAdditionServer(Server):
                     metadata = self._extract_metadata_from_file(file_path)
                     if metadata:
                         # Create a Tool object from the metadata
-                        functions.append(Tool(
+                        tool_instance = Tool(
                             name=function_name,
                             description=metadata.get("description", f"Dynamic function: {function_name}"),
                             inputSchema=metadata.get("input_schema", {"type": "object"})
-                        ))
+                        )
+
+                        # Get and add timestamp
+                        try:
+                            mtime = os.path.getmtime(file_path)
+                            # Use ISO format with timezone Z for UTC
+                            timestamp_str = datetime.datetime.fromtimestamp(mtime, datetime.timezone.utc).isoformat().replace('+00:00', 'Z')
+                            # Dynamically add the attribute to the instance
+                            tool_instance.lastUpdated = timestamp_str
+                            logger.debug(f"📄 Processing {filename}, last updated: {timestamp_str}")
+                        except OSError as e:
+                            logger.warning(f"⚠️ Could not get mtime for {filename}: {e}")
+                            tool_instance.lastUpdated = None # Assign None if timestamp fetch fails
+
+                        functions.append(tool_instance)
                         logger.debug(f"🔍 DISCOVERED FUNCTION: {function_name}")
 
             logger.info(f"🔍 DISCOVERED {len(functions)} DYNAMIC FUNCTIONS")

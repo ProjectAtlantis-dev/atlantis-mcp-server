@@ -185,7 +185,7 @@ class DynamicAdditionServer(Server):
         # Start with our built-in tools
         tools = [
             Tool(
-                name="register_function",
+                name="function_register",
                 description="Install or update a Python function",
                 inputSchema={
                     "type": "object",
@@ -198,7 +198,7 @@ class DynamicAdditionServer(Server):
                 }
             ),
             Tool( # Add definition for get_tool_code
-                name="get_function",
+                name="function_get",
                 description="Get the source code for a Python function",
                 inputSchema={
                     "type": "object",
@@ -209,7 +209,7 @@ class DynamicAdditionServer(Server):
                 }
             ),
             Tool( # Add definition for remove_dynamic_tool
-                name="remove_function",
+                name="function_remove",
                 description="Remove a dynamically registered Python function",
                 inputSchema={
                     "type": "object",
@@ -246,13 +246,13 @@ class DynamicAdditionServer(Server):
         try:
             result_value: Any = None # Variable to hold the raw result before wrapping
 
-            if name == "register_function":
+            if name == "function_register":
                 result_value = await self._register_function(args)
 
-            elif name == "get_function": # Corrected name check
+            elif name == "function_get": # Corrected name check
                 result_value = await self._get_function_code(args)
 
-            elif name == "remove_function": # Add routing for remove_function
+            elif name == "function_remove": # Add routing for remove_function
                 result_value = await self._remove_function(args)
 
             # Check if this is a dynamically registered function

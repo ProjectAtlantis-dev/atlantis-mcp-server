@@ -8,6 +8,7 @@ import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'fs';
 import io from 'socket.io-client'; // Standard import for the function
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
+import os from 'os'; // ADDED IMPORT
 
 // --- Import Shared Types ---
 import {
@@ -348,12 +349,16 @@ const connectToCloud = () => {
         cloudReconnectTimer = null;
     }
 
-    cloudSocket = io(cloudUrl, {
+    // Construct the auth object matching server expectation
+    const authPayload = { apiKey, email, serviceName, hostname: os.hostname() };
+    logger.debug(`☁️ Auth payload being sent: ${JSON.stringify(authPayload)}`); // Stringify explicitly
+
+    cloudSocket = io(`${cloudUrl}${CLOUD_NAMESPACE}`, { // Connect directly to the namespace URL
         path: '/socket.io', // Standard path, adjust if cloud server uses something else
         transports: ['websocket'], // Prefer websocket
         autoConnect: false, // We manage connection manually
         reconnection: false, // We manage reconnection manually
-        auth: { email, apiKey, serviceName },
+        auth: authPayload,
         // Specify the namespace if needed, often done in the URL or path
         // For Socket.IO v3/v4, namespace is usually part of the URL or handled server-side
         // If connection fails, try adding namespace to URL: io(`${cloudUrl}${CLOUD_NAMESPACE}`, {...})
@@ -406,8 +411,8 @@ const connectToCloud = () => {
     // --- End Placeholder ---
 
 
-    cloudSocket.on('error', (err: Error) => {
-        logger.error(`☁️ Socket.IO general error: ${err.message}`);
+    cloudSocket.on('error', (error: Error) => {
+        logger.error(`☁️ Socket.IO general error: ${error.message}`);
         // General errors might not trigger disconnect, schedule check/reconnect
         if (!cloudSocket?.connected) {
              scheduleCloudReconnection();

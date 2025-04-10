@@ -1,0 +1,26 @@
+{
+  "name": "mcp-node-server",
+  "version": "1.0.0",
+  "description": "Node.js MCP server with dynamic function loading",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "mcp",
+    "websocket",
+    "dynamic",
+    "functions"
+  ],
+  "author": "Kitty Cascade",
+  "license": "ISC",
+  "dependencies": {
+    "ws": "^8.17.0",
+    "yargs": "^17.7.2",
+    "socket.io-client": "^4.7.5",
+    "uuid": "^9.0.1",
+    "chokidar": "^3.6.0",
+    "winston": "^3.13.0"
+  }
+}

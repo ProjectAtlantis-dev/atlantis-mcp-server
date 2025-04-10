@@ -404,9 +404,46 @@ const connectToCloud = () => {
     // --- Placeholder for handling messages FROM the cloud ---
     // Listen for specific events the cloud server might emit
     cloudSocket.onAny((eventName, ...args) => {
-        logger.debug(`☁️👇 Received cloud event '${eventName}':`, args);
-        // TODO: Add logic to handle messages from the cloud server
-        // e.g., if (eventName === 'requestToolCall') { handleCloudToolCall(args); }
+        // Log all events and their arguments clearly at INFO level by concatenating
+        logger.info(`☁️👇 Received cloud event '${eventName}': ${JSON.stringify(args, null, 2)}`);
+
+        // --- Handle specific messages from cloud --- 
+        if (eventName === 'service_message' && args.length > 0) {
+            try {
+                const request = args[0] as JsonRpcRequest;
+
+                // Check if it's a valid JSON-RPC request and specifically tools/list
+                if (request && request.jsonrpc === '2.0' && request.method === 'tools/list') {
+                    const requestId = request.id;
+                    logger.info(`☁️🔄 Handling 'tools/list' request (ID: ${requestId}) from cloud.`);
+
+                    // Generate the tool list payload (same logic as handleListTools)
+                    const toolsForClient = Array.from(toolRegistry.values()).map(tool => {
+                        const { _function, _filePath, execute, ...toolDefinition } = tool;
+                        return toolDefinition;
+                    });
+
+                    // Construct the JSON-RPC response
+                    const responsePayload: JsonRpcResponse = {
+                        jsonrpc: '2.0',
+                        id: requestId,
+                        result: { tools: toolsForClient }
+                    };
+
+                    // Emit the response back to the cloud *within* a 'service_response' event
+                    logger.info(`☁️⬆️ Emitting 'service_response' with payload: ${JSON.stringify(responsePayload, null, 2)}`);
+                    cloudSocket.emit('service_response', responsePayload); // <-- Correct event name
+                } else if (request && request.jsonrpc === '2.0') {
+                    // TODO: Handle other potential JSON-RPC methods from the cloud (e.g., tool calls)
+                    logger.debug(`☁️ Received unhandled JSON-RPC method '${request.method}' from cloud.`);
+                } else {
+                     logger.warn("☁️ Received non-JSON-RPC or malformed service_message from cloud.", args[0]);
+                }
+            } catch (error: any) {
+                logger.error(`☁️❌ Error processing service_message from cloud: ${error.message}`, { originalMessage: args[0] });
+            }
+        }
+        // TODO: Add logic to handle *other* messages from the cloud server
     });
     // --- End Placeholder ---
 

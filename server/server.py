@@ -1059,4 +1059,5 @@ if __name__ == "__main__":
         logger.info("🧹 CLEANING UP TASKS")
         loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
         loop.close()
+        remove_pid_file() # Ensure PID file is removed on exit
         logger.info("👋 SERVER SHUTDOWN COMPLETE")

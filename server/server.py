@@ -152,6 +152,8 @@ class DynamicAdditionServer(Server):
 
     def __init__(self):
         super().__init__("Dynamic Function Server")
+        self.tasks = {} # Store tasks in a dictionary
+        self.next_task_id = 1 # Initialize next task ID
 
         # Register tool handlers using SDK decorators
         # These now wrap the actual logic methods defined below
@@ -222,14 +224,16 @@ class DynamicAdditionServer(Server):
             # --- Task Management Tools --- #
             Tool(
                 name="task_add",
-                description="(Stub) Add a new task",
+                description="(Stub) Add a new task via a JSON payload", # Updated description
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "name": {"type": "string", "description": "Name of the task to add"}
-                        # Add other task parameters here later
+                        "payload": {
+                            "type": "object",
+                            "description": "The JSON object containing the task details."
+                        }
                     },
-                    "required": ["name"]
+                    "required": ["payload"]
                 }
             ),
             Tool(
@@ -681,11 +685,31 @@ Input schema:
     # --- Task Management Stubs --- #
 
     async def _task_add(self, args: dict) -> list[TextContent]:
-        """Stub for adding a new task"""
-        logger.info("⚙️ TASK ADD CALLED (STUB)")
-        # Placeholder logic: Extract args if needed
-        task_name = args.get("name", "unnamed_task")
-        return [TextContent(type="text", text=f"Task '{task_name}' add called (stub)")]
+        """Adds a new task using the provided payload."""
+        logger.info(f"⚙️ TASK ADD CALLED with args: {args}")
+        try:
+            # Extract the payload from the arguments
+            task_payload = args.get('payload')
+            if task_payload is None:
+                raise ValueError("Missing 'payload' in arguments")
+            if not isinstance(task_payload, dict):
+                raise ValueError("'payload' must be a JSON object (dictionary)")
+
+            # Generate a new task ID
+            task_id = self.next_task_id
+            self.next_task_id += 1
+
+            # Store the task details (the extracted payload dictionary)
+            self.tasks[task_id] = task_payload # Store the payload, not the whole args
+
+            logger.info(f"✅ Task added with ID: {task_id}, Details: {task_payload}")
+            # Return the new task ID
+            return [TextContent(type="text", text=json.dumps({"task_id": task_id}))]
+        except Exception as e:
+            logger.error(f"❌ Error adding task: {str(e)}")
+            import traceback
+            logger.debug(f"Traceback: {traceback.format_exc()}")
+            return [TextContent(type="text", text=json.dumps({"error": f"Failed to add task: {str(e)}"}))]
 
     async def _task_run(self, args: dict) -> list[TextContent]:
         """Stub for running an existing task"""

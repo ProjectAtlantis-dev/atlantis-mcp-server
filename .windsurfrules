@@ -7,7 +7,7 @@
 - ask before modifying existing files
 - ask before installing new packages, try to stick to existing packages
 - use meaningful logging so we can debug (quality over quantity)
-
+- ignore lint errors unless they are critical
 
 # overview
 - this is a simple mcp (model context protocol) npx client and two server implementations: python and node

@@ -23,6 +23,7 @@ from starlette.applications import Starlette
 from starlette.routing import WebSocketRoute
 import uvicorn
 import argparse
+from werkzeug.utils import secure_filename
 
 
 # NOTE: This server uses two different socket protocols:
@@ -358,8 +359,8 @@ class DynamicAdditionServer(Server):
              logger.error(f"❌ Error executing tool '{name}': {e}")
              import traceback
              logger.debug(f"Traceback: {traceback.format_exc()}")
-             # Return error message as TextContent, ensuring type="text"
-             return [TextContent(type="text", text=f"Error executing tool '{name}': {e}")]
+             # Re-raise the exception so the framework can handle it as a JSON-RPC error
+             raise e
 
     # --- Helper Methods for Dynamic Functions ---
     def _extract_metadata_from_file(self, file_path):
@@ -499,7 +500,7 @@ class DynamicAdditionServer(Server):
 
         # Validate the function name (must be a valid Python identifier)
         if not name or not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name):
-            return [TextContent(type="text", text=f"Invalid function name: {name}. Must be a valid Python identifier.")]
+            raise ValueError(f"Invalid function name: {name}. Must be a valid Python identifier.")
 
         logger.info(f"🔄 REGISTERING NEW FUNCTION: {name}")
 
@@ -516,21 +517,17 @@ class DynamicAdditionServer(Server):
 
             # Create a namespace to safely test the code first
             namespace = {}
-            try:
-                # Test execute the code to verify it's valid Python
-                exec(code, namespace)
+            exec(code, namespace)
 
-                # Check if the function is defined
-                if func_name not in namespace:
-                    raise ValueError(f"Function {func_name} was not defined in the code")
+            # Check if the function is defined
+            if func_name not in namespace:
+                raise ValueError(f"Function {func_name} was not defined in the code")
 
-                # Check if the function accepts named parameters and not just a single 'args' parameter
-                func = namespace[func_name]
-                sig = inspect.signature(func)
-                if len(sig.parameters) < 1:
-                    raise ValueError(f"Function {func_name} must have at least one parameter")
-            except Exception as e:
-                raise ValueError(f"Invalid function code: {str(e)}")
+            # Check if the function accepts named parameters and not just a single 'args' parameter
+            func = namespace[func_name]
+            sig = inspect.signature(func)
+            if len(sig.parameters) < 1:
+                raise ValueError(f"Function {func_name} must have at least one parameter")
 
             # Auto-generate input schema from function signature
             properties = {}
@@ -588,7 +585,7 @@ Input schema:
                 f.write(module_code)
 
             logger.info(f"✅ SUCCESSFULLY REGISTERED FUNCTION: {name}")
-            
+
             # Send notification that tools list has changed
             try:
                 # Get the current session
@@ -609,13 +606,13 @@ Input schema:
             logger.error(f"❌ ERROR REGISTERING FUNCTION: {str(e)}")
             import traceback
             logger.debug(f"Traceback: {traceback.format_exc()}")
-            return [TextContent(type="text", text=f"Error registering function: {str(e)}")]
+            raise e
 
     async def _get_function_code(self, args: dict) -> list[TextContent]:
         """Get the Python source code and description for a dynamically registered function"""
         name = args.get("name")
         if not name:
-            return [TextContent(type="text", text=json.dumps({"error": "Function name not provided"}))]
+            raise ValueError("Missing 'name' in arguments")
 
         logger.info(f"📄 GETTING CODE AND DESC FOR FUNCTION: {name}")
 
@@ -624,8 +621,7 @@ Input schema:
 
         # Check if the function file exists
         if not os.path.exists(function_path):
-            logger.warning(f"⚠️ Function file not found: {function_path}")
-            return [TextContent(type="text", text=json.dumps({"error": f"Function '{name}' not found."}))]
+            raise ValueError(f"Function '{name}' not found.")
 
         try:
             # Read the function code from the file
@@ -650,13 +646,13 @@ Input schema:
             logger.error(f"❌ ERROR READING FUNCTION FILE OR METADATA {function_path}: {str(e)}")
             import traceback
             logger.debug(f"Traceback: {traceback.format_exc()}")
-            return [TextContent(type="text", text=json.dumps({"error": f"Error reading function data for '{name}': {str(e)}"}))]
+            raise e
 
     async def _remove_function(self, args: dict) -> list[TextContent]:
         """Remove a dynamically registered function by deleting its file"""
         name = args.get("name")
         if not name:
-            return [TextContent(type="text", text="Error: Function name not provided")]
+            raise ValueError("Missing 'name' in arguments")
 
         logger.info(f"🗑️ REMOVING FUNCTION: {name}")
 
@@ -665,14 +661,13 @@ Input schema:
 
         # Check if the function file exists
         if not os.path.exists(function_path):
-            logger.warning(f"⚠️ Function file not found for removal: {function_path}")
-            return [TextContent(type="text", text=f"Error: Function '{name}' not found.")]
+            raise ValueError(f"Function '{name}' not found.")
 
         try:
             # Delete the function file
             os.remove(function_path)
             logger.info(f"✅ SUCCESSFULLY REMOVED FUNCTION: {name}")
-            
+
             # Send notification that tools list has changed
             try:
                 # Get the current session
@@ -687,13 +682,13 @@ Input schema:
             except Exception as e:
                 # Log a warning instead of returning an error, removal succeeded.
                 logger.warning(f"⚠️ COULD NOT SEND TOOL LIST CHANGED NOTIFICATION: {str(e)}")
-            
+
             return [TextContent(type="text", text=f"Successfully removed function: {name}")]
         except Exception as e:
             logger.error(f"❌ ERROR REMOVING FUNCTION FILE {function_path}: {str(e)}")
             import traceback
             logger.debug(f"Traceback: {traceback.format_exc()}")
-            return [TextContent(type="text", text=f"Error removing function '{name}': {str(e)}")]
+            raise e
 
     # --- Task Management Stubs --- #
 
@@ -716,13 +711,13 @@ Input schema:
             self.tasks[task_id] = task_payload # Store the payload, not the whole args
 
             logger.info(f"✅ Task added with ID: {task_id}, Details: {task_payload}")
-            # Return the new task ID
-            return [TextContent(type="text", text=json.dumps({"task_id": task_id}))]
+            # Return the new task ID as a plain string in 'text' and as an integer in 'number'
+            return [TextContent(type="text", text=str(task_id), number=task_id)]
         except Exception as e:
             logger.error(f"❌ Error adding task: {str(e)}")
             import traceback
             logger.debug(f"Traceback: {traceback.format_exc()}")
-            return [TextContent(type="text", text=json.dumps({"error": f"Failed to add task: {str(e)}"}))]
+            raise e
 
     async def _task_run(self, args: dict) -> list[TextContent]:
         """Stub for running an existing task"""
@@ -741,32 +736,31 @@ Input schema:
     async def _task_peek(self, args: dict) -> list[TextContent]:
         """Retrieve the stored details for a specific task ID."""
         logger.info(f"👀 TASK PEEK CALLED with args: {args}")
+        task_id_str = args.get('id')
+        if task_id_str is None:
+            raise ValueError("Missing 'id' in arguments")
+
         try:
-            task_id_str = args.get('id')
-            if task_id_str is None:
-                raise ValueError("Missing 'id' in arguments")
+            task_id = int(task_id_str) # Ensure ID is an integer
+        except ValueError:
+            raise ValueError("'id' must be an integer")
 
-            try:
-                task_id = int(task_id_str) # Ensure ID is an integer
-            except ValueError:
-                raise ValueError("'id' must be an integer")
+        # Retrieve the task details from the dictionary
+        task_details = self.tasks.get(task_id)
 
-            # Retrieve the task details from the dictionary
-            task_details = self.tasks.get(task_id)
-
-            if task_details is not None:
-                logger.info(f"✅ Task {task_id} details found: {task_details}")
-                # Return the stored task details (which is already a dictionary)
-                return [TextContent(type="text", text=json.dumps(task_details))]
-            else:
-                logger.warning(f"❓ Task ID {task_id} not found.")
-                return [TextContent(type="text", text=json.dumps({"error": f"Task ID {task_id} not found"}))]
-
-        except Exception as e:
-            logger.error(f"❌ Error peeking task: {str(e)}")
-            import traceback
-            logger.debug(f"Traceback: {traceback.format_exc()}")
-            return [TextContent(type="text", text=json.dumps({"error": f"Failed to peek task: {str(e)}"}))]
+        if task_details is not None:
+            logger.info(f"✅ Task {task_id} details found: {task_details}")
+            # Return the stored task details as a JSON string in 'text' and raw in 'json_payload'
+            return [
+                TextContent(
+                    type="text",
+                    text=json.dumps(task_details),
+                    json_payload=task_details,
+                )
+            ]
+        else:
+            logger.warning(f"❓ Task ID {task_id} not found.")
+            raise ValueError(f"Task ID {task_id} not found")
 
 
 # ServiceClient class to manage the connection to the cloud server via Socket.IO

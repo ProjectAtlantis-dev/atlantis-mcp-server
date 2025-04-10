@@ -1,2 +1,2 @@
-node dist/server.js --email=rein.dapp@gmail.com --api-key=foobar --service-name=foo
+node dist/server.js --email=rein.dapp@gmail.com --api-key=foobar --service-name=node-foo
 

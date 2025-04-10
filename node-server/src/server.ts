@@ -29,7 +29,7 @@ const argv = yargs(hideBin(process.argv)).options({
     'disable-cloud': { type: 'boolean', default: false, description: 'Disable cloud connection' },
     'host': { type: 'string', default: '0.0.0.0', description: 'Host for the local server' },
     'port': { type: 'number', default: 8001, description: 'Port for the local server' },
-    'log-level': { type: 'string', default: 'info', choices: ['error', 'warn', 'info', 'verbose', 'debug', 'silly'], description: 'Logging level' }
+    'log-level': { type: 'string', default: 'debug', choices: ['error', 'warn', 'info', 'verbose', 'debug', 'silly'], description: 'Logging level' } // Default to debug
 }).alias('e', 'email').alias('k', 'api-key').alias('s', 'service-name').alias('c', 'cloud-url').help().parseSync();
 
 // --- Logger Setup ---

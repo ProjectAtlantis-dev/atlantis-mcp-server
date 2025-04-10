@@ -1,0 +1,53 @@
+# Node Server TODO List
+
+-   [ ] **Built-in Management Tools:**
+    -   [ ] Define `_register_function` tool object (using `fs.writeFile`, `parseMetadata`, `loadAndRegisterFunction`).
+    -   [ ] Define `_get_function_code` tool object (using `fs.readFile`, `parseMetadata`).
+    -   [ ] Define `_remove_function` tool object (using `fs.unlink`, `unregisterFunction`).
+    -   [ ] Register these built-in tools in `toolRegistry`.
+-   [ ] **Tool Execution:**
+    -   [ ] Make `handleCallTool` function `async`.
+    -   [ ] Add argument validation using `jsonschema` based on `tool.parameters`.
+    -   [ ] Add logic to execute built-in tools (`tool.execute`).
+    -   [ ] Add logic to execute dynamic functions (`tool._function`).
+    -   [ ] Ensure results are formatted as `[{ type: "text", text: "..." }]`.
+-   [ ] **PID File Management:**
+    -   [ ] Implement `check_server_running` logic (read PID, check process).
+    -   [ ] Implement `create_pid_file` logic (write current PID).
+    -   [ ] Implement `remove_pid_file` logic (delete file on shutdown).
+    -   [ ] Integrate checks and creation/removal into server startup and shutdown.
+-   [ ] **Argument Parsing:**
+    -   [ ] Use `yargs` to parse command-line arguments (`--host`, `--port`, `--cloud-host`, `--cloud-port`, `--cloud-namespace`, `--email`, `--api-key`, `--service-name`, `--no-cloud`).
+    -   [ ] Override default configurations with parsed arguments.
+-   [ ] **Cloud Connection (Socket.IO Client):**
+    -   [ ] Implement `ServiceClient` class similar to Python version.
+    -   [ ] Connect to the cloud server using `socket.io-client` if `--no-cloud` is not set.
+    -   [ ] Handle authentication (`email`, `api-key`, `service-name`).
+    -   [ ] Implement retry logic with exponential backoff.
+    -   [ ] Handle incoming MCP requests from the cloud via Socket.IO events and route them to the MCP handlers.
+    -   [ ] Handle disconnection and cleanup.
+-   [ ] **Graceful Shutdown:**
+    -   [ ] Ensure watcher is closed (`process.watcher.close()`).
+    -   [ ] Ensure cloud connection is properly disconnected.
+    -   [ ] Ensure all client WebSocket connections are closed.
+    -   [ ] Ensure PID file is removed.
+-   [ ] **Notifications:**
+    -   [ ] Implement sending `tools/list_changed` notifications when dynamic functions are added, updated, or removed.
+-   [ ] **Task Management (Mirroring Python Stubs):**
+    -   [ ] Define `_task_add` tool: Store task details (payload, schedule?) associated with an ID. (Needs data structure, e.g., Map).
+    -   [ ] Define `_task_run` tool: Stub function to simulate running a task by ID.
+    -   [ ] Define `_task_remove` tool: Stub function to remove a task by ID from storage.
+    -   [ ] Define `_task_peek` tool: Retrieve stored details for a specific task ID.
+    -   [ ] Register these built-in task tools in `toolRegistry`.
+    -   [ ] Update `handleCallTool` to execute task tools.
+-   [ ] **Testing:**
+    -   [ ] Test connection with `npx mcp-client ws://localhost:8001`.
+    -   [ ] Test `tools/list`.
+    -   [ ] Test registering a simple dynamic function (e.g., add two numbers) using `_register_function`.
+    -   [ ] Test calling the dynamic function via `tools/call`.
+    -   [ ] Test `_get_function_code`.
+    -   [ ] Test `_remove_function`.
+    -   [ ] Test PID file logic (start second instance, check shutdown).
+    -   [ ] Test argument parsing.
+    -   [ ] Test cloud connection (if applicable).
+    -   [ ] Test task management tools (`_task_add`, `_task_peek`, `_task_remove`, `_task_run`).

@@ -10,6 +10,7 @@
 
 
 # overview
-- this is a simple mcp (model context protocol) npx client and python server
-- it has built in tools for adding new dynamic tools.functions on the fly (code is placed into the dynamic_functions folder)
+- this is a simple mcp (model context protocol) npx client and two server implementations: python and node
+- each server has built in tools for adding new dynamic tools.functions on the fly (code is placed into the dynamic_functions folder)
+- each server has task capability (which is mostly about parameter passing) which is still in-work
 - we use the term dynamic tool and function interchangeably although mcp prefers tool

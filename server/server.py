@@ -18,7 +18,7 @@ import socketio
 from mcp.server import Server
 from mcp.server.websocket import websocket_server
 from mcp.client.websocket import websocket_client
-from mcp.types import Tool, TextContent, CallToolResult, ToolListChangedNotification, NotificationParams
+from mcp.types import Tool, TextContent, CallToolResult, ToolListChangedNotification, NotificationParams, Annotations
 from starlette.applications import Starlette
 from starlette.routing import WebSocketRoute
 import uvicorn
@@ -347,8 +347,10 @@ class DynamicAdditionServer(Server):
                            # If type is missing or wrong, force it (might lose other fields if TextContent model changes)
                            logger.warning(f"Tool {name} helper returned TextContent without type='text', correcting.")
                            item.type = 'text' # Modify in place if possible, or reconstruct
-                 return result_value
+                 logger.debug(f"🚀 Returning correctly formatted result: {result_value}") # Add detailed log
+                 return result_value # Should return the list with annotations intact
             elif isinstance(result_value, str):
+                 logger.debug(f"🚀 Wrapping string result: {result_value}")
                  return [TextContent(type="text", text=result_value)] # Wrap string
             else:
                  # Attempt to convert other types to string representation
@@ -711,8 +713,14 @@ Input schema:
             self.tasks[task_id] = task_payload # Store the payload, not the whole args
 
             logger.info(f"✅ Task added with ID: {task_id}, Details: {task_payload}")
-            # Return the new task ID as a plain string in 'text' and as an integer in 'number'
-            return [TextContent(type="text", text=str(task_id), number=task_id)]
+            # Return the new task ID as string in 'text' and int in annotations.task_id_int
+            return [
+                TextContent(
+                    type="text",
+                    text=str(task_id),
+                    annotations=Annotations(task_id_int=task_id) # Add ID to annotations
+                )
+            ]
         except Exception as e:
             logger.error(f"❌ Error adding task: {str(e)}")
             import traceback
@@ -750,12 +758,12 @@ Input schema:
 
         if task_details is not None:
             logger.info(f"✅ Task {task_id} details found: {task_details}")
-            # Return the stored task details as a JSON string in 'text' and raw in 'json_payload'
+            # Return the stored task details as JSON string in 'text' and raw dict in annotations.task_payload_json
             return [
                 TextContent(
                     type="text",
                     text=json.dumps(task_details),
-                    json_payload=task_details,
+                    annotations=Annotations(task_payload_json=task_details) # Add payload to annotations
                 )
             ]
         else:

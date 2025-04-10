@@ -242,7 +242,7 @@ class DynamicAdditionServer(Server):
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "id": {"type": "string", "description": "ID of the task to run"}
+                        "id": {"type": "integer", "description": "ID of the task to run"}
                     },
                     "required": ["id"]
                 }
@@ -253,7 +253,18 @@ class DynamicAdditionServer(Server):
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "id": {"type": "string", "description": "ID of the task to remove"}
+                        "id": {"type": "integer", "description": "ID of the task to remove"}
+                    },
+                    "required": ["id"]
+                }
+            ),
+            Tool(
+                name="task_peek",
+                description="(Stub) Retrieve the stored details for a specific task ID",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "integer", "description": "ID of the task to peek"}
                     },
                     "required": ["id"]
                 }
@@ -301,6 +312,8 @@ class DynamicAdditionServer(Server):
                 result_value = await self._task_run(args)
             elif name == "task_remove":
                 result_value = await self._task_remove(args)
+            elif name == "task_peek":
+                result_value = await self._task_peek(args)
 
             # Check if this is a dynamically registered function
             else:
@@ -724,6 +737,37 @@ Input schema:
         # Placeholder logic: Extract args if needed
         task_id = args.get("id", "unknown_id")
         return [TextContent(type="text", text=f"Task remove for ID '{task_id}' called (stub)")]
+
+    async def _task_peek(self, args: dict) -> list[TextContent]:
+        """Retrieve the stored details for a specific task ID."""
+        logger.info(f"👀 TASK PEEK CALLED with args: {args}")
+        try:
+            task_id_str = args.get('id')
+            if task_id_str is None:
+                raise ValueError("Missing 'id' in arguments")
+
+            try:
+                task_id = int(task_id_str) # Ensure ID is an integer
+            except ValueError:
+                raise ValueError("'id' must be an integer")
+
+            # Retrieve the task details from the dictionary
+            task_details = self.tasks.get(task_id)
+
+            if task_details is not None:
+                logger.info(f"✅ Task {task_id} details found: {task_details}")
+                # Return the stored task details (which is already a dictionary)
+                return [TextContent(type="text", text=json.dumps(task_details))]
+            else:
+                logger.warning(f"❓ Task ID {task_id} not found.")
+                return [TextContent(type="text", text=json.dumps({"error": f"Task ID {task_id} not found"}))]
+
+        except Exception as e:
+            logger.error(f"❌ Error peeking task: {str(e)}")
+            import traceback
+            logger.debug(f"Traceback: {traceback.format_exc()}")
+            return [TextContent(type="text", text=json.dumps({"error": f"Failed to peek task: {str(e)}"}))]
+
 
 # ServiceClient class to manage the connection to the cloud server via Socket.IO
 class ServiceClient:

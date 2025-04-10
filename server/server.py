@@ -219,6 +219,41 @@ class DynamicAdditionServer(Server):
                     "required": ["name"]
                 }
             ),
+            # --- Task Management Tools --- #
+            Tool(
+                name="task_add",
+                description="(Stub) Add a new task",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Name of the task to add"}
+                        # Add other task parameters here later
+                    },
+                    "required": ["name"]
+                }
+            ),
+            Tool(
+                name="task_run",
+                description="(Stub) Run an existing task",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "description": "ID of the task to run"}
+                    },
+                    "required": ["id"]
+                }
+            ),
+            Tool(
+                name="task_remove",
+                description="(Stub) Remove a task",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "description": "ID of the task to remove"}
+                    },
+                    "required": ["id"]
+                }
+            ),
         ]
 
         # Scan the functions directory for .py files
@@ -254,6 +289,14 @@ class DynamicAdditionServer(Server):
 
             elif name == "function_remove": # Add routing for remove_function
                 result_value = await self._remove_function(args)
+
+            # --- Handle Task Management Stubs ---
+            elif name == "task_add":
+                result_value = await self._task_add(args)
+            elif name == "task_run":
+                result_value = await self._task_run(args)
+            elif name == "task_remove":
+                result_value = await self._task_remove(args)
 
             # Check if this is a dynamically registered function
             else:
@@ -635,6 +678,28 @@ Input schema:
             logger.debug(f"Traceback: {traceback.format_exc()}")
             return [TextContent(type="text", text=f"Error removing function '{name}': {str(e)}")]
 
+    # --- Task Management Stubs --- #
+
+    async def _task_add(self, args: dict) -> list[TextContent]:
+        """Stub for adding a new task"""
+        logger.info("⚙️ TASK ADD CALLED (STUB)")
+        # Placeholder logic: Extract args if needed
+        task_name = args.get("name", "unnamed_task")
+        return [TextContent(type="text", text=f"Task '{task_name}' add called (stub)")]
+
+    async def _task_run(self, args: dict) -> list[TextContent]:
+        """Stub for running an existing task"""
+        logger.info("▶️ TASK RUN CALLED (STUB)")
+        # Placeholder logic: Extract args if needed
+        task_id = args.get("id", "unknown_id")
+        return [TextContent(type="text", text=f"Task run for ID '{task_id}' called (stub)")]
+
+    async def _task_remove(self, args: dict) -> list[TextContent]:
+        """Stub for removing a task"""
+        logger.info("🗑️ TASK REMOVE CALLED (STUB)")
+        # Placeholder logic: Extract args if needed
+        task_id = args.get("id", "unknown_id")
+        return [TextContent(type="text", text=f"Task remove for ID '{task_id}' called (stub)")]
 
 # ServiceClient class to manage the connection to the cloud server via Socket.IO
 class ServiceClient:

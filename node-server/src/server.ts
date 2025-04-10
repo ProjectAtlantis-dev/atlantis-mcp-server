@@ -5,6 +5,9 @@ import winston from 'winston';
 import path from 'path';
 import fs from 'fs/promises';
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'fs';
+import io from 'socket.io-client'; // Standard import for the function
+import yargs from 'yargs';
+import { hideBin } from 'yargs/helpers';
 
 // --- Import Shared Types ---
 import {
@@ -17,9 +20,21 @@ import {
     DynamicFunctionModule
 } from './types';
 
+// --- Argument Parsing ---
+const argv = yargs(hideBin(process.argv)).options({
+    'email': { type: 'string', description: 'Cloud server email for authentication' },
+    'api-key': { type: 'string', description: 'Cloud server API key for authentication' },
+    'service-name': { type: 'string', description: 'Service name to register with cloud server' },
+    'cloud-url': { type: 'string', default: "http://localhost:3010", description: 'URL of the cloud server' },
+    'disable-cloud': { type: 'boolean', default: false, description: 'Disable cloud connection' },
+    'host': { type: 'string', default: '0.0.0.0', description: 'Host for the local server' },
+    'port': { type: 'number', default: 8001, description: 'Port for the local server' },
+    'log-level': { type: 'string', default: 'info', choices: ['error', 'warn', 'info', 'verbose', 'debug', 'silly'], description: 'Logging level' }
+}).alias('e', 'email').alias('k', 'api-key').alias('s', 'service-name').alias('c', 'cloud-url').help().parseSync();
+
 // --- Logger Setup ---
 const logger = winston.createLogger({
-    level: 'info', // TODO: Make configurable via args
+    level: argv['log-level'] || 'info', // TODO: Make configurable via args
     format: winston.format.combine(
         winston.format.timestamp(),
         winston.format.printf(({ timestamp, level, message }) => `${timestamp} ${level.toUpperCase()}: ${message}`)
@@ -28,14 +43,18 @@ const logger = winston.createLogger({
 });
 
 // --- Constants ---
-const HOST: string = process.env.HOST || '0.0.0.0'; // TODO: Use yargs
-const PORT: number = parseInt(process.env.PORT || '8001', 10); // TODO: Use yargs
+const HOST: string = argv['host']; // TODO: Use yargs
+const PORT: number = argv['port']; // TODO: Use yargs
 const MCP_PATH: string = '/mcp';
 // Points to the DIRECTORY where compiled JS function files will reside
 const COMPILED_FUNCTIONS_DIR: string = path.join(__dirname, 'dynamic_functions');
 // Base source directory for creating the compiled dir if needed
 const SOURCE_FUNCTIONS_DIR: string = path.join(__dirname, '..', 'src', 'dynamic_functions');
 const PID_FILE: string = path.join(__dirname, '..', 'mcp_node_server.pid'); // Place in project root (outside dist)
+const CLOUD_NAMESPACE = "/service";
+const CLOUD_RECONNECT_DELAY_BASE_MS = 5000; // 5 seconds
+const CLOUD_MAX_RECONNECT_ATTEMPTS = 10;
+const CLOUD_MAX_RECONNECT_BACKOFF_MS = 60000; // 60 seconds
 
 // --- MCP Tool Registry ---
 const toolRegistry = new Map<string, ToolDefinition>();
@@ -270,6 +289,135 @@ server.on('upgrade', (request: http.IncomingMessage, socket: any, head: Buffer) 
     }
 });
 
+// --- Global state variables ---
+let cloudSocket: any;
+let cloudReconnectTimer: NodeJS.Timeout | null = null;
+let cloudConnectionAttempts: number = 0;
+
+// --- New functions ---
+
+const scheduleCloudReconnection = () => {
+    if (cloudReconnectTimer) {
+        clearTimeout(cloudReconnectTimer); // Clear existing timer if any
+    }
+    if (cloudConnectionAttempts >= CLOUD_MAX_RECONNECT_ATTEMPTS) {
+        logger.error(`☁️❌ Reached max cloud reconnection attempts (${CLOUD_MAX_RECONNECT_ATTEMPTS}). Giving up.`);
+        return;
+    }
+
+    cloudConnectionAttempts++;
+    // Exponential backoff with jitter
+    const delay = Math.min(
+        CLOUD_MAX_RECONNECT_BACKOFF_MS,
+        CLOUD_RECONNECT_DELAY_BASE_MS * Math.pow(2, cloudConnectionAttempts - 1)
+    );
+    const jitter = delay * 0.2 * Math.random(); // Add +/- 10% jitter
+    const reconnectDelay = Math.round(delay + jitter);
+
+
+    logger.info(`☁️ Scheduling cloud reconnection attempt ${cloudConnectionAttempts}/${CLOUD_MAX_RECONNECT_ATTEMPTS} in ${reconnectDelay}ms...`);
+    cloudReconnectTimer = setTimeout(connectToCloud, reconnectDelay);
+};
+
+const connectToCloud = () => {
+    if (argv['disable-cloud']) {
+        logger.info("☁️ Cloud connection explicitly disabled via --disable-cloud.");
+        return;
+    }
+
+    const cloudUrl = argv['cloud-url'];
+    const email = argv['email'];
+    const apiKey = argv['api-key'];
+    const serviceName = argv['service-name'];
+
+    if (!email || !apiKey || !serviceName) {
+        logger.error("☁️❌ Missing required cloud connection arguments: --email, --api-key, --service-name. Cloud connection disabled.");
+        return;
+    }
+
+    logger.info(`☁️ Attempting to connect to cloud server at ${cloudUrl}${CLOUD_NAMESPACE}...`);
+
+    // Ensure previous socket is properly closed before creating a new one
+    if (cloudSocket) {
+        cloudSocket.removeAllListeners(); // Clean up listeners
+        cloudSocket.disconnect();
+        cloudSocket = null;
+    }
+    if (cloudReconnectTimer) {
+        clearTimeout(cloudReconnectTimer);
+        cloudReconnectTimer = null;
+    }
+
+    cloudSocket = io(cloudUrl, {
+        path: '/socket.io', // Standard path, adjust if cloud server uses something else
+        transports: ['websocket'], // Prefer websocket
+        autoConnect: false, // We manage connection manually
+        reconnection: false, // We manage reconnection manually
+        auth: { email, apiKey, serviceName },
+        // Specify the namespace if needed, often done in the URL or path
+        // For Socket.IO v3/v4, namespace is usually part of the URL or handled server-side
+        // If connection fails, try adding namespace to URL: io(`${cloudUrl}${CLOUD_NAMESPACE}`, {...})
+    });
+
+    cloudSocket.on('connect', () => {
+        logger.info(`☁️✅ Successfully connected to cloud server: ${cloudSocket?.id}`);
+        cloudConnectionAttempts = 0; // Reset attempts on successful connect
+        // Send identification to the cloud server
+        const serviceName = argv['service-name'];
+        if (serviceName && cloudSocket) { // Ensure socket exists and we have a name
+            const payload = { name: serviceName };
+            cloudSocket.emit('client', payload);
+            logger.debug('☁️⬆️ Sent client identification to cloud:', payload);
+        } else if (!serviceName) {
+            logger.warn('☁️⚠️ Cannot send client identification: service name is missing.');
+        }
+        // TODO: Send any necessary identification or registration messages?
+    });
+
+    cloudSocket.on('connect_error', (err: Error) => {
+        logger.error(`☁️❌ Cloud connection error: ${err.message}`);
+        // Check for specific auth errors if the server provides them
+        if (err.message.includes('Authentication error')) { // Adjust based on actual server error
+            logger.error("☁️ Authentication failed. Please check --email, --api-key, --service-name.");
+            // Don't retry on auth failure
+        } else {
+            scheduleCloudReconnection();
+        }
+    });
+
+    cloudSocket.on('disconnect', (reason: string) => { // Disconnect reason is a string
+        logger.warn(`☁️🔌 Disconnected from cloud server. Reason: ${reason}`);
+        cloudSocket = null; // Clear the socket instance
+        // Reconnect unless intentionally disconnected or it was an auth error
+        if (reason !== 'io server disconnect' && reason !== 'io client disconnect') {
+             scheduleCloudReconnection();
+        } else {
+             logger.info(`☁️ Intentional disconnect from cloud. Won't reconnect automatically.`);
+        }
+    });
+
+    // --- Placeholder for handling messages FROM the cloud ---
+    // Listen for specific events the cloud server might emit
+    cloudSocket.onAny((eventName, ...args) => {
+        logger.debug(`☁️👇 Received cloud event '${eventName}':`, args);
+        // TODO: Add logic to handle messages from the cloud server
+        // e.g., if (eventName === 'requestToolCall') { handleCloudToolCall(args); }
+    });
+    // --- End Placeholder ---
+
+
+    cloudSocket.on('error', (err: Error) => {
+        logger.error(`☁️ Socket.IO general error: ${err.message}`);
+        // General errors might not trigger disconnect, schedule check/reconnect
+        if (!cloudSocket?.connected) {
+             scheduleCloudReconnection();
+        }
+    });
+
+    // Manually initiate the connection
+    cloudSocket.connect();
+};
+
 // --- Start Server & Initial Setup ---
 const startServer = async () => {
     logger.info(`📝 Checking PID file: ${PID_FILE}`);
@@ -345,6 +493,9 @@ const startServer = async () => {
             // Continue running, but log the error
         }
     });
+
+    // --- Connect to Cloud Server ---
+    connectToCloud(); // Initiate connection after local server is up
 };
 
 // --- Graceful Shutdown ---
@@ -356,6 +507,18 @@ const shutdown = async (): Promise<void> => {
         server.close(() => logger.info('🛑 HTTP server closed.'));
         logger.info(`🔌 Closing ${wss.clients.size} client connections...`);
         wss.clients.forEach(client => { if (client.readyState === WebSocket.OPEN) client.close(); });
+
+        // --- Disconnect from Cloud ---
+        if (cloudReconnectTimer) {
+            clearTimeout(cloudReconnectTimer); // Clear existing timer if any
+            cloudReconnectTimer = null;
+            logger.info("☁️ Cleared pending cloud reconnect timer.");
+        }
+        if (cloudSocket && cloudSocket.connected) {
+            logger.info("☁️ Disconnecting from cloud server...");
+            cloudSocket.disconnect(); // Trigger intentional disconnect
+            cloudSocket = null;
+        }
 
         // Add other cleanup (cloud connection, etc.)
         await new Promise(resolve => setTimeout(resolve, 500)); // Brief pause

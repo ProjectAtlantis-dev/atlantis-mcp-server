@@ -10,6 +10,7 @@ import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import os from 'os'; // ADDED IMPORT
 import process from 'process'; // Explicit import for process.kill
+import * as ts from 'typescript'; // Added for Compiler API
 
 // --- Import Shared Types ---
 import {
@@ -78,7 +79,7 @@ const sendError = (ws: WebSocket, id: string | number | null, code: number, mess
 };
 
 // --- Dynamic Function Loading ---
-const loadAndRegisterDynamicFunction = async (compiledFilePath: string): Promise<void> => {
+const loadAndRegisterDynamicFunction = async (compiledFilePath: string, expectedFunctionName?: string): Promise<void> => {
     // Use compiled JS file path
     const functionName = path.basename(compiledFilePath, '.js');
 
@@ -134,7 +135,6 @@ const loadAndRegisterDynamicFunction = async (compiledFilePath: string): Promise
     }
 };
 
-
 // --- Stub Tool Definitions ---
 const createStubTool = (
     name: string,
@@ -154,7 +154,161 @@ const createStubTool = (
 };
 
 // Define stubs... (keep these as before)
-const registerFunctionStub = createStubTool("_register_function", "Registers a new dynamic function.", { function_name: { type: "string" }, code: { type: "string" } }, ["function_name", "code"]);
+// const registerFunctionStub = createStubTool("_function_register", "Registers a new dynamic function.", { function_name: { type: "string" }, code: { type: "string" } }, ["function_name", "code"]); // Replaced with full implementation below
+
+// --- Custom implementation for _function_register ---
+const registerFunctionTool: ToolDefinition = {
+    name: "_function_register",
+    description: "Saves, compiles, and registers a new dynamic TypeScript function based on its exported toolDefinition.",
+    inputSchema: {
+        type: "object",
+        properties: {
+            code: { type: "string", description: "The TypeScript source code for the function, must export 'toolDefinition'" }
+        },
+        required: ["code"]
+    },
+    async execute(args: { code?: string }): Promise<TextContent[]> {
+        const code = args.code;
+
+        if (!code) {
+            throw new Error("Missing required argument: code");
+        }
+
+        // --- Extract function name from code --- PRE-SAVE STEP
+        let functionName: string | null = null;
+        try {
+            const sourceFile = ts.createSourceFile(
+                'temp.ts', // Temporary filename for parsing
+                code,
+                ts.ScriptTarget.Latest,
+                true // Set parent pointers
+            );
+
+            ts.forEachChild(sourceFile, node => {
+                if (functionName) return; // Stop searching once found
+
+                if (ts.isVariableStatement(node) && node.modifiers?.some(mod => mod.kind === ts.SyntaxKind.ExportKeyword)) {
+                    node.declarationList.declarations.forEach(declaration => {
+                        if (declaration.name.getText(sourceFile) === 'toolDefinition' && declaration.initializer && ts.isObjectLiteralExpression(declaration.initializer)) {
+                            declaration.initializer.properties.forEach(prop => {
+                                if (ts.isPropertyAssignment(prop) && prop.name.getText(sourceFile) === 'name' && prop.initializer && ts.isStringLiteral(prop.initializer)) {
+                                    functionName = prop.initializer.text; // Extract the string value
+                                }
+                            });
+                        }
+                    });
+                }
+            });
+
+            if (!functionName) {
+                throw new Error("Could not find an exported 'toolDefinition' constant with a string 'name' property in the provided code.");
+            }
+             logger.info(`Extracted function name from code: ${functionName}`);
+
+        } catch (parseError: any) {
+            logger.error(`Failed to parse code or extract function name: ${parseError.message}`);
+            throw new Error(`Failed to parse code: ${parseError.message}`);
+        }
+        // --- End extraction ---
+
+        // Basic validation for extracted function name
+        if (!/^[a-zA-Z0-9_]+$/.test(functionName)) {
+            throw new Error(`Invalid extracted function_name '${functionName}': only alphanumeric characters and underscores allowed.`);
+        }
+
+        const sourceFilePath = path.join(SOURCE_FUNCTIONS_DIR, `${functionName}.ts`);
+        const compiledFilePath = path.join(COMPILED_FUNCTIONS_DIR, `${functionName}.js`);
+
+        logger.info(`Attempting to register function '${functionName}' (name derived from code)...`);
+
+        // 1. Save the TypeScript code (now that we know the name)
+        try {
+            // Ensure the source directory exists
+            await fs.mkdir(SOURCE_FUNCTIONS_DIR, { recursive: true });
+            await fs.writeFile(sourceFilePath, code, 'utf8');
+            logger.info(`Saved TypeScript source to: ${sourceFilePath}`);
+        } catch (writeError: any) {
+            logger.error(`Failed to write source file ${sourceFilePath}: ${writeError.message}`);
+            throw new Error(`Failed to save function source: ${writeError.message}`);
+        }
+
+        // 2. Attempt to compile the TypeScript file using the Compiler API
+        try {
+            // Ensure compiled directory exists
+            await fs.mkdir(COMPILED_FUNCTIONS_DIR, { recursive: true });
+
+            const compilerOptions: ts.CompilerOptions = {
+                outDir: COMPILED_FUNCTIONS_DIR,
+                target: ts.ScriptTarget.ES2016,
+                module: ts.ModuleKind.CommonJS,
+                esModuleInterop: true,
+                skipLibCheck: true,
+                resolveJsonModule: true,
+                // sourceMap: true, // Optional: generate source maps
+                declaration: false, // Optional: don't generate .d.ts files
+            };
+
+            logger.info(`Compiling ${sourceFilePath} using TypeScript API...`);
+            const program = ts.createProgram([sourceFilePath], compilerOptions);
+            const emitResult = program.emit();
+
+            const allDiagnostics = ts
+                .getPreEmitDiagnostics(program)
+                .concat(emitResult.diagnostics);
+
+            let hasError = false;
+            const diagnosticMessages: string[] = [];
+
+            allDiagnostics.forEach(diagnostic => {
+                if (diagnostic.category === ts.DiagnosticCategory.Error) {
+                    hasError = true;
+                }
+                if (diagnostic.file) {
+                    const { line, character } = ts.getLineAndCharacterOfPosition(diagnostic.file, diagnostic.start!);
+                    const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
+                    diagnosticMessages.push(`${path.basename(diagnostic.file.fileName)} (${line + 1},${character + 1}): ${message}`);
+                } else {
+                    diagnosticMessages.push(ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'));
+                }
+            });
+
+            if (hasError || emitResult.emitSkipped) {
+                const errorOutput = diagnosticMessages.join('\n');
+                logger.error(`Compilation failed for ${functionName}. Diagnostics:\n${errorOutput}`);
+                // Attempt to clean up the bad .ts file
+                try { await fs.unlink(sourceFilePath); } catch { /* Ignore cleanup error */ }
+                throw new Error(`Compilation failed:\n${errorOutput}`);
+            }
+
+            logger.info(`Successfully compiled ${functionName} using TypeScript API to: ${compiledFilePath}`);
+
+            // 3. Load and register the compiled function if compilation succeeded
+            try {
+                // Pass the extracted name to the loading function
+                await loadAndRegisterDynamicFunction(compiledFilePath, functionName); 
+                logger.info(`Successfully loaded and registered compiled function: ${functionName}`);
+                return [{ type: "text", text: `Function '${functionName}' registered and compiled successfully.` }];
+            } catch (loadError: any) {
+                 logger.error(`Compilation succeeded but failed to load/register function ${functionName}: ${loadError.message}`);
+                 // If loading fails, the compiled file might be bad - consider cleanup of .js?
+                 try { await fs.unlink(compiledFilePath); } catch { /* Ignore cleanup error */ }
+                 throw new Error(`Compilation succeeded but failed to load function: ${loadError.message}`);
+            }
+
+        } catch (compileOrLoadError: any) {
+            // This catches errors from file operations, API usage, or the re-thrown errors above
+            logger.error(`Registration process failed for ${functionName}: ${compileOrLoadError.message}`);
+            // Attempt to clean up the .ts file if it still exists and wasn't cleaned up above
+            try { 
+                if (existsSync(sourceFilePath)) {
+                    await fs.unlink(sourceFilePath);
+                }
+            } catch { /* Ignore cleanup error */ }
+            // Re-throw the specific error
+            throw compileOrLoadError; // Propagate the original error object
+        }
+    }
+};
 
 // --- Custom implementation for _function_get ---
 const getFunctionCodeTool: ToolDefinition = {
@@ -193,16 +347,89 @@ const getFunctionCodeTool: ToolDefinition = {
     }
 };
 
-const removeFunctionStub = createStubTool("_remove_function", "Removes a dynamic function.", { function_name: { type: "string" } }, ["function_name"]);
+// --- Custom implementation for _function_remove ---
+const removeFunctionTool: ToolDefinition = {
+    name: "_function_remove",
+    description: "Unregisters a dynamic function and deletes its source and compiled files.",
+    inputSchema: {
+        type: "object",
+        properties: {
+            function_name: { type: "string", description: "The name of the function to remove" }
+        },
+        required: ["function_name"]
+    },
+    async execute(args: { function_name?: string }): Promise<TextContent[]> {
+        const functionName = args.function_name;
+        if (!functionName) {
+            throw new Error("Missing required argument: function_name");
+        }
+
+        logger.info(`Attempting to remove function '${functionName}'...`);
+
+        const sourceFilePath = path.join(SOURCE_FUNCTIONS_DIR, `${functionName}.ts`);
+        const compiledFilePath = path.join(COMPILED_FUNCTIONS_DIR, `${functionName}.js`);
+
+        let wasRegistered = false;
+        let tsDeleted = false;
+        let jsDeleted = false;
+
+        // 1. Unregister from Tool Registry
+        if (toolRegistry.has(functionName)) {
+            toolRegistry.delete(functionName);
+            wasRegistered = true;
+            logger.info(`Unregistered function '${functionName}' from tool registry.`);
+        } else {
+             // If it wasn't registered, still proceed to delete files, but log it.
+             logger.warn(`Function '${functionName}' was not found in the tool registry. Attempting file cleanup anyway.`);
+        }
+
+        // 2. Delete TypeScript source file
+        try {
+            await fs.unlink(sourceFilePath);
+            tsDeleted = true;
+            logger.info(`Deleted source file: ${sourceFilePath}`);
+        } catch (error: any) {
+            if (error.code === 'ENOENT') {
+                logger.info(`Source file not found (already deleted?): ${sourceFilePath}`);
+            } else {
+                logger.error(`Failed to delete source file ${sourceFilePath}: ${error.message}`);
+                // Decide if this is critical enough to throw? For cleanup, maybe not.
+            }
+        }
+
+        // 3. Delete JavaScript compiled file
+        try {
+            await fs.unlink(compiledFilePath);
+            jsDeleted = true;
+            logger.info(`Deleted compiled file: ${compiledFilePath}`);
+        } catch (error: any) {
+            if (error.code === 'ENOENT') {
+                logger.info(`Compiled file not found (already deleted?): ${compiledFilePath}`);
+            } else {
+                logger.error(`Failed to delete compiled file ${compiledFilePath}: ${error.message}`);
+            }
+        }
+
+        let message = `Function '${functionName}' removal process finished.`;
+        if (wasRegistered) message += " Unregistered from tools.";
+        if (tsDeleted) message += " Source file deleted.";
+        if (jsDeleted) message += " Compiled file deleted.";
+        if (!wasRegistered && !tsDeleted && !jsDeleted) message = `Function '${functionName}' not found (neither in registry nor as files).`
+
+        return [{ type: "text", text: message }];
+    }
+};
+
 const taskAddStub = createStubTool("_task_add", "Adds a task.", { payload: { type: "object" } }, ["payload"]); // Simplified task stubs based on Python
 const taskRunStub = createStubTool("_task_run", "Runs a task.", { id: { type: "integer" } }, ["id"]);
 const taskRemoveStub = createStubTool("_task_remove", "Removes a task.", { id: { type: "integer" } }, ["id"]);
 const taskPeekStub = createStubTool("_task_peek", "Gets task details.", { id: { type: "integer" } }, ["id"]);
 
 // Register stubs...
-toolRegistry.set(registerFunctionStub.name, registerFunctionStub);
+// toolRegistry.set(registerFunctionStub.name, registerFunctionStub);
+toolRegistry.set(registerFunctionTool.name, registerFunctionTool); // Register the new implementation
 toolRegistry.set(getFunctionCodeTool.name, getFunctionCodeTool); // Register the new implementation
-toolRegistry.set(removeFunctionStub.name, removeFunctionStub);
+toolRegistry.set(removeFunctionTool.name, removeFunctionTool); // Register the new implementation
 toolRegistry.set(taskAddStub.name, taskAddStub);
 toolRegistry.set(taskRunStub.name, taskRunStub);
 toolRegistry.set(taskRemoveStub.name, taskRemoveStub);
@@ -623,8 +850,8 @@ const startServer = async () => {
                  logger.warn(`⚠️ PID file (${PID_FILE}) contains invalid content: "${pidString}". Ignoring and removing.`);
                  try { unlinkSync(PID_FILE); } catch (unlinkErr: any) { logger.error(`Failed to remove invalid PID file: ${unlinkErr.message}`); }
             }
-        } catch (readErr: any) {
-            logger.error(`❌ Error reading PID file (${PID_FILE}): ${readErr.message}. Exiting.`);
+        } catch (readError: any) {
+            logger.error(`❌ Error reading PID file (${PID_FILE}): ${readError.message}. Exiting.`);
             process.exit(1);
         }
     }

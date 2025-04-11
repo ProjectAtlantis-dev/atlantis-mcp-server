@@ -1,17 +1,17 @@
 // src/dynamic_functions/add.ts
-import { ToolParameters } from '../types'; // Import from types.ts
+import { InputSchema } from '../types'; // Import InputSchema
 
 // Define the metadata for the MCP tool registry
 export const metadata = {
     description: "Adds two numbers together.",
-    parameters: {
+    inputSchema: {
         type: "object",
         properties: {
             a: { type: "number", description: "The first number." },
             b: { type: "number", description: "The second number." }
         },
         required: ["a", "b"]
-    } as ToolParameters // Cast to ensure type correctness
+    } as InputSchema // Cast to ensure type correctness
 };
 
 // Define the actual function logic

@@ -101,16 +101,17 @@ const loadAndRegisterDynamicFunction = async (compiledFilePath: string): Promise
         if (typeof dynamicModule.metadata.description !== 'string' || !dynamicModule.metadata.description) throw new Error(`Exported 'metadata' missing required 'description' string.`);
 
         // Default parameters if missing
-        const parameters = dynamicModule.metadata.parameters ?? { type: 'object', properties: {} };
-         if (!dynamicModule.metadata.parameters) {
-            logger.debug(`Function '${functionName}' has no parameters defined in metadata.`);
+        const inputSchema = dynamicModule.metadata.inputSchema ?? { type: 'object', properties: {} };
+
+         if (!dynamicModule.metadata.inputSchema) {
+            logger.debug(`Function '${functionName}' has no input schema defined in metadata.`);
          }
 
 
         const toolDef: ToolDefinition = {
             name: functionName,
             description: dynamicModule.metadata.description,
-            parameters: parameters,
+            inputSchema: inputSchema,
             _function: dynamicModule.handler, // Store the actual function
             _filePath: compiledFilePath // Store the path to the loaded JS file
         };
@@ -136,13 +137,13 @@ const loadAndRegisterDynamicFunction = async (compiledFilePath: string): Promise
 const createStubTool = (
     name: string,
     description: string,
-    parametersSchema: { [key: string]: ToolParameterProperty },
+    inputSchema: { [key: string]: ToolParameterProperty },
     requiredParams: string[] = []
 ): ToolDefinition => {
     return {
         name: name,
         description: description + " (STUB)",
-        parameters: { type: "object", properties: parametersSchema, required: requiredParams },
+        inputSchema: { type: "object", properties: inputSchema, required: requiredParams },
         async execute(args: any): Promise<TextContent[]> {
             logger.info(`Executing STUB for tool: ${name} with args: ${JSON.stringify(args)}`);
             return [{ type: "text", text: `Tool '${name}' called successfully (stub implementation).` }];
@@ -191,8 +192,8 @@ const handleCallTool = async (ws: WebSocket, id: string | number | null, params:
     if (tool) {
         try {
             // TODO: Add proper jsonschema validation here
-            if (tool.parameters && Array.isArray(tool.parameters.required)) {
-                for (const requiredParam of tool.parameters.required) {
+            if (tool.inputSchema && Array.isArray(tool.inputSchema.required)) {
+                for (const requiredParam of tool.inputSchema.required) {
                     if (!args || args[requiredParam] === undefined) {
                         throw new Error(`Missing required parameter: '${requiredParam}'`);
                     }
@@ -403,50 +404,124 @@ const connectToCloud = () => {
 
     // --- Placeholder for handling messages FROM the cloud ---
     // Listen for specific events the cloud server might emit
-    cloudSocket.onAny((eventName, ...args) => {
+    cloudSocket.onAny(async (eventName: string, ...args: any[]) => { // Make callback async
+        // Skip 'open', 'close', 'error' events for general logging if handled elsewhere
+        if (['open', 'close', 'error', 'connect', 'connecting', 'reconnecting', 'disconnect'].includes(eventName)) return;
+
         // Log all events and their arguments clearly at INFO level by concatenating
         logger.info(`☁️👇 Received cloud event '${eventName}': ${JSON.stringify(args, null, 2)}`);
 
-        // --- Handle specific messages from cloud --- 
+        // --- Handle specific messages from cloud ---
         if (eventName === 'service_message' && args.length > 0) {
             try {
                 const request = args[0] as JsonRpcRequest;
+                logger.info(`Processing JSON-RPC request: ${request.method} (ID: ${request.id})`);
 
-                // Check if it's a valid JSON-RPC request and specifically tools/list
-                if (request && request.jsonrpc === '2.0' && request.method === 'tools/list') {
-                    const requestId = request.id;
-                    logger.info(`☁️🔄 Handling 'tools/list' request (ID: ${requestId}) from cloud.`);
-
-                    // Generate the tool list payload (same logic as handleListTools)
-                    const toolsForClient = Array.from(toolRegistry.values()).map(tool => {
-                        const { _function, _filePath, execute, ...toolDefinition } = tool;
-                        return toolDefinition;
-                    });
-
-                    // Construct the JSON-RPC response
-                    const responsePayload: JsonRpcResponse = {
+                // Handle tools/list request
+                if (request.method === 'tools/list') {
+                    const tools = Array.from(toolRegistry.values()).map(tool => ({
+                        name: tool.name,
+                        description: tool.description,
+                        inputSchema: tool.inputSchema
+                    }));
+                    const response: JsonRpcResponse = {
                         jsonrpc: '2.0',
-                        id: requestId,
-                        result: { tools: toolsForClient }
+                        result: { tools }, // According to MCP spec for tools/list
+                        id: request.id
                     };
-
-                    // Emit the response back to the cloud *within* a 'service_response' event
-                    logger.info(`☁️⬆️ Emitting 'service_response' with payload: ${JSON.stringify(responsePayload, null, 2)}`);
-                    cloudSocket.emit('service_response', responsePayload); // <-- Correct event name
-                } else if (request && request.jsonrpc === '2.0') {
-                    // TODO: Handle other potential JSON-RPC methods from the cloud (e.g., tool calls)
-                    logger.debug(`☁️ Received unhandled JSON-RPC method '${request.method}' from cloud.`);
-                } else {
-                     logger.warn("☁️ Received non-JSON-RPC or malformed service_message from cloud.", args[0]);
+                    logger.info(`Responding to tools/list with ${tools.length} tools.`);
+                    cloudSocket.emit('service_response', response); // Emit response event
                 }
-            } catch (error: any) {
-                logger.error(`☁️❌ Error processing service_message from cloud: ${error.message}`, { originalMessage: args[0] });
+                // Handle tools/call request
+                else if (request.method === 'tools/call') {
+                    const { name, arguments: toolArgs } = request.params as { name: string, arguments: any }; // Extract tool name and args
+                    const tool = toolRegistry.get(name);
+                    let response: JsonRpcResponse; // Define response variable
+
+                    if (tool) {
+                        try {
+                            // Basic required parameter check (TODO: Add proper jsonschema validation)
+                            if (tool.inputSchema && Array.isArray(tool.inputSchema.required)) {
+                                for (const requiredParam of tool.inputSchema.required) {
+                                    if (!toolArgs || toolArgs[requiredParam] === undefined) {
+                                        throw new Error(`Missing required parameter: '${requiredParam}'`);
+                                    }
+                                }
+                            }
+
+                            let resultContents: TextContent[];
+
+                            if (tool.execute) { // Built-in or stub
+                                logger.info(`Executing built-in/stub tool '${name}' with args: ${JSON.stringify(toolArgs)}`);
+                                resultContents = await tool.execute(toolArgs); // Await built-in/stub execution
+                            } else if (tool._function) { // Dynamically loaded
+                                logger.info(`Executing dynamic tool '${name}' from ${tool._filePath} with args: ${JSON.stringify(toolArgs)}`);
+                                const dynamicResult = await tool._function(toolArgs); // Await dynamic function
+                                // TODO: Add validation dynamicResult is TextContent[]?
+                                resultContents = dynamicResult as TextContent[];
+                            } else {
+                                throw new Error(`Tool '${name}' found in registry but has no executable function.`);
+                            }
+
+                            // If execution reached here, it was successful
+                            response = {
+                                jsonrpc: '2.0',
+                                result: { content: resultContents }, // MCP spec for tools/call result
+                                id: request.id
+                            };
+                            logger.info(`Tool '${name}' executed successfully. Sending result.`);
+
+                        } catch (error: any) {
+                            // Handle validation errors OR execution errors
+                            logger.error(`Error during 'tools/call' for '${name}': ${error.message}`);
+                            if (error.stack) logger.debug(error.stack);
+                            response = {
+                                jsonrpc: '2.0',
+                                // Use generic internal error code for now.
+                                error: { code: -32000, message: `Tool execution failed: ${error.message}` },
+                                id: request.id
+                            };
+                        }
+                    } else {
+                        // Tool not found
+                        logger.error(`Tool '${name}' not found.`);
+                        response = {
+                            jsonrpc: '2.0',
+                            error: { code: -32601, message: `Method not found: Tool '${name}'` }, // Method Not Found
+                            id: request.id
+                        };
+                    }
+                    // Send the response (success or error)
+                    cloudSocket.emit('service_response', response);
+                }
+                // TODO: Handle other potential standard MCP methods (ping, initialize, etc.) if needed
+                // else {
+                //     logger.warn(`Received unhandled method: ${request.method}`);
+                //     // Optionally send a MethodNotFound error
+                // }
+            } catch (jsonRpcError: any) {
+                // Handle potential errors during JSON parsing or basic validation
+                logger.error(`Failed to process incoming service_message: ${jsonRpcError.message}`);
+                // Attempt to extract ID if possible, otherwise respond without ID
+                let requestId: string | number | null = null;
+                try {
+                    const potentialRequest = JSON.parse(args[0].toString());
+                    requestId = potentialRequest.id || null;
+                } catch {}
+
+                const errorResponse: JsonRpcResponse = {
+                    jsonrpc: '2.0',
+                    error: { code: -32700, message: `Parse error or invalid request: ${jsonRpcError.message}` }, // Parse Error
+                    id: requestId
+                };
+                cloudSocket.emit('service_response', errorResponse);
             }
         }
-        // TODO: Add logic to handle *other* messages from the cloud server
-    });
-    // --- End Placeholder ---
+        // --- Handle other cloud events if necessary ---
+        // else if (eventName === 'some_other_event') { ... }
 
+    }); // End cloudSocket.onAny
+    // --- End Placeholder ---
 
     cloudSocket.on('error', (error: Error) => {
         logger.error(`☁️ Socket.IO general error: ${error.message}`);

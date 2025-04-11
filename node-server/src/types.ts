@@ -35,7 +35,8 @@ export interface ToolParameterProperty {
     // Add other JSON Schema properties if needed (e.g., enum, format, default)
 }
 
-export interface ToolParameters {
+// Renamed back to InputSchema to match official Python and TypeScript SDKs
+export interface InputSchema {
     type: 'object';
     properties: { [key: string]: ToolParameterProperty };
     required?: string[];
@@ -43,7 +44,7 @@ export interface ToolParameters {
 
 export interface ToolMetadata {
     description: string;
-    parameters?: ToolParameters;
+    inputSchema?: InputSchema; // Use InputSchema consistent with SDKs
 }
 
 export interface ToolDefinition extends ToolMetadata {

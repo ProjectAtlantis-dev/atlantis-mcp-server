@@ -55,7 +55,8 @@ const SOURCE_FUNCTIONS_DIR: string = path.join(__dirname, '..', 'dynamic_functio
 const PID_FILE: string = path.join(__dirname, '..', 'mcp_node_server.pid'); // Place in project root (outside dist)
 const CLOUD_NAMESPACE = "/service";
 const CLOUD_RECONNECT_DELAY_BASE_MS = 5000; // 5 seconds
-const CLOUD_MAX_RECONNECT_ATTEMPTS = 10;
+// Allow null for infinite retries, mirroring Python's (None for infinite)
+const CLOUD_MAX_RECONNECT_ATTEMPTS: number | null = 10;
 const CLOUD_MAX_RECONNECT_BACKOFF_MS = 60000; // 60 seconds
 
 // --- MCP Tool Registry ---
@@ -300,6 +301,11 @@ let cloudConnectionAttempts: number = 0;
 // --- New functions ---
 
 const scheduleCloudReconnection = () => {
+    // Check if we've reached the maximum attempts, ONLY if a limit is set (not null)
+    if (CLOUD_MAX_RECONNECT_ATTEMPTS !== null && cloudConnectionAttempts >= CLOUD_MAX_RECONNECT_ATTEMPTS) {
+        logger.error(`☁️❌ Reached maximum cloud reconnection attempts (${CLOUD_MAX_RECONNECT_ATTEMPTS}). Giving up.`);
+        return; // Stop trying
+    }
     if (cloudReconnectTimer) {
         clearTimeout(cloudReconnectTimer); // Clear existing timer if any
     }

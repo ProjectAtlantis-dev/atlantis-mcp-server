@@ -189,7 +189,7 @@ class DynamicAdditionServer(Server):
         # Start with our built-in tools
         tools = [
             Tool(
-                name="function_register",
+                name="_function_register",
                 description="Install or update a Python function",
                 inputSchema={
                     "type": "object",
@@ -202,7 +202,7 @@ class DynamicAdditionServer(Server):
                 }
             ),
             Tool( # Add definition for get_tool_code
-                name="function_get",
+                name="_function_get",
                 description="Get the source code for a Python function",
                 inputSchema={
                     "type": "object",
@@ -213,7 +213,7 @@ class DynamicAdditionServer(Server):
                 }
             ),
             Tool( # Add definition for remove_dynamic_tool
-                name="function_remove",
+                name="_function_remove",
                 description="Remove a dynamically registered Python function",
                 inputSchema={
                     "type": "object",
@@ -225,7 +225,7 @@ class DynamicAdditionServer(Server):
             ),
             # --- Task Management Tools --- #
             Tool(
-                name="task_add",
+                name="_task_add",
                 description="(Stub) Add a new task via a JSON payload", # Updated description
                 inputSchema={
                     "type": "object",
@@ -239,7 +239,7 @@ class DynamicAdditionServer(Server):
                 }
             ),
             Tool(
-                name="task_run",
+                name="_task_run",
                 description="(Stub) Run an existing task",
                 inputSchema={
                     "type": "object",
@@ -250,7 +250,7 @@ class DynamicAdditionServer(Server):
                 }
             ),
             Tool(
-                name="task_remove",
+                name="_task_remove",
                 description="(Stub) Remove a task",
                 inputSchema={
                     "type": "object",
@@ -261,7 +261,7 @@ class DynamicAdditionServer(Server):
                 }
             ),
             Tool(
-                name="task_peek",
+                name="_task_peek",
                 description="(Stub) Retrieve the stored details for a specific task ID",
                 inputSchema={
                     "type": "object",
@@ -298,23 +298,23 @@ class DynamicAdditionServer(Server):
         try:
             result_value: Any = None # Variable to hold the raw result before wrapping
 
-            if name == "function_register":
+            if name == "_function_register":
                 result_value = await self._register_function(args)
 
-            elif name == "function_get": # Corrected name check
+            elif name == "_function_get":
                 result_value = await self._get_function_code(args)
 
-            elif name == "function_remove": # Add routing for remove_function
+            elif name == "_function_remove":
                 result_value = await self._remove_function(args)
 
             # --- Handle Task Management Stubs ---
-            elif name == "task_add":
+            elif name == "_task_add":
                 result_value = await self._task_add(args)
-            elif name == "task_run":
+            elif name == "_task_run":
                 result_value = await self._task_run(args)
-            elif name == "task_remove":
+            elif name == "_task_remove":
                 result_value = await self._task_remove(args)
-            elif name == "task_peek":
+            elif name == "_task_peek":
                 result_value = await self._task_peek(args)
 
             # Check if this is a dynamically registered function

@@ -48,9 +48,9 @@ const HOST: string = argv['host']; // TODO: Use yargs
 const PORT: number = argv['port']; // TODO: Use yargs
 const MCP_PATH: string = '/mcp';
 // Points to the DIRECTORY where compiled JS function files will reside
-const COMPILED_FUNCTIONS_DIR: string = path.join(__dirname, 'dynamic_functions');
+const COMPILED_FUNCTIONS_DIR: string = path.join(__dirname, '..', 'dynamic_functions'); // Point outside src
 // Base source directory for creating the compiled dir if needed
-const SOURCE_FUNCTIONS_DIR: string = path.join(__dirname, '..', 'src', 'dynamic_functions');
+const SOURCE_FUNCTIONS_DIR: string = path.join(__dirname, '..', 'dynamic_functions'); // Correct path pointing outside src
 const PID_FILE: string = path.join(__dirname, '..', 'mcp_node_server.pid'); // Place in project root (outside dist)
 const CLOUD_NAMESPACE = "/service";
 const CLOUD_RECONNECT_DELAY_BASE_MS = 5000; // 5 seconds
@@ -409,7 +409,7 @@ const connectToCloud = () => {
         if (['open', 'close', 'error', 'connect', 'connecting', 'reconnecting', 'disconnect'].includes(eventName)) return;
 
         // Log all events and their arguments clearly at INFO level by concatenating
-        logger.info(`☁️👇 Received cloud event '${eventName}': ${JSON.stringify(args, null, 2)}`);
+        logger.debug(`☁️👇 Received cloud event '${eventName}': ${JSON.stringify(args)}`);
 
         // --- Handle specific messages from cloud ---
         if (eventName === 'service_message' && args.length > 0) {

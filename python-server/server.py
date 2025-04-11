@@ -190,15 +190,15 @@ class DynamicAdditionServer(Server):
         tools = [
             Tool(
                 name="_function_register",
-                description="Install or update a Python function",
+                description="Install or update a Python function by inspecting its code", # Updated description
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "name": {"type": "string"},
-                        "description": {"type": "string"},
-                        "code": {"type": "string"},
+                        "name": {"type": "string", "description": "The name to register the tool under."},
+                        "description": {"type": "string", "description": "Optional description. If omitted, uses the function's docstring."}, # Make optional
+                        "code": {"type": "string", "description": "The Python source code containing a single function definition."},
                     },
-                    "required": ["name", "code"]
+                    "required": ["name", "code"] # Revert required
                 }
             ),
             Tool( # Add definition for get_tool_code
@@ -496,104 +496,192 @@ class DynamicAdditionServer(Server):
             raise
 
     async def _register_function(self, args: dict) -> list[TextContent]:
-        """Register a new Python function as a tool"""
-        name = args.get("name")
+        """Register a new Python function by inspecting its code and generating metadata."""
+        name = args.get("name") # The name the tool will be registered under
         code = args.get("code")
-        description = args.get("description", f"Dynamically registered function: {name}")
+        provided_description = args.get("description") # Optional description from user
 
-        # Validate the function name (must be a valid Python identifier)
-        if not name or not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name):
-            raise ValueError(f"Invalid function name: {name}. Must be a valid Python identifier.")
+        # Validate required inputs
+        if not name or not code:
+            missing = [k for k, v in {"name": name, "code": code}.items() if not v]
+            raise ValueError(f"Missing required arguments for _function_register: {', '.join(missing)}")
 
-        logger.info(f"🔄 REGISTERING NEW FUNCTION: {name}")
+        # Validate the registration name (must be a valid Python identifier)
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name):
+            raise ValueError(f"Invalid registration name: {name}. Must be a valid Python identifier.")
+
+        logger.info(f"🔄 REGISTERING NEW FUNCTION (inspecting code): {name}")
+
+        file_path = os.path.join(FUNCTIONS_DIR, f"{name}.py")
 
         try:
-            # First, try to extract the function name from the code
-            func_match = re.search(r'def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(', code)
-            if not func_match:
-                raise ValueError("Could not find a function definition in the code")
+            # 1. Save the pure user code directly
+            with open(file_path, 'w') as f:
+                f.write(code)
+            logger.info(f"Saved Python source to: {file_path}")
 
-            func_name = func_match.group(1)
+            # 2. Load the module dynamically
+            spec = importlib.util.spec_from_file_location(name, file_path)
+            if not spec or not spec.loader:
+                 raise ImportError(f"Could not create module spec for {file_path}")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[name] = module 
+            spec.loader.exec_module(module)
+            logger.info(f"Successfully loaded module: {name} from {file_path}")
 
-            # Create a file for the function
-            file_path = os.path.join(FUNCTIONS_DIR, f"{name}.py")
+            # 3. Find the single user-defined function in the loaded module
+            user_function = None
+            actual_func_name = None
+            for item_name, item_obj in inspect.getmembers(module):
+                if inspect.isfunction(item_obj) and item_obj.__module__ == module.__name__:
+                    if user_function is not None:
+                         # Found more than one function defined directly in the module
+                         raise ValueError(f"Code for '{name}' must contain exactly one function definition. Found more than one.")
+                    user_function = item_obj
+                    actual_func_name = item_name
+        
+            if user_function is None:
+                raise ValueError(f"Could not find any function definition in the code provided for '{name}'.")
+        
+            logger.info(f"Found function '{actual_func_name}' inside module {name}.")
+            is_async = inspect.iscoroutinefunction(user_function)
 
-            # Create a namespace to safely test the code first
-            namespace = {}
-            exec(code, namespace)
+            # 4. Determine Description (User Provided > Docstring > Default)
+            final_description = provided_description
+            if not final_description:
+                final_description = inspect.getdoc(user_function)
+            if not final_description:
+                 final_description = f"Dynamically registered function '{name}' wrapping '{actual_func_name}'."
 
-            # Check if the function is defined
-            if func_name not in namespace:
-                raise ValueError(f"Function {func_name} was not defined in the code")
-
-            # Check if the function accepts named parameters and not just a single 'args' parameter
-            func = namespace[func_name]
-            sig = inspect.signature(func)
-            if len(sig.parameters) < 1:
-                raise ValueError(f"Function {func_name} must have at least one parameter")
-
-            # Auto-generate input schema from function signature
+            # 5. Auto-generate input schema from function signature
+            sig = inspect.signature(user_function)
             properties = {}
             required = []
             for param_name, param in sig.parameters.items():
                 param_type = "string" # Default type if annotation is missing
+                prop_details = {}
+
+                # Map type annotations
                 if param.annotation != inspect.Parameter.empty:
-                    # Basic type mapping (can be expanded)
-                    if param.annotation == str:
-                        param_type = "string"
-                    elif param.annotation == int:
-                        param_type = "integer"
-                    elif param.annotation == float:
-                        param_type = "number"
-                    elif param.annotation == bool:
-                        param_type = "boolean"
-                    elif param.annotation == list:
-                        param_type = "array"
-                    elif param.annotation == dict:
-                        param_type = "object"
-                    # Add more complex type mappings if needed (e.g., typing.List[str])
+                    type_map = {
+                        str: "string", int: "integer", float: "number",
+                        bool: "boolean", list: "array", dict: "object",
+                        Any: "any" # Add more complex types (List[str] etc.) if needed
+                    }
+                    # Basic check, might need refinement for Union, Optional, generics etc.
+                    param_type = type_map.get(param.annotation, "string") 
+            
+                prop_details["type"] = param_type
 
-                properties[param_name] = {"type": param_type}
-                if param.default == inspect.Parameter.empty:
-                    required.append(param_name)
+                # Add description from annotation if possible (less common)
+                # if isinstance(param.annotation, type) and hasattr(param.annotation, '__doc__') and param.annotation.__doc__:
+                #      prop_details["description"] = param.annotation.__doc__.strip()
+
+                # Handle default values
+                if param.default != inspect.Parameter.empty:
+                    try:
+                        # Ensure default value is JSON serializable for schema
+                        json.dumps(param.default)
+                        prop_details["default"] = param.default
+                    except TypeError:
+                        logger.warning(f"Default value for param '{param_name}' in '{actual_func_name}' is not JSON serializable. Omitting from schema.")
+                    # Parameter is optional if it has a default
                 else:
-                    # Add default value to schema description if present
-                    properties[param_name]["default"] = param.default
+                    required.append(param_name)
 
-            input_schema = {
+                properties[param_name] = prop_details
+
+            generated_input_schema = {
                 "type": "object",
                 "properties": properties
             }
             if required:
-                input_schema["required"] = required
+                generated_input_schema["required"] = required
+        
+            logger.info(f"Generated Input Schema for '{actual_func_name}': {json.dumps(generated_input_schema)}")
 
-            # Format the generated input schema as a comment
-            schema_str = json.dumps(input_schema, indent=2)
+            # 6. Create the wrapper function
+            async def wrapper(tool_args: dict) -> List[TextContent]:
+                # Capture variables needed by the wrapper
+                nonlocal user_function, name, actual_func_name, generated_input_schema, is_async 
+                logger.info(f"Executing dynamic tool '{name}' (inspecting code wrapper for '{actual_func_name}') with args: {tool_args}")
+            
+                ordered_args = []
+                schema_props = generated_input_schema.get("properties", {})
+                schema_required = generated_input_schema.get("required", [])
+                current_tool_args = tool_args if isinstance(tool_args, dict) else {}
 
-            # The code is valid, now save it to a file with proper formatting and metadata in comments
-            module_code = f"""# Dynamic function: {name}
-# Description: {description}
-# Generated by MCP Dynamic Function Server
+                try:
+                    # Prepare arguments based on generated schema order
+                    arg_names = list(schema_props.keys())
+                    ordered_args = []
+                    for arg_name in arg_names:
+                        if arg_name in current_tool_args:
+                            ordered_args.append(current_tool_args[arg_name])
+                        elif arg_name in schema_required:
+                             logger.error(f"Required argument '{arg_name}' missing for tool '{name}' (function '{actual_func_name}').")
+                             raise ValueError(f"Required argument '{arg_name}' is missing.")
+                        else:
+                             # Optional arg not provided. Check schema for default.
+                             schema_default = schema_props.get(arg_name, {}).get('default')
+                             if schema_default is not None: # Check if default exists in schema
+                                  ordered_args.append(schema_default)
+                             else:
+                                  # No default in schema, pass None. Python func handles its own default if defined.
+                                  ordered_args.append(None) 
+                
+                    logger.debug(f"Prepared ordered args for '{actual_func_name}': {ordered_args}")
 
-{code.strip()}
+                    # Call the user's function
+                    if is_async:
+                        result = await user_function(*ordered_args)
+                    else:
+                        loop = asyncio.get_running_loop()
+                        result = await loop.run_in_executor(None, lambda: user_function(*ordered_args))
 
-\"\"\"
-Input schema:
-{schema_str}
-\"\"\"
-"""
+                    # Format result (same as before)
+                    text_result: str
+                    if isinstance(result, str):
+                        text_result = result
+                    elif result is None:
+                        text_result = f"Function '{actual_func_name}' executed successfully with no return value."
+                    else:
+                        try:
+                            text_result = json.dumps(result, indent=2)
+                        except TypeError as json_err:
+                            logger.error(f"Failed to JSON serialize result for '{actual_func_name}': {json_err}")
+                            text_result = f"[Unserializable Result: {str(result)}]"
+                
+                    logger.info(f"Dynamic tool '{name}' execution successful.")
+                    return [TextContent(type="text", text=text_result)]
 
-            # Save the code to the file
-            with open(file_path, 'w') as f:
-                f.write(module_code)
+                except Exception as exec_err:
+                    logger.error(f"Error during dynamic tool '{name}' execution (calling '{actual_func_name}'): {exec_err}")
+                    import traceback
+                    logger.debug(f"Traceback: {traceback.format_exc()}")
+                    raise
 
-            logger.info(f"✅ SUCCESSFULLY REGISTERED FUNCTION: {name}")
+            # 7. Register the tool immediately
+            tool = Tool(
+                name=name, # Use the registration name provided by user
+                description=final_description,
+                inputSchema=generated_input_schema
+            )
+        
+            if name in self.tools:
+                logger.warning(f"⚠️ Overwriting existing tool in registry: {name}")
+        
+            self.tools[name] = {
+                "tool": tool, 
+                "file_path": file_path,
+                "func_name": actual_func_name, # Store the actual function name found
+                "execute": wrapper # Store the actual async wrapper callable
+            }
+            logger.info(f"✅ SUCCESSFULLY REGISTERED FUNCTION (inspecting code): {name}")
 
             # Send notification that tools list has changed
             try:
-                # Get the current session
                 ctx = self.request_context
-                # Create and send a ToolListChangedNotification
                 notification = ToolListChangedNotification(
                     method="notifications/tools/list_changed",
                     params=NotificationParams()
@@ -601,15 +689,22 @@ Input schema:
                 await ctx.session.send_notification(notification)
                 logger.info(f"📢 SENT TOOL LIST CHANGED NOTIFICATION")
             except Exception as e:
-                # Log a warning instead of returning an error, registration succeeded.
                 logger.warning(f"⚠️ COULD NOT SEND TOOL LIST CHANGED NOTIFICATION: {str(e)}")
 
             return [TextContent(type="text", text=f"Successfully registered function: {name}")]
+
         except Exception as e:
-            logger.error(f"❌ ERROR REGISTERING FUNCTION: {str(e)}")
+            logger.error(f"❌ ERROR REGISTERING FUNCTION (inspecting code): {str(e)}")
+            # Attempt to clean up the potentially bad file
+            if os.path.exists(file_path):
+                 try:
+                     os.remove(file_path)
+                     logger.info(f"Cleaned up file due to registration error: {file_path}")
+                 except OSError as remove_err:
+                     logger.error(f"Failed to clean up file {file_path} after error: {remove_err}")
             import traceback
             logger.debug(f"Traceback: {traceback.format_exc()}")
-            raise e
+            raise # Reraise the original exception
 
     async def _get_function_code(self, args: dict) -> list[TextContent]:
         """Get the Python source code and description for a dynamically registered function"""

@@ -138,9 +138,10 @@ signal.signal(signal.SIGINT, handle_sigint)
 signal.signal(signal.SIGTERM, handle_sigint)
 
 # Check if server is already running
-if check_server_running():
-    logger.error("❌ Server is already running! Exiting...")
-    sys.exit(1)
+existing_pid = check_server_running()
+if existing_pid:
+    logger.info(f"ℹ️ Server is already running with PID: {existing_pid}. Exiting...")
+    sys.exit(0)
 
 # Create PID file
 if not create_pid_file():
@@ -1017,7 +1018,8 @@ async def handle_websocket(websocket):
     We act as a WebSocket SERVER here, which is different from how we act as a Socket.IO CLIENT
     when connecting to the cloud server.
 
-    Both connection types ultimately route to the same MCP handlers in DynamicAdditionServer.
+    Both connection types ultimately route to the same MCP handlers in the DynamicAdditionServer class
+
     """
     logger.info(f"⚡ NEW CONNECTION: {websocket.client}")
 

@@ -454,13 +454,28 @@ const connectToCloud = () => {
                             if (tool.execute) { // Built-in or stub
                                 logger.info(`Executing built-in/stub tool '${name}' with args: ${JSON.stringify(toolArgs)}`);
                                 resultContents = await tool.execute(toolArgs); // Await built-in/stub execution
-                            } else if (tool._function) { // Dynamically loaded
+                            } else if (tool._function && tool.inputSchema) { // Dynamically loaded
                                 logger.info(`Executing dynamic tool '${name}' from ${tool._filePath} with args: ${JSON.stringify(toolArgs)}`);
-                                const dynamicResult = await tool._function(toolArgs); // Await dynamic function
-                                // TODO: Add validation dynamicResult is TextContent[]?
-                                resultContents = dynamicResult as TextContent[];
+
+                                // Extract arguments based on inputSchema order (assuming required or properties keys)
+                                // This is a simplification; a more robust solution might inspect parameter names/types
+                                const paramNames = tool.inputSchema.required || Object.keys(tool.inputSchema.properties || {});
+                                const orderedArgs = paramNames.map(paramName => {
+                                    if (toolArgs[paramName] === undefined) {
+                                        // This should have been caught by the required check earlier, but double-check
+                                        throw new Error(`Internal error: Missing argument '${paramName}' for dynamic call, though required check passed.`);
+                                    }
+                                    return toolArgs[paramName];
+                                });
+
+                                // const dynamicResult = await tool._function(toolArgs); // Old call with object
+                                const rawResult = await tool._function(...orderedArgs); // New call with spread arguments
+
+                                // Format the raw result into MCP TextContent
+                                // TODO: Handle cases where the rawResult might not be a number/string?
+                                resultContents = [{ type: "text", text: rawResult.toString() }];
                             } else {
-                                throw new Error(`Tool '${name}' found in registry but has no executable function.`);
+                                throw new Error(`Tool '${name}' found in registry but has no executable function or inputSchema.`);
                             }
 
                             // If execution reached here, it was successful

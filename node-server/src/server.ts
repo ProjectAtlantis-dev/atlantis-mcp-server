@@ -155,16 +155,53 @@ const createStubTool = (
 
 // Define stubs... (keep these as before)
 const registerFunctionStub = createStubTool("_register_function", "Registers a new dynamic function.", { function_name: { type: "string" }, code: { type: "string" } }, ["function_name", "code"]);
-const getFunctionCodeStub = createStubTool("_get_function_code", "Gets source code of a dynamic function.", { function_name: { type: "string" } }, ["function_name"]);
+
+// --- Custom implementation for _function_get ---
+const getFunctionCodeTool: ToolDefinition = {
+    name: "_function_get",
+    description: "Gets the TypeScript source code for a dynamic function.",
+    inputSchema: {
+        type: "object",
+        properties: {
+            function_name: { type: "string", description: "The name of the function (without .ts extension)" }
+        },
+        required: ["function_name"]
+    },
+    async execute(args: { function_name?: string }): Promise<TextContent[]> {
+        const functionName = args.function_name;
+        if (!functionName) {
+            throw new Error("Missing required argument: function_name");
+        }
+        // Construct path assuming .ts files are in SOURCE_FUNCTIONS_DIR
+        const sourceFilePath = path.join(SOURCE_FUNCTIONS_DIR, `${functionName}.ts`);
+        logger.info(`Attempting to read source code from: ${sourceFilePath}`);
+
+        try {
+            const exists = existsSync(sourceFilePath); // Use sync existsSync for quick check
+            if (!exists) {
+                logger.warn(`Source file not found: ${sourceFilePath}`);
+                throw new Error(`Function source file '${functionName}.ts' not found.`);
+            }
+            const fileContent = await fs.readFile(sourceFilePath, 'utf8');
+            logger.info(`Successfully read source code for '${functionName}'.`);
+            return [{ type: "text", text: fileContent }];
+        } catch (error: any) {
+            logger.error(`Error reading source file ${sourceFilePath}: ${error.message}`);
+            // Re-throw for the main handler to catch and send appropriate JSON-RPC error
+            throw new Error(`Failed to get source code for function '${functionName}': ${error.message}`);
+        }
+    }
+};
+
 const removeFunctionStub = createStubTool("_remove_function", "Removes a dynamic function.", { function_name: { type: "string" } }, ["function_name"]);
-const taskAddStub = createStubTool("_task_add", "Adds a new task.", { task_id: { type: "string" }, payload: { type: "object" }, schedule: { type: "string"} }, ["task_id", "payload"]);
-const taskRunStub = createStubTool("_task_run", "Runs a task.", { task_id: { type: "string" } }, ["task_id"]);
-const taskRemoveStub = createStubTool("_task_remove", "Removes a task.", { task_id: { type: "string" } }, ["task_id"]);
-const taskPeekStub = createStubTool("_task_peek", "Gets task details.", { task_id: { type: "string" } }, ["task_id"]);
+const taskAddStub = createStubTool("_task_add", "Adds a task.", { payload: { type: "object" } }, ["payload"]); // Simplified task stubs based on Python
+const taskRunStub = createStubTool("_task_run", "Runs a task.", { id: { type: "integer" } }, ["id"]);
+const taskRemoveStub = createStubTool("_task_remove", "Removes a task.", { id: { type: "integer" } }, ["id"]);
+const taskPeekStub = createStubTool("_task_peek", "Gets task details.", { id: { type: "integer" } }, ["id"]);
 
 // Register stubs...
 toolRegistry.set(registerFunctionStub.name, registerFunctionStub);
-toolRegistry.set(getFunctionCodeStub.name, getFunctionCodeStub);
+toolRegistry.set(getFunctionCodeTool.name, getFunctionCodeTool); // Register the new implementation
 toolRegistry.set(removeFunctionStub.name, removeFunctionStub);
 toolRegistry.set(taskAddStub.name, taskAddStub);
 toolRegistry.set(taskRunStub.name, taskRunStub);

@@ -65,8 +65,11 @@ const toolRegistry = new Map<string, ToolDefinition>();
 // Keep track of file path per dynamic function name (using compiled path)
 const dynamicFunctionFiles = new Map<string, string>();
 
-// --- Helper Functions ---
+// --- Task Management --- //
+const tasks = new Map<number, any>(); // Stores task payloads keyed by ID
+let nextTaskId = 1; // Counter for assigning new task IDs
 
+// --- Helper Functions ---
 const sendResponse = (ws: WebSocket, id: string | number | null, result: any): void => {
     const response: JsonRpcResponse = { jsonrpc: '2.0', result, id };
     try { ws.send(JSON.stringify(response)); } catch (e: any) { logger.error(`Failed to send response: ${e.message}`); }
@@ -416,8 +419,8 @@ const registerFunctionTool: ToolDefinition = {
             } catch (loadOrWrapError: any) {
                  logger.error(`Compilation succeeded but failed to load/wrap function ${functionName}: ${loadOrWrapError.message}`);
                  // Clean up both files on load/wrap error
-                 try { await fs.unlink(compiledFilePath); } catch { /* Ignore */ }
-                 try { await fs.unlink(sourceFilePath); } catch { /* Ignore */ }
+                 try { await fs.rm(compiledFilePath); } catch { /* Ignore */ }
+                 try { await fs.rm(sourceFilePath); } catch { /* Ignore */ }
                  throw new Error(`Compilation succeeded but failed during registration: ${loadOrWrapError.message}`);
             }
 
@@ -426,7 +429,7 @@ const registerFunctionTool: ToolDefinition = {
             logger.error(`Registration process failed for ${functionName}: ${compileOrRegisterError.message}`);
             // Attempt to clean up the .ts file if it still exists and wasn't cleaned up above
             try {
-                if (existsSync(sourceFilePath)) { await fs.unlink(sourceFilePath); }
+                if (existsSync(sourceFilePath)) { await fs.rm(sourceFilePath); }
             } catch { /* Ignore */ }
             // Re-throw the specific error
             throw compileOrRegisterError; // Propagate the original error object
@@ -493,14 +496,14 @@ const removeFunctionTool: ToolDefinition = {
     inputSchema: {
         type: "object",
         properties: {
-            function_name: { type: "string", description: "The name of the function to remove" }
+            name: { type: "string", description: "The name of the function to remove" }
         },
-        required: ["function_name"]
+        required: ["name"]
     },
-    async execute(args: { function_name?: string }): Promise<TextContent[]> {
-        const functionName = args.function_name;
+    async execute(args: { name?: string }): Promise<TextContent[]> {
+        const functionName = args.name;
         if (!functionName) {
-            throw new Error("Missing required argument: function_name");
+            throw new Error("Missing required argument: name");
         }
 
         logger.info(`Attempting to remove function '${functionName}'...`);
@@ -524,7 +527,7 @@ const removeFunctionTool: ToolDefinition = {
 
         // 2. Delete TypeScript source file
         try {
-            await fs.unlink(sourceFilePath);
+            await fs.rm(sourceFilePath);
             tsDeleted = true;
             logger.info(`Deleted source file: ${sourceFilePath}`);
         } catch (error: any) {
@@ -538,7 +541,7 @@ const removeFunctionTool: ToolDefinition = {
 
         // 3. Delete JavaScript compiled file
         try {
-            await fs.unlink(compiledFilePath);
+            await fs.rm(compiledFilePath);
             jsDeleted = true;
             logger.info(`Deleted compiled file: ${compiledFilePath}`);
         } catch (error: any) {
@@ -633,26 +636,70 @@ export function run(): string {
     }
 };
 
-const taskAddStub = createStubTool("_task_add", "Adds a task.", { payload: { type: "object" } }, ["payload"]); // Simplified task stubs based on Python
+// --- NEW Tool: Add Task --- //
+const addTaskTool: ToolDefinition = {
+    name: "_task_add",
+    description: "Adds a new task using the provided payload.",
+    inputSchema: {
+        type: "object",
+        properties: {
+            payload: { type: "object", description: "The JSON object containing the task details." }
+        },
+        required: ["payload"]
+    },
+    async execute(args: { payload?: any }): Promise<TextContent[]> {
+        logger.info(`⚙️ TASK ADD CALLED with args: ${JSON.stringify(args)}`);
+        try {
+            const taskPayload = args.payload;
+            if (!taskPayload) {
+                throw new Error("Missing 'payload' in arguments");
+            }
+            // Basic check if it's an object (might need deeper validation depending on requirements)
+            if (typeof taskPayload !== 'object' || taskPayload === null || Array.isArray(taskPayload)) {
+                 throw new Error("'payload' must be a JSON object (dictionary)");
+            }
+
+            // Generate a new task ID
+            const taskId = nextTaskId++;
+
+            // Store the task details
+            tasks.set(taskId, taskPayload);
+
+            logger.info(`✅ Task added with ID: ${taskId}, Details: ${JSON.stringify(taskPayload)}`);
+
+            // Return the new task ID as string in 'text' and number in annotations
+            return [{
+                type: "text",
+                text: taskId.toString(),
+                annotations: { task_id_int: taskId } // Use snake_case for annotation key consistency?
+            }];
+
+        } catch (error: any) {
+            logger.error(`❌ Error adding task: ${error.message}`, { stack: error.stack });
+            // Re-throw the error to be caught by handleCallTool for proper JSON-RPC error response
+            throw error;
+        }
+    }
+};
+
+// --- Existing Stubs (Keep for now, implement later) ---
 const taskRunStub = createStubTool("_task_run", "Runs a task.", { id: { type: "integer" } }, ["id"]);
 const taskRemoveStub = createStubTool("_task_remove", "Removes a task.", { id: { type: "integer" } }, ["id"]);
-const taskPeekStub = createStubTool("_task_peek", "Gets task details.", { id: { type: "integer" } }, ["id"]);
+const taskPeekStub = createStubTool("_task_peek", "Peeks a task.", { id: { type: "integer" } }, ["id"]);
 
-// Register stubs...
-// toolRegistry.set(registerFunctionStub.name, registerFunctionStub);
-toolRegistry.set(registerFunctionTool.name, registerFunctionTool); // Register the new implementation
-toolRegistry.set(getFunctionCodeTool.name, getFunctionCodeTool); // Register the new implementation
-toolRegistry.set(removeFunctionTool.name, removeFunctionTool); // Register the new implementation
-toolRegistry.set(addFunctionTool.name, addFunctionTool); // Register the new implementation
-toolRegistry.set(taskAddStub.name, taskAddStub);
+// Register built-in tools
+toolRegistry.set(registerFunctionTool.name, registerFunctionTool);
+toolRegistry.set(getFunctionCodeTool.name, getFunctionCodeTool);
+toolRegistry.set(removeFunctionTool.name, removeFunctionTool);
+toolRegistry.set(addFunctionTool.name, addFunctionTool);
+
+// Register Task tools
+toolRegistry.set(addTaskTool.name, addTaskTool); // Register the real implementation
 toolRegistry.set(taskRunStub.name, taskRunStub);
 toolRegistry.set(taskRemoveStub.name, taskRemoveStub);
 toolRegistry.set(taskPeekStub.name, taskPeekStub);
-// logger.info(`🛠️ Registered ${toolRegistry.size} built-in stub tools initially.`); // Logged later after scan
-
 
 // --- MCP Request Handlers ---
-
 const handleListTools = (ws: WebSocket, id: string | number | null, _params: any): void => {
     const toolsForClient = Array.from(toolRegistry.values()).map(tool => {
         const { _function, _filePath, execute, ...toolDefinition } = tool;

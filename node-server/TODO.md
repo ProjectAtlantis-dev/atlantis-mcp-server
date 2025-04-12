@@ -1,9 +1,9 @@
 # Node Server TODO List
 
 -   [ ] **Built-in Management Tools:**
-    -   [ ] Define `_register_function` tool object (using `fs.writeFile`, `parseMetadata`, `loadAndRegisterFunction`).
+    -   [ ] Define `_function_register` tool object (using `fs.writeFile`, `parseMetadata`, `loadAndRegisterFunction`).
     -   [ ] Define `_get_function_code` tool object (using `fs.readFile`, `parseMetadata`).
-    -   [ ] Define `_remove_function` tool object (using `fs.unlink`, `unregisterFunction`).
+    -   [ ] Define `_function_remove` tool object (using `fs.unlink`, `unregisterFunction`).
     -   [ ] Register these built-in tools in `toolRegistry`.
 -   [ ] **Tool Execution:**
     -   [ ] Make `handleCallTool` function `async`.
@@ -43,10 +43,10 @@
 -   [ ] **Testing:**
     -   [ ] Test connection with `npx mcp-client ws://localhost:8001`.
     -   [ ] Test `tools/list`.
-    -   [ ] Test registering a simple dynamic function (e.g., add two numbers) using `_register_function`.
+    -   [ ] Test registering a simple dynamic function (e.g., add two numbers) using `_function_register`.
     -   [ ] Test calling the dynamic function via `tools/call`.
     -   [ ] Test `_get_function_code`.
-    -   [ ] Test `_remove_function`.
+    -   [ ] Test `_function_remove`.
     -   [ ] Test PID file logic (start second instance, check shutdown).
     -   [ ] Test argument parsing.
     -   [ ] Test cloud connection (if applicable).

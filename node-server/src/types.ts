@@ -25,6 +25,7 @@ export interface JsonRpcError {
 export interface TextContent {
     type: 'text';
     text: string;
+    annotations?: { [key: string]: any }; // Add optional annotations field
 }
 // Add other content types if needed
 

@@ -262,7 +262,7 @@ class DynamicAdditionServer(Server):
             ),
             Tool(
                 name="_task_remove",
-                description="(Stub) Remove a task",
+                description="Remove a task",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -273,7 +273,7 @@ class DynamicAdditionServer(Server):
             ),
             Tool(
                 name="_task_peek",
-                description="(Stub) Retrieve the stored details for a specific task ID",
+                description="Retrieve the stored details for a specific task ID", # Removed (Stub)
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -887,11 +887,26 @@ class DynamicAdditionServer(Server):
         return [TextContent(type="text", text=f"Task run for ID '{task_id}' called (stub)")]
 
     async def _task_remove(self, args: dict) -> list[TextContent]:
-        """Stub for removing a task"""
-        logger.info("🗑️ TASK REMOVE CALLED (STUB)")
-        # Placeholder logic: Extract args if needed
-        task_id = args.get("id", "unknown_id")
-        return [TextContent(type="text", text=f"Task remove for ID '{task_id}' called (stub)")]
+        """Removes a task by its ID."""
+        logger.info(f"🗑️ TASK REMOVE CALLED with args: {args}")
+        task_id_str = args.get('id')
+        if task_id_str is None:
+            raise ValueError("Missing 'id' in arguments")
+
+        try:
+            task_id = int(task_id_str)
+        except ValueError:
+            raise ValueError("'id' must be an integer")
+
+        # Attempt to remove the task from the dictionary
+        if task_id in self.tasks:
+            del self.tasks[task_id]
+            logger.info(f"✅ Task {task_id} removed successfully.")
+            return [TextContent(type="text", text=f"Task {task_id} removed successfully.")]
+        else:
+            logger.warning(f"❓ Task ID {task_id} not found for removal.")
+            # Raise error as the task didn't exist
+            raise ValueError(f"Task ID {task_id} not found")
 
     async def _task_peek(self, args: dict) -> list[TextContent]:
         """Retrieve the stored details for a specific task ID."""

@@ -730,9 +730,50 @@ const peekTaskTool: ToolDefinition = {
     }
 };
 
+// --- NEW Tool: Remove Task --- //
+const removeTaskTool: ToolDefinition = {
+    name: "_task_remove",
+    description: "Removes a task by its ID.",
+    inputSchema: {
+        type: "object",
+        properties: {
+            id: { type: "integer", description: "ID of the task to remove" }
+        },
+        required: ["id"]
+    },
+    async execute(args: { id?: number }): Promise<TextContent[]> {
+        logger.info(`🗑️ TASK REMOVE CALLED with args: ${JSON.stringify(args)}`);
+        try {
+            const taskId = args.id;
+
+            if (taskId === undefined || taskId === null) {
+                throw new Error("Missing 'id' in arguments");
+            }
+            if (typeof taskId !== 'number' || !Number.isInteger(taskId)) {
+                 throw new Error("'id' must be an integer");
+            }
+
+            // Attempt to delete the task from the map
+            const deleted = tasks.delete(taskId);
+
+            if (deleted) {
+                logger.info(`✅ Task ${taskId} removed successfully.`);
+                return [{ type: "text", text: `Task ${taskId} removed successfully.` }];
+            } else {
+                logger.warn(`❓ Task ID ${taskId} not found for removal.`);
+                // Throw error as the task didn't exist
+                throw new Error(`Task ID ${taskId} not found`);
+            }
+        } catch (error: any) {
+            logger.error(`❌ Error removing task: ${error.message}`, { stack: error.stack });
+            // Re-throw the error
+            throw error;
+        }
+    }
+};
+
 // --- Existing Stubs (Keep for now, implement later) ---
 const taskRunStub = createStubTool("_task_run", "Runs a task.", { id: { type: "integer" } }, ["id"]);
-const taskRemoveStub = createStubTool("_task_remove", "Removes a task.", { id: { type: "integer" } }, ["id"]);
 
 // Register built-in tools
 toolRegistry.set(registerFunctionTool.name, registerFunctionTool);
@@ -743,7 +784,7 @@ toolRegistry.set(addFunctionTool.name, addFunctionTool);
 // Register Task tools
 toolRegistry.set(addTaskTool.name, addTaskTool); // Register the real implementation
 toolRegistry.set(taskRunStub.name, taskRunStub);
-toolRegistry.set(taskRemoveStub.name, taskRemoveStub);
+toolRegistry.set(removeTaskTool.name, removeTaskTool); // Register the real implementation
 toolRegistry.set(peekTaskTool.name, peekTaskTool); // Register the real implementation
 
 // --- MCP Request Handlers ---

@@ -223,6 +223,17 @@ class DynamicAdditionServer(Server):
                     "required": ["name"]
                 }
             ),
+            Tool( # Add definition for add_placeholder_function
+                name="_function_add",
+                description="Adds a new, empty placeholder function with the given name.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "The name to register the new placeholder function under."}
+                    },
+                    "required": ["name"]
+                }
+            ),
             # --- Task Management Tools --- #
             Tool(
                 name="_task_add",
@@ -306,6 +317,9 @@ class DynamicAdditionServer(Server):
 
             elif name == "_function_remove":
                 result_value = await self._remove_function(args)
+
+            elif name == "_function_add": # ROUTE NEW TOOL
+                result_value = await self._add_function(args)
 
             # --- Handle Task Management Stubs ---
             elif name == "_task_add":
@@ -866,6 +880,63 @@ class DynamicAdditionServer(Server):
             logger.warning(f"❓ Task ID {task_id} not found.")
             raise ValueError(f"Task ID {task_id} not found")
 
+    # --- NEW METHOD --- #
+    async def _add_function(self, args: dict) -> list[TextContent]:
+        """Creates a new placeholder function file and registers it."""
+        name = args.get("name")
+        if not name:
+            raise ValueError("Missing required argument for _function_add: name")
+
+        logger.info(f"➕ ADDING NEW PLACEHOLDER FUNCTION: {name}")
+
+        # Define the hardcoded placeholder content
+        placeholder_code = (
+            "# Placeholder function created by _function_add\n"
+            "def run():\n"
+            "    \"\"\"\n"
+            "    This is an empty placeholder function. \n"
+            "    Replace this with your actual logic.\n"
+            "    \"\"\"\n"
+            "    print(f\"Executing placeholder function...\")\n"
+            "    return \"Placeholder function executed successfully.\"\n"
+        )
+        placeholder_description = "A newly added placeholder function. Implement your logic here."
+        placeholder_schema = {"type": "object", "properties": {}} # No input arguments
+
+        # Prepare arguments for the existing _register_function method
+        registration_args = {
+            "name": name,
+            "code": placeholder_code,
+            "description": placeholder_description,
+            # Note: _register_function now expects description and generates schema,
+            # so we only need to pass name and code.
+            # Let's adjust based on the latest _register_function which inspects code.
+            # It only needs name and code, description is optional.
+            # The schema is generated internally.
+        }
+        
+        # We only really need 'name' and 'code' for the inspecting _register_function
+        registration_args_for_inspector = {
+             "name": name,
+             "code": placeholder_code,
+             "description": placeholder_description # Pass the specific description
+        }
+
+
+        try:
+            # Call the existing registration logic
+            logger.debug(f"Calling internal _register_function for placeholder '{name}'...")
+            # Use the version for the inspecting register function
+            result = await self._register_function(registration_args_for_inspector)
+            logger.info(f"✅ Successfully added placeholder function: {name}")
+            # Append a note about it being a placeholder to the success message
+            original_message = result[0].text
+            result[0].text = f"{original_message} (This is a placeholder, edit {name}.py to implement logic)."
+            return result
+        except Exception as e:
+            logger.error(f"❌ ERROR ADDING PLACEHOLDER FUNCTION {name}: {str(e)}")
+            # _register_function should handle cleanup, just re-raise
+            raise
 
 # ServiceClient class to manage the connection to the cloud server via Socket.IO
 class ServiceClient:

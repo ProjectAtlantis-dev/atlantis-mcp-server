@@ -544,6 +544,85 @@ const removeFunctionTool: ToolDefinition = {
     }
 };
 
+// --- NEW Tool: Add Placeholder Function --- //
+const addFunctionTool: ToolDefinition = {
+    name: "_function_add",
+    description: "Adds a new, empty placeholder TypeScript function with the given name.",
+    inputSchema: {
+        type: "object",
+        properties: {
+            name: { type: "string", description: "The name to register the new placeholder function under." }
+        },
+        required: ["name"]
+    },
+    async execute(args: { name?: string }): Promise<TextContent[]> {
+        const name = args.name;
+
+        if (!name) {
+            throw new Error("Missing required argument: name");
+        }
+
+        logger.info(`➕ ADDING NEW PLACEHOLDER FUNCTION: ${name}`);
+
+        // Define the hardcoded placeholder content
+        const placeholderCode = `
+// Placeholder function created by _function_add
+import { ToolInput, ToolResult, TextContent } from '../../src/types';
+
+// Note: The definition below is crucial for _function_register
+export const toolDefinition = {
+    name: "placeholder_run", // Internal name, not the registered one
+    description: "A newly added placeholder function. Implement your logic here.",
+    inputSchema: {
+        type: "object",
+        properties: {}
+    }
+};
+
+// The actual function that gets executed.
+export function run(args: ToolInput): ToolResult {
+    console.log(\`Executing placeholder function '${toolDefinition.name}' with args:\`, args);
+    // You can access args.contents, args.context, etc. here
+    return { 
+        contents: [{ 
+            type: "text", 
+            text: "Placeholder function executed successfully." 
+        }] 
+    };
+}
+`;
+        const placeholderDescription = "A newly added placeholder function. Implement your logic here.";
+        const placeholderSchema = { type: "object", properties: {} }; // No input arguments
+
+        // Prepare arguments for the existing _function_register method
+        // It expects name, description, inputSchema, and code
+        const registrationArgs: { name: string, description: string, inputSchema: any, code: string } = {
+            name: name, // The name provided by the user for registration
+            description: placeholderDescription,
+            inputSchema: placeholderSchema,
+            code: placeholderCode
+        };
+
+        try {
+            // Call the existing registration logic
+            logger.debug(`Calling internal _function_register for placeholder '${name}'...`);
+            const result = await registerFunctionTool.execute(registrationArgs);
+            logger.info(`✅ Successfully added placeholder function: ${name}`);
+            
+            // Modify the success message if possible
+            if (result && result.length > 0 && result[0].type === 'text') {
+                 const originalMessage = result[0].text;
+                 result[0].text = `${originalMessage} (This is a placeholder, edit dynamic_functions/ts/${name}.ts to implement logic).`;
+            }
+            return result;
+        } catch (e: any) {
+            logger.error(`❌ ERROR ADDING PLACEHOLDER FUNCTION ${name}: ${e.message}`);
+            // _function_register should handle cleanup, just re-raise
+            throw e;
+        }
+    }
+};
+
 const taskAddStub = createStubTool("_task_add", "Adds a task.", { payload: { type: "object" } }, ["payload"]); // Simplified task stubs based on Python
 const taskRunStub = createStubTool("_task_run", "Runs a task.", { id: { type: "integer" } }, ["id"]);
 const taskRemoveStub = createStubTool("_task_remove", "Removes a task.", { id: { type: "integer" } }, ["id"]);
@@ -554,6 +633,7 @@ const taskPeekStub = createStubTool("_task_peek", "Gets task details.", { id: { 
 toolRegistry.set(registerFunctionTool.name, registerFunctionTool); // Register the new implementation
 toolRegistry.set(getFunctionCodeTool.name, getFunctionCodeTool); // Register the new implementation
 toolRegistry.set(removeFunctionTool.name, removeFunctionTool); // Register the new implementation
+toolRegistry.set(addFunctionTool.name, addFunctionTool); // Register the new implementation
 toolRegistry.set(taskAddStub.name, taskAddStub);
 toolRegistry.set(taskRunStub.name, taskRunStub);
 toolRegistry.set(taskRemoveStub.name, taskRemoveStub);

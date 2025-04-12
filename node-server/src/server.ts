@@ -289,7 +289,7 @@ const registerFunctionTool: ToolDefinition = {
                  // Ensure require cache is clear before loading the new module
                 const absolutePath = require.resolve(compiledFilePath);
                 delete require.cache[absolutePath];
-                logger.debug(`Cleared require cache for compiled file: ${absolutePath}`) 
+                logger.debug(`Cleared require cache for compiled file: ${absolutePath}`)
 
                 const dynamicModule = require(absolutePath);
 
@@ -338,7 +338,7 @@ const registerFunctionTool: ToolDefinition = {
                         // Use the actual exported function name found, or 'default'
                         const actualUserFuncName = userFunctionName || 'default';
                         logger.info(`Executing dynamic tool '${functionName}' (wraps '${actualUserFuncName}') with args: ${JSON.stringify(toolArgs)}`);
-                        
+
                         // --- Prepare arguments based on schema order --- START NEW LOGIC ---
                         let orderedArgs: any[] = [];
                         // Ensure toolArgs is an object, default to empty if null/undefined
@@ -425,7 +425,7 @@ const registerFunctionTool: ToolDefinition = {
             // This catches errors from file operations, API usage, or the re-thrown errors above
             logger.error(`Registration process failed for ${functionName}: ${compileOrRegisterError.message}`);
             // Attempt to clean up the .ts file if it still exists and wasn't cleaned up above
-            try { 
+            try {
                 if (existsSync(sourceFilePath)) { await fs.unlink(sourceFilePath); }
             } catch { /* Ignore */ }
             // Re-throw the specific error
@@ -441,32 +441,47 @@ const getFunctionCodeTool: ToolDefinition = {
     inputSchema: {
         type: "object",
         properties: {
-            function_name: { type: "string", description: "The name of the function (without .ts extension)" }
+            name: { type: "string", description: "The name of the function (without .ts extension)" } // Changed from function_name
         },
-        required: ["function_name"]
+        required: ["name"] // Changed from function_name
     },
-    async execute(args: { function_name?: string }): Promise<TextContent[]> {
-        const functionName = args.function_name;
+    async execute(args: { name?: string }): Promise<TextContent[]> { // Changed param name in type
+        const functionName = args.name; // Use 'name'
         if (!functionName) {
-            throw new Error("Missing required argument: function_name");
+            throw new Error("Missing required argument for _function_get: name");
         }
-        // Construct path assuming .ts files are in SOURCE_FUNCTIONS_DIR
+
+        logger.info(`📄 GETTING CODE AND DESC FOR FUNCTION: ${functionName}`);
+
+        // Construct path to the *source* TypeScript file
         const sourceFilePath = path.join(SOURCE_FUNCTIONS_DIR, `${functionName}.ts`);
-        logger.info(`Attempting to read source code from: ${sourceFilePath}`);
+
+        // Check if the source file exists
+        if (!existsSync(sourceFilePath)) {
+            throw new Error(`Function source file '${functionName}.ts' not found in ${SOURCE_FUNCTIONS_DIR}.`);
+        }
 
         try {
-            const exists = existsSync(sourceFilePath); // Use sync existsSync for quick check
-            if (!exists) {
-                logger.warn(`Source file not found: ${sourceFilePath}`);
-                throw new Error(`Function source file '${functionName}.ts' not found.`);
-            }
-            const fileContent = await fs.readFile(sourceFilePath, 'utf8');
-            logger.info(`Successfully read source code for '${functionName}'.`);
-            return [{ type: "text", text: fileContent }];
+            // Read the source code
+            const code = await fs.readFile(sourceFilePath, 'utf-8');
+
+            // TODO: Extract description from comments/docstring in the TS file if needed
+            // For now, provide a default description
+            const description = "Dynamically registered TypeScript function"; // Placeholder
+
+            // Prepare the result data matching Python's structure
+            const resultData = {
+                name: functionName,
+                code: code,
+                description: description
+            };
+
+            logger.info(`✅ SUCCESSFULLY RETRIEVED CODE AND DESC FOR: ${functionName}`);
+            // Return the result as a JSON string in the text field
+            return [{ type: "text", text: JSON.stringify(resultData) }];
         } catch (error: any) {
-            logger.error(`Error reading source file ${sourceFilePath}: ${error.message}`);
-            // Re-throw for the main handler to catch and send appropriate JSON-RPC error
-            throw new Error(`Failed to get source code for function '${functionName}': ${error.message}`);
+            logger.error(`❌ ERROR READING FUNCTION FILE ${sourceFilePath}: ${error.message}`);
+            throw new Error(`Failed to read function source for '${functionName}': ${error.message}`);
         }
     }
 };
@@ -567,7 +582,6 @@ const addFunctionTool: ToolDefinition = {
         // Define the hardcoded placeholder content
         const placeholderCode = `
 // Placeholder function created by _function_add
-import { ToolInput, ToolResult, TextContent } from '../../src/types';
 
 // Note: The definition below is crucial for _function_register
 export const toolDefinition = {
@@ -575,20 +589,16 @@ export const toolDefinition = {
     description: "A newly added placeholder function. Implement your logic here.",
     inputSchema: {
         type: "object",
-        properties: {}
+        properties: {} // No input arguments
     }
 };
 
 // The actual function that gets executed.
-export function run(args: ToolInput): ToolResult {
-    console.log(\`Executing placeholder function '${toolDefinition.name}' with args:\`, args);
-    // You can access args.contents, args.context, etc. here
-    return { 
-        contents: [{ 
-            type: "text", 
-            text: "Placeholder function executed successfully." 
-        }] 
-    };
+// Takes no arguments (matching schema) and returns a simple string.
+export function run(): string {
+    console.log(\`Executing placeholder function '\${toolDefinition.name}'\`);
+    // Add your logic here!
+    return "Placeholder function executed successfully.";
 }
 `;
         const placeholderDescription = "A newly added placeholder function. Implement your logic here.";
@@ -608,7 +618,7 @@ export function run(args: ToolInput): ToolResult {
             logger.debug(`Calling internal _function_register for placeholder '${name}'...`);
             const result = await registerFunctionTool.execute(registrationArgs);
             logger.info(`✅ Successfully added placeholder function: ${name}`);
-            
+
             // Modify the success message if possible
             if (result && result.length > 0 && result[0].type === 'text') {
                  const originalMessage = result[0].text;

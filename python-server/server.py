@@ -479,6 +479,7 @@ class DynamicAdditionServer(Server):
                 raise ValueError(f"Could not load module spec for {file_path}")
 
             module = importlib.util.module_from_spec(spec)
+            sys.modules[name] = module 
             spec.loader.exec_module(module)
 
             # Get the function from the module
@@ -1050,6 +1051,11 @@ class ServiceClient:
             self.is_connected = True
             self.retry_count = 0  # Reset retry counter on successful connection
             logger.info("✅ CONNECTED TO CLOUD SERVER!")
+
+            # Get the list of tools to log them
+            tools_list = await self.mcp_server._get_tools_list()
+            tool_names = [tool.name for tool in tools_list]
+            logger.info(f"📊 REGISTERING {len(tools_list)} TOOLS WITH CLOUD: {', '.join(tool_names)}")
 
             # Emit the client event upon successful connection
             await self.send_message('client', {'status': 'connected'})

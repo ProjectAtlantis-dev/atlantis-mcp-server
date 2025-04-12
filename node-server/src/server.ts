@@ -682,10 +682,57 @@ const addTaskTool: ToolDefinition = {
     }
 };
 
+// --- NEW Tool: Peek Task --- //
+const peekTaskTool: ToolDefinition = {
+    name: "_task_peek",
+    description: "Retrieve the stored details for a specific task ID.",
+    inputSchema: {
+        type: "object",
+        properties: {
+            id: { type: "integer", description: "ID of the task to peek" }
+        },
+        required: ["id"]
+    },
+    async execute(args: { id?: number }): Promise<TextContent[]> {
+        logger.info(`👀 TASK PEEK CALLED with args: ${JSON.stringify(args)}`);
+        try {
+            const taskId = args.id;
+
+            if (taskId === undefined || taskId === null) {
+                throw new Error("Missing 'id' in arguments");
+            }
+            // Ensure it's treated as a number, specifically integer if needed, although TS handles number types
+            if (typeof taskId !== 'number' || !Number.isInteger(taskId)) {
+                 throw new Error("'id' must be an integer");
+            }
+
+            // Retrieve the task details from the map
+            const taskDetails = tasks.get(taskId);
+
+            if (taskDetails !== undefined) {
+                logger.info(`✅ Task ${taskId} details found: ${JSON.stringify(taskDetails)}`);
+                // Return the stored task details as JSON string in 'text' and raw dict in annotations.task_payload_json
+                return [{
+                    type: "text",
+                    text: JSON.stringify(taskDetails),
+                    annotations: { task_payload_json: taskDetails } // Add payload to annotations
+                }];
+            } else {
+                logger.warn(`❓ Task ID ${taskId} not found.`);
+                // Throw error to be handled by handleCallTool
+                throw new Error(`Task ID ${taskId} not found`);
+            }
+        } catch (error: any) {
+            logger.error(`❌ Error peeking task: ${error.message}`, { stack: error.stack });
+            // Re-throw the error
+            throw error;
+        }
+    }
+};
+
 // --- Existing Stubs (Keep for now, implement later) ---
 const taskRunStub = createStubTool("_task_run", "Runs a task.", { id: { type: "integer" } }, ["id"]);
 const taskRemoveStub = createStubTool("_task_remove", "Removes a task.", { id: { type: "integer" } }, ["id"]);
-const taskPeekStub = createStubTool("_task_peek", "Peeks a task.", { id: { type: "integer" } }, ["id"]);
 
 // Register built-in tools
 toolRegistry.set(registerFunctionTool.name, registerFunctionTool);
@@ -697,7 +744,7 @@ toolRegistry.set(addFunctionTool.name, addFunctionTool);
 toolRegistry.set(addTaskTool.name, addTaskTool); // Register the real implementation
 toolRegistry.set(taskRunStub.name, taskRunStub);
 toolRegistry.set(taskRemoveStub.name, taskRemoveStub);
-toolRegistry.set(taskPeekStub.name, taskPeekStub);
+toolRegistry.set(peekTaskTool.name, peekTaskTool); // Register the real implementation
 
 // --- MCP Request Handlers ---
 const handleListTools = (ws: WebSocket, id: string | number | null, _params: any): void => {

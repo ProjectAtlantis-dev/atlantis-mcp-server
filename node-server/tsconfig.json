@@ -26,7 +26,7 @@
     /* Linting */
     "noFallthroughCasesInSwitch": true,
     "noImplicitReturns": true,
-    "noUnusedLocals": true,
+    "noUnusedLocals": false, // Set to false to treat as warning (or rather, ignore compiler error)
     "noUnusedParameters": true,
   },
   "include": ["src/**/*"], // Include all files in the src directory

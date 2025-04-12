@@ -158,6 +158,7 @@ class DynamicAdditionServer(Server):
         super().__init__("Dynamic Function Server")
         self.tasks = {} # Store tasks in a dictionary
         self.next_task_id = 1 # Initialize next task ID
+        self.dynamic_functions = {} # Store dynamic functions
 
         # Register tool handlers using SDK decorators
         # These now wrap the actual logic methods defined below
@@ -880,11 +881,59 @@ class DynamicAdditionServer(Server):
             raise e
 
     async def _task_run(self, args: dict) -> list[TextContent]:
-        """Stub for running an existing task"""
-        logger.info("▶️ TASK RUN CALLED (STUB)")
-        # Placeholder logic: Extract args if needed
-        task_id = args.get("id", "unknown_id")
-        return [TextContent(type="text", text=f"Task run for ID '{task_id}' called (stub)")]
+        """Runs a dynamic Python function with the task data."""
+        logger.info(f"🏃 TASK RUN CALLED with args: {args}")
+        task_id_str = args.get('id')
+        if task_id_str is None:
+            raise ValueError("Missing 'id' in arguments")
+
+        try:
+            task_id = int(task_id_str)
+        except ValueError:
+            raise ValueError("'id' must be an integer")
+
+        # Retrieve the task data
+        task_data = self.tasks.get(task_id)
+        if task_data is None:
+            raise ValueError(f"Task ID {task_id} not found")
+
+        # Extract payload (handle potential prior result storage)
+        payload = task_data.get('payload', task_data) # Use get for dicts
+        if not isinstance(payload, dict):
+             raise ValueError(f"Task ID {task_id} does not contain a valid payload object.")
+
+        function_name = payload.get('functionName')
+        function_args = payload.get('arguments') # Use get, allows None
+
+        if not isinstance(function_name, str):
+             raise ValueError(f"Task ID {task_id} payload missing 'functionName' string.")
+        if function_args is None: # Check for explicit None
+             raise ValueError(f"Task ID {task_id} payload missing 'arguments'.")
+
+        # Find the dynamic function definition
+        # Note: Dynamic functions are stored separately in self.dynamic_functions
+        dynamic_func = self.dynamic_functions.get(function_name)
+        if dynamic_func is None or not callable(dynamic_func):
+             raise ValueError(f"Dynamic function '{function_name}' not found or not callable.")
+
+        logger.info(f"🚀 Executing dynamic function '{function_name}' for task {task_id} with args: {function_args}")
+
+        # Execute the dynamic function
+        # Assuming the dynamic functions are async, like the built-ins
+        try:
+            result = await dynamic_func(function_args)
+            # Assuming result is already in a format suitable for storage (e.g., list[TextContent])
+            # Or convert if necessary. For now, store raw result.
+            logger.info(f"✅ Dynamic function '{function_name}' for task {task_id} completed.")
+        except Exception as e:
+            logger.error(f"❌ Error executing dynamic function '{function_name}' for task {task_id}: {e}", exc_info=True)
+            raise # Re-raise the exception after logging
+
+        # Store the result back with the task data
+        # Preserve original payload, add/update result
+        self.tasks[task_id] = {'payload': payload, 'result': result}
+
+        return [TextContent(type="text", text=f"Task {task_id} executed successfully, result stored.")]
 
     async def _task_remove(self, args: dict) -> list[TextContent]:
         """Removes a task by its ID."""

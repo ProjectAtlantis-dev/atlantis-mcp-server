@@ -772,8 +772,85 @@ const removeTaskTool: ToolDefinition = {
     }
 };
 
+// --- NEW Tool: Run Task --- //
+const runTaskTool: ToolDefinition = {
+    name: "_task_run",
+    description: "Runs a dynamic Typescript function with the task data",
+    inputSchema: {
+        type: "object",
+        properties: {
+            id: { type: "integer", description: "ID of the task to run" }
+        },
+        required: ["id"]
+    },
+    async execute(args: { id?: number }): Promise<TextContent[]> {
+        logger.info(`🏃 TASK RUN CALLED with args: ${JSON.stringify(args)}`);
+        try {
+            const taskId = args.id;
+
+            if (taskId === undefined || taskId === null) {
+                throw new Error("Missing 'id' in arguments");
+            }
+            if (typeof taskId !== 'number' || !Number.isInteger(taskId)) {
+                 throw new Error("'id' must be an integer");
+            }
+
+            // Retrieve the task data (might contain payload and previous result)
+            const taskData = tasks.get(taskId);
+
+            if (!taskData) {
+                throw new Error(`Task ID ${taskId} not found`);
+            }
+
+            // Extract payload - assume it might be nested if result is also stored
+            const payload = taskData.payload || taskData; // Handle initial run vs subsequent
+            if (!payload || typeof payload !== 'object'){
+                 throw new Error(`Task ID ${taskId} does not contain a valid payload object.`);
+            }
+
+            const functionName = payload.functionName;
+            const functionArgs = payload.arguments;
+
+            if (typeof functionName !== 'string') {
+                throw new Error(`Task ID ${taskId} payload missing 'functionName' string.`);
+            }
+             if (typeof functionArgs === 'undefined') { // Allow null/empty object args
+                throw new Error(`Task ID ${taskId} payload missing 'arguments'.`);
+            }
+
+            // Find the dynamic function tool definition
+            const tool = toolRegistry.get(functionName);
+            if (!tool || !tool.execute) { // Check if it's an executable tool
+                 throw new Error(`Dynamic function tool '${functionName}' not found or not executable.`);
+            }
+            // Optional: Add check to ensure it's actually a *dynamic* function if needed
+
+            logger.info(`🚀 Executing dynamic function '${functionName}' for task ${taskId} with args: ${JSON.stringify(functionArgs)}`);
+
+            // Execute the dynamic function
+            const result = await tool.execute(functionArgs);
+
+            logger.info(`✅ Dynamic function '${functionName}' for task ${taskId} completed.`);
+
+            // Store the result back with the task data
+            // Preserve original payload, add/update result
+            tasks.set(taskId, { payload: payload, result: result });
+
+            return [{ type: "text", text: `Task ${taskId} executed successfully, result stored.` }];
+
+        } catch (error: any) {
+            logger.error(`❌ Error running task ${args.id}: ${error.message}`, { stack: error.stack });
+            // Re-throw the error
+            throw error;
+        }
+    }
+};
+
 // --- Existing Stubs (Keep for now, implement later) ---
-const taskRunStub = createStubTool("_task_run", "Runs a dynamic Typescript function with the task data", { id: { type: "integer" } }, ["id"]);
+// const taskAddStub = createStubTool("_task_add", "Adds a task.", { payload: { type: "object" } }, ["payload"]); // Replaced by addTaskTool
+// const taskRunStub = createStubTool("_task_run", "Runs a dynamic Typescript function with the task data", { id: { type: "integer" } }, ["id"]); // Replaced by runTaskTool
+// const taskRemoveStub = createStubTool("_task_remove", "Removes a task.", { id: { type: "integer" } }, ["id"]); // Replaced by removeTaskTool
+// const taskPeekStub = createStubTool("_task_peek", "Peeks a task.", { id: { type: "integer" } }, ["id"]); // Replaced by peekTaskTool
 
 // Register built-in tools
 toolRegistry.set(registerFunctionTool.name, registerFunctionTool);
@@ -783,7 +860,7 @@ toolRegistry.set(addFunctionTool.name, addFunctionTool);
 
 // Register Task tools
 toolRegistry.set(addTaskTool.name, addTaskTool); // Register the real implementation
-toolRegistry.set(taskRunStub.name, taskRunStub);
+toolRegistry.set(runTaskTool.name, runTaskTool); // Register the real implementation
 toolRegistry.set(removeTaskTool.name, removeTaskTool); // Register the real implementation
 toolRegistry.set(peekTaskTool.name, peekTaskTool); // Register the real implementation
 

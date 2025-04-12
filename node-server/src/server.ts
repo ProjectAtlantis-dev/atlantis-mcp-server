@@ -57,7 +57,7 @@ const PID_FILE: string = path.join(__dirname, '..', 'mcp_node_server.pid'); // P
 const CLOUD_NAMESPACE = "/service";
 const CLOUD_RECONNECT_DELAY_BASE_MS = 5000; // 5 seconds
 // Allow null for infinite retries, mirroring Python's (None for infinite)
-const CLOUD_MAX_RECONNECT_ATTEMPTS: number | null = 10;
+const CLOUD_MAX_RECONNECT_ATTEMPTS: number | null = null;
 const CLOUD_MAX_RECONNECT_BACKOFF_MS = 60000; // 60 seconds
 
 // --- MCP Tool Registry ---
@@ -990,34 +990,6 @@ let cloudConnectionAttempts: number = 0;
 
 // --- New functions ---
 
-const scheduleCloudReconnection = () => {
-    // Check if we've reached the maximum attempts, ONLY if a limit is set (not null)
-    if (CLOUD_MAX_RECONNECT_ATTEMPTS !== null && cloudConnectionAttempts >= CLOUD_MAX_RECONNECT_ATTEMPTS) {
-        logger.error(`☁️❌ Reached maximum cloud reconnection attempts (${CLOUD_MAX_RECONNECT_ATTEMPTS}). Giving up.`);
-        return; // Stop trying
-    }
-    if (cloudReconnectTimer) {
-        clearTimeout(cloudReconnectTimer); // Clear existing timer if any
-    }
-    if (cloudConnectionAttempts >= CLOUD_MAX_RECONNECT_ATTEMPTS) {
-        logger.error(`☁️❌ Reached max cloud reconnection attempts (${CLOUD_MAX_RECONNECT_ATTEMPTS}). Giving up.`);
-        return;
-    }
-
-    cloudConnectionAttempts++;
-    // Exponential backoff with jitter
-    const delay = Math.min(
-        CLOUD_MAX_RECONNECT_BACKOFF_MS,
-        CLOUD_RECONNECT_DELAY_BASE_MS * Math.pow(2, cloudConnectionAttempts - 1)
-    );
-    const jitter = delay * 0.2 * Math.random(); // Add +/- 10% jitter
-    const reconnectDelay = Math.round(delay + jitter);
-
-
-    logger.info(`☁️ Scheduling cloud reconnection attempt ${cloudConnectionAttempts}/${CLOUD_MAX_RECONNECT_ATTEMPTS} in ${reconnectDelay}ms...`);
-    cloudReconnectTimer = setTimeout(connectToCloud, reconnectDelay);
-};
-
 const connectToCloud = () => {
     if (argv['disable-cloud']) {
         logger.info("☁️ Cloud connection explicitly disabled via --disable-cloud.");
@@ -1043,7 +1015,7 @@ const connectToCloud = () => {
         cloudSocket = null;
     }
     if (cloudReconnectTimer) {
-        clearTimeout(cloudReconnectTimer);
+        clearTimeout(cloudReconnectTimer); // Clear existing timer if any
         cloudReconnectTimer = null;
     }
 
@@ -1054,8 +1026,11 @@ const connectToCloud = () => {
     cloudSocket = io(`${cloudUrl}${CLOUD_NAMESPACE}`, { // Connect directly to the namespace URL
         path: '/socket.io', // Standard path, adjust if cloud server uses something else
         transports: ['websocket'], // Prefer websocket
-        autoConnect: false, // We manage connection manually
-        reconnection: false, // We manage reconnection manually
+        autoConnect: true, // We want autoConnect for reconnection
+        reconnection: true, // Enable built-in reconnection
+        reconnectionAttempts: Infinity, // Retry forever
+        reconnectionDelay: CLOUD_RECONNECT_DELAY_BASE_MS, // Initial delay
+        reconnectionDelayMax: CLOUD_MAX_RECONNECT_BACKOFF_MS, // Max delay
         auth: authPayload,
         // Specify the namespace if needed, often done in the URL or path
         // For Socket.IO v3/v4, namespace is usually part of the URL or handled server-side
@@ -1081,23 +1056,57 @@ const connectToCloud = () => {
         logger.error(`☁️❌ Cloud connection error: ${err.message}`);
         // Check for specific auth errors if the server provides them
         if (err.message.includes('Authentication error')) { // Adjust based on actual server error
-            logger.error("☁️ Authentication failed. Please check --email, --api-key, --service-name.");
-            // Don't retry on auth failure
-        } else {
-            scheduleCloudReconnection();
-        }
+            logger.error("☁️ Authentication failed. Please check --email, --api-key, --service-name. Disabling cloud connection.");
+            // Disable future attempts by disconnecting the socket if it exists
+            cloudSocket?.disconnect();
+        } // Built-in reconnection will handle non-auth errors
     });
 
     cloudSocket.on('disconnect', (reason: string) => { // Disconnect reason is a string
         logger.warn(`☁️🔌 Disconnected from cloud server. Reason: ${reason}`);
-        cloudSocket = null; // Clear the socket instance
-        // Reconnect unless intentionally disconnected or it was an auth error
-        if (reason !== 'io server disconnect' && reason !== 'io client disconnect') {
-             scheduleCloudReconnection();
+        // Don't nullify cloudSocket here if we want auto-reconnect to work
+        // Built-in reconnection will attempt unless reason is 'io client disconnect'
+        if (reason === 'io server disconnect') {
+            logger.info("☁️ Server initiated disconnect. Attempting to reconnect...");
+            // Socket.IO will attempt reconnection automatically
+        } else if (reason === 'io client disconnect') {
+            logger.info(`☁️ Intentional disconnect from cloud. Won't reconnect automatically.`);
+            // Socket is already disconnected, no need to call disconnect again.
         } else {
-             logger.info(`☁️ Intentional disconnect from cloud. Won't reconnect automatically.`);
+            logger.info(`☁️ Unexpected disconnect (${reason}). Socket.IO will attempt reconnection.`);
+            // Socket.IO will attempt reconnection automatically for other reasons (e.g., transport error)
         }
     });
+
+    // --- ADDED: Handlers for built-in reconnection events ---
+    cloudSocket.on('reconnect_attempt', (attemptNumber: number) => {
+        logger.info(`☁️ Retrying cloud connection... Attempt ${attemptNumber}`);
+    });
+
+    cloudSocket.on('reconnect', (attemptNumber: number) => {
+        logger.info(`☁️✅ Successfully reconnected to cloud server after ${attemptNumber} attempts.`);
+        // No need to reset attempts manually, library handles it.
+        // Client identification might need to be resent depending on server logic.
+        // Re-emitting identification on 'reconnect' is often a good idea.
+        const serviceName = argv['service-name'];
+        if (serviceName && cloudSocket) {
+            const payload = { name: serviceName };
+            cloudSocket.emit('client', payload);
+            logger.debug('☁️⬆️ Re-sent client identification after reconnect:', payload);
+        }
+    });
+
+    cloudSocket.on('reconnect_error', (err: Error) => {
+        logger.error(`☁️❌ Cloud reconnection error: ${err.message}`);
+        // The library continues attempting based on reconnectionAttempts setting.
+    });
+
+    cloudSocket.on('reconnect_failed', () => {
+        // This event fires if reconnectionAttempts has a limit and it's reached.
+        // Since ours is Infinity, this should theoretically never fire.
+        logger.error("☁️❌ Cloud reconnection failed after maximum attempts (This shouldn't happen with infinite retries!).");
+    });
+    // --- End Added Handlers ---
 
     // --- Placeholder for handling messages FROM the cloud ---
     // Listen for specific events the cloud server might emit
@@ -1239,7 +1248,7 @@ const connectToCloud = () => {
         logger.error(`☁️ Socket.IO general error: ${error.message}`);
         // General errors might not trigger disconnect, schedule check/reconnect
         if (!cloudSocket?.connected) {
-             scheduleCloudReconnection();
+             // Built-in reconnection will handle this
         }
     });
 

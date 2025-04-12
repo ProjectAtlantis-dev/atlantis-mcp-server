@@ -192,7 +192,7 @@ class DynamicAdditionServer(Server):
         tools = [
             Tool(
                 name="_function_register",
-                description="Install or update a Python function by inspecting its code", # Updated description
+                description="Sets the content of a dynamic Python function", # Updated description
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -203,7 +203,7 @@ class DynamicAdditionServer(Server):
             ),
             Tool( # Add definition for get_tool_code
                 name="_function_get",
-                description="Get the source code for a Python function",
+                description="Gets the Python source code for a dynamic function",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -214,7 +214,7 @@ class DynamicAdditionServer(Server):
             ),
             Tool( # Add definition for remove_dynamic_tool
                 name="_function_remove",
-                description="Remove a dynamically registered Python function",
+                description="Removes a dynamic Python function",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -225,7 +225,7 @@ class DynamicAdditionServer(Server):
             ),
             Tool( # Add definition for add_placeholder_function
                 name="_function_add",
-                description="Adds a new, empty placeholder function with the given name.",
+                description="Adds a new, empty placeholder Python function with the given name.",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -237,7 +237,7 @@ class DynamicAdditionServer(Server):
             # --- Task Management Tools --- #
             Tool(
                 name="_task_add",
-                description="Add a new task via a JSON payload", # Updated description
+                description="Adds a new task", # Updated description
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -251,7 +251,7 @@ class DynamicAdditionServer(Server):
             ),
             Tool(
                 name="_task_run",
-                description="(Stub) Run an existing task",
+                description="Runs a dynamic Python function with the task data",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -262,7 +262,7 @@ class DynamicAdditionServer(Server):
             ),
             Tool(
                 name="_task_remove",
-                description="Remove a task",
+                description="Removes a task",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -273,7 +273,7 @@ class DynamicAdditionServer(Server):
             ),
             Tool(
                 name="_task_peek",
-                description="Retrieve the stored details for a specific task ID", # Removed (Stub)
+                description="Retrieves the stored details for a specific task", # Removed (Stub)
                 inputSchema={
                     "type": "object",
                     "properties": {

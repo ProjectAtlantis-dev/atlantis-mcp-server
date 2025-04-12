@@ -149,7 +149,7 @@ const createStubTool = (
 ): ToolDefinition => {
     return {
         name: name,
-        description: description + " (STUB)",
+        description: description,
         inputSchema: { type: "object", properties: inputSchema, required: requiredParams },
         async execute(args: any): Promise<TextContent[]> {
             logger.info(`Executing STUB for tool: ${name} with args: ${JSON.stringify(args)}`);
@@ -164,11 +164,11 @@ const createStubTool = (
 // --- Custom implementation for _function_register ---
 const registerFunctionTool: ToolDefinition = {
     name: "_function_register",
-    description: "Saves, compiles, and registers a new dynamic TypeScript function based on its exported toolDefinition.",
+    description: "Sets the content of a dynamic TypeScript function",
     inputSchema: {
         type: "object",
         properties: {
-            code: { type: "string", description: "The TypeScript source code for the function, must export 'toolDefinition'" }
+            code: { type: "string", description: "The TypeScript source code containing a single function definition." }
         },
         required: ["code"]
     },
@@ -440,7 +440,7 @@ const registerFunctionTool: ToolDefinition = {
 // --- Custom implementation for _function_get ---
 const getFunctionCodeTool: ToolDefinition = {
     name: "_function_get",
-    description: "Gets the TypeScript source code for a dynamic function.",
+    description: "Gets the TypeScript source code for a dynamic function",
     inputSchema: {
         type: "object",
         properties: {
@@ -492,7 +492,7 @@ const getFunctionCodeTool: ToolDefinition = {
 // --- Custom implementation for _function_remove ---
 const removeFunctionTool: ToolDefinition = {
     name: "_function_remove",
-    description: "Unregisters a dynamic function and deletes its source and compiled files.",
+    description: "Removes a dynamic Typescript function",
     inputSchema: {
         type: "object",
         properties: {
@@ -639,7 +639,7 @@ export function run(): string {
 // --- NEW Tool: Add Task --- //
 const addTaskTool: ToolDefinition = {
     name: "_task_add",
-    description: "Adds a new task using the provided payload.",
+    description: "Adds a new task",
     inputSchema: {
         type: "object",
         properties: {
@@ -685,7 +685,7 @@ const addTaskTool: ToolDefinition = {
 // --- NEW Tool: Peek Task --- //
 const peekTaskTool: ToolDefinition = {
     name: "_task_peek",
-    description: "Retrieve the stored details for a specific task ID.",
+    description: "Retrieves the stored details for a specific task",
     inputSchema: {
         type: "object",
         properties: {
@@ -733,7 +733,7 @@ const peekTaskTool: ToolDefinition = {
 // --- NEW Tool: Remove Task --- //
 const removeTaskTool: ToolDefinition = {
     name: "_task_remove",
-    description: "Removes a task by its ID.",
+    description: "Removes a task",
     inputSchema: {
         type: "object",
         properties: {
@@ -773,7 +773,7 @@ const removeTaskTool: ToolDefinition = {
 };
 
 // --- Existing Stubs (Keep for now, implement later) ---
-const taskRunStub = createStubTool("_task_run", "Runs a task.", { id: { type: "integer" } }, ["id"]);
+const taskRunStub = createStubTool("_task_run", "Runs a dynamic Typescript function with the task data", { id: { type: "integer" } }, ["id"]);
 
 // Register built-in tools
 toolRegistry.set(registerFunctionTool.name, registerFunctionTool);

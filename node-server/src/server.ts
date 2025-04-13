@@ -1064,7 +1064,9 @@ const handleCallTool = async (ws: WebSocket, id: string | number | null, params:
             }
 
             logger.info(`✅ Successfully executed tool '${name}' (ID: ${id}).`);
-            sendResponse(ws, id, { content: result });
+            // IMPORTANT: We use "contents" (plural) key to match format between Python and Node servers
+            // Both MCP SDK implementations support either "content" or "contents" but we need to be consistent
+            sendResponse(ws, id, { contents: result });
 
         } catch (error: any) {
             logger.error(`💥 Error executing tool '${name}': ${error.message}`);
@@ -1333,7 +1335,9 @@ const connectToCloud = () => {
                             // If execution reached here, it was successful
                             response = {
                                 jsonrpc: '2.0',
-                                result: { content: resultContents }, // MCP spec for tools/call result
+                                // IMPORTANT: We use "contents" (plural) key to match format between Python and Node servers
+                                // Both MCP SDK implementations support either "content" or "contents" but we need to be consistent
+                                result: { contents: resultContents },
                                 id: request.id
                             };
                             logger.info(`Tool '${name}' executed successfully. Sending result.`);

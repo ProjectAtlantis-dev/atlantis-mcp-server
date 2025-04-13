@@ -728,37 +728,33 @@ const addFunctionTool: ToolDefinition = {
 
         logger.info(`➕ ADDING NEW PLACEHOLDER FUNCTION: ${name}`);
 
-        // Define the hardcoded placeholder content
+        // Define the placeholder content using the provided name
         const placeholderCode = `
 // Placeholder function created by _function_add
 
-// Note: The definition below is crucial for _function_register
-export const toolDefinition = {
-    name: "placeholder_run", // Internal name, not the registered one
-    description: "A newly added placeholder function. Implement your logic here.",
-    inputSchema: {
-        type: "object",
-        properties: {} // No input arguments
-    }
-};
-
-// The actual function that gets executed.
-// Takes no arguments (matching schema) and returns a simple string.
-export function run(): string {
-    console.log(\`Executing placeholder function '\${toolDefinition.name}'\`);
+/**
+ * This is an empty placeholder function.
+ * Replace this with your actual logic.
+ */
+export function handler(): string {
+    console.log(\`Executing placeholder function '${name}'\`);
     // Add your logic here!
     return "Placeholder function executed successfully.";
 }
+
+// Metadata is optional - our server can extract parameters automatically
+export const metadata = {
+    // You can optionally add a custom description here
+    description: "A newly added placeholder function. Implement your logic here."
+};
 `;
         const placeholderDescription = "A newly added placeholder function. Implement your logic here.";
         const placeholderSchema = { type: "object", properties: {} }; // No input arguments
 
         // Prepare arguments for the existing _function_register method
-        // It expects name, description, inputSchema, and code
-        const registrationArgs: { name: string, description: string, inputSchema: any, code: string } = {
+        // We now only need name and code - description and schema are optional
+        const registrationArgs: { name: string, code: string } = {
             name: name, // The name provided by the user for registration
-            description: placeholderDescription,
-            inputSchema: placeholderSchema,
             code: placeholderCode
         };
 

@@ -729,25 +729,29 @@ const addFunctionTool: ToolDefinition = {
         logger.info(`➕ ADDING NEW PLACEHOLDER FUNCTION: ${name}`);
 
         // Define the placeholder content using the provided name
-        const placeholderCode = `
-// Placeholder function created by _function_add
+        const placeholderCode = `// Placeholder function created by _function_add
 
-/**
- * This is an empty placeholder function.
- * Replace this with your actual logic.
- */
+// This definition is required by _function_register
+export const toolDefinition = {
+    name: "${name}", // Using the provided name
+    description: "A newly added placeholder function. Implement your logic here.",
+    inputSchema: {
+        type: "object",
+        properties: {} // No input arguments
+    }
+};
+
+// Metadata is also required for the description
+export const metadata = {
+    description: "A newly added placeholder function. Implement your logic here."
+};
+
+// The actual function that gets executed
 export function handler(): string {
     console.log(\`Executing placeholder function '${name}'\`);
     // Add your logic here!
     return "Placeholder function executed successfully.";
-}
-
-// Metadata is optional - our server can extract parameters automatically
-export const metadata = {
-    // You can optionally add a custom description here
-    description: "A newly added placeholder function. Implement your logic here."
-};
-`;
+}`;
         const placeholderDescription = "A newly added placeholder function. Implement your logic here.";
         const placeholderSchema = { type: "object", properties: {} }; // No input arguments
 

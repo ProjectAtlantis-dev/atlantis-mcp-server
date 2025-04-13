@@ -488,7 +488,7 @@ class DynamicAdditionServer(Server):
                                 
                                 for param_name, param in parameters.items():
                                     prop_details = {}
-                                    
+
                                     # Determine type
                                     if param.annotation is inspect.Parameter.empty or param.annotation is Any:
                                         prop_details["type"] = "any"
@@ -509,7 +509,7 @@ class DynamicAdditionServer(Server):
                                     
                                     # Add description
                                     prop_details["description"] = f"Parameter '{param_name}'"
-                                    
+
                                     # Check if required
                                     if param.default is inspect.Parameter.empty:
                                         required.append(param_name)
@@ -1016,7 +1016,7 @@ class DynamicAdditionServer(Server):
              raise ValueError(f"Task ID {task_id} does not contain a valid payload object.")
 
         function_name = payload.get('functionName')
-        function_args = payload.get('arguments') # Use get, allows None
+        function_args = payload.get('arguments') # MCP spec uses 'arguments'
 
         if not isinstance(function_name, str):
              raise ValueError(f"Task ID {task_id} payload missing 'functionName' string.")
@@ -1165,7 +1165,7 @@ class ServiceClient:
     Socket.IO is different from standard WebSockets - it adds features like:
     - Automatic reconnection
     - Fallback to long polling when WebSockets aren't available
-    - Built-in event system with namespaces
+    - Namespaces for multiplexing
     - Authentication handling
 
     While server.py acts as a WebSocket SERVER for the node-mcp-client,
@@ -1173,20 +1173,18 @@ class ServiceClient:
 
     Manages the Socket.IO connection to the cloud server's service namespace.
     """
-    def __init__(self, server_url: str, namespace: str, email: str, api_key: str, serviceName: str, mcp_server):
+    def __init__(self, server_url: str, namespace: str, email: str, api_key: str, serviceName: str, mcp_server: Server, port: int):
         self.server_url = server_url
-
         self.namespace = namespace
-
         self.email = email
         self.api_key = api_key
         self.serviceName = serviceName
-
         self.mcp_server = mcp_server
+        self.server_port = port # Store the server's listening port
         self.sio = None
+        self.retry_count = 0
         self.connection_task = None
         self.is_connected = False
-        self.retry_count = 0
         self.connection_active = True
 
     async def connect(self):
@@ -1214,12 +1212,15 @@ class ServiceClient:
                 await self.sio.connect(
                     self.server_url,
                     namespaces=[self.namespace],
+                    transports=['websocket'],  # Prefer websocket
                     auth={
                         "email": self.email,
                         "apiKey": self.api_key,
+                        "serviceName": self.serviceName,
                         "hostname": hostname,
-                        "serviceName": self.serviceName
-                    }
+                        "port": self.server_port # Send the stored port
+                    },
+                    retry=False # We handle retries manually with backoff
                 )
 
                 # Wait for disconnection
@@ -1498,7 +1499,8 @@ if __name__ == "__main__":
                     email=args.email,
                     api_key=args.api_key,
                     serviceName=args.service_name,
-                    mcp_server=mcp_server
+                    mcp_server=mcp_server,
+                    port=PORT # Pass the listening port
                 )
                 cloud_task = loop.create_task(cloud_connection.connect())
         else:

@@ -1168,7 +1168,7 @@ const connectToCloud = () => {
     }
 
     // Construct the auth object matching server expectation
-    const authPayload = { apiKey, email, serviceName, hostname: os.hostname() };
+    const authPayload = { apiKey, email, serviceName, hostname: os.hostname(), port: argv.port }; // Add port here
     logger.debug(`☁️ Auth payload being sent: ${JSON.stringify(authPayload)}`); // Stringify explicitly
 
     cloudSocket = io(`${cloudUrl}${CLOUD_NAMESPACE}`, { // Connect directly to the namespace URL

@@ -159,6 +159,7 @@ class DynamicAdditionServer(Server):
         self.tasks = {} # Store tasks in a dictionary
         self.next_task_id = 1 # Initialize next task ID
         self.dynamic_functions = {} # Store dynamic functions
+        self.tools = {} # Store registered tools
 
         # Register tool handlers using SDK decorators
         # These now wrap the actual logic methods defined below
@@ -334,8 +335,17 @@ class DynamicAdditionServer(Server):
 
             # Check if this is a dynamically registered function
             else:
-                function_path = os.path.join(FUNCTIONS_DIR, f"{name}.py")
-                if os.path.exists(function_path):
+                # First check if we have it in memory
+                if name in self.tools:
+                    tool_entry = self.tools[name]
+                    function_path = tool_entry.get("file_path")
+                    logger.debug(f"Found tool '{name}' in cache")
+                else:
+                    # Fall back to filesystem
+                    function_path = os.path.join(FUNCTIONS_DIR, f"{name}.py")
+                    logger.debug(f"Tool '{name}' not in cache, checking filesystem")
+                
+                if function_path and os.path.exists(function_path):
                     metadata = self._extract_metadata_from_file(function_path)
                     if not metadata or "func_name" not in metadata:
                         raise ValueError(f"Could not extract metadata from {function_path}")
@@ -437,15 +447,102 @@ class DynamicAdditionServer(Server):
 
                     # Extract the function name from the file name
                     function_name = os.path.splitext(filename)[0]
+                    
+                    # Try to load the module and inspect the function signature
+                    input_schema = {"type": "object"} # Default empty schema
+                    func_exists = False
+                    
+                    try:
+                        # Temporarily add FUNCTIONS_DIR to sys.path to allow import
+                        if FUNCTIONS_DIR not in sys.path:
+                            sys.path.insert(0, FUNCTIONS_DIR)
+                            needs_path_removal = True
+                        else:
+                            needs_path_removal = False
 
-                    # Extract metadata from the file
+                        # Module name is the filename without .py
+                        module_name = function_name
+
+                        # Invalidate caches to ensure we load the latest file
+                        importlib.invalidate_caches()
+                        if module_name in sys.modules:
+                            user_module = importlib.reload(sys.modules[module_name])
+                        else:
+                            user_module = importlib.import_module(module_name)
+
+                        if needs_path_removal:
+                            sys.path.remove(FUNCTIONS_DIR)
+
+                        # Find function with same name as the file
+                        if hasattr(user_module, function_name):
+                            user_function = getattr(user_module, function_name)
+                            func_exists = True
+                            
+                            # Inspect signature to generate schema
+                            signature = inspect.signature(user_function)
+                            parameters = signature.parameters
+                            
+                            if parameters:
+                                properties = {}
+                                required = []
+                                
+                                for param_name, param in parameters.items():
+                                    prop_details = {}
+                                    
+                                    # Determine type
+                                    if param.annotation is inspect.Parameter.empty or param.annotation is Any:
+                                        prop_details["type"] = "any"
+                                    elif param.annotation is str:
+                                        prop_details["type"] = "string"
+                                    elif param.annotation is int:
+                                        prop_details["type"] = "integer"
+                                    elif param.annotation is float or param.annotation is complex:
+                                        prop_details["type"] = "number"
+                                    elif param.annotation is bool:
+                                        prop_details["type"] = "boolean"
+                                    elif param.annotation is list or param.annotation is List:
+                                        prop_details["type"] = "array"
+                                    elif param.annotation is dict or param.annotation is Dict:
+                                        prop_details["type"] = "object"
+                                    else:
+                                        prop_details["type"] = "any"
+                                    
+                                    # Add description
+                                    prop_details["description"] = f"Parameter '{param_name}'"
+                                    
+                                    # Check if required
+                                    if param.default is inspect.Parameter.empty:
+                                        required.append(param_name)
+                                    
+                                    properties[param_name] = prop_details
+                                
+                                # Create schema
+                                input_schema = {
+                                    "type": "object",
+                                    "properties": properties
+                                }
+                                if required:
+                                    input_schema["required"] = required
+                                
+                                logger.debug(f"Generated input schema for {function_name} from signature: {input_schema}")
+                        else:
+                            logger.warning(f"Function '{function_name}' not found in module '{module_name}'")
+                            
+                    except Exception as e:
+                        logger.warning(f"Could not inspect function signature for {function_name}: {e}")
+                        # Continue with metadata-based schema as fallback
+                    
+                    # Extract metadata from the file (for description and fallback schema)
                     metadata = self._extract_metadata_from_file(file_path)
                     if metadata:
-                        # Create a Tool object from the metadata
+                        # Use schema from inspection if successful, otherwise fallback to metadata
+                        schema_to_use = input_schema if func_exists else metadata.get("input_schema", {"type": "object"})
+                        
+                        # Create a Tool object from the metadata and inspection
                         tool_instance = Tool(
                             name=function_name,
                             description=metadata.get("description", f"Dynamic function: {function_name}"),
-                            inputSchema=metadata.get("input_schema", {"type": "object"})
+                            inputSchema=schema_to_use
                         )
 
                         # Get and add timestamp
@@ -459,6 +556,13 @@ class DynamicAdditionServer(Server):
                         except OSError as e:
                             logger.warning(f"⚠️ Could not get mtime for {filename}: {e}")
                             tool_instance.lastUpdated = None # Assign None if timestamp fetch fails
+
+                        # Store the function in memory cache (self.tools)
+                        self.tools[function_name] = {
+                            "tool": tool_instance,
+                            "file_path": file_path,
+                            # We'll load the actual function when needed
+                        }
 
                         functions.append(tool_instance)
                         logger.debug(f"🔍 DISCOVERED FUNCTION: {function_name}")
@@ -738,6 +842,14 @@ class DynamicAdditionServer(Server):
 
 
         # 7. Register the wrapper as the tool's execution logic
+        # Get the file modification time for the timestamp
+        try:
+            mtime = os.path.getmtime(function_path)
+            timestamp_str = datetime.datetime.fromtimestamp(mtime, datetime.timezone.utc).isoformat().replace('+00:00', 'Z')
+        except OSError as e:
+            logger.warning(f"⚠️ Could not get mtime for {function_path}: {e}")
+            timestamp_str = datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z')
+        
         # Use the *extracted* name for registration
         if name in self.tools:
             logger.warning(f"⚠️ OVERWRITING EXISTING TOOL: {name}")
@@ -745,7 +857,8 @@ class DynamicAdditionServer(Server):
             "tool": Tool(
                 name=name,
                 description=description, # Use extracted description
-                inputSchema=generated_input_schema
+                inputSchema=generated_input_schema,
+                lastUpdated=timestamp_str # Include the lastUpdated timestamp
             ),
             "execute": wrapper, # Register the async wrapper
             "file_path": function_path # Store path for potential future use (e.g., get code)

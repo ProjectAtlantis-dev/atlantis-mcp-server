@@ -105,16 +105,41 @@ const loadAndRegisterDynamicFunction = async (compiledFilePath: string): Promise
 
         // Validate Module Structure (using types)
         if (typeof dynamicModule.handler !== 'function') throw new Error(`Module does not export a 'handler' function.`);
-        if (typeof dynamicModule.metadata !== 'object' || dynamicModule.metadata === null) throw new Error(`Module does not export a 'metadata' object.`);
-        if (typeof dynamicModule.metadata.description !== 'string' || !dynamicModule.metadata.description) throw new Error(`Exported 'metadata' missing required 'description' string.`);
+        if (typeof dynamicModule.metadata !== 'object' || dynamicModule.metadata === null) {
+            // If no metadata object, create a default one
+            dynamicModule.metadata = { description: `Dynamic function: ${functionName}` };
+            logger.debug(`No metadata found for ${functionName}, using default.`);
+        }
+        
+        // Use default description if none provided
+        if (typeof dynamicModule.metadata.description !== 'string' || !dynamicModule.metadata.description) {
+            dynamicModule.metadata.description = `Dynamic function: ${functionName}`;
+            logger.debug(`No description found for ${functionName}, using default.`);
+        }
 
-        // Default parameters if missing
-        const inputSchema = dynamicModule.metadata.inputSchema ?? { type: 'object', properties: {} };
-
-         if (!dynamicModule.metadata.inputSchema) {
-            logger.debug(`Function '${functionName}' has no input schema defined in metadata.`);
-         }
-
+        // Try to create a schema from source if no explicit schema provided
+        let inputSchema = dynamicModule.metadata.inputSchema;
+        
+        if (!inputSchema) {
+            // Look for the TypeScript source file
+            const tsFilePath = path.join(SOURCE_FUNCTIONS_DIR, `${functionName}.ts`);
+            
+            if (existsSync(tsFilePath)) {
+                try {
+                    // Read the TypeScript source file
+                    const sourceCode = readFileSync(tsFilePath, 'utf8');
+                    inputSchema = extractSchemaFromTypeScript(sourceCode, functionName);
+                    logger.debug(`Generated schema for '${functionName}' from TypeScript source: ${JSON.stringify(inputSchema)}`);
+                } catch (parseError: any) {
+                    logger.warn(`Failed to extract schema from TypeScript for '${functionName}': ${parseError.message}`);
+                    // Fall back to empty schema
+                    inputSchema = { type: 'object', properties: {} };
+                }
+            } else {
+                logger.warn(`Could not find TypeScript source for '${functionName}' at ${tsFilePath}`);
+                inputSchema = { type: 'object', properties: {} };
+            }
+        }
 
         const toolDef: ToolDefinition = {
             name: functionName,
@@ -138,6 +163,127 @@ const loadAndRegisterDynamicFunction = async (compiledFilePath: string): Promise
             dynamicFunctionFiles.delete(functionName);
         }
     }
+};
+
+// Helper function to extract parameter schema from TypeScript source
+const extractSchemaFromTypeScript = (sourceCode: string, functionName: string): any => {
+    const properties: Record<string, any> = {};
+    const required: string[] = [];
+    
+    try {
+        // Parse the TypeScript source file
+        const sourceFile = ts.createSourceFile(
+            'temp.ts',
+            sourceCode,
+            ts.ScriptTarget.Latest,
+            true
+        );
+        
+        // Find the handler function in the source
+        let handlerFunction: ts.FunctionDeclaration | undefined;
+        
+        // Look for exported handler function or any function with functionName
+        ts.forEachChild(sourceFile, node => {
+            // Check for export const handler = function or export const handler = (params) => {}
+            if (ts.isVariableStatement(node) && 
+                node.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
+                
+                node.declarationList.declarations.forEach(declaration => {
+                    if (ts.isIdentifier(declaration.name) && 
+                        declaration.name.text === 'handler' && 
+                        declaration.initializer) {
+                        
+                        // Found handler as variable, now check if it's a function
+                        if (ts.isFunctionExpression(declaration.initializer) || 
+                            ts.isArrowFunction(declaration.initializer)) {
+                            // Handle params from this function expression
+                            extractParamsFromFunction(declaration.initializer, properties, required);
+                        }
+                    }
+                });
+            }
+            
+            // Check for direct function declarations (such as "export function functionName")
+            if (ts.isFunctionDeclaration(node) && 
+                node.name && 
+                node.name.text === functionName &&
+                node.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
+                handlerFunction = node;
+            }
+        });
+        
+        // If we found a direct function declaration, extract params
+        if (handlerFunction && handlerFunction.parameters) {
+            extractParamsFromFunction(handlerFunction, properties, required);
+        }
+        
+        // Build the schema object
+        const schema: any = {
+            type: 'object',
+            properties: properties
+        };
+        
+        if (required.length > 0) {
+            schema.required = required;
+        }
+        
+        return schema;
+    } catch (e: any) {
+        logger.warn(`Error extracting schema from TypeScript: ${e.message}`);
+        return { type: 'object', properties: {} };
+    }
+};
+
+// Helper to extract parameters from a function
+const extractParamsFromFunction = (node: ts.FunctionLikeDeclaration, 
+                                 properties: Record<string, any>, 
+                                 required: string[]) => {
+    // Process each parameter
+    node.parameters.forEach(param => {
+        // Get parameter name
+        if (ts.isIdentifier(param.name)) {
+            const paramName = param.name.text;
+            let paramType = 'any';
+            
+            // Try to determine parameter type
+            if (param.type) {
+                if (ts.isTypeReferenceNode(param.type)) {
+                    if (ts.isIdentifier(param.type.typeName)) {
+                        const typeName = param.type.typeName.text;
+                        
+                        // Map TypeScript types to JSON Schema types
+                        switch (typeName.toLowerCase()) {
+                            case 'string': paramType = 'string'; break;
+                            case 'number': paramType = 'number'; break;
+                            case 'boolean': paramType = 'boolean'; break;
+                            case 'array': paramType = 'array'; break;
+                            case 'object': paramType = 'object'; break;
+                            default: paramType = 'any';
+                        }
+                    }
+                } else {
+                    // Check for keyword types by examining the node kind directly
+                    switch (param.type.kind) {
+                        case ts.SyntaxKind.StringKeyword: paramType = 'string'; break;
+                        case ts.SyntaxKind.NumberKeyword: paramType = 'number'; break;
+                        case ts.SyntaxKind.BooleanKeyword: paramType = 'boolean'; break;
+                        default: paramType = 'any';
+                    }
+                }
+            }
+            
+            // Add to properties
+            properties[paramName] = {
+                type: paramType,
+                description: `Parameter '${paramName}'`
+            };
+            
+            // If no initializer (default value), mark as required
+            if (!param.initializer && !param.questionToken) {
+                required.push(paramName);
+            }
+        }
+    });
 };
 
 // --- Stub Tool Definitions ---

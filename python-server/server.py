@@ -1108,10 +1108,10 @@ class DynamicAdditionServer(Server):
 
         logger.info(f"➕ ADDING NEW PLACEHOLDER FUNCTION: {name}")
 
-        # Define the hardcoded placeholder content
+        # Define the placeholder content with the provided name
         placeholder_code = (
             "# Placeholder function created by _function_add\n"
-            "def run():\n"
+            f"def {name}():\n"
             "    \"\"\"\n"
             "    This is an empty placeholder function. \n"
             "    Replace this with your actual logic.\n"

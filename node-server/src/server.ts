@@ -891,31 +891,12 @@ const addFunctionTool: ToolDefinition = {
         logger.info(`➕ ADDING NEW PLACEHOLDER FUNCTION: ${name}`);
 
         // Define the placeholder content using the provided name
-        const placeholderCode = `// Placeholder function created by _function_add
-
-// This definition is required by _function_register
-export const toolDefinition = {
-    name: "${name}", // Using the provided name
-    description: "A newly added placeholder function. Implement your logic here.",
-    inputSchema: {
-        type: "object",
-        properties: {} // No input arguments
-    }
-};
-
-// Metadata is also required for the description
-export const metadata = {
-    description: "A newly added placeholder function. Implement your logic here."
-};
-
-// The actual function that gets executed
-export function handler(): string {
+        const placeholderCode = `// A description of the function
+export function ${name}(): string {
     console.log(\`Executing placeholder function '${name}'\`);
     // Add your logic here!
     return "Placeholder function executed successfully.";
 }`;
-        const placeholderDescription = "A newly added placeholder function. Implement your logic here.";
-        const placeholderSchema = { type: "object", properties: {} }; // No input arguments
 
         // Prepare arguments for the existing _function_register method
         // We now only need name and code - description and schema are optional

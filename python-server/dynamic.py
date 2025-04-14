@@ -8,6 +8,7 @@ import re
 import os
 import ast
 import functools
+import datetime
 from typing import Any, Callable, Dict, List, Optional, Union
 from werkzeug.utils import secure_filename
 from mcp.types import Tool, TextContent, CallToolResult, ToolListChangedNotification, NotificationParams, Annotations
@@ -135,46 +136,78 @@ def load_function_from_file(name, file_path, func_name, mcp_server):
                 logger.debug(f"Traceback: {traceback.format_exc()}")
                 raise e
 
-        # Store the function in the dynamic functions dictionary
-        dynamic_functions[name] = wrapper
+        # Extract metadata for creating tool schema
+        sig = inspect.signature(func)
+        params = sig.parameters
+
+        # Get the docstring as the description
+        description = func.__doc__ or f"Dynamic function: {name}"
+
+        # Create JSON schema for the function based on its signature
+        properties = {}
+        required = []
+
+        for param_name, param in params.items():
+            # Skip 'self' parameter if present
+            if param_name == 'self':
+                continue
+
+            # Determine the parameter type
+            param_type = "string"  # Default type
+            if param.annotation != inspect.Parameter.empty:
+                if param.annotation == int:
+                    param_type = "integer"
+                elif param.annotation == float:
+                    param_type = "number"
+                elif param.annotation == bool:
+                    param_type = "boolean"
+                elif param.annotation == dict or param.annotation == Dict:
+                    param_type = "object"
+                elif param.annotation == list or param.annotation == List:
+                    param_type = "array"
+
+            # Add the parameter to the properties
+            properties[param_name] = {
+                "type": param_type,
+                "description": f"Parameter: {param_name}"
+            }
+
+            # If the parameter has no default value, it's required
+            if param.default == inspect.Parameter.empty:
+                required.append(param_name)
+        
+        # Create the tool schema
+        schema = {
+            "type": "object",
+            "properties": properties
+        }
+        
+        if required:
+            schema["required"] = required
+        
+        # Get file modification time
+        mtime = os.path.getmtime(file_path)
+        last_modified = datetime.datetime.fromtimestamp(mtime).isoformat()
+        
+        # Create a Tool object for the function
+        tool = Tool(
+            name=name,
+            description=description.strip(),
+            inputSchema=schema,
+            annotations={"lastModified": last_modified}
+        )
+        
+        # Store the tool in the tools dictionary
+        tools[name] = tool
+        
+        logger.info(f"✅ FUNCTION {name} LOADED SUCCESSFULLY")
+        return wrapper
+    
     except Exception as e:
         logger.error(f"❌ ERROR LOADING FUNCTION {name}: {str(e)}")
         import traceback
         logger.debug(f"Traceback: {traceback.format_exc()}")
         return
-
-    # Extract metadata for creating tool schema
-    sig = inspect.signature(func)
-    params = sig.parameters
-
-    # Get the docstring as the description
-    description = func.__doc__ or f"Dynamic function: {name}"
-
-    # Create JSON schema for the function based on its signature
-    properties = {}
-    required = []
-
-    for param_name, param in params.items():
-        # Skip 'self' parameter if present
-        if param_name == 'self':
-            continue
-
-        # Determine the parameter type
-        param_type = "string"  # Default type
-        if param.annotation != inspect.Parameter.empty:
-            if param.annotation == int:
-                param_type = "integer"
-            elif param.annotation == float:
-                param_type = "number"
-            elif param.annotation == bool:
-                param_type = "boolean"
-        properties[param_name] = {"type": param_type}
-        if param.default == inspect.Parameter.empty:
-            required.append(param_name)
-
-    # Register the tool schema (if needed, add your schema registration logic here)
-
-# --- Helper to call user function as pure python ---
 
 async def _call_func(func, tool_args):
     result = func(**tool_args)
@@ -191,68 +224,6 @@ async def _call_func(func, tool_args):
         return [TextContent(type="text", text=str(result))]
 
 
-
-    # Extract metadata for creating tool schema
-    sig = inspect.signature(func)
-    params = sig.parameters
-
-    # Get the docstring as the description
-    description = func.__doc__ or f"Dynamic function: {name}"
-
-    # Create JSON schema for the function based on its signature
-    properties = {}
-    required = []
-
-    for param_name, param in params.items():
-        # Skip 'self' parameter if present
-        if param_name == 'self':
-            continue
-
-        # Determine the parameter type
-        param_type = "string"  # Default type
-        if param.annotation != inspect.Parameter.empty:
-            if param.annotation == int:
-                param_type = "integer"
-            elif param.annotation == float:
-                param_type = "number"
-            elif param.annotation == bool:
-                param_type = "boolean"
-            elif param.annotation == dict or param.annotation == Dict:
-                param_type = "object"
-            elif param.annotation == list or param.annotation == List:
-                param_type = "array"
-
-        # Add the parameter to the properties
-        properties[param_name] = {
-            "type": param_type,
-            "description": f"Parameter: {param_name}"
-        }
-
-        # If the parameter has no default value, it's required
-        if param.default == inspect.Parameter.empty:
-            required.append(param_name)
-        
-        # Create the tool schema
-        schema = {
-            "type": "object",
-            "properties": properties
-        }
-        
-        if required:
-            schema["required"] = required
-        
-        # Create a Tool object for the function
-        tool = Tool(
-            name=name,
-            description=description.strip(),
-            inputSchema=schema
-        )
-        
-        # Store the tool in the tools dictionary
-        tools[name] = tool
-        
-    logger.info(f"✅ FUNCTION {name} LOADED SUCCESSFULLY")
-    return wrapper
 
 async def function_register(args, mcp_server):
     """Register a new Python function by inspecting its code and generating metadata."""

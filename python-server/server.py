@@ -5,16 +5,17 @@ import inspect
 import asyncio
 import os
 import importlib
-import importlib.util
 import re
 import signal
 import sys
-import psutil
 import time
-from typing import Any, Callable, Dict, List, Optional, Union
-import datetime
 import random
 import socketio
+import argparse
+from utils import check_server_running, create_pid_file, remove_pid_file
+from typing import Any, Callable, Dict, List, Optional, Union
+import datetime
+
 from mcp.server import Server
 from mcp.server.websocket import websocket_server
 from mcp.client.websocket import websocket_client
@@ -22,11 +23,25 @@ from mcp.types import Tool, TextContent, CallToolResult, ToolListChangedNotifica
 from starlette.applications import Starlette
 from starlette.routing import WebSocketRoute
 import uvicorn
-import argparse
-from werkzeug.utils import secure_filename
-import ast # Import ast module
-import functools # Import functools for partial application
 
+# Import from our newly created modules
+from state import (
+    logger, HOST, PORT,
+    FUNCTIONS_DIR, is_shutting_down, cloud_connection_active,
+    CLOUD_SERVER_HOST, CLOUD_SERVER_PORT, CLOUD_SERVER_URL,
+    CLOUD_SERVICE_NAMESPACE, CLOUD_CONNECTION_RETRY_SECONDS,
+    CLOUD_CONNECTION_MAX_RETRIES, CLOUD_CONNECTION_MAX_BACKOFF_SECONDS,
+    dynamic_functions, tools, tasks
+)
+
+# Import dynamic functions
+from dynamic import (
+    discover_functions, extract_metadata_from_file, load_function_from_file,
+    function_register, get_function_code, function_remove, function_add
+)
+
+# Import task functions
+from task import task_add, task_run, task_remove, task_peek
 
 # NOTE: This server uses two different socket protocols:
 # 1. Standard WebSockets: When acting as a SERVER to accept connections from node-mcp-client
@@ -36,86 +51,6 @@ import functools # Import functools for partial application
 # - The node-mcp-client connects via standard WebSockets to our server.py
 # - Our server.py connects via Socket.IO to the cloud server
 # - Both ultimately route to the same MCP handlers in the DynamicAdditionServer class
-
-# Configure logging - focus on our application logs
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
-)
-# Set our app logger to DEBUG
-logger = logging.getLogger("mcp_server")
-logger.setLevel(logging.DEBUG)
-
-# Directory to store dynamic function files
-FUNCTIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dynamic_functions")
-
-# Path for the PID file
-PID_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_server.pid")
-
-# Server configuration
-HOST = "0.0.0.0"  # Listen on all interfaces by default
-PORT = 8000
-
-# Cloud server configuration
-CLOUD_SERVER_HOST = "localhost"
-CLOUD_SERVER_PORT = 3010
-CLOUD_SERVER_URL = f"http://{CLOUD_SERVER_HOST}:{CLOUD_SERVER_PORT}"
-CLOUD_SERVICE_NAMESPACE = "/service"  # Socket.IO namespace for service-to-service communication
-CLOUD_CONNECTION_RETRY_SECONDS = 5  # Initial delay in seconds
-CLOUD_CONNECTION_MAX_RETRIES = 10 # Maximum number of retries before giving up (None for infinite)
-CLOUD_CONNECTION_MAX_BACKOFF_SECONDS = 60 # Maximum delay for exponential backoff
-
-# Create functions directory if it doesn't exist
-os.makedirs(FUNCTIONS_DIR, exist_ok=True)
-
-# Flags to track server state
-is_shutting_down = False
-cloud_connection_active = False
-
-# Check if a server is already running
-def check_server_running():
-    if os.path.exists(PID_FILE):
-        try:
-            with open(PID_FILE, 'r') as f:
-                pid = int(f.read().strip())
-
-            # Check if the process with this PID exists
-            if psutil.pid_exists(pid):
-                # Get process name to confirm it's our server
-                process = psutil.Process(pid)
-                if "python" in process.name().lower() and any("server.py" in cmd.lower() for cmd in process.cmdline()):
-                    return pid
-
-            # If we get here, the PID exists but it's not our server process
-            logger.warning(f"🧹 Removing stale PID file from previous server instance")
-            os.remove(PID_FILE)
-            return None
-        except (ValueError, ProcessLookupError, psutil.NoSuchProcess, psutil.AccessDenied) as e:
-            logger.warning(f"🧹 Removing stale PID file: {str(e)}")
-            os.remove(PID_FILE)
-            return None
-    return None
-
-# Create PID file
-def create_pid_file():
-    pid = os.getpid()
-    try:
-        with open(PID_FILE, 'w') as f:
-            f.write(str(pid))
-        logger.info(f"📝 Created PID file with server process ID: {pid}")
-        return True
-    except Exception as e:
-        logger.error(f"❌ Failed to create PID file: {str(e)}")
-        return False
-
-# Remove PID file
-def remove_pid_file():
-    try:
-        if os.path.exists(PID_FILE):
-            os.remove(PID_FILE)
-            logger.info(f"🧹 Removed PID file")
-    except Exception as e:
-        logger.error(f"❌ Failed to remove PID file: {str(e)}")
 
 # Define signal handler for graceful shutdown
 def handle_sigint(signum, frame):
@@ -156,11 +91,7 @@ class DynamicAdditionServer(Server):
 
     def __init__(self):
         super().__init__("Dynamic Function Server")
-        self.tasks = {} # Store tasks in a dictionary
-        self.next_task_id = 1 # Initialize next task ID
-        self.dynamic_functions = {} # Store dynamic functions
-        self.tools = {} # Store registered tools
-
+        
         # Register tool handlers using SDK decorators
         # These now wrap the actual logic methods defined below
 
@@ -184,6 +115,12 @@ class DynamicAdditionServer(Server):
             """SDK Handler for tools/call"""
             return await self._execute_tool(name=name, args=args)
 
+    # Initialization for function discovery
+    async def initialize(self):
+        """Initialize the server by discovering available functions"""
+        # Scan the functions directory to discover available functions
+        await discover_functions(self)
+
     # --- Core Logic Methods (callable directly) ---
 
     async def _get_tools_list(self) -> list[Tool]:
@@ -191,7 +128,7 @@ class DynamicAdditionServer(Server):
         logger.info("📋 TOOLS LIST LOGIC EXECUTED")
 
         # Start with our built-in tools
-        tools = [
+        tools_list = [
             Tool(
                 name="_function_register",
                 description="Sets the content of a dynamic Python function", # Updated description
@@ -239,13 +176,13 @@ class DynamicAdditionServer(Server):
             # --- Task Management Tools --- #
             Tool(
                 name="_task_add",
-                description="Adds a new task", # Updated description
+                description="Adds a task with the provided payload data.",
                 inputSchema={
-                    "type": "object",
+                    "type": "object", 
                     "properties": {
                         "payload": {
                             "type": "object",
-                            "description": "The JSON object containing the task details."
+                            "description": "The task payload object. Must include 'functionName' and 'arguments'."
                         }
                     },
                     "required": ["payload"]
@@ -253,909 +190,99 @@ class DynamicAdditionServer(Server):
             ),
             Tool(
                 name="_task_run",
-                description="Runs a dynamic Python function with the task data",
+                description="Runs a task with the specified ID and stores the result.",
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "id": {"type": "integer", "description": "ID of the task to run"}
+                        "id": {"type": "string", "description": "The ID of the task to run"}
                     },
                     "required": ["id"]
                 }
             ),
             Tool(
                 name="_task_remove",
-                description="Removes a task",
+                description="Removes a task by its ID.",
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "id": {"type": "integer", "description": "ID of the task to remove"}
+                        "id": {"type": "string", "description": "The ID of the task to remove"}
                     },
                     "required": ["id"]
                 }
             ),
             Tool(
                 name="_task_peek",
-                description="Retrieves the stored details for a specific task", # Removed (Stub)
+                description="Gets the details of a task by its ID.",
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "id": {"type": "integer", "description": "ID of the task to peek"}
+                        "id": {"type": "string", "description": "The ID of the task to get details for"}
                     },
                     "required": ["id"]
                 }
             ),
         ]
 
-        # Scan the functions directory for .py files
-        dynamic_functions = self._discover_functions()
+        # Add dynamically registered tools
+        for name, tool_obj in tools.items():
+            tools_list.append(tool_obj)
 
-        # Add all discovered functions to the list
-        tools.extend(dynamic_functions)
-
-        return tools
+        logger.info(f"📋 RETURNING {len(tools_list)} TOOLS")
+        return tools_list
 
     async def _get_prompts_list(self) -> list:
         """Core logic to return a list of available prompts (empty stub)"""
-        logger.info("📋 PROMPTS LIST LOGIC EXECUTED")
+        # Currently no prompts supported
         return []
 
     async def _get_resources_list(self) -> list:
         """Core logic to return a list of available resources (empty stub)"""
-        logger.info("📋 RESOURCES LIST LOGIC EXECUTED")
+        # Currently no resources supported
         return []
 
     async def _execute_tool(self, name: str, args: dict) -> list[TextContent]:
         """Core logic to handle a tool call. Ensures result is List[TextContent(type='text')]"""
-        logger.info(f"🧰 TOOL EXECUTION LOGIC: {name}")
+        logger.info(f"🔧 EXECUTING TOOL: {name}")
+        logger.debug(f"WITH ARGUMENTS: {args}")
 
         try:
-            result_value: Any = None # Variable to hold the raw result before wrapping
-
+            # Handle built-in tool calls
             if name == "_function_register":
-                result_value = await self._function_register(args)
-
+                return await function_register(args, self)
             elif name == "_function_get":
-                result_value = await self._get_function_code(args)
-
+                return await get_function_code(args, self)
             elif name == "_function_remove":
-                result_value = await self._function_remove(args)
-
-            elif name == "_function_add": # ROUTE NEW TOOL
-                result_value = await self._function_add(args)
-
-            # --- Handle Task Management Stubs ---
+                return await function_remove(args, self)
+            elif name == "_function_add":
+                return await function_add(args, self)
+            # Task management
             elif name == "_task_add":
-                result_value = await self._task_add(args)
+                return await task_add(args)
             elif name == "_task_run":
-                result_value = await self._task_run(args)
+                return await task_run(args)
             elif name == "_task_remove":
-                result_value = await self._task_remove(args)
+                return await task_remove(args)
             elif name == "_task_peek":
-                result_value = await self._task_peek(args)
-
-            # Check if this is a dynamically registered function
+                return await task_peek(args)
+            # Handle dynamic function calls
+            elif name in dynamic_functions:
+                # Call the dynamic function with the arguments
+                logger.info(f"🔧 CALLING DYNAMIC FUNCTION: {name}")
+                result = await dynamic_functions[name](args)
+                return result
             else:
-                # First check if we have it in memory
-                if name in self.tools:
-                    tool_entry = self.tools[name]
-                    function_path = tool_entry.get("file_path")
-                    logger.debug(f"Found tool '{name}' in cache")
-                else:
-                    # Fall back to filesystem
-                    function_path = os.path.join(FUNCTIONS_DIR, f"{name}.py")
-                    logger.debug(f"Tool '{name}' not in cache, checking filesystem")
-
-                if function_path and os.path.exists(function_path):
-                    metadata = self._extract_metadata_from_file(function_path)
-                    if not metadata or "func_name" not in metadata:
-                        raise ValueError(f"Could not extract metadata from {function_path}")
-
-                    func = self._load_function_from_file(name, function_path, metadata["func_name"])
-                    logger.info(f"🔧 EXECUTING DYNAMIC FUNCTION: {name}")
-
-                    if inspect.iscoroutinefunction(func):
-                        raw_dynamic_result = await func(**args)
-                    else:
-                        raw_dynamic_result = await asyncio.to_thread(func, **args)
-
-                    logger.info(f"✅ DYNAMIC FUNCTION RESULT: {raw_dynamic_result}")
-                    result_value = raw_dynamic_result # Assign raw result to be wrapped later
-                else:
-                    raise ValueError(f"Unknown tool name: {name}")
-
-            # --- Wrap the result_value in List[TextContent] --- VITAL STEP
-            if isinstance(result_value, list) and all(isinstance(item, TextContent) for item in result_value):
-                 # Already in correct format (e.g., from _function_register etc.)
-                 # Ensure type field is present if SDK helpers didn't add it
-                 # (This is defensive, assuming helpers might also return just {'text':...})
-                 for item in result_value:
-                      if not hasattr(item, 'type') or item.type != 'text':
-                           # If type is missing or wrong, force it (might lose other fields if TextContent model changes)
-                           logger.warning(f"Tool {name} helper returned TextContent without type='text', correcting.")
-                           item.type = 'text' # Modify in place if possible, or reconstruct
-                 logger.debug(f"🚀 Returning correctly formatted result: {result_value}") # Add detailed log
-                 return result_value # Should return the list with annotations intact
-            elif isinstance(result_value, str):
-                 logger.debug(f"🚀 Wrapping string result: {result_value}")
-                 return [TextContent(type="text", text=result_value)] # Wrap string
-            else:
-                 # Attempt to convert other types to string representation
-                 logger.warning(f"Tool {name} returned non-standard type {type(result_value)}, converting to string.")
-                 return [TextContent(type="text", text=str(result_value))] # Wrap converted string
+                # Unknown tool
+                error_message = f"Unknown tool: {name}"
+                logger.error(f"❌ {error_message}")
+                raise ValueError(error_message)
 
         except Exception as e:
-             logger.error(f"❌ Error executing tool '{name}': {e}")
-             import traceback
-             logger.debug(f"Traceback: {traceback.format_exc()}")
-             # Re-raise the exception so the framework can handle it as a JSON-RPC error
-             raise e
-
-    # --- Helper Methods for Dynamic Functions ---
-    def _extract_metadata_from_file(self, file_path):
-        """Extract metadata from the Python file comments"""
-        metadata = {
-            "func_name": None,
-            "description": "Dynamically registered function",
-            "input_schema": {"type": "object"}
-        }
-
-        try:
-            with open(file_path, "r") as f:
-                content = f.read()
-
-            # Extract the function name from the file name
-            basename = os.path.basename(file_path)
-            function_name = os.path.splitext(basename)[0]
-            metadata["name"] = function_name
-
-            # Extract description from comments
-            desc_match = re.search(r'#\s*Description:\s*(.+)', content)
-            if desc_match:
-                metadata["description"] = desc_match.group(1).strip()
-
-            # Extract function name from the def statement
-            func_match = re.search(r'def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(', content)
-            if func_match:
-                metadata["func_name"] = func_match.group(1)
-
-            # Try to extract input schema from docstring or comments
-            schema_match = re.search(r'""".*?Input schema:(.+?)"""', content, re.DOTALL)
-            if schema_match:
-                try:
-                    # Try to parse JSON from the docstring
-                    schema_str = schema_match.group(1).strip()
-                    metadata["input_schema"] = json.loads(schema_str)
-                except:
-                    pass
-
-            return metadata
-        except Exception as e:
-            logger.error(f"❌ ERROR EXTRACTING METADATA FROM {file_path}: {str(e)}")
+            logger.error(f"❌ TOOL EXECUTION ERROR: {str(e)}")
             import traceback
             logger.debug(f"Traceback: {traceback.format_exc()}")
-            return None
-
-    def _discover_functions(self):
-        """Scan the functions directory and discover all available functions"""
-        functions = []
-
-        try:
-            # List all .py files in the functions directory, excluding __init__.py
-            for filename in os.listdir(FUNCTIONS_DIR):
-                if filename.endswith(".py") and filename != "__init__.py":
-                    file_path = os.path.join(FUNCTIONS_DIR, filename)
-
-                    # Extract the function name from the file name
-                    function_name = os.path.splitext(filename)[0]
-
-                    # Try to load the module and inspect the function signature
-                    input_schema = {"type": "object"} # Default empty schema
-                    func_exists = False
-
-                    try:
-                        # Temporarily add FUNCTIONS_DIR to sys.path to allow import
-                        if FUNCTIONS_DIR not in sys.path:
-                            sys.path.insert(0, FUNCTIONS_DIR)
-                            needs_path_removal = True
-                        else:
-                            needs_path_removal = False
-
-                        # Module name is the filename without .py
-                        module_name = function_name
-
-                        # Invalidate caches to ensure we load the latest file
-                        importlib.invalidate_caches()
-                        if module_name in sys.modules:
-                            user_module = importlib.reload(sys.modules[module_name])
-                        else:
-                            user_module = importlib.import_module(module_name)
-
-                        if needs_path_removal:
-                            sys.path.remove(FUNCTIONS_DIR)
-
-                        # Find function with same name as the file
-                        if hasattr(user_module, function_name):
-                            user_function = getattr(user_module, function_name)
-                            func_exists = True
-
-                            # Inspect signature to generate schema
-                            signature = inspect.signature(user_function)
-                            parameters = signature.parameters
-
-                            if parameters:
-                                properties = {}
-                                required = []
-
-                                for param_name, param in parameters.items():
-                                    prop_details = {}
-
-                                    # Determine type
-                                    if param.annotation is inspect.Parameter.empty or param.annotation is Any:
-                                        prop_details["type"] = "any"
-                                    elif param.annotation is str:
-                                        prop_details["type"] = "string"
-                                    elif param.annotation is int:
-                                        prop_details["type"] = "integer"
-                                    elif param.annotation is float or param.annotation is complex:
-                                        prop_details["type"] = "number"
-                                    elif param.annotation is bool:
-                                        prop_details["type"] = "boolean"
-                                    elif param.annotation is list or param.annotation is List:
-                                        prop_details["type"] = "array"
-                                    elif param.annotation is dict or param.annotation is Dict:
-                                        prop_details["type"] = "object"
-                                    else:
-                                        prop_details["type"] = "any"
-
-                                    # Add description
-                                    prop_details["description"] = f"Parameter '{param_name}'"
-
-                                    # Check if required
-                                    if param.default is inspect.Parameter.empty:
-                                        required.append(param_name)
-
-                                    properties[param_name] = prop_details
-
-                                # Create schema
-                                input_schema = {
-                                    "type": "object",
-                                    "properties": properties
-                                }
-                                if required:
-                                    input_schema["required"] = required
-
-                                logger.debug(f"Generated input schema for {function_name} from signature: {input_schema}")
-                        else:
-                            logger.warning(f"Function '{function_name}' not found in module '{module_name}'")
-
-                    except Exception as e:
-                        logger.warning(f"Could not inspect function signature for {function_name}: {e}")
-                        # Continue with metadata-based schema as fallback
-
-                    # Extract metadata from the file (for description and fallback schema)
-                    metadata = self._extract_metadata_from_file(file_path)
-                    if metadata:
-                        # Use schema from inspection if successful, otherwise fallback to metadata
-                        schema_to_use = input_schema if func_exists else metadata.get("input_schema", {"type": "object"})
-
-                        # Create a Tool object from the metadata and inspection
-                        tool_instance = Tool(
-                            name=function_name,
-                            description=metadata.get("description", f"Dynamic function: {function_name}"),
-                            inputSchema=schema_to_use
-                        )
-
-                        # Get and add timestamp
-                        try:
-                            mtime = os.path.getmtime(file_path)
-                            # Use ISO format with timezone Z for UTC
-                            timestamp_str = datetime.datetime.fromtimestamp(mtime, datetime.timezone.utc).isoformat().replace('+00:00', 'Z')
-                            # Dynamically add the attribute to the instance
-                            tool_instance.lastUpdated = timestamp_str
-                            logger.debug(f"📄 Processing {filename}, last updated: {timestamp_str}")
-                        except OSError as e:
-                            logger.warning(f"⚠️ Could not get mtime for {filename}: {e}")
-                            tool_instance.lastUpdated = None # Assign None if timestamp fetch fails
-
-                        # Store the function in memory cache (self.tools)
-                        self.tools[function_name] = {
-                            "tool": tool_instance,
-                            "file_path": file_path,
-                            # We'll load the actual function when needed
-                        }
-
-                        functions.append(tool_instance)
-                        logger.debug(f"🔍 DISCOVERED FUNCTION: {function_name}")
-
-            logger.info(f"🔍 DISCOVERED {len(functions)} DYNAMIC FUNCTIONS")
-            return functions
-        except Exception as e:
-            logger.error(f"❌ ERROR DISCOVERING FUNCTIONS: {str(e)}")
-            import traceback
-            logger.debug(f"Traceback: {traceback.format_exc()}")
-            return []
-
-    def _load_function_from_file(self, name, file_path, func_name):
-        """Load a function from a Python file"""
-        try:
-            # Import the module
-            spec = importlib.util.spec_from_file_location(name, file_path)
-            if not spec or not spec.loader:
-                raise ValueError(f"Could not load module spec for {file_path}")
-
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[name] = module
-            spec.loader.exec_module(module)
-
-            # Get the function from the module
-            if not hasattr(module, func_name):
-                raise ValueError(f"Function {func_name} not found in module {name}")
-
-            func = getattr(module, func_name)
-
-            # Get the function signature
-            signature = inspect.signature(func)
-
-            def wrapper(**kwargs):
-                # Validate the input arguments against the function signature
-                try:
-                    bound_args = signature.bind(**kwargs)
-                    bound_args.apply_defaults()
-                except TypeError as e:
-                    raise ValueError(f"Invalid input arguments: {str(e)}")
-
-                # Call the function with the validated arguments
-                return func(**bound_args.arguments)
-
-            return wrapper
-
-        except Exception as e:
-            logger.error(f"❌ ERROR LOADING FUNCTION FROM {file_path}: {str(e)}")
-            import traceback
-            logger.debug(f"Traceback: {traceback.format_exc()}")
-            raise
-
-    async def _function_register(self, args: dict) -> list[TextContent]:
-        """Register a new Python function by inspecting its code and generating metadata."""
-        code = args.get("code")
-
-        # Validate required inputs
-        if not code:
-            raise ValueError("Missing required argument for _function_register: code")
-
-        # 1. Parse the code using AST to find the function definition and docstring
-        try:
-            parsed_ast = ast.parse(code)
-        except SyntaxError as e:
-            logger.error(f"❌ Invalid Python syntax in provided code: {e}")
-            raise ValueError(f"Invalid Python syntax: {e}")
-
-        # Find the first top-level function definition
-        actual_func_node = None
-        for node in parsed_ast.body:
-            if isinstance(node, ast.FunctionDef):
-                actual_func_node = node
-                break # Use the first function found
-
-        if actual_func_node is None:
-            logger.error("❌ No top-level function definition found in the provided code.")
-            raise ValueError("Provided code does not contain a top-level function definition.")
-
-        # Extract name and description (docstring)
-        actual_func_name = actual_func_node.name
-        description = ast.get_docstring(actual_func_node) or f"Dynamically registered function: {actual_func_name}"
-        name = actual_func_name # Use the parsed function name as the tool name
-
-        logger.info(f"🔧 REGISTERING FUNCTION from code: Tool Name='{name}', Function Name='{actual_func_name}'")
-        # 2. Validate the function name
-        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", actual_func_name):
-            raise ValueError(f"Invalid function name '{actual_func_name}'. Must be a valid Python identifier.")
-
-        # 3. Create a secure filename from the extracted function name
-        # Use the *extracted* function name for the filename
-        safe_filename = secure_filename(f"{actual_func_name}.py")
-        if not safe_filename.endswith(".py"):
-            raise ValueError("Internal error: Secure filename generation failed.") # Should not happen
-        function_path = os.path.join(FUNCTIONS_DIR, safe_filename)
-
-        # 4. Write the provided code to the file
-        try:
-            with open(function_path, "w") as f:
-                f.write(code)
-            logger.info(f"💾 SAVED FUNCTION CODE to: {function_path}")
-        except Exception as e:
-            logger.error(f"❌ ERROR WRITING FUNCTION FILE {function_path}: {str(e)}")
-            raise
-
-        # 5. Load the function and inspect its signature to generate schema
-        generated_input_schema = {"type": "object"} # Default empty schema
-        user_function = None
-        is_async = False
-        try:
-            # Temporarily add FUNCTIONS_DIR to sys.path to allow import
-            if FUNCTIONS_DIR not in sys.path:
-                sys.path.insert(0, FUNCTIONS_DIR)
-                needs_path_removal = True
-            else:
-                needs_path_removal = False
-
-            # Module name is the filename without .py
-            module_name = os.path.splitext(safe_filename)[0]
-
-            # Invalidate caches to ensure we load the new/updated file
-            importlib.invalidate_caches()
-            if module_name in sys.modules:
-                 # If module already loaded, reload it
-                 user_module = importlib.reload(sys.modules[module_name])
-                 logger.debug(f"Reloaded existing module: {module_name}")
-            else:
-                 # Otherwise, import it for the first time
-                 user_module = importlib.import_module(module_name)
-                 logger.debug(f"Imported new module: {module_name}")
-
-            if needs_path_removal:
-                sys.path.remove(FUNCTIONS_DIR)
-
-            # Get the function from the loaded module using the *extracted* name
-            if not hasattr(user_module, actual_func_name):
-                raise ImportError(f"Function '{actual_func_name}' not found in loaded module '{module_name}' after saving.")
-            user_function = getattr(user_module, actual_func_name)
-
-            # Check if the function is async
-            is_async = inspect.iscoroutinefunction(user_function)
-            logger.debug(f"Function '{actual_func_name}' is async: {is_async}")
-
-            # Inspect signature
-            signature = inspect.signature(user_function)
-            parameters = signature.parameters
-            properties = {}
-            required = []
-
-            logger.debug(f"Inspecting signature for '{actual_func_name}': {parameters}")
-
-            for param_name, param in parameters.items():
-                prop_details = {}
-
-                # Determine type (basic mapping)
-                if param.annotation is inspect.Parameter.empty or param.annotation is Any:
-                    prop_details["type"] = "any" # Or default to string?
-                elif param.annotation is str:
-                    prop_details["type"] = "string"
-                elif param.annotation is int:
-                    prop_details["type"] = "integer"
-                elif param.annotation is float or param.annotation is complex:
-                    prop_details["type"] = "number"
-                elif param.annotation is bool:
-                    prop_details["type"] = "boolean"
-                elif param.annotation is list or param.annotation is List:
-                    prop_details["type"] = "array"
-                elif param.annotation is dict or param.annotation is Dict:
-                    prop_details["type"] = "object"
-                else:
-                    prop_details["type"] = "any" # Fallback for complex types
-                    logger.warning(f"Unsupported type annotation '{param.annotation}' for parameter '{param_name}' in '{actual_func_name}', defaulting to 'any'.")
-
-                # Add description if possible (could enhance later if needed)
-                prop_details["description"] = f"Parameter '{param_name}'"
-
-                # Check if required (no default value)
-                if param.default is inspect.Parameter.empty:
-                    required.append(param_name)
-                    # Parameter is optional if it has a default
-                else:
-                    logger.debug(f"Parameter '{param_name}' has default value: {param.default}")
-                    # Optionally add default to description or schema? MCP spec doesn't explicitly support default.
-
-                properties[param_name] = prop_details
-
-            generated_input_schema = {
-                "type": "object",
-                "properties": properties
-            }
-            if required:
-                generated_input_schema["required"] = required
-
-            logger.info(f"Generated Input Schema for '{actual_func_name}': {json.dumps(generated_input_schema)}")
-
-        except Exception as e:
-            logger.error(f"❌ ERROR INSPECTING FUNCTION/GENERATING SCHEMA for {actual_func_name}: {str(e)}")
-            # Cleanup the potentially broken file if inspection fails?
-            try:
-                os.remove(function_path)
-                logger.warning(f"🧹 Cleaned up potentially invalid file: {function_path}")
-            except OSError as remove_err:
-                logger.error(f"❌ Failed to cleanup file {function_path} after inspection error: {remove_err}")
-            # Re-raise the original exception
-            raise ValueError(f"Failed to load/inspect function '{actual_func_name}' from provided code: {e}")
-
-        # 6. Create the tool wrapper function dynamically
-        # Define the wrapper function inside here to capture necessary variables
-        async def wrapper(tool_args: dict) -> List[TextContent]:
-            # Capture variables needed by the wrapper
-            nonlocal user_function, name, actual_func_name, generated_input_schema, is_async
-            logger.info(f"Executing dynamic tool '{name}' (wrapping '{actual_func_name}') with args: {tool_args}")
-
-            ordered_args = []
-            keyword_args = {}
-            schema_props = generated_input_schema.get("properties", {})
-            schema_required = generated_input_schema.get("required", [])
-            current_tool_args = tool_args if isinstance(tool_args, dict) else {}
-
-            try:
-                # Prepare arguments based on function signature (not just schema order)
-                sig = inspect.signature(user_function)
-                bound_args = sig.bind_partial() # Start with empty args
-
-                # Apply arguments provided in the tool call
-                for arg_name, arg_value in current_tool_args.items():
-                    if arg_name in sig.parameters:
-                        bound_args.arguments[arg_name] = arg_value
-                    else:
-                        logger.warning(f"⚠️ Ignoring unknown argument '{arg_name}' provided to tool '{name}'")
-
-                # Apply defaults for missing arguments that have them
-                bound_args.apply_defaults()
-
-                # Check if all required arguments (without defaults) are present
-                missing_required = []
-                for param_name, param in sig.parameters.items():
-                    if param.default is inspect.Parameter.empty and param_name not in bound_args.arguments:
-                        missing_required.append(param_name)
-                if missing_required:
-                    raise TypeError(f"Missing required arguments: {', '.join(missing_required)}")
-
-                # Call the function with validated arguments
-                if is_async:
-                    result = await user_function(*bound_args.args, **bound_args.kwargs)
-                else:
-                    # Run sync function in thread pool executor to avoid blocking asyncio loop
-                    loop = asyncio.get_running_loop()
-                    result = await loop.run_in_executor(
-                        None, # Use default executor
-                        functools.partial(user_function, *bound_args.args, **bound_args.kwargs)
-                    )
-
-            except Exception as exec_err:
-                logger.error(f"Error during dynamic tool '{name}' execution (calling '{actual_func_name}'): {exec_err}")
-                import traceback
-                logger.debug(f"Traceback: {traceback.format_exc()}")
-                # Re-raise the error to be caught by the main execution logic
-                raise
-
-            # Convert result to List[TextContent] if needed
-            if isinstance(result, list) and all(isinstance(item, TextContent) for item in result):
-                text_result_list = result
-            elif isinstance(result, str):
-                text_result_list = [TextContent(type="text", text=result)]
-            else:
-                # Attempt to JSON serialize other types
-                try:
-                    serialized_result = json.dumps(result, indent=2)
-                    text_result_list = [TextContent(type="text", text=serialized_result)]
-                except TypeError as json_err:
-                    logger.error(f"Failed to JSON serialize result for '{actual_func_name}': {json_err}")
-                    # Fallback to string representation if JSON fails
-                    text_result_list = [TextContent(type="text", text=f"[Unserializable Result: {str(result)}]" )]
-
-            logger.info(f"Dynamic tool '{name}' execution successful.")
-            return text_result_list
-
-
-        # 7. Register the wrapper as the tool's execution logic
-        # Get the file modification time for the timestamp
-        try:
-            mtime = os.path.getmtime(function_path)
-            timestamp_str = datetime.datetime.fromtimestamp(mtime, datetime.timezone.utc).isoformat().replace('+00:00', 'Z')
-        except OSError as e:
-            logger.warning(f"⚠️ Could not get mtime for {function_path}: {e}")
-            timestamp_str = datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z')
-
-        # Use the *extracted* name for registration
-        if name in self.tools:
-            logger.warning(f"⚠️ OVERWRITING EXISTING TOOL: {name}")
-        self.tools[name] = {
-            "tool": Tool(
-                name=name,
-                description=description, # Use extracted description
-                inputSchema=generated_input_schema,
-                lastUpdated=timestamp_str # Include the lastUpdated timestamp
-            ),
-            "execute": wrapper, # Register the async wrapper
-            "file_path": function_path # Store path for potential future use (e.g., get code)
-        }
-
-        logger.info(f"✅ SUCCESSFULLY REGISTERED/UPDATED FUNCTION: {name}")
-
-        # Send notification about tool list change (optional)
-        try:
-            await self.send_tool_list_changed_notification()
-            logger.info(f"📢 SENT TOOL LIST CHANGED NOTIFICATION")
-        except Exception as e:
-            logger.warning(f"⚠️ COULD NOT SEND TOOL LIST CHANGED NOTIFICATION: {str(e)}")
-
-        # Return success message including the registered name
-        return [TextContent(type="text", text=f"Successfully registered function: {name}")]
-
-    async def _get_function_code(self, args: dict) -> list[TextContent]:
-        """Get the Python source code and description for a dynamically registered function"""
-        name = args.get("name")
-        if not name:
-            raise ValueError("Missing 'name' in arguments")
-
-        logger.info(f"📄 GETTING CODE AND DESC FOR FUNCTION: {name}")
-
-        # Construct the expected path to the function's Python file
-        function_path = os.path.join(FUNCTIONS_DIR, f"{name}.py")
-
-        # Check if the function file exists
-        if not os.path.exists(function_path):
-            raise ValueError(f"Function '{name}' not found.")
-
-        try:
-            # Read the function code from the file
-            with open(function_path, 'r') as f:
-                code = f.read()
-
-            # Extract metadata to get the description
-            metadata = self._extract_metadata_from_file(function_path)
-            description = metadata.get("description", None) # Get description or None
-
-            # Prepare the result as a dictionary
-            result_data = {
-                "name": name,
-                "code": code,
-                "description": description
-            }
-
-            logger.info(f"✅ SUCCESSFULLY RETRIEVED CODE AND DESC FOR: {name}")
-            # Return the result as a JSON string
-            return [TextContent(type="text", text=json.dumps(result_data))]
-        except Exception as e:
-            logger.error(f"❌ ERROR READING FUNCTION FILE OR METADATA {function_path}: {str(e)}")
-            import traceback
-            logger.debug(f"Traceback: {traceback.format_exc()}")
-            raise e
-
-    async def _function_remove(self, args: dict) -> list[TextContent]:
-        """Remove a dynamically registered function by deleting its file"""
-        name = args.get("name")
-        if not name:
-            raise ValueError("Missing 'name' in arguments")
-
-        logger.info(f"🗑️ REMOVING FUNCTION: {name}")
-
-        # Construct the expected path to the function's Python file
-        function_path = os.path.join(FUNCTIONS_DIR, f"{name}.py")
-
-        # Check if the function file exists
-        if not os.path.exists(function_path):
-            raise ValueError(f"Function '{name}' not found.")
-
-        try:
-            # Delete the function file
-            os.remove(function_path)
-            logger.info(f"✅ SUCCESSFULLY REMOVED FUNCTION: {name}")
-
-            # Send notification that tools list has changed
-            try:
-                # Get the current session
-                ctx = self.request_context
-                # Create and send a ToolListChangedNotification
-                notification = ToolListChangedNotification(
-                    method="notifications/tools/list_changed",
-                    params=NotificationParams()
-                )
-                await ctx.session.send_notification(notification)
-                logger.info(f"📢 SENT TOOL LIST CHANGED NOTIFICATION")
-            except Exception as e:
-                # Log a warning instead of returning an error, removal succeeded.
-                logger.warning(f"⚠️ COULD NOT SEND TOOL LIST CHANGED NOTIFICATION: {str(e)}")
-
-            return [TextContent(type="text", text=f"Successfully removed function: {name}")]
-        except Exception as e:
-            logger.error(f"❌ ERROR REMOVING FUNCTION FILE {function_path}: {str(e)}")
-            import traceback
-            logger.debug(f"Traceback: {traceback.format_exc()}")
-            raise e
-
-    # --- Task Management Stubs --- #
-
-    async def _task_add(self, args: dict) -> list[TextContent]:
-        """Adds a new task using the provided payload."""
-        logger.info(f"⚙️ TASK ADD CALLED with args: {args}")
-        try:
-            # Extract the payload from the arguments
-            task_payload = args.get('payload')
-            if task_payload is None:
-                raise ValueError("Missing 'payload' in arguments")
-            if not isinstance(task_payload, dict):
-                raise ValueError("'payload' must be a JSON object (dictionary)")
-
-            # Generate a new task ID
-            task_id = self.next_task_id
-            self.next_task_id += 1
-
-            # Store the task details (the extracted payload dictionary)
-            self.tasks[task_id] = task_payload # Store the payload, not the whole args
-
-            logger.info(f"✅ Task added with ID: {task_id}, Details: {task_payload}")
-            # Return the new task ID as string in 'text' and int in annotations.task_id_int
-            return [
-                TextContent(
-                    type="text",
-                    text=str(task_id),
-                    annotations=Annotations(task_id_int=task_id) # Add ID to annotations
-                )
-            ]
-        except Exception as e:
-            logger.error(f"❌ Error adding task: {str(e)}")
-            import traceback
-            logger.debug(f"Traceback: {traceback.format_exc()}")
-            raise e
-
-    async def _task_run(self, args: dict) -> list[TextContent]:
-        """Runs a dynamic Python function with the task data."""
-        logger.info(f"🏃 TASK RUN CALLED with args: {args}")
-        task_id_str = args.get('id')
-        if task_id_str is None:
-            raise ValueError("Missing 'id' in arguments")
-
-        try:
-            task_id = int(task_id_str)
-        except ValueError:
-            raise ValueError("'id' must be an integer")
-
-        # Retrieve the task data
-        task_data = self.tasks.get(task_id)
-        if task_data is None:
-            raise ValueError(f"Task ID {task_id} not found")
-
-        # Extract payload (handle potential prior result storage)
-        payload = task_data.get('payload', task_data) # Use get for dicts
-        if not isinstance(payload, dict):
-             raise ValueError(f"Task ID {task_id} does not contain a valid payload object.")
-
-        function_name = payload.get('functionName')
-        function_args = payload.get('arguments') # MCP spec uses 'arguments'
-
-        if not isinstance(function_name, str):
-             raise ValueError(f"Task ID {task_id} payload missing 'functionName' string.")
-        if function_args is None: # Check for explicit None
-             raise ValueError(f"Task ID {task_id} payload missing 'arguments'.")
-
-        # Find the dynamic function definition
-        # Note: Dynamic functions are stored separately in self.dynamic_functions
-        dynamic_func = self.dynamic_functions.get(function_name)
-        if dynamic_func is None or not callable(dynamic_func):
-             raise ValueError(f"Dynamic function '{function_name}' not found or not callable.")
-
-        logger.info(f"🚀 Executing dynamic function '{function_name}' for task {task_id} with args: {function_args}")
-
-        # Execute the dynamic function
-        # Assuming the dynamic functions are async, like the built-ins
-        try:
-            result = await dynamic_func(function_args)
-            # Assuming result is already in a format suitable for storage (e.g., list[TextContent])
-            # Or convert if necessary. For now, store raw result.
-            logger.info(f"✅ Dynamic function '{function_name}' for task {task_id} completed.")
-        except Exception as e:
-            logger.error(f"❌ Error executing dynamic function '{function_name}' for task {task_id}: {e}", exc_info=True)
-            raise # Re-raise the exception after logging
-
-        # Store the result back with the task data
-        # Preserve original payload, add/update result
-        self.tasks[task_id] = {'payload': payload, 'result': result}
-
-        return [TextContent(type="text", text=f"Task {task_id} executed successfully, result stored.")]
-
-    async def _task_remove(self, args: dict) -> list[TextContent]:
-        """Removes a task by its ID."""
-        logger.info(f"🗑️ TASK REMOVE CALLED with args: {args}")
-        task_id_str = args.get('id')
-        if task_id_str is None:
-            raise ValueError("Missing 'id' in arguments")
-
-        try:
-            task_id = int(task_id_str)
-        except ValueError:
-            raise ValueError("'id' must be an integer")
-
-        # Attempt to remove the task from the dictionary
-        if task_id in self.tasks:
-            del self.tasks[task_id]
-            logger.info(f"✅ Task {task_id} removed successfully.")
-            return [TextContent(type="text", text=f"Task {task_id} removed successfully.")]
-        else:
-            logger.warning(f"❓ Task ID {task_id} not found for removal.")
-            # Raise error as the task didn't exist
-            raise ValueError(f"Task ID {task_id} not found")
-
-    async def _task_peek(self, args: dict) -> list[TextContent]:
-        """Retrieve the stored details for a specific task ID."""
-        logger.info(f"👀 TASK PEEK CALLED with args: {args}")
-        task_id_str = args.get('id')
-        if task_id_str is None:
-            raise ValueError("Missing 'id' in arguments")
-
-        try:
-            task_id = int(task_id_str) # Ensure ID is an integer
-        except ValueError:
-            raise ValueError("'id' must be an integer")
-
-        # Retrieve the task details from the dictionary
-        task_details = self.tasks.get(task_id)
-
-        if task_details is not None:
-            logger.info(f"✅ Task {task_id} details found: {task_details}")
-            # Return the stored task details as JSON string in 'text' and raw dict in annotations.task_payload_json
-            return [
-                TextContent(
-                    type="text",
-                    text=json.dumps(task_details),
-                    annotations=Annotations(task_payload_json=task_details) # Add payload to annotations
-                )
-            ]
-        else:
-            logger.warning(f"❓ Task ID {task_id} not found.")
-            raise ValueError(f"Task ID {task_id} not found")
-
-    # --- NEW METHOD --- #
-    async def _function_add(self, args: dict) -> list[TextContent]:
-        """Creates a new placeholder function file and registers it."""
-        name = args.get("name")
-        if not name:
-            raise ValueError("Missing required argument for _function_add: name")
-
-        logger.info(f"➕ ADDING NEW PLACEHOLDER FUNCTION: {name}")
-
-        # Define the placeholder content with the provided name
-        placeholder_code = (
-            "# Placeholder function created by _function_add\n"
-            f"def {name}():\n"
-            "    \"\"\"\n"
-            "    This is an empty placeholder function. \n"
-            "    Replace this with your actual logic.\n"
-            "    \"\"\"\n"
-            "    print(f\"Executing placeholder function...\")\n"
-            "    return \"Placeholder function executed successfully.\"\n"
-        )
-        placeholder_description = "A newly added placeholder function. Implement your logic here."
-        placeholder_schema = {"type": "object", "properties": {}} # No input arguments
-
-        # Prepare arguments for the existing _function_register method
-        registration_args = {
-            "name": name,
-            "code": placeholder_code,
-            "description": placeholder_description,
-            # Note: _function_register now expects description and generates schema,
-            # so we only need to pass name and code.
-            # Let's adjust based on the latest _function_register which inspects code.
-            # It only needs name and code, description is optional.
-            # The schema is generated internally.
-        }
-
-        # We only really need 'name' and 'code' for the inspecting _function_register
-        registration_args_for_inspector = {
-             "name": name,
-             "code": placeholder_code,
-             "description": placeholder_description # Pass the specific description
-        }
-
-
-        try:
-            # Call the existing registration logic
-            logger.debug(f"Calling internal _function_register for placeholder '{name}'...")
-            # Use the version for the inspecting register function
-            result = await self._function_register(registration_args_for_inspector)
-            logger.info(f"✅ Successfully added placeholder function: {name}")
-            # Append a note about it being a placeholder to the success message
-            original_message = result[0].text
-            result[0].text = f"{original_message} (This is a placeholder, edit {name}.py to implement logic)."
-            return result
-        except Exception as e:
-            logger.error(f"❌ ERROR ADDING PLACEHOLDER FUNCTION {name}: {str(e)}")
-            # _function_register should handle cleanup, just re-raise
-            raise
+            
+            # Re-raise the exception with its original message
+            raise type(e)(str(e))
 
 # ServiceClient class to manage the connection to the cloud server via Socket.IO
 class ServiceClient:
@@ -1339,103 +466,59 @@ class ServiceClient:
                     # The _execute_tool method ensures result is List[TextContent]
                     # Convert TextContent objects to dictionaries for JSON serialization using model_dump()
                     # IMPORTANT: We use "contents" (plural) key to match format between Python and Node servers
-                    # Both MCP SDK implementations support either "content" or "contents" but we need to be consistent
-                    response["result"] = {"contents": [content.model_dump(include={'type', 'text'}) for content in call_result_list]} # Use model_dump() & include
-
-            elif method == "prompts/list":
-                 # Call the core logic method directly
-                result_list = await self.mcp_server._get_prompts_list()
-                response["result"] = {"prompts": result_list} # Assuming prompts are already serializable
-
-            elif method == "resources/list":
-                 # Call the core logic method directly
-                result_list = await self.mcp_server._get_resources_list()
-                response["result"] = {"resources": result_list} # Assuming resources are already serializable
-
+                    response["result"] = {"contents": [content.model_dump() for content in call_result_list]}
             else:
                 # Unknown method
-                logger.warning(f"⚠️ Unknown MCP method: {method}")
                 response["error"] = {"code": -32601, "message": f"Method not found: {method}"}
 
+            return response
+
         except Exception as e:
-            # General exception during processing
             logger.error(f"❌ ERROR PROCESSING MCP REQUEST: {str(e)}")
             import traceback
             logger.debug(f"Traceback: {traceback.format_exc()}")
-            response["error"] = {"code": -32000, "message": f"Server error: {str(e)}"}
+            response["error"] = {"code": -32000, "message": str(e)}
+            return response
 
-        return response
-
-    async def send_message(self, event: str, data: dict) -> bool:
-        """Send a message to the cloud server"""
-        if not self.is_connected or not self.sio:
-            logger.warning(f"⚠️ Cannot send {event}: No active cloud connection")
+    async def send_message(self, event: str, data: dict):
+        """Send a message to the cloud server via a named event"""
+        if not self.sio or not self.is_connected:
+            logger.warning(f"⚠️ ATTEMPTED TO SEND {event} BUT NOT CONNECTED")
             return False
 
         try:
+            logger.debug(f"☁️ SENDING MESSAGE: {event} - {data}")
             await self.sio.emit(event, data, namespace=self.namespace)
-            # logger.debug(f"☁️ SENT {event} TO CLOUD: {data}")
-            logger.debug(f"☁️ SENT {event} TO CLOUD")
             return True
         except Exception as e:
-            logger.error(f"❌ ERROR SENDING {event} TO CLOUD: {str(e)}")
-            import traceback
-            logger.debug(f"Traceback: {traceback.format_exc()}")
+            logger.error(f"❌ ERROR SENDING MESSAGE: {str(e)}")
             return False
 
     async def disconnect(self):
         """Disconnect from the cloud server"""
-        logger.info("☁️ Disconnecting from cloud server")
+        logger.info("☁️ DISCONNECTING FROM CLOUD SERVER")
         self.connection_active = False
-
         if self.sio and self.is_connected:
             try:
                 await self.sio.disconnect()
             except Exception as e:
-                logger.error(f"❌ ERROR DISCONNECTING: {str(e)}")
+                logger.warning(f"⚠️ ERROR DURING DISCONNECT: {str(e)}")
+        if self.connection_task and not self.connection_task.done():
+            self.connection_task.cancel()
+            try:
+                await self.connection_task
+            except asyncio.CancelledError:
+                pass
+        logger.info("☁️ CLOUD SERVER CONNECTION CLOSED")
 
-        self.is_connected = False
-
-# Create our MCP server instance
+# Create an instance of our MCP server
 mcp_server = DynamicAdditionServer()
 
-# We'll create the cloud connection later after parsing arguments
-cloud_connection = None
-
-# Create a Starlette app with websocket support
+# WebSocket handler for the MCP server
 async def handle_websocket(websocket):
-    """Handle MCP websocket connections from node-mcp-client
+    await websocket_server(websocket, mcp_server)
 
-    This function handles standard WebSocket connections from clients like node-mcp-client.
-    We act as a WebSocket SERVER here, which is different from how we act as a Socket.IO CLIENT
-    when connecting to the cloud server.
-
-    Both connection types ultimately route to the same MCP handlers in the DynamicAdditionServer class
-
-    """
-    logger.info(f"⚡ NEW CONNECTION: {websocket.client}")
-
-    try:
-        logger.info("🔄 STARTING MCP WEBSOCKET TRANSPORT")
-        async with websocket_server(
-            websocket.scope, websocket.receive, websocket.send
-        ) as streams:
-            logger.info("🚀 MCP SESSION STARTED")
-
-            # Run the MCP server with the websocket streams
-            await mcp_server.run(
-                streams[0], streams[1], mcp_server.create_initialization_options()
-            )
-            logger.info("👋 MCP SESSION ENDED")
-    except Exception as e:
-        logger.error(f"❌ ERROR: {str(e)}")
-        # Print a more detailed stack trace for debugging
-        import traceback
-        logger.debug(f"Traceback: {traceback.format_exc()}")
-    finally:
-        logger.info("🔌 CONNECTION CLOSED")
-
-# Create a Starlette application with our websocket route
+# Set up the Starlette application with a WebSocket route
 app = Starlette(
     routes=[
         WebSocketRoute("/mcp", endpoint=handle_websocket),
@@ -1465,13 +548,14 @@ if __name__ == "__main__":
         CLOUD_SERVER_HOST = args.cloud_host
         CLOUD_SERVER_PORT = args.cloud_port
         CLOUD_SERVER_URL = f"http://{CLOUD_SERVER_HOST}:{CLOUD_SERVER_PORT}"
-        # Update the cloud connection URL
-        cloud_connection.server_url = CLOUD_SERVER_URL
 
     # Set up the event loop
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
+    # Initialize the MCP server
+    loop.run_until_complete(mcp_server.initialize())
+    
     # Start the Uvicorn server
     config = uvicorn.Config(app, host=HOST, port=PORT, log_level="warning")
     server = uvicorn.Server(config)

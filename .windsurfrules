@@ -15,3 +15,8 @@
 - each server has task capability (which is mostly about parameter passing) which is still in-work
 - we use the term dynamic tool and function interchangeably although mcp prefers tool
 - ignore node-server folder for now
+
+# dynamic functions
+- dynamic functions are stored in the dynamic_functions folder
+- dynamic functions are written in pure python, no mcp artifacts or dependencies
+- dynamic functions can still be stored and retrieved even if invalid so the user can work errors, but they must be valid ofc for running

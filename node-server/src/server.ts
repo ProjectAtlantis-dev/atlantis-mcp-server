@@ -317,6 +317,154 @@ const extractParamsFromFunction = (node: ts.FunctionLikeDeclaration,
     });
 };
 
+// --- NEW Helper Function: Inspect TypeScript Function --- //
+async function inspectTypeScriptFunction(code: string, exportedFunctionName: string): Promise<{ description: string, inputSchema: any }> {
+    logger.debug(`Inspecting TS code for function: ${exportedFunctionName}`);
+    let description = `Dynamically registered function: ${exportedFunctionName}`; // Default description
+    const properties: Record<string, any> = {};
+    const required: string[] = [];
+
+    try {
+        const sourceFile = ts.createSourceFile(
+            'tempInspect.ts', // Temporary name for parsing
+            code,
+            ts.ScriptTarget.Latest,
+            true // setParentNodes
+        );
+
+        let foundFunctionNode: ts.FunctionDeclaration | ts.FunctionExpression | ts.ArrowFunction | null = null;
+
+        // Find the specific exported function node
+        ts.forEachChild(sourceFile, node => {
+            if (foundFunctionNode) return; // Stop if found
+
+            // Exported Function Declaration (export function name() { ... })
+            if (ts.isFunctionDeclaration(node) && node.name && node.name.getText(sourceFile) === exportedFunctionName &&
+                node.modifiers?.some(mod => mod.kind === ts.SyntaxKind.ExportKeyword)) {
+                foundFunctionNode = node;
+            }
+            // Exported Variable Statement (export const name = () => { ... } or export const name = function() { ... })
+            else if (ts.isVariableStatement(node) && node.modifiers?.some(mod => mod.kind === ts.SyntaxKind.ExportKeyword)) {
+                node.declarationList.declarations.forEach(declaration => {
+                    if (foundFunctionNode) return;
+                    if (ts.isIdentifier(declaration.name) && declaration.name.getText(sourceFile) === exportedFunctionName &&
+                        declaration.initializer && (ts.isArrowFunction(declaration.initializer) || ts.isFunctionExpression(declaration.initializer))) {
+                        foundFunctionNode = declaration.initializer; // Get the function expression/arrow function itself
+                    }
+                });
+            }
+        });
+
+        if (!foundFunctionNode) {
+            logger.warn(`Could not find AST node for exported function '${exportedFunctionName}' during inspection.`);
+            // Proceed with default description and empty schema
+        } else {
+            logger.debug(`Found AST node for '${exportedFunctionName}'`);
+
+            // 1. Extract Description from JSDoc comments attached to the *parent* node if possible
+            let commentNode: ts.Node = foundFunctionNode;
+            // If it's an initializer, try getting comments from the variable declaration or statement
+            if ( (ts.isArrowFunction(foundFunctionNode) || ts.isFunctionExpression(foundFunctionNode) ) && foundFunctionNode.parent && ts.isVariableDeclaration(foundFunctionNode.parent)) {
+                 commentNode = foundFunctionNode.parent; // Check VariableDeclaration first
+                 if (commentNode.parent && ts.isVariableDeclarationList(commentNode.parent) && commentNode.parent.parent && ts.isVariableStatement(commentNode.parent.parent)){
+                     commentNode = commentNode.parent.parent; // Then check VariableStatement
+                 }
+            } else if (ts.isFunctionDeclaration(foundFunctionNode)) {
+                 commentNode = foundFunctionNode; // Check the function declaration itself
+            }
+
+            // Use ts.getJSDocCommentsAndTags - this handles multiline comments better
+             const comments = ts.getJSDocCommentsAndTags(commentNode);
+             if (comments.length > 0 && comments[0].comment) {
+                if (typeof comments[0].comment === 'string') {
+                    description = comments[0].comment.trim();
+                } else if (Array.isArray(comments[0].comment)) {
+                    // Handle NodeArray<JSDocComment>
+                     description = comments[0].comment.map(c => c.text).join('\\n').trim();
+                 }
+                logger.debug(`Extracted description: "${description}"`);
+            }
+
+
+            // 2. Extract Parameters for Schema
+            if (foundFunctionNode.parameters) {
+                foundFunctionNode.parameters.forEach(param => {
+                    // Need to handle parameter names correctly (Identifier, BindingPattern)
+                    if (ts.isIdentifier(param.name)) {
+                        const paramName = param.name.getText(sourceFile);
+                        const propDetails: any = {};
+
+                        // Determine Type
+                        let paramType = 'any'; // Default
+                        if (param.type) {
+                            switch (param.type.kind) {
+                                case ts.SyntaxKind.StringKeyword: paramType = 'string'; break;
+                                case ts.SyntaxKind.NumberKeyword: paramType = 'number'; break;
+                                case ts.SyntaxKind.BooleanKeyword: paramType = 'boolean'; break;
+                                case ts.SyntaxKind.ObjectKeyword: paramType = 'object'; break; // Could potentially refine
+                                case ts.SyntaxKind.ArrayType: paramType = 'array'; break;
+                                case ts.SyntaxKind.AnyKeyword: paramType = 'any'; break;
+                                case ts.SyntaxKind.TypeReference:
+                                     // Handle basic type references if needed (e.g., 'Promise<string>' might just be 'string' for schema?)
+                                     // For simplicity now, treat complex references as 'any' or 'object'
+                                     logger.debug(`Parameter '${paramName}' has complex TypeReference: ${param.type.getText(sourceFile)}, using 'any' for schema.`);
+                                     paramType = 'any';
+                                     break;
+                                default:
+                                     logger.debug(`Parameter '${paramName}' has unhandled type kind: ${ts.SyntaxKind[param.type.kind]}, using 'any' for schema.`);
+                                     paramType = 'any';
+                                     break;
+                            }
+                        } else {
+                             logger.debug(`Parameter '${paramName}' has no explicit type, using 'any' for schema.`);
+                        }
+                        propDetails.type = paramType;
+
+                        // Add description from JSDoc @param tag if available (requires more complex JSDoc parsing)
+                        // Find @param tag for this parameter name in comments extracted earlier
+                        // ... implementation needed ...
+                        // propDetails.description = extractedParamDescription;
+
+                        properties[paramName] = propDetails;
+                        logger.debug(`Found param: ${paramName}, schema type: ${paramType}`);
+
+                        // Determine if required (no '?' token AND no initializer)
+                        if (!param.questionToken && !param.initializer) {
+                            required.push(paramName);
+                            logger.debug(`Param '${paramName}' is required.`);
+                        } else {
+                             logger.debug(`Param '${paramName}' is optional.`);
+                        }
+                    } else {
+                         logger.warn(`Found complex parameter structure (not Identifier) for parameter in ${exportedFunctionName}, skipping for schema generation.`);
+                         // Handling destructuring parameters ({ a, b }: { a: string, b: number }) is complex
+                    }
+                });
+            } else {
+                 logger.debug(`Function '${exportedFunctionName}' has no parameters.`);
+            }
+        }
+    } catch (inspectError: any) {
+        logger.error(`Error inspecting TypeScript code for schema/description: ${inspectError.message}`, { stack: inspectError.stack });
+        // Fallback to defaults
+        description = `Dynamically registered function: ${exportedFunctionName}`;
+        Object.keys(properties).forEach(key => delete properties[key]); // Clear properties
+        required.length = 0; // Clear required
+    }
+
+    const inputSchema = {
+        type: "object",
+        properties: properties,
+        ...(required.length > 0 && { required: required }) // Only add required if it's not empty
+    };
+
+    logger.debug(`Generated Schema: ${JSON.stringify(inputSchema)}`);
+    logger.debug(`Using Description: "${description}"`);
+
+    return { description, inputSchema };
+}
+
+
 // --- Stub Tool Definitions ---
 const createStubTool = (
     name: string,
@@ -358,35 +506,35 @@ const registerFunctionTool: ToolDefinition = {
 
         // --- Extract function name from code --- PRE-SAVE STEP
         let functionName: string | null = null;
-        try {
-            const sourceFile = ts.createSourceFile(
-                'temp.ts', // Temporary filename for parsing
-                code,
-                ts.ScriptTarget.Latest,
-                true // Set parent pointers
-            );
+        // We need the functionName early to determine the filename
 
-            ts.forEachChild(sourceFile, node => {
+        try {
+            const tempSourceFile = ts.createSourceFile('tempExtract.ts', code, ts.ScriptTarget.Latest, true);
+            ts.forEachChild(tempSourceFile, node => {
                 if (functionName) return; // Stop searching once found
 
-                if (ts.isVariableStatement(node) && node.modifiers?.some(mod => mod.kind === ts.SyntaxKind.ExportKeyword)) {
+                // Case 1: Exported Function Declaration
+                if (ts.isFunctionDeclaration(node) && node.name && node.modifiers?.some(mod => mod.kind === ts.SyntaxKind.ExportKeyword)) {
+                    functionName = node.name.getText(tempSourceFile);
+                    logger.debug(`Found exported function declaration: ${functionName}`);
+                }
+                // Case 2: Exported Variable Statement (assigned to a function)
+                else if (ts.isVariableStatement(node) && node.modifiers?.some(mod => mod.kind === ts.SyntaxKind.ExportKeyword)) {
                     node.declarationList.declarations.forEach(declaration => {
-                        if (declaration.name.getText(sourceFile) === 'toolDefinition' && declaration.initializer && ts.isObjectLiteralExpression(declaration.initializer)) {
-                            declaration.initializer.properties.forEach(prop => {
-                                if (ts.isPropertyAssignment(prop) && prop.name.getText(sourceFile) === 'name' && prop.initializer && ts.isStringLiteral(prop.initializer)) {
-                                    functionName = prop.initializer.text; // Extract the string value
-                                }
-                            });
+                        if (functionName) return;
+                        if (ts.isIdentifier(declaration.name) && declaration.initializer &&
+                            (ts.isArrowFunction(declaration.initializer) || ts.isFunctionExpression(declaration.initializer))) {
+                            functionName = declaration.name.getText(tempSourceFile);
+                            logger.debug(`Found exported variable assigned to a function: ${functionName}`);
                         }
                     });
                 }
             });
 
             if (!functionName) {
-                throw new Error("Could not find an exported 'toolDefinition' constant with a string 'name' property in the provided code.");
+                throw new Error("Could not find an exported function declaration or an exported variable assigned to a function in the provided code.");
             }
-             logger.info(`Extracted function name from code: ${functionName}`);
-
+            logger.info(`Extracted function name from code: ${functionName}`);
         } catch (parseError: any) {
             logger.error(`Failed to parse code or extract function name: ${parseError.message}`);
             throw new Error(`Failed to parse code: ${parseError.message}`);
@@ -394,8 +542,8 @@ const registerFunctionTool: ToolDefinition = {
         // --- End extraction ---
 
         // Basic validation for extracted function name
-        if (!/^[a-zA-Z0-9_]+$/.test(functionName)) {
-            throw new Error(`Invalid extracted function_name '${functionName}': only alphanumeric characters and underscores allowed.`);
+        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(functionName)) {
+            throw new Error(`Invalid extracted function name '${functionName}': Must start with a letter or underscore, followed by letters, numbers, or underscores.`);
         }
 
         const sourceFilePath = path.join(SOURCE_FUNCTIONS_DIR, `${functionName}.ts`);
@@ -403,9 +551,8 @@ const registerFunctionTool: ToolDefinition = {
 
         logger.info(`Attempting to register function '${functionName}' (name derived from code)...`);
 
-        // 1. Save the TypeScript code (now that we know the name)
+        // 1. Save the TypeScript code
         try {
-            // Ensure the source directory exists
             await fs.mkdir(SOURCE_FUNCTIONS_DIR, { recursive: true });
             await fs.writeFile(sourceFilePath, code, 'utf8');
             logger.info(`Saved TypeScript source to: ${sourceFilePath}`);
@@ -414,204 +561,188 @@ const registerFunctionTool: ToolDefinition = {
             throw new Error(`Failed to save function source: ${writeError.message}`);
         }
 
-        // 2. Attempt to compile the TypeScript file using the Compiler API
+        // 2. Compile the TypeScript file
         try {
-            // Ensure compiled directory exists
             await fs.mkdir(COMPILED_FUNCTIONS_DIR, { recursive: true });
 
             const compilerOptions: ts.CompilerOptions = {
                 outDir: COMPILED_FUNCTIONS_DIR,
-                target: ts.ScriptTarget.ES2016,
+                target: ts.ScriptTarget.ES2016, // Or choose appropriate target
                 module: ts.ModuleKind.CommonJS,
                 esModuleInterop: true,
                 skipLibCheck: true,
                 resolveJsonModule: true,
-                // sourceMap: true, // Optional: generate source maps
-                declaration: false, // Optional: don't generate .d.ts files
+                declaration: false, // Don't need .d.ts files for dynamic execution
             };
 
             logger.info(`Compiling ${sourceFilePath} using TypeScript API...`);
             const program = ts.createProgram([sourceFilePath], compilerOptions);
             const emitResult = program.emit();
 
-            const allDiagnostics = ts
-                .getPreEmitDiagnostics(program)
-                .concat(emitResult.diagnostics);
-
+            const allDiagnostics = ts.getPreEmitDiagnostics(program).concat(emitResult.diagnostics);
             let hasError = false;
             const diagnosticMessages: string[] = [];
 
             allDiagnostics.forEach(diagnostic => {
-                if (diagnostic.category === ts.DiagnosticCategory.Error) {
-                    hasError = true;
-                }
+                const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
                 if (diagnostic.file) {
                     const { line, character } = ts.getLineAndCharacterOfPosition(diagnostic.file, diagnostic.start!);
-                    const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
                     diagnosticMessages.push(`${path.basename(diagnostic.file.fileName)} (${line + 1},${character + 1}): ${message}`);
                 } else {
-                    diagnosticMessages.push(ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'));
+                    diagnosticMessages.push(message);
+                }
+                if (diagnostic.category === ts.DiagnosticCategory.Error) {
+                    hasError = true;
                 }
             });
 
             if (hasError || emitResult.emitSkipped) {
                 const errorOutput = diagnosticMessages.join('\n');
                 logger.error(`Compilation failed for ${functionName}. Diagnostics:\n${errorOutput}`);
-                // Attempt to clean up the bad .ts file
                 try { await fs.unlink(sourceFilePath); } catch { /* Ignore cleanup error */ }
                 throw new Error(`Compilation failed:\n${errorOutput}`);
             }
 
-            logger.info(`Successfully compiled ${functionName} using TypeScript API to: ${compiledFilePath}`);
+            logger.info(`Successfully compiled ${functionName} to: ${compiledFilePath}`);
 
-            // 3. Construct and Register the ToolDefinition WRAPPER
-            try {
-                 // Ensure require cache is clear before loading the new module
-                const absolutePath = require.resolve(compiledFilePath);
-                delete require.cache[absolutePath];
-                logger.debug(`Cleared require cache for compiled file: ${absolutePath}`)
+        } catch (compileError: any) {
+             logger.error(`Error during compilation step for ${functionName}: ${compileError.message}`, { stack: compileError.stack });
+             // Ensure source file is cleaned up if compilation setup failed too
+             try { if (existsSync(sourceFilePath)) await fs.unlink(sourceFilePath); } catch { /* Ignore */ }
+             throw compileError; // Re-throw the error
+        }
 
-                const dynamicModule = require(absolutePath);
+        // 3. Load, Inspect, and Register
+        let userFunction: Function | null = null;
+        let userFunctionName: string | null = null; // To store the name found within the module (e.g., 'default' or named export)
+        try {
+            // Ensure require cache is clear before loading the new module
+            const absolutePath = require.resolve(compiledFilePath);
+            delete require.cache[absolutePath];
+            logger.debug(`Cleared require cache for compiled file: ${absolutePath}`)
 
-                // --- Find the single exported function --- START NEW LOGIC ---
-                let userFunctionName: string | null = null;
-                let userFunction: Function | null = null;
-                const exports = Object.keys(dynamicModule);
-                // Filter out non-function exports and potentially internal properties like __esModule
-                const potentialFunctions = exports.filter(key => typeof dynamicModule[key] === 'function' && key !== '__esModule');
+            const dynamicModule = require(absolutePath);
 
-                if (potentialFunctions.length === 0) {
-                    // Check for default export if no named functions found
-                    if (dynamicModule.default && typeof dynamicModule.default === 'function') {
-                        logger.info(`Found default export function in module ${functionName}.js`);
-                        userFunction = dynamicModule.default;
-                        userFunctionName = 'default'; // Representing the default export
-                    } else {
-                        throw new Error(`Compiled module ${functionName}.js does not export any functions (checked named and default).`);
-                    }
-                } else if (potentialFunctions.length > 1) {
-                     // Decision: Require exactly one named export OR a default export if no named ones exist.
-                     // If both exist, or multiple named exports exist, it's ambiguous.
-                     if (dynamicModule.default && typeof dynamicModule.default === 'function') {
-                           throw new Error(`Compiled module ${functionName}.js exports multiple named functions (${potentialFunctions.join(', ')}) AND a default export. Please export only ONE function (either named or default).`);
-                     } else {
-                           throw new Error(`Compiled module ${functionName}.js exports multiple named functions (${potentialFunctions.join(', ')}). Please export only one function.`);
-                     }
+            // Find the single exported function (named or default)
+            const exports = Object.keys(dynamicModule);
+            const potentialFunctions = exports.filter(key => typeof dynamicModule[key] === 'function' && key !== '__esModule');
+
+            if (potentialFunctions.length === 0) {
+                if (dynamicModule.default && typeof dynamicModule.default === 'function') {
+                    logger.info(`Found default export function in module ${functionName}.js`);
+                    userFunction = dynamicModule.default;
+                    userFunctionName = 'default';
                 } else {
-                    // Exactly one named function found
-                    userFunctionName = potentialFunctions[0];
-                    userFunction = dynamicModule[userFunctionName];
-                    logger.info(`Found single exported function '${userFunctionName}' in module ${functionName}.js`);
+                    throw new Error(`Compiled module ${functionName}.js does not export any functions (checked named and default).`);
                 }
-                // --- End find function ---
-
-                if (!userFunction) { // Should be unreachable if logic above is sound
-                     throw new Error(`Could not locate the function to execute within ${functionName}.js`);
+            } else if (potentialFunctions.length > 1) {
+                if (dynamicModule.default && typeof dynamicModule.default === 'function') {
+                    throw new Error(`Compiled module ${functionName}.js exports multiple named functions (${potentialFunctions.join(', ')}) AND a default export. Please export only ONE function.`);
+                } else {
+                    throw new Error(`Compiled module ${functionName}.js exports multiple named functions (${potentialFunctions.join(', ')}). Please export only one function.`);
                 }
-
-                // Construct the ToolDefinition dynamically
-                const constructedTool: ToolDefinition = {
-                    name: functionName,
-                    description: dynamicModule.metadata.description,
-                    inputSchema: dynamicModule.metadata.inputSchema, // Use the schema provided by the user
-                    async execute(toolArgs: any): Promise<TextContent[]> {
-                        // Use the actual exported function name found, or 'default'
-                        const actualUserFuncName = userFunctionName || 'default';
-                        logger.info(`Executing dynamic tool '${functionName}' (wraps '${actualUserFuncName}') with args: ${JSON.stringify(toolArgs)}`);
-
-                        // --- Prepare arguments based on schema order --- START NEW LOGIC ---
-                        let orderedArgs: any[] = [];
-                        // Ensure toolArgs is an object, default to empty if null/undefined
-                        const currentToolArgs = (toolArgs && typeof toolArgs === 'object') ? toolArgs : {};
-
-                        if (dynamicModule.metadata.inputSchema && dynamicModule.metadata.inputSchema.properties && typeof dynamicModule.metadata.inputSchema.properties === 'object') {
-                            // Get argument names *in the order they appear in the schema's properties object*
-                            const argNames = Object.keys(dynamicModule.metadata.inputSchema.properties);
-                            orderedArgs = argNames.map(argName => {
-                                // Get value from the arguments passed to the tool's execute function
-                                if (currentToolArgs.hasOwnProperty(argName)) {
-                                    return currentToolArgs[argName];
-                                } else {
-                                    // Argument not provided. Check if it was required in the schema.
-                                    const isRequired = dynamicModule.metadata.inputSchema.required && dynamicModule.metadata.inputSchema.required.includes(argName);
-                                    if (isRequired) {
-                                        // This case should ideally be caught by MCP framework's validation before calling execute,
-                                        // but throw an error here just in case.
-                                        logger.error(`Required argument '${argName}' missing for tool '${functionName}'.`);
-                                        throw new Error(`Required argument '${argName}' is missing.`);
-                                    } else {
-                                        // Argument is optional and not provided, pass undefined to the user function
-                                        logger.debug(`Optional argument '${argName}' not provided for tool '${functionName}', using undefined.`);
-                                        return undefined;
-                                    }
-                                }
-                            });
-                             logger.debug(`Prepared ordered args for '${actualUserFuncName}': ${JSON.stringify(orderedArgs)}`);
-                        } else {
-                             logger.info(`No inputSchema.properties found for '${functionName}'. Calling user function '${actualUserFuncName}' with no arguments.`);
-                             // Call with no arguments if schema has no properties
-                             orderedArgs = [];
-                        }
-                        // --- End prepare arguments ---
-
-                        try {
-                            // Call the USER'S pure function with individual, ordered arguments
-                            const result = await userFunction(...orderedArgs);
-
-                            // Basic result formatting (adapt as needed)
-                            let textResult: string;
-                            if (typeof result === 'string') {
-                                textResult = result;
-                            } else if (result === undefined || result === null) {
-                                 textResult = `Function '${functionName}' executed successfully with no return value.`;
-                            } else {
-                                // Attempt to stringify other types
-                                try {
-                                    textResult = JSON.stringify(result, null, 2);
-                                } catch (stringifyError: any) {
-                                     logger.error(`Failed to stringify result for '${functionName}': ${stringifyError.message}`);
-                                     textResult = `[Unstringifiable Result: ${stringifyError.message}]`;
-                                }
-                            }
-                            logger.info(`Dynamic tool '${functionName}' execution successful.`);
-                            return [{ type: "text", text: textResult }];
-
-                        } catch (runError: any) {
-                            logger.error(`Error during dynamic tool '${functionName}' execution (calling '${actualUserFuncName}'): ${runError.message}`);
-                            const errorMessage = runError.stack ? runError.stack : runError.message;
-                            throw new Error(`Execution failed in '${functionName}': ${errorMessage}`);
-                        }
-                    }
-                };
-
-                // Register the CONSTRUCTED tool
-                if (toolRegistry.has(functionName)) {
-                     logger.warn(`Overwriting existing tool in registry: ${functionName}`);
-                }
-                toolRegistry.set(functionName, constructedTool);
-                dynamicFunctionFiles.set(functionName, compiledFilePath); // Track the file
-                logger.info(`Successfully constructed and registered tool wrapper: ${functionName}`);
-                return [{ type: "text", text: `Function '${functionName}' registered and compiled successfully.` }];
-
-            } catch (loadOrWrapError: any) {
-                 logger.error(`Compilation succeeded but failed to load/wrap function ${functionName}: ${loadOrWrapError.message}`);
-                 // Clean up both files on load/wrap error
-                 try { await fs.rm(compiledFilePath); } catch { /* Ignore */ }
-                 try { await fs.rm(sourceFilePath); } catch { /* Ignore */ }
-                 throw new Error(`Compilation succeeded but failed during registration: ${loadOrWrapError.message}`);
+            } else {
+                userFunctionName = potentialFunctions[0];
+                userFunction = dynamicModule[userFunctionName];
+                logger.info(`Found single exported function '${userFunctionName}' in module ${functionName}.js`);
             }
 
-        } catch (compileOrRegisterError: any) {
-            // This catches errors from file operations, API usage, or the re-thrown errors above
-            logger.error(`Registration process failed for ${functionName}: ${compileOrRegisterError.message}`);
-            // Attempt to clean up the .ts file if it still exists and wasn't cleaned up above
-            try {
-                if (existsSync(sourceFilePath)) { await fs.rm(sourceFilePath); }
-            } catch { /* Ignore */ }
-            // Re-throw the specific error
-            throw compileOrRegisterError; // Propagate the original error object
+            if (!userFunction) { // Should be unreachable
+                 throw new Error(`Could not locate the function to execute within ${functionName}.js`);
+            }
+
+            // --- Inspect original TS code for Schema and Description ---
+            const { description: generatedDescription, inputSchema: generatedInputSchema } = await inspectTypeScriptFunction(code, functionName);
+            // --- Inspection Complete ---
+
+            // Construct the ToolDefinition
+            const constructedTool: ToolDefinition = {
+                name: functionName, // Use the name derived from code (for the tool registry key)
+                description: generatedDescription,
+                inputSchema: generatedInputSchema,
+                async execute(toolArgs: any): Promise<TextContent[]> {
+                    const actualUserFuncName = userFunctionName || 'default'; // Use the name found in the module
+                    logger.info(`Executing dynamic tool '${functionName}' (wraps '${actualUserFuncName}') with args: ${JSON.stringify(toolArgs)}`);
+
+                    let orderedArgs: any[] = [];
+                    const currentToolArgs = (toolArgs && typeof toolArgs === 'object') ? toolArgs : {};
+
+                    if (generatedInputSchema && generatedInputSchema.properties && typeof generatedInputSchema.properties === 'object') {
+                        const argNames = Object.keys(generatedInputSchema.properties);
+                        orderedArgs = argNames.map(argName => {
+                            if (currentToolArgs.hasOwnProperty(argName)) {
+                                return currentToolArgs[argName];
+                            } else {
+                                const isRequired = generatedInputSchema.required && generatedInputSchema.required.includes(argName);
+                                if (isRequired) {
+                                    logger.error(`Required argument '${argName}' missing for tool '${functionName}'.`);
+                                    throw new Error(`Required argument '${argName}' is missing.`);
+                                } else {
+                                    logger.debug(`Optional argument '${argName}' not provided for tool '${functionName}', passing undefined.`);
+                                    return undefined;
+                                }
+                            }
+                        });
+                        logger.debug(`Prepared ordered arguments based on generated schema: ${orderedArgs.length} args`);
+                    } else {
+                        logger.debug(`Generated schema has no properties for tool '${functionName}', calling function without arguments.`);
+                        orderedArgs = [];
+                    }
+
+                    // Call the actual user function loaded from the compiled JS
+                    try {
+                        const result = await (userFunction as (...args: any[]) => Promise<any>)(...orderedArgs);
+
+                        // Format result
+                        let resultString: string;
+                         try {
+                            if (result === undefined || result === null) {
+                                resultString = "";
+                            } else if (typeof result === 'string') {
+                                resultString = result;
+                            } else { // Objects, numbers, booleans, arrays etc.
+                                resultString = JSON.stringify(result, null, 2);
+                            }
+                        } catch (stringifyError: any) {
+                            logger.warn(`Failed to stringify result for tool '${functionName}': ${stringifyError.message}. Returning raw string representation.`);
+                            resultString = String(result);
+                        }
+
+                        logger.info(`Dynamic tool '${functionName}' executed successfully.`);
+                        return [{ type: "text", text: resultString }];
+                    } catch (executionError: any) {
+                         logger.error(`Error executing dynamic tool '${functionName}' (function '${actualUserFuncName}'): ${executionError.message}`, { stack: executionError.stack });
+                        throw new Error(`Execution error in tool '${functionName}': ${executionError.message}`);
+                    }
+                } // End of inner execute
+            }; // End of constructedTool definition
+
+            // --- Register the tool ---
+            if (toolRegistry.has(functionName)) {
+                logger.warn(`⚠️ Overwriting existing tool registration for '${functionName}'`);
+                // You might want to remove the old files here if overwriting
+                // const oldCompiledPath = dynamicFunctionFiles.get(functionName); ... remove old files ...
+            }
+            toolRegistry.set(functionName, constructedTool);
+            dynamicFunctionFiles.set(functionName, compiledFilePath); // Track the *compiled* path
+            logger.info(`✅ Successfully registered dynamic tool: ${functionName}`);
+
+            // Update cloud if connected
+            if (cloudSocket && cloudSocket.connected) {
+                logger.info(`☁️ Emitting tools_updated to cloud due to registration of ${functionName}`);
+                cloudSocket.emit('tools_updated', { tools: prepareToolsListPayload() });
+            }
+
+            return [{ type: "text", text: `Function '${functionName}' registered successfully.` }];
+
+        } catch (loadError: any) {
+            logger.error(`Failed to load or register compiled function ${functionName}: ${loadError.message}`, {stack: loadError.stack});
+            // Attempt cleanup of compiled/source files if loading/registration failed
+            try { if(existsSync(compiledFilePath)) await fs.unlink(compiledFilePath); } catch { /* Ignore */ }
+            try { if(existsSync(sourceFilePath)) await fs.unlink(sourceFilePath); } catch { /* Ignore */ }
+            throw new Error(`Failed to load/register function: ${loadError.message}`);
         }
-    }
+    } // End of outer execute method
 };
 
 // --- Custom implementation for _function_get ---

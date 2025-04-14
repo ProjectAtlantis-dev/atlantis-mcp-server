@@ -11,6 +11,7 @@ import { hideBin } from 'yargs/helpers';
 import os from 'os'; // ADDED IMPORT
 import process from 'process'; // Explicit import for process.kill
 import * as ts from 'typescript'; // Added for Compiler API
+import { checkAndHandleExistingProcess } from './util'; // <-- RE-ADDED IMPORT
 
 // --- Import Shared Types ---
 import {
@@ -37,7 +38,7 @@ const argv = yargs(hideBin(process.argv)).options({
 
 // --- Logger Setup ---
 const logger = winston.createLogger({
-    level: argv['log-level'] || 'info', // TODO: Make configurable via args
+    level: argv['log-level'], // Use yargs default directly
     format: winston.format.combine(
         winston.format.timestamp(),
         winston.format.printf(({ timestamp, level, message }) => `${timestamp} ${level.toUpperCase()}: ${message}`)
@@ -497,7 +498,8 @@ const registerFunctionTool: ToolDefinition = {
         },
         required: ["code"]
     },
-    async execute(args: { code?: string }): Promise<TextContent[]> {
+    // Make 'code' non-optional as it's required by the schema
+    async execute(args: { code: string }): Promise<TextContent[]> {
         const code = args.code;
 
         if (!code) {
@@ -608,7 +610,7 @@ const registerFunctionTool: ToolDefinition = {
         } catch (compileError: any) {
              logger.error(`Error during compilation step for ${functionName}: ${compileError.message}`, { stack: compileError.stack });
              // Ensure source file is cleaned up if compilation setup failed too
-             try { if (existsSync(sourceFilePath)) await fs.unlink(sourceFilePath); } catch { /* Ignore */ }
+             try { if(existsSync(sourceFilePath)) await fs.unlink(sourceFilePath); } catch { /* Ignore */ }
              throw compileError; // Re-throw the error
         }
 
@@ -756,7 +758,8 @@ const getFunctionCodeTool: ToolDefinition = {
         },
         required: ["name"] // Changed from function_name
     },
-    async execute(args: { name?: string }): Promise<TextContent[]> { // Changed param name in type
+    // Make 'name' non-optional
+    async execute(args: { name: string }): Promise<TextContent[]> { // Changed param name in type
         const functionName = args.name; // Use 'name'
         if (!functionName) {
             throw new Error("Missing required argument for _function_get: name");
@@ -808,7 +811,8 @@ const removeFunctionTool: ToolDefinition = {
         },
         required: ["name"]
     },
-    async execute(args: { name?: string }): Promise<TextContent[]> {
+    // Make 'name' non-optional
+    async execute(args: { name: string }): Promise<TextContent[]> {
         const functionName = args.name;
         if (!functionName) {
             throw new Error("Missing required argument: name");
@@ -881,7 +885,8 @@ const addFunctionTool: ToolDefinition = {
         },
         required: ["name"]
     },
-    async execute(args: { name?: string }): Promise<TextContent[]> {
+    // Make 'name' non-optional
+    async execute(args: { name: string }): Promise<TextContent[]> {
         const name = args.name;
 
         if (!name) {
@@ -936,7 +941,8 @@ const addTaskTool: ToolDefinition = {
         },
         required: ["payload"]
     },
-    async execute(args: { payload?: any }): Promise<TextContent[]> {
+    // Make 'payload' non-optional
+    async execute(args: { payload: any }): Promise<TextContent[]> {
         logger.info(`⚙️ TASK ADD CALLED with args: ${JSON.stringify(args)}`);
         try {
             const taskPayload = args.payload;
@@ -982,7 +988,8 @@ const peekTaskTool: ToolDefinition = {
         },
         required: ["id"]
     },
-    async execute(args: { id?: number }): Promise<TextContent[]> {
+    // Make 'id' non-optional
+    async execute(args: { id: number }): Promise<TextContent[]> {
         logger.info(`👀 TASK PEEK CALLED with args: ${JSON.stringify(args)}`);
         try {
             const taskId = args.id;
@@ -1030,7 +1037,8 @@ const removeTaskTool: ToolDefinition = {
         },
         required: ["id"]
     },
-    async execute(args: { id?: number }): Promise<TextContent[]> {
+    // Make 'id' non-optional
+    async execute(args: { id: number }): Promise<TextContent[]> {
         logger.info(`🗑️ TASK REMOVE CALLED with args: ${JSON.stringify(args)}`);
         try {
             const taskId = args.id;
@@ -1072,7 +1080,8 @@ const runTaskTool: ToolDefinition = {
         },
         required: ["id"]
     },
-    async execute(args: { id?: number }): Promise<TextContent[]> {
+    // Make 'id' non-optional
+    async execute(args: { id: number }): Promise<TextContent[]> {
         logger.info(`🏃 TASK RUN CALLED with args: ${JSON.stringify(args)}`);
         try {
             const taskId = args.id;
@@ -1396,140 +1405,6 @@ const connectToCloud = () => {
     });
     // --- End Added Handlers ---
 
-    // --- Placeholder for handling messages FROM the cloud ---
-    // Listen for specific events the cloud server might emit
-    cloudSocket.onAny(async (eventName: string, ...args: any[]) => { // Make callback async
-        // Skip 'open', 'close', 'error' events for general logging if handled elsewhere
-        if (['open', 'close', 'error', 'connect', 'connecting', 'reconnecting', 'disconnect'].includes(eventName)) return;
-
-        // Log all events and their arguments clearly at INFO level by concatenating
-        logger.debug(`☁️👇 Received cloud event '${eventName}': ${JSON.stringify(args)}`);
-
-        // --- Handle specific messages from cloud ---
-        if (eventName === 'service_message' && args.length > 0) {
-            try {
-                const request = args[0] as JsonRpcRequest;
-                logger.info(`Processing JSON-RPC request: ${request.method} (ID: ${request.id})`);
-
-                // Handle tools/list request
-                if (request.method === 'tools/list') {
-                    const tools = prepareToolsListPayload(); // Use the helper
-                    const response: JsonRpcResponse = {
-                        jsonrpc: '2.0',
-                        id: request.id,
-                        result: { tools }, // According to MCP spec for tools/list
-                    };
-                    cloudSocket.emit('mcp_response', response);
-                    logger.info(`[Cloud] Responding to tools/list with ${tools.length} tools.`);
-                }
-                // Handle tools/call request
-                else if (request.method === 'tools/call') {
-                    const { name, arguments: toolArgs } = request.params as { name: string, arguments: any }; // Extract tool name and args
-                    const tool = toolRegistry.get(name);
-                    let response: JsonRpcResponse; // Define response variable
-
-                    if (tool) {
-                        try {
-                            // Basic required parameter check (TODO: Add proper jsonschema validation)
-                            if (tool.inputSchema && Array.isArray(tool.inputSchema.required)) {
-                                for (const requiredParam of tool.inputSchema.required) {
-                                    if (!toolArgs || toolArgs[requiredParam] === undefined) {
-                                        throw new Error(`Missing required parameter: '${requiredParam}'`);
-                                    }
-                                }
-                            }
-
-                            let resultContents: TextContent[];
-
-                            if (tool.execute) { // Built-in or stub
-                                logger.info(`Executing built-in/stub tool '${name}' with args: ${JSON.stringify(toolArgs)}`);
-                                resultContents = await tool.execute(toolArgs); // Await built-in/stub execution
-                            } else if (tool._function && tool.inputSchema) { // Dynamically loaded
-                                logger.info(`Executing dynamic tool '${name}' from ${tool._filePath} with args: ${JSON.stringify(toolArgs)}`);
-
-                                // Extract arguments based on inputSchema order (assuming required or properties keys)
-                                // This is a simplification; a more robust solution might inspect parameter names/types
-                                const paramNames = tool.inputSchema.required || Object.keys(tool.inputSchema.properties || {});
-                                const orderedArgs = paramNames.map(paramName => {
-                                    if (toolArgs[paramName] === undefined) {
-                                        // This should have been caught by the required check earlier, but double-check
-                                        throw new Error(`Internal error: Missing argument '${paramName}' for dynamic call, though required check passed.`);
-                                    }
-                                    return toolArgs[paramName];
-                                });
-
-                                // const dynamicResult = await tool._function(toolArgs); // Old call with object
-                                const rawResult = await tool._function(...orderedArgs); // New call with spread arguments
-
-                                // Format the raw result into MCP TextContent
-                                // TODO: Handle cases where the rawResult might not be a number/string?
-                                resultContents = [{ type: "text", text: rawResult.toString() }];
-                            } else {
-                                throw new Error(`Tool '${name}' found in registry but has no executable function or inputSchema.`);
-                            }
-
-                            // If execution reached here, it was successful
-                            response = {
-                                jsonrpc: '2.0',
-                                // IMPORTANT: We use "contents" (plural) key to match format between Python and Node servers
-                                // Both MCP SDK implementations support either "content" or "contents" but we need to be consistent
-                                result: { contents: resultContents },
-                                id: request.id
-                            };
-                            logger.info(`Tool '${name}' executed successfully. Sending result.`);
-
-                        } catch (error: any) {
-                            // Handle validation errors OR execution errors
-                            logger.error(`Error during 'tools/call' for '${name}': ${error.message}`);
-                            if (error.stack) logger.debug(error.stack);
-                            response = {
-                                jsonrpc: '2.0',
-                                // Use generic internal error code for now.
-                                error: { code: -32000, message: `Tool execution failed: ${error.message}` },
-                                id: request.id
-                            };
-                        }
-                    } else {
-                        // Tool not found
-                        logger.error(`Tool '${name}' not found.`);
-                        response = {
-                            jsonrpc: '2.0',
-                            error: { code: -32601, message: `Method not found: Tool '${name}'` }, // Method Not Found
-                            id: request.id
-                        };
-                    }
-                    // Send the response (success or error)
-                    cloudSocket.emit('mcp_response', response);
-                }
-                // TODO: Handle other potential standard MCP methods (ping, initialize, etc.) if needed
-                // else {
-                //     logger.warn(`Received unhandled method: ${request.method}`);
-                //     // Optionally send a MethodNotFound error
-                // }
-            } catch (jsonRpcError: any) {
-                // Handle potential errors during JSON parsing or basic validation
-                logger.error(`Failed to process incoming service_message: ${jsonRpcError.message}`);
-                // Attempt to extract ID if possible, otherwise respond without ID
-                let requestId: string | number | null = null;
-                try {
-                    const potentialRequest = JSON.parse(args[0].toString());
-                    requestId = potentialRequest.id || null;
-                } catch {}
-
-                const errorResponse: JsonRpcResponse = {
-                    jsonrpc: '2.0',
-                    error: { code: -32700, message: `Parse error or invalid request: ${jsonRpcError.message}` }, // Parse Error
-                    id: requestId
-                };
-                cloudSocket.emit('mcp_response', errorResponse);
-            }
-        }
-        // --- Handle other cloud events if necessary ---
-        // else if (eventName === 'some_other_event') { ... }
-
-    }); // End cloudSocket.onAny
-    // --- End Placeholder ---
-
     cloudSocket.on('error', (error: Error) => {
         logger.error(`☁️ Socket.IO general error: ${error.message}`);
         // General errors might not trigger disconnect, schedule check/reconnect
@@ -1622,59 +1497,6 @@ const startServer = async () => {
     connectToCloud(); // Initiate connection after local server is up
 };
 
-// --- Function to Check Existing Process ---
-function checkAndHandleExistingProcess(): void {
-    logger.debug(`Checking for existing PID file: ${PID_FILE}`);
-    if (existsSync(PID_FILE)) {
-        logger.info(`Found PID file: ${PID_FILE}`);
-        let pid: number;
-        try {
-            const pidString = readFileSync(PID_FILE, 'utf8');
-            pid = parseInt(pidString.trim(), 10);
-            if (isNaN(pid)) {
-                logger.warn(`PID file (${PID_FILE}) contains invalid content: '${pidString}'. Removing stale file.`);
-                unlinkSync(PID_FILE);
-                return; // Continue startup
-            }
-            logger.info(`PID read from file: ${pid}`);
-        } catch (readError: any) {
-            logger.error(`Error reading PID file (${PID_FILE}): ${readError.message}. Removing potentially corrupt file.`);
-            try { unlinkSync(PID_FILE); } catch (unlinkErr: any) { /* Ignore inner error */ }
-            return; // Continue startup, although PID file was problematic
-        }
-
-        try {
-            // Check if process exists by sending signal 0
-            process.kill(pid, 0);
-            // If kill succeeds without error, the process exists
-            logger.info(`ℹ️ Node server is already running with PID: ${pid}. Exiting...`);
-            process.exit(0); // Exit gracefully
-        } catch (err: any) {
-            if (err.code === 'ESRCH') {
-                // Process doesn't exist (Error: Search) - stale PID file
-                logger.warn(`🧹 Process with PID ${pid} not found. Removing stale PID file: ${PID_FILE}`);
-                try {
-                    unlinkSync(PID_FILE);
-                } catch (unlinkErr: any) {
-                    logger.error(`Failed to remove stale PID file (${PID_FILE}): ${unlinkErr.message}`);
-                    // Still continue startup, but log the error
-                }
-                // Continue startup
-            } else if (err.code === 'EPERM') {
-                // Permission error - we can't check, safer to assume it might be running
-                 logger.error(`🚫 Permission denied trying to check PID ${pid}. Cannot determine if server is running. Exiting to be safe.`);
-                 process.exit(1); // Exit with error because state is uncertain
-            } else {
-                // Other unexpected error checking the process
-                logger.error(`❌ Unexpected error checking PID ${pid}: ${err.message}. Exiting.`);
-                process.exit(1); // Exit with error
-            }
-        }
-    } else {
-         logger.debug("No existing PID file found. Proceeding with startup.");
-    }
-}
-
 // --- Graceful Shutdown ---
 const shutdown = async (): Promise<void> => {
     let exitCode = 0; // Default to success
@@ -1732,7 +1554,7 @@ process.on('unhandledRejection', (reason: any) => { logger.error('🚨 UNHANDLED
 
 // --- Run the server ---
 // First, check if already running
-checkAndHandleExistingProcess();
+checkAndHandleExistingProcess(logger, PID_FILE); // <-- FIXED CALL
 
 // If the check didn't exit, start the server
 startServer().catch(error => {

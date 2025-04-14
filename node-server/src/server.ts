@@ -4,7 +4,7 @@ import url from 'url';
 import winston from 'winston';
 import path from 'path';
 import fs from 'fs/promises';
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, unlinkSync, statSync } from 'fs';
 import io from 'socket.io-client'; // Standard import for the function
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
@@ -81,6 +81,31 @@ const sendError = (ws: WebSocket, id: string | number | null, code: number, mess
      try { ws.send(JSON.stringify(response)); } catch (e: any) { logger.error(`Failed to send error response: ${e.message}`); }
 };
 
+// --- Helper Function for Formatting Tool List ---
+const prepareToolsListPayload = (): any[] => {
+    return Array.from(toolRegistry.values()).map(tool => {
+        // Destructure, keeping _filePath for now
+        const { _function, _filePath, execute, ...baseToolDefinition } = tool;
+
+        // Create a mutable object to potentially add the timestamp
+        let toolToSend: any = { ...baseToolDefinition };
+
+        // If it's a dynamic function with a path, get and add the timestamp
+        if (_filePath && typeof _filePath === 'string') {
+            try {
+                const stats = statSync(_filePath); // Use statSync
+                toolToSend.lastUpdated = stats.mtime.toISOString(); // Use 'lastUpdated' field name
+                logger.debug(`Added lastUpdated timestamp for ${_filePath}`); // Update log message too
+            } catch (statError: any) {
+                logger.warn(`Could not get stats for dynamic function file ${_filePath}: ${statError.message}`);
+                // Proceed without timestamp if stat fails
+            }
+        }
+        logger.debug(`Tool definition being returned:\n${JSON.stringify(toolToSend, null, 2)}`); // Combine into one message arg
+        return toolToSend; // Return the potentially modified definition
+    });
+};
+
 // --- Dynamic Function Loading ---
 const loadAndRegisterDynamicFunction = async (compiledFilePath: string): Promise<void> => {
     // Use compiled JS file path
@@ -96,6 +121,12 @@ const loadAndRegisterDynamicFunction = async (compiledFilePath: string): Promise
     logger.debug(`Attempting to load dynamic function '${functionName}' from ${compiledFilePath}`);
 
     try {
+        // Get file stats to log modification time
+        const stats = await fs.stat(compiledFilePath);
+
+        // Log file's last modified timestamp before loading
+        logger.info(`⏳ Loading dynamic function '${functionName}' (modified: ${stats.mtime.toISOString()}) from ${compiledFilePath}`);
+
         // Ensure cache is clear for the specific file being loaded/reloaded
         const absolutePath = require.resolve(compiledFilePath);
         delete require.cache[absolutePath];
@@ -110,7 +141,7 @@ const loadAndRegisterDynamicFunction = async (compiledFilePath: string): Promise
             dynamicModule.metadata = { description: `Dynamic function: ${functionName}` };
             logger.debug(`No metadata found for ${functionName}, using default.`);
         }
-        
+
         // Use default description if none provided
         if (typeof dynamicModule.metadata.description !== 'string' || !dynamicModule.metadata.description) {
             dynamicModule.metadata.description = `Dynamic function: ${functionName}`;
@@ -119,11 +150,11 @@ const loadAndRegisterDynamicFunction = async (compiledFilePath: string): Promise
 
         // Try to create a schema from source if no explicit schema provided
         let inputSchema = dynamicModule.metadata.inputSchema;
-        
+
         if (!inputSchema) {
             // Look for the TypeScript source file
             const tsFilePath = path.join(SOURCE_FUNCTIONS_DIR, `${functionName}.ts`);
-            
+
             if (existsSync(tsFilePath)) {
                 try {
                     // Read the TypeScript source file
@@ -169,7 +200,7 @@ const loadAndRegisterDynamicFunction = async (compiledFilePath: string): Promise
 const extractSchemaFromTypeScript = (sourceCode: string, functionName: string): any => {
     const properties: Record<string, any> = {};
     const required: string[] = [];
-    
+
     try {
         // Parse the TypeScript source file
         const sourceFile = ts.createSourceFile(
@@ -178,23 +209,23 @@ const extractSchemaFromTypeScript = (sourceCode: string, functionName: string): 
             ts.ScriptTarget.Latest,
             true
         );
-        
+
         // Find the handler function in the source
         let handlerFunction: ts.FunctionDeclaration | undefined;
-        
+
         // Look for exported handler function or any function with functionName
         ts.forEachChild(sourceFile, node => {
             // Check for export const handler = function or export const handler = (params) => {}
-            if (ts.isVariableStatement(node) && 
+            if (ts.isVariableStatement(node) &&
                 node.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
-                
+
                 node.declarationList.declarations.forEach(declaration => {
-                    if (ts.isIdentifier(declaration.name) && 
-                        declaration.name.text === 'handler' && 
+                    if (ts.isIdentifier(declaration.name) &&
+                        declaration.name.text === 'handler' &&
                         declaration.initializer) {
-                        
+
                         // Found handler as variable, now check if it's a function
-                        if (ts.isFunctionExpression(declaration.initializer) || 
+                        if (ts.isFunctionExpression(declaration.initializer) ||
                             ts.isArrowFunction(declaration.initializer)) {
                             // Handle params from this function expression
                             extractParamsFromFunction(declaration.initializer, properties, required);
@@ -202,31 +233,31 @@ const extractSchemaFromTypeScript = (sourceCode: string, functionName: string): 
                     }
                 });
             }
-            
+
             // Check for direct function declarations (such as "export function functionName")
-            if (ts.isFunctionDeclaration(node) && 
-                node.name && 
+            if (ts.isFunctionDeclaration(node) &&
+                node.name &&
                 node.name.text === functionName &&
                 node.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
                 handlerFunction = node;
             }
         });
-        
+
         // If we found a direct function declaration, extract params
         if (handlerFunction && handlerFunction.parameters) {
             extractParamsFromFunction(handlerFunction, properties, required);
         }
-        
+
         // Build the schema object
         const schema: any = {
             type: 'object',
             properties: properties
         };
-        
+
         if (required.length > 0) {
             schema.required = required;
         }
-        
+
         return schema;
     } catch (e: any) {
         logger.warn(`Error extracting schema from TypeScript: ${e.message}`);
@@ -235,8 +266,8 @@ const extractSchemaFromTypeScript = (sourceCode: string, functionName: string): 
 };
 
 // Helper to extract parameters from a function
-const extractParamsFromFunction = (node: ts.FunctionLikeDeclaration, 
-                                 properties: Record<string, any>, 
+const extractParamsFromFunction = (node: ts.FunctionLikeDeclaration,
+                                 properties: Record<string, any>,
                                  required: string[]) => {
     // Process each parameter
     node.parameters.forEach(param => {
@@ -244,13 +275,13 @@ const extractParamsFromFunction = (node: ts.FunctionLikeDeclaration,
         if (ts.isIdentifier(param.name)) {
             const paramName = param.name.text;
             let paramType = 'any';
-            
+
             // Try to determine parameter type
             if (param.type) {
                 if (ts.isTypeReferenceNode(param.type)) {
                     if (ts.isIdentifier(param.type.typeName)) {
                         const typeName = param.type.typeName.text;
-                        
+
                         // Map TypeScript types to JSON Schema types
                         switch (typeName.toLowerCase()) {
                             case 'string': paramType = 'string'; break;
@@ -271,13 +302,13 @@ const extractParamsFromFunction = (node: ts.FunctionLikeDeclaration,
                     }
                 }
             }
-            
+
             // Add to properties
             properties[paramName] = {
                 type: paramType,
                 description: `Parameter '${paramName}'`
             };
-            
+
             // If no initializer (default value), mark as required
             if (!param.initializer && !param.questionToken) {
                 required.push(paramName);
@@ -1012,10 +1043,7 @@ toolRegistry.set(peekTaskTool.name, peekTaskTool); // Register the real implemen
 
 // --- MCP Request Handlers ---
 const handleListTools = (ws: WebSocket, id: string | number | null, _params: any): void => {
-    const toolsForClient = Array.from(toolRegistry.values()).map(tool => {
-        const { _function, _filePath, execute, ...toolDefinition } = tool;
-        return toolDefinition;
-    });
+    const toolsForClient = prepareToolsListPayload(); // Use the helper
     logger.info(`🛠️ Responding to tools/list request (ID: ${id}) with ${toolsForClient.length} tools.`);
     sendResponse(ws, id, { tools: toolsForClient });
 };
@@ -1273,18 +1301,14 @@ const connectToCloud = () => {
 
                 // Handle tools/list request
                 if (request.method === 'tools/list') {
-                    const tools = Array.from(toolRegistry.values()).map(tool => ({
-                        name: tool.name,
-                        description: tool.description,
-                        inputSchema: tool.inputSchema
-                    }));
+                    const tools = prepareToolsListPayload(); // Use the helper
                     const response: JsonRpcResponse = {
                         jsonrpc: '2.0',
+                        id: request.id,
                         result: { tools }, // According to MCP spec for tools/list
-                        id: request.id
                     };
-                    logger.info(`Responding to tools/list with ${tools.length} tools.`);
-                    cloudSocket.emit('service_response', response); // Emit response event
+                    cloudSocket.emit('mcp_response', response);
+                    logger.info(`[Cloud] Responding to tools/list with ${tools.length} tools.`);
                 }
                 // Handle tools/call request
                 else if (request.method === 'tools/call') {
@@ -1363,7 +1387,7 @@ const connectToCloud = () => {
                         };
                     }
                     // Send the response (success or error)
-                    cloudSocket.emit('service_response', response);
+                    cloudSocket.emit('mcp_response', response);
                 }
                 // TODO: Handle other potential standard MCP methods (ping, initialize, etc.) if needed
                 // else {
@@ -1385,7 +1409,7 @@ const connectToCloud = () => {
                     error: { code: -32700, message: `Parse error or invalid request: ${jsonRpcError.message}` }, // Parse Error
                     id: requestId
                 };
-                cloudSocket.emit('service_response', errorResponse);
+                cloudSocket.emit('mcp_response', errorResponse);
             }
         }
         // --- Handle other cloud events if necessary ---
@@ -1432,8 +1456,8 @@ const startServer = async () => {
                      }
                  }
             } else {
-                 logger.warn(`PID file (${PID_FILE}) contains invalid content: "${pidString}". Ignoring and removing.`);
-                 try { unlinkSync(PID_FILE); } catch (unlinkErr: any) { logger.error(`Failed to remove invalid PID file: ${unlinkErr.message}`); }
+                logger.warn(`PID file (${PID_FILE}) contains invalid content: "${pidString}". Ignoring and removing.`);
+                try { unlinkSync(PID_FILE); } catch (unlinkErr: any) { logger.error(`Failed to remove invalid PID file: ${unlinkErr.message}`); }
             }
         } catch (readError: any) {
             logger.error(`❌ Error reading PID file (${PID_FILE}): ${readError.message}. Exiting.`);

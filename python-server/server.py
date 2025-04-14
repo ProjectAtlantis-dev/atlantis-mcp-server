@@ -344,7 +344,7 @@ class DynamicAdditionServer(Server):
                     # Fall back to filesystem
                     function_path = os.path.join(FUNCTIONS_DIR, f"{name}.py")
                     logger.debug(f"Tool '{name}' not in cache, checking filesystem")
-                
+
                 if function_path and os.path.exists(function_path):
                     metadata = self._extract_metadata_from_file(function_path)
                     if not metadata or "func_name" not in metadata:
@@ -447,11 +447,11 @@ class DynamicAdditionServer(Server):
 
                     # Extract the function name from the file name
                     function_name = os.path.splitext(filename)[0]
-                    
+
                     # Try to load the module and inspect the function signature
                     input_schema = {"type": "object"} # Default empty schema
                     func_exists = False
-                    
+
                     try:
                         # Temporarily add FUNCTIONS_DIR to sys.path to allow import
                         if FUNCTIONS_DIR not in sys.path:
@@ -477,15 +477,15 @@ class DynamicAdditionServer(Server):
                         if hasattr(user_module, function_name):
                             user_function = getattr(user_module, function_name)
                             func_exists = True
-                            
+
                             # Inspect signature to generate schema
                             signature = inspect.signature(user_function)
                             parameters = signature.parameters
-                            
+
                             if parameters:
                                 properties = {}
                                 required = []
-                                
+
                                 for param_name, param in parameters.items():
                                     prop_details = {}
 
@@ -506,16 +506,16 @@ class DynamicAdditionServer(Server):
                                         prop_details["type"] = "object"
                                     else:
                                         prop_details["type"] = "any"
-                                    
+
                                     # Add description
                                     prop_details["description"] = f"Parameter '{param_name}'"
 
                                     # Check if required
                                     if param.default is inspect.Parameter.empty:
                                         required.append(param_name)
-                                    
+
                                     properties[param_name] = prop_details
-                                
+
                                 # Create schema
                                 input_schema = {
                                     "type": "object",
@@ -523,21 +523,21 @@ class DynamicAdditionServer(Server):
                                 }
                                 if required:
                                     input_schema["required"] = required
-                                
+
                                 logger.debug(f"Generated input schema for {function_name} from signature: {input_schema}")
                         else:
                             logger.warning(f"Function '{function_name}' not found in module '{module_name}'")
-                            
+
                     except Exception as e:
                         logger.warning(f"Could not inspect function signature for {function_name}: {e}")
                         # Continue with metadata-based schema as fallback
-                    
+
                     # Extract metadata from the file (for description and fallback schema)
                     metadata = self._extract_metadata_from_file(file_path)
                     if metadata:
                         # Use schema from inspection if successful, otherwise fallback to metadata
                         schema_to_use = input_schema if func_exists else metadata.get("input_schema", {"type": "object"})
-                        
+
                         # Create a Tool object from the metadata and inspection
                         tool_instance = Tool(
                             name=function_name,
@@ -849,7 +849,7 @@ class DynamicAdditionServer(Server):
         except OSError as e:
             logger.warning(f"⚠️ Could not get mtime for {function_path}: {e}")
             timestamp_str = datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z')
-        
+
         # Use the *extracted* name for registration
         if name in self.tools:
             logger.warning(f"⚠️ OVERWRITING EXISTING TOOL: {name}")
@@ -1299,7 +1299,7 @@ class ServiceClient:
                 # This is an MCP JSON-RPC request
                 response = await self._process_mcp_request(data)
                 if response:
-                    await self.send_message('service_response', response)
+                    await self.send_message('mcp_response', response)
             else:
                 # Ignore non-JSON-RPC messages or log a warning
                 logger.warning(f"⚠️ Received non-JSON-RPC message, ignoring: {data}")

@@ -26,6 +26,15 @@ export function initializeDynamic(
     logger.debug('Dynamic functions module initialized');
 }
 
+/**
+ * Update the dynamic module's reference to the tool registry
+ * This ensures tools are always current when calling prepareToolsListPayload
+ */
+export function updateDynamicRegistry(currentRegistry: Map<string, ToolDefinition>): void {
+    toolRegistry = currentRegistry;
+    logger.debug(`Dynamic toolRegistry updated with ${toolRegistry.size} tools`);
+}
+
 // --- Helper Function for Formatting Tool List ---
 export const prepareToolsListPayload = (): any[] => {
     return Array.from(toolRegistry.values()).map(tool => {

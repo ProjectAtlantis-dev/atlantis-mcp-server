@@ -11,7 +11,24 @@ import { hideBin } from 'yargs/helpers';
 import os from 'os'; // ADDED IMPORT
 import process from 'process'; // Explicit import for process.kill
 import * as ts from 'typescript'; // Added for Compiler API
-import { checkAndHandleExistingProcess, connectToCloud } from './util'; // Updated import to include connectToCloud
+import { checkAndHandleExistingProcess, connectToCloud, emitToolsUpdated, disconnectFromCloud } from './util'; // Import all cloud-related functions
+
+// Import functions from dynamic.ts
+import {
+    initializeDynamic,
+    prepareToolsListPayload,
+    loadAndRegisterDynamicFunction,
+    inspectTypeScriptFunction
+} from './dynamic'; // Import from the dynamic module
+
+// Import from state.ts
+import {
+    initializeState,
+    getToolRegistry,
+    getDynamicFunctionFiles,
+    getSourceFunctionsDir,
+    getCompiledFunctionsDir
+} from './state'; // Import state management functions
 
 // --- Import Shared Types ---
 import {
@@ -341,10 +358,8 @@ const registerFunctionTool: ToolDefinition = {
             logger.info(`✅ Successfully registered dynamic tool: ${functionName}`);
 
             // Update cloud if connected
-            if (cloudSocket && cloudSocket.connected) {
-                logger.info(`☁️ Emitting tools_updated to cloud due to registration of ${functionName}`);
-                cloudSocket.emit('tools_updated', { tools: prepareToolsListPayload() });
-            }
+            logger.info(`☁️ Emitting tools_updated to cloud due to registration of ${functionName}`);
+            emitToolsUpdated(prepareToolsListPayload());
 
             return [{ type: "text", text: `Function '${functionName}' registered successfully.` }];
 
@@ -891,15 +906,20 @@ server.on('upgrade', (request: http.IncomingMessage, socket: any, head: Buffer) 
     }
 });
 
-// --- Global state variables ---
-let cloudSocket: any;
-let cloudReconnectTimer: NodeJS.Timeout | null = null;
-let cloudConnectionAttempts: number = 0;
+// --- Cloud and dynamic function state is now managed in their respective modules ---
 
-// --- New functions ---
+// --- Server functions ---
 
 // --- Start Server & Initial Setup ---
 const startServer = async () => {
+    // Initialize global state
+    initializeState(logger, COMPILED_FUNCTIONS_DIR, SOURCE_FUNCTIONS_DIR);
+    logger.info('✅ Global state initialized');
+    
+    // Initialize dynamic functions module with references from state
+    initializeDynamic(logger, getToolRegistry(), getDynamicFunctionFiles(), getSourceFunctionsDir());
+    logger.info('✅ Dynamic functions module initialized');
+    
     logger.info(`📝 Checking PID file: ${PID_FILE}`);
     if (existsSync(PID_FILE)) {
         try {
@@ -989,16 +1009,7 @@ const shutdown = async (): Promise<void> => {
         wss.clients.forEach(client => { if (client.readyState === WebSocket.OPEN) client.close(); });
 
         // --- Disconnect from Cloud ---
-        if (cloudReconnectTimer) {
-            clearTimeout(cloudReconnectTimer); // Clear existing timer if any
-            cloudReconnectTimer = null;
-            logger.info("☁️ Cleared pending cloud reconnect timer.");
-        }
-        if (cloudSocket && cloudSocket.connected) {
-            logger.info("☁️ Disconnecting from cloud server...");
-            cloudSocket.disconnect(); // Trigger intentional disconnect
-            cloudSocket = null;
-        }
+        disconnectFromCloud(logger); // Use the utility function from util.ts
 
         // Add other cleanup (cloud connection, etc.)
         await new Promise(resolve => setTimeout(resolve, 500)); // Brief pause

@@ -19,41 +19,41 @@ from state import logger, FUNCTIONS_DIR, dynamic_functions, tools
 async def discover_functions(mcp_server):
     """Scan the functions directory and discover all available functions"""
     logger.info(f"🔍 SCANNING FOR FUNCTIONS IN: {FUNCTIONS_DIR}")
-    
+
     # Reset the dynamic functions dictionary
     dynamic_functions.clear()
-    
+
     # Ensure functions directory exists
     os.makedirs(FUNCTIONS_DIR, exist_ok=True)
-    
+
     # Get a list of Python files in the functions directory
     function_files = [f for f in os.listdir(FUNCTIONS_DIR) if f.endswith('.py')]
-    
+
     # No functions found
     if not function_files:
         logger.info("📭 NO FUNCTION FILES FOUND")
         return
-    
+
     logger.info(f"📚 FOUND {len(function_files)} FUNCTION FILES")
-    
+
     # Process each function file
     for file_name in function_files:
         file_path = os.path.join(FUNCTIONS_DIR, file_name)
-        
+
         try:
             # Extract metadata from the file
             metadata = extract_metadata_from_file(file_path)
             if not metadata:
                 logger.warning(f"⚠️ NO METADATA FOUND IN {file_name}, SKIPPING")
                 continue
-            
+
             # Get the function name from the file name
             name = os.path.splitext(file_name)[0]
             func_name = metadata.get('func_name', name)
-            
+
             # Load the function from the file
             load_function_from_file(name, file_path, func_name, mcp_server)
-            
+
         except Exception as e:
             logger.error(f"❌ ERROR LOADING FUNCTION FROM {file_name}: {str(e)}")
             import traceback
@@ -63,11 +63,11 @@ def extract_metadata_from_file(file_path):
     """Extract metadata from the Python file comments"""
     logger.debug(f"📋 EXTRACTING METADATA FROM: {file_path}")
     metadata = {}
-    
+
     try:
         with open(file_path, 'r') as f:
             content = f.read()
-        
+
         # Parse the AST to get function definitions
         try:
             tree = ast.parse(content)
@@ -75,32 +75,32 @@ def extract_metadata_from_file(file_path):
                 if isinstance(node, ast.FunctionDef):
                     # Store the function name
                     metadata['func_name'] = node.name
-                    
+
                     # Extract docstring if available
-                    if (node.body and isinstance(node.body[0], ast.Expr) and 
+                    if (node.body and isinstance(node.body[0], ast.Expr) and
                         isinstance(node.body[0].value, ast.Str)):
                         metadata['description'] = node.body[0].value.s.strip()
-                    
+
                     # Found a function definition, no need to continue parsing
                     break
         except Exception as e:
             logger.warning(f"⚠️ AST PARSING ERROR FOR {file_path}: {str(e)}")
-        
+
         # Fall back to regex parsing if AST method doesn't yield results
         if 'func_name' not in metadata:
             # Extract function name from the code using regex
             func_match = re.search(r'def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(', content)
             if func_match:
                 metadata['func_name'] = func_match.group(1)
-        
+
         if 'description' not in metadata:
             # Look for docstring comments as fallback
             docstring_match = re.search(r'"""(.*?)"""', content, re.DOTALL)
             if docstring_match:
                 metadata['description'] = docstring_match.group(1).strip()
-        
+
         return metadata
-    
+
     except Exception as e:
         logger.error(f"❌ ERROR EXTRACTING METADATA FROM {file_path}: {str(e)}")
         import traceback
@@ -110,19 +110,19 @@ def extract_metadata_from_file(file_path):
 def load_function_from_file(name, file_path, func_name, mcp_server):
     """Load a function from a Python file"""
     logger.info(f"📂 LOADING FUNCTION {name} FROM {file_path}")
-    
+
     try:
         # Generate a unique module name
         module_name = f"dynamic_function_{name}_{os.path.getmtime(file_path)}"
-        
+
         # Load the module from the file
         spec = importlib.util.spec_from_file_location(module_name, file_path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        
+
         # Get the function from the module
         func = getattr(module, func_name)
-        
+
         # Create a wrapper for the function
         @functools.wraps(func)
         async def wrapper(tool_args):
@@ -175,34 +175,37 @@ def load_function_from_file(name, file_path, func_name, mcp_server):
             # If the parameter has no default value, it's required
             if param.default == inspect.Parameter.empty:
                 required.append(param_name)
-        
+
         # Create the tool schema
         schema = {
             "type": "object",
             "properties": properties
         }
-        
+
         if required:
             schema["required"] = required
-        
+
         # Get file modification time
         mtime = os.path.getmtime(file_path)
         last_modified = datetime.datetime.fromtimestamp(mtime).isoformat()
-        
-        # Create a Tool object for the function
+
+        # Create a Tool object for the function with validation status
         tool = Tool(
             name=name,
             description=description.strip(),
             inputSchema=schema,
-            annotations={"lastModified": last_modified}
+            annotations={
+                "lastModified": last_modified,
+                "validationStatus": "VALID"  # If we got this far, it's valid
+            }
         )
-        
+
         # Store the tool in the tools dictionary
         tools[name] = tool
-        
+
         logger.info(f"✅ FUNCTION {name} LOADED SUCCESSFULLY")
         return wrapper
-    
+
     except Exception as e:
         logger.error(f"❌ ERROR LOADING FUNCTION {name}: {str(e)}")
         import traceback
@@ -224,90 +227,90 @@ async def _call_func(func, tool_args):
         return [TextContent(type="text", text=str(result))]
 
 
+def extract_function_metadata_from_code(code, provided_description=None):
+    """
+    Extract function name and description from code string.
+    Returns a tuple of (name, description)
+    """
+    # Try to extract function name using regex (more resilient to syntax errors)
+    function_match = re.search(r'def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(', code)
+    if not function_match:
+        raise ValueError("No function definition found in the provided code. Make sure it starts with 'def name(...)'")
+
+    # Extract the name
+    name = function_match.group(1)
+    logger.debug(f"✅ EXTRACTED FUNCTION NAME: {name}")
+
+    # Use provided description if available
+    description = provided_description
+
+    # Otherwise try to extract docstring/comment if present
+    if not description:
+        docstring_match = re.search(r'def\s+' + re.escape(name) + r'\s*\([^)]*\)\s*:(?:[^"\']|\n)*?"""(.*?)"""', code, re.DOTALL)
+        if docstring_match:
+            description = docstring_match.group(1).strip()
+            logger.debug(f"📄 EXTRACTED DESCRIPTION FROM DOCSTRING")
+
+    return name, description
+
+
 
 async def function_register(args, mcp_server):
     """Register a new Python function by inspecting its code and generating metadata."""
     logger.info(f"📝 FUNCTION REGISTER CALLED with args: {args}")
-    
-    # Get parameters
-    name = args.get("name")
+
+    # Get parameters - only require code
     code = args.get("code")
-    description = args.get("description")  # This is optional
-    
+
     # Validate parameters
-    if not name or not code:
-        raise ValueError("Missing required parameters: name and code must be provided")
-    
-    # Sanitize the function name to be a valid Python identifier and file name
-    # This prevents path traversal and other security issues
-    sanitized_name = secure_filename(name)
-    
-    # Remove extension if it was provided
-    sanitized_name = os.path.splitext(sanitized_name)[0]
-    
-    # Ensure name is a valid Python identifier
-    if not sanitized_name.isidentifier():
-        # Try to make it a valid identifier by replacing invalid chars with underscores
-        sanitized_name = ''.join(c if c.isalnum() or c == '_' else '_' for c in sanitized_name)
-        # Ensure it starts with a letter or underscore
-        if not sanitized_name[0].isalpha() and sanitized_name[0] != '_':
-            sanitized_name = '_' + sanitized_name
-    
-    if sanitized_name != name:
-        logger.warning(f"⚠️ Function name sanitized: {name} -> {sanitized_name}")
-        name = sanitized_name
-    
+    if not code:
+        raise ValueError("Missing required parameter: code must be provided")
+
     # IMPORTANT: Do basic validation of the code
-    try:
-        # Attempt to parse the code with ast to verify it's valid Python
-        parsed = ast.parse(code)
-        
-        # Check if there is at least one function definition
-        has_function = False
-        function_name = None
-        
-        for node in ast.walk(parsed):
-            if isinstance(node, ast.FunctionDef):
-                has_function = True
-                function_name = node.name
-                break
-        
-        if not has_function:
-            raise ValueError("No function definition found in the provided code")
-        
-        logger.info(f"✅ FOUND FUNCTION DEFINITION: {function_name}")
-        
-        # If no description was provided, try to extract from docstring
-        if not description:
-            for node in ast.walk(parsed):
-                if isinstance(node, ast.FunctionDef):
-                    if (node.body and isinstance(node.body[0], ast.Expr) and 
-                        isinstance(node.body[0].value, ast.Str)):
-                        description = node.body[0].value.s.strip()
-                        logger.info(f"📄 EXTRACTED DESCRIPTION FROM DOCSTRING: {description}")
-                        break
-    
-    except SyntaxError as e:
-        logger.error(f"❌ SYNTAX ERROR IN CODE: {str(e)}")
-        raise ValueError(f"Invalid Python code: {str(e)}")
-    
+    name, extracted_description = extract_function_metadata_from_code(code, "")
+
     # Create the function file
     function_path = os.path.join(FUNCTIONS_DIR, f"{name}.py")
-    
+
     try:
-        # Write code to file
+        # Save the file first - this must always succeed unless there's a disk error
         with open(function_path, 'w') as f:
             f.write(code)
-        
         logger.info(f"✅ WROTE FUNCTION CODE TO: {function_path}")
-        
-        # Extract metadata from the file
-        metadata = extract_metadata_from_file(function_path)
-        func_name = metadata.get('func_name', name)
-        
-        # Load the function from the file
-        load_function_from_file(name, function_path, func_name, mcp_server)
-        
+
+        # Try to load but expect failure - just capture status
+        tool_status = "INVALID"
+        load_error = None
+        try:
+            # Attempt to load/validate
+            load_function_from_file(name, function_path, name, mcp_server)
+            tool_status = "VALID"
+            logger.info(f"✅ FUNCTION {name} VALIDATED SUCCESSFULLY")
+        except Exception as e:
+            # Just capture the error, don't prevent registration
+            load_error = str(e)
+            logger.warning(f"⚠️ FUNCTION VALIDATION FAILED: {load_error}")
+            
+            # Even though load_function_from_file failed, we need to register an invalid tool
+            # so it shows up in tool/list with the INVALID status
+            try:
+                # Create a simple placeholder Tool with INVALID status
+                invalid_tool = Tool(
+                    name=name,
+                    description=f"Invalid function: {name}",
+                    inputSchema={"type": "object", "properties": {}},
+                    annotations={
+                        "lastModified": datetime.datetime.now().isoformat(),
+                        "validationStatus": "INVALID",
+                        "errorMessage": load_error
+                    }
+                )
+                # Store in tools dictionary so it shows up in tool/list
+                tools[name] = invalid_tool
+                logger.info(f"⚠️ REGISTERED FUNCTION {name} WITH INVALID STATUS")
+            except Exception as tool_error:
+                logger.warning(f"⚠️ COULD NOT REGISTER INVALID TOOL: {str(tool_error)}")
+
         # Send tool list changed notification if possible
         try:
             if hasattr(mcp_server, 'request_context'):
@@ -323,28 +326,19 @@ async def function_register(args, mcp_server):
         except Exception as e:
             # Log a warning but don't fail the function registration
             logger.warning(f"⚠️ COULD NOT SEND TOOL LIST CHANGED NOTIFICATION: {str(e)}")
-        
-        # Create a wrapper function for the registered function
-        @functools.wraps(dynamic_functions[name])
-        async def wrapper(tool_args: dict):
-            return await dynamic_functions[name](**tool_args)
-        
-        logger.info(f"✅ FUNCTION {name} REGISTERED SUCCESSFULLY")
-        
-        # Return success message
-        return [TextContent(type="text", text=f"Function {name} registered successfully.")]
-    
+
+        logger.info(f"✅ FUNCTION {name} REGISTERED SUCCESSFULLY WITH STATUS: {tool_status}")
+
+        # Return success with validation info
+        result_message = f"Function '{name}' saved successfully. Status: {tool_status}"
+        if load_error:
+            result_message += f" (Error: {load_error})"
+        return [TextContent(type="text", text=result_message)]
+
     except Exception as e:
         logger.error(f"❌ ERROR REGISTERING FUNCTION {name}: {str(e)}")
-        
-        # Clean up in case of error
-        if os.path.exists(function_path):
-            try:
-                os.remove(function_path)
-                logger.info(f"🧹 CLEANED UP FUNCTION FILE: {function_path}")
-            except Exception as cleanup_error:
-                logger.warning(f"⚠️ COULD NOT CLEAN UP FUNCTION FILE: {str(cleanup_error)}")
-        
+
+
         import traceback
         logger.debug(f"Traceback: {traceback.format_exc()}")
         raise e
@@ -352,34 +346,30 @@ async def function_register(args, mcp_server):
 async def get_function_code(args, mcp_server):
     """Get the Python source code and description for a dynamically registered function"""
     logger.info(f"📋 GET FUNCTION CODE CALLED with args: {args}")
-    
+
     # Get function name
     name = args.get("name")
-    
+
     # Validate parameters
     if not name:
         raise ValueError("Missing required parameter: name")
-    
+
     # Get file path for the function
     function_path = os.path.join(FUNCTIONS_DIR, f"{name}.py")
-    
+
     try:
         # Check if the function file exists
         if not os.path.exists(function_path):
             raise ValueError(f"Function {name} not found")
-        
+
         # Read the code from the file
         with open(function_path, 'r') as f:
             code = f.read()
-        
-        # Get the function description if available
-        description = ""
-        metadata = extract_metadata_from_file(function_path)
-        if metadata and 'description' in metadata:
-            description = metadata['description']
-        
+
+        name, description = extract_function_metadata_from_code(code, "")
+
         logger.info(f"✅ RETRIEVED CODE FOR FUNCTION: {name}")
-        
+
         # Return the code as text content
         return [TextContent(
             type="text",
@@ -389,7 +379,7 @@ async def get_function_code(args, mcp_server):
                 function_description=description
             )
         )]
-    
+
     except Exception as e:
         logger.error(f"❌ ERROR GETTING FUNCTION CODE FOR {name}: {str(e)}")
         import traceback
@@ -399,32 +389,32 @@ async def get_function_code(args, mcp_server):
 async def function_remove(args, mcp_server):
     """Remove a dynamically registered function by deleting its file"""
     logger.info(f"🗑️ FUNCTION REMOVE CALLED with args: {args}")
-    
+
     # Get function name
     name = args.get("name")
-    
+
     # Validate parameters
     if not name:
         raise ValueError("Missing required parameter: name")
-    
+
     # Get file path for the function
     function_path = os.path.join(FUNCTIONS_DIR, f"{name}.py")
-    
+
     try:
         # Check if the function file exists
         if not os.path.exists(function_path):
             raise ValueError(f"Function {name} not found")
-        
+
         # Remove the function file
         os.remove(function_path)
         logger.info(f"✅ REMOVED FUNCTION FILE: {function_path}")
-        
+
         # Remove from memory
         if name in dynamic_functions:
             del dynamic_functions[name]
         if name in tools:
             del tools[name]
-        
+
         # Send tool list changed notification if possible
         try:
             if hasattr(mcp_server, 'request_context'):
@@ -440,9 +430,9 @@ async def function_remove(args, mcp_server):
         except Exception as e:
             # Log a warning instead of returning an error, removal succeeded.
             logger.warning(f"⚠️ COULD NOT SEND TOOL LIST CHANGED NOTIFICATION: {str(e)}")
-        
+
         return [TextContent(type="text", text=f"Successfully removed function: {name}")]
-    
+
     except Exception as e:
         logger.error(f"❌ ERROR REMOVING FUNCTION FILE {function_path}: {str(e)}")
         import traceback
@@ -454,9 +444,9 @@ async def function_add(args, mcp_server):
     name = args.get("name")
     if not name:
         raise ValueError("Missing required argument for function_add: name")
-    
+
     logger.info(f"➕ ADDING NEW PLACEHOLDER FUNCTION: {name}")
-    
+
     # Define the placeholder content with the provided name
     placeholder_code = (
         "# Placeholder function created by function_add\n"
@@ -469,14 +459,14 @@ async def function_add(args, mcp_server):
         "    return \"Placeholder function executed successfully.\"\n"
     )
     placeholder_description = "A newly added placeholder function. Implement your logic here."
-    
+
     # Prepare arguments for the existing function_register method
     registration_args = {
         "name": name,
         "code": placeholder_code,
         "description": placeholder_description
     }
-    
+
     try:
         # Call the existing registration logic
         logger.debug(f"Calling internal function_register for placeholder '{name}'...")

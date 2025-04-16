@@ -14,14 +14,12 @@ from werkzeug.utils import secure_filename
 from mcp.types import Tool, TextContent, CallToolResult, ToolListChangedNotification, NotificationParams, Annotations
 
 # Import shared state
-from state import logger, FUNCTIONS_DIR, dynamic_functions, tools
+from state import logger, FUNCTIONS_DIR
 
 async def discover_functions_DONOTUSE(mcp_server):
     """Scan the functions directory and discover all available functions"""
     logger.info(f"🔍 SCANNING FOR FUNCTIONS IN: {FUNCTIONS_DIR}")
 
-    # Reset the dynamic functions dictionary
-    dynamic_functions.clear()
 
     # Ensure functions directory exists
     os.makedirs(FUNCTIONS_DIR, exist_ok=True)
@@ -208,8 +206,6 @@ def load_function_from_file_DONOTUSE(name, file_path, func_name, mcp_server):
         # Store the tool in the tools dictionary
         tools[name] = tool
 
-        # Store the wrapper in the dynamic_functions dictionary
-        dynamic_functions[name] = wrapper
 
         logger.info(f"✅ FUNCTION {name} LOADED SUCCESSFULLY")
         return wrapper
@@ -435,11 +431,6 @@ async def function_remove_DONOUSE(args, mcp_server):
         os.remove(function_path)
         logger.info(f"✅ REMOVED FUNCTION FILE: {function_path}")
 
-        # Remove from memory
-        if name in dynamic_functions:
-            del dynamic_functions[name]
-        if name in tools:
-            del tools[name]
 
         # Send tool list changed notification if possible
         try:

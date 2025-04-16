@@ -31,7 +31,7 @@ from state import (
     CLOUD_SERVER_HOST, CLOUD_SERVER_PORT, CLOUD_SERVER_URL,
     CLOUD_SERVICE_NAMESPACE, CLOUD_CONNECTION_RETRY_SECONDS,
     CLOUD_CONNECTION_MAX_RETRIES, CLOUD_CONNECTION_MAX_BACKOFF_SECONDS,
-    dynamic_functions, tools, tasks
+    tasks
 )
 
 # Import dynamic functions
@@ -232,38 +232,83 @@ class DynamicAdditionServer(Server):
             ),
         ]
 
-        # Add dynamically registered tools
-        for name, tool_obj in tools.items():
-            # If this is a user-defined tool (not a built-in with leading _), compute validation status on the fly
-            if not name.startswith('_'):
-                # Create a new Tool with updated validation status
-                annotations = dict(tool_obj.annotations or {})
-
-                # A tool is only VALID if it's currently executable (in dynamic_functions)
-                is_executable = name in dynamic_functions
-
-                # Update the validation status based on current executability
-                if is_executable:
-                    annotations["validationStatus"] = "VALID"
-                else:
-                    annotations["validationStatus"] = "INVALID"
-                    annotations["errorMessage"] = "Function is not currently executable"
-
-                # Create a new Tool with updated annotations
-                tool_obj = Tool(
-                    name=tool_obj.name,
-                    description=tool_obj.description,
-                    inputSchema=tool_obj.inputSchema,
-                    annotations=annotations
-                )
-
-                # Update in the tools dictionary too
-                tools[name] = tool_obj
-
-                # Log any validation status changes for debugging
-                logger.debug(f"Tool {name} validation status: {annotations.get('validationStatus')}")
-
-            tools_list.append(tool_obj)
+        # Scan the FUNCTIONS_DIR directory for dynamic functions
+        try:
+            import os
+            # Ensure the functions directory exists
+            os.makedirs(FUNCTIONS_DIR, exist_ok=True)
+            
+            # Get all Python files in the directory
+            function_files = [f for f in os.listdir(FUNCTIONS_DIR) if f.endswith('.py')]
+            logger.info(f"📝 FOUND {len(function_files)} POTENTIAL DYNAMIC FUNCTIONS")
+            
+            # For each Python file, create a Tool entry
+            for file_name in function_files:
+                try:
+                    # Get function name from file name (without .py)
+                    name = os.path.splitext(file_name)[0]
+                    
+                    # Skip if this seems to be a utility file
+                    if name.startswith('_') or name == '__init__' or name == '__pycache__':
+                        continue
+                    
+                    # Validate the function
+                    validation_result = function_validate(name)
+                    is_valid = validation_result.get('valid', False)
+                    error_message = validation_result.get('error')
+                    
+                    # Create basic annotations
+                    annotations = {
+                        "lastModified": datetime.datetime.fromtimestamp(
+                            os.path.getmtime(os.path.join(FUNCTIONS_DIR, file_name))
+                        ).isoformat(),
+                        "validationStatus": "VALID" if is_valid else "INVALID"
+                    }
+                    
+                    # Add error message if invalid
+                    if not is_valid and error_message:
+                        annotations["errorMessage"] = error_message
+                    
+                    # Try to read the file to extract description
+                    description = f"Dynamic function: {name}"
+                    try:
+                        with open(os.path.join(FUNCTIONS_DIR, file_name), 'r') as f:
+                            content = f.read()
+                            # Extract docstring if available (simple approach)
+                            import re
+                            docstring_match = re.search(r'"""(.*?)"""', content, re.DOTALL)
+                            if docstring_match:
+                                description = docstring_match.group(1).strip()
+                    except Exception as e:
+                        logger.debug(f"Error reading docstring for {name}: {e}")
+                    
+                    # Create input schema
+                    # For now, use a simple generic schema - in the future we could parse the function signature
+                    input_schema = {
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": True  # Allow any parameters
+                    }
+                    
+                    # Create and add the tool
+                    tool_obj = Tool(
+                        name=name,
+                        description=description,
+                        inputSchema=input_schema,
+                        annotations=annotations
+                    )
+                    
+                    tools_list.append(tool_obj)
+                    logger.debug(f"📝 Added dynamic tool: {name}, valid: {is_valid}")
+                    
+                except Exception as e:
+                    logger.warning(f"⚠️ Error creating tool for {file_name}: {str(e)}")
+                    # Don't let one bad function prevent others from loading
+                    continue
+                    
+        except Exception as e:
+            logger.error(f"❌ Error scanning for dynamic functions: {str(e)}")
+            # Continue with just the built-in tools
 
         logger.info(f"📝 RETURNING {len(tools_list)} TOOLS")
         return tools_list
@@ -303,11 +348,33 @@ class DynamicAdditionServer(Server):
             elif name == "_task_peek":
                 return await task_peek(args)
             # Handle dynamic function calls
-            elif name in dynamic_functions:
-                # Call the dynamic function with the arguments
-                logger.info(f"🔧 CALLING DYNAMIC FUNCTION: {name}")
-                result = await dynamic_functions[name](args)
-                return result
+            elif not name.startswith('_'):  # Only non-underscore names are potential dynamic functions
+                # Check if function exists
+                function_path = os.path.join(FUNCTIONS_DIR, f"{name}.py")
+                if not os.path.exists(function_path):
+                    raise ValueError(f"Function '{name}' not found")
+                    
+                # Call the dynamic function
+                try:
+                    logger.info(f"🔧 CALLING DYNAMIC FUNCTION: {name}")
+                    result = function_call(name, **args)
+                    
+                    # Convert result to TextContent
+                    if isinstance(result, str):
+                        return [TextContent(type="text", text=result)]
+                    elif isinstance(result, list) and all(isinstance(item, TextContent) for item in result):
+                        return result
+                    else:
+                        # Convert any other result to string
+                        import json
+                        try:
+                            result_str = json.dumps(result)
+                        except:
+                            result_str = str(result)
+                        return [TextContent(type="text", text=result_str)]
+                        
+                except Exception as e:
+                    raise ValueError(f"Error executing function '{name}': {str(e)}")
             else:
                 # Unknown tool
                 error_message = f"Unknown tool: {name}"
@@ -561,34 +628,34 @@ mcp_server = DynamicAdditionServer()
 async def handle_websocket(websocket):
     # Accept the WebSocket connection with MCP subprotocol
     await websocket.accept(subprotocol="mcp")
-    
+
     logger.info(f"🔌 New WebSocket connection established from {websocket.client.host}")
-    
+
     try:
         # Message loop
         while True:
             # Wait for a message from the client
             message = await websocket.receive_text()
-            
+
             try:
                 # Parse the message as JSON
                 request = json.loads(message)
                 logger.debug(f"📥 Received: {request}")
-                
+
                 # Process the request using our MCP server
                 response = await process_mcp_request(mcp_server, request)
-                
+
                 # Send the response back to the client
                 logger.debug(f"📤 Sending: {response}")
                 await websocket.send_text(json.dumps(response))
-                
+
             except json.JSONDecodeError:
                 logger.error(f"🚫 Invalid JSON received: {message}")
                 await websocket.send_text(json.dumps({"error": "Invalid JSON"}))
             except Exception as e:
                 logger.error(f"🚫 Error processing request: {e}")
                 await websocket.send_text(json.dumps({"error": str(e)}))
-    
+
     except Exception as e:
         logger.error(f"🚫 WebSocket error: {e}")
     finally:
@@ -599,11 +666,11 @@ async def process_mcp_request(server, request):
     """Process an MCP request and return a response"""
     if "id" not in request:
         return {"error": "Missing request ID"}
-    
+
     req_id = request.get("id")
     method = request.get("method")
     params = request.get("params", {})
-    
+
     # Route the request to the appropriate handler
     if method == "tools/list":
         result = await server._get_tools_list()

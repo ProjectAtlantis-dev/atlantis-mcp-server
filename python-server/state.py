@@ -37,7 +37,3 @@ cloud_connection_active = False
 # Dictionary to store task information
 tasks = {}
 next_task_id = 1
-
-# Dictionary to store dynamic functions and tools
-dynamic_functions = {}
-tools = {}

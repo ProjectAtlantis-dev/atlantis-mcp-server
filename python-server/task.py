@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Union
 from mcp.types import TextContent, Annotations
 
 # Import shared state
-from state import logger, tasks, dynamic_functions, next_task_id
+from state import logger, next_task_id
 
 async def task_add(args: dict) -> list[TextContent]:
     """Adds a new task using the provided payload."""

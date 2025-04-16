@@ -17,7 +17,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 import datetime
 
 from mcp.server import Server
-from mcp.server.websocket import websocket_server
+# Removed websocket_server import - implementing our own handler
 from mcp.client.websocket import websocket_client
 from mcp.types import Tool, TextContent, CallToolResult, ToolListChangedNotification, NotificationParams, Annotations
 from starlette.applications import Starlette
@@ -35,9 +35,12 @@ from state import (
 )
 
 # Import dynamic functions
-from dynamic import (
-    discover_functions, extract_metadata_from_file, load_function_from_file,
-    function_register, get_function_code, function_remove, function_add
+from dynamic_manager import (
+    function_create,
+    function_update,
+    function_remove,
+    function_validate,
+    function_call
 )
 
 # Import task functions
@@ -85,13 +88,19 @@ if not create_pid_file():
     logger.error("❌ Failed to create PID file! Exiting...")
     sys.exit(1)
 
+
+
+
+
+
+
 # Create an MCP server with proper MCP protocol handling
 class DynamicAdditionServer(Server):
     """MCP server that provides an addition tool and supports dynamic function registration"""
 
     def __init__(self):
         super().__init__("Dynamic Function Server")
-        
+
         # Register tool handlers using SDK decorators
         # These now wrap the actual logic methods defined below
 
@@ -119,7 +128,7 @@ class DynamicAdditionServer(Server):
     async def initialize(self):
         """Initialize the server by discovering available functions"""
         # Scan the functions directory to discover available functions
-        await discover_functions(self)
+
 
     # --- Core Logic Methods (callable directly) ---
 
@@ -178,7 +187,7 @@ class DynamicAdditionServer(Server):
                 name="_task_add",
                 description="Adds a task with the provided payload data.",
                 inputSchema={
-                    "type": "object", 
+                    "type": "object",
                     "properties": {
                         "payload": {
                             "type": "object",
@@ -225,9 +234,38 @@ class DynamicAdditionServer(Server):
 
         # Add dynamically registered tools
         for name, tool_obj in tools.items():
+            # If this is a user-defined tool (not a built-in with leading _), compute validation status on the fly
+            if not name.startswith('_'):
+                # Create a new Tool with updated validation status
+                annotations = dict(tool_obj.annotations or {})
+
+                # A tool is only VALID if it's currently executable (in dynamic_functions)
+                is_executable = name in dynamic_functions
+
+                # Update the validation status based on current executability
+                if is_executable:
+                    annotations["validationStatus"] = "VALID"
+                else:
+                    annotations["validationStatus"] = "INVALID"
+                    annotations["errorMessage"] = "Function is not currently executable"
+
+                # Create a new Tool with updated annotations
+                tool_obj = Tool(
+                    name=tool_obj.name,
+                    description=tool_obj.description,
+                    inputSchema=tool_obj.inputSchema,
+                    annotations=annotations
+                )
+
+                # Update in the tools dictionary too
+                tools[name] = tool_obj
+
+                # Log any validation status changes for debugging
+                logger.debug(f"Tool {name} validation status: {annotations.get('validationStatus')}")
+
             tools_list.append(tool_obj)
 
-        logger.info(f"📋 RETURNING {len(tools_list)} TOOLS")
+        logger.info(f"📝 RETURNING {len(tools_list)} TOOLS")
         return tools_list
 
     async def _get_prompts_list(self) -> list:
@@ -280,9 +318,14 @@ class DynamicAdditionServer(Server):
             logger.error(f"❌ TOOL EXECUTION ERROR: {str(e)}")
             import traceback
             logger.debug(f"Traceback: {traceback.format_exc()}")
-            
+
             # Re-raise the exception with its original message
             raise type(e)(str(e))
+
+
+
+
+
 
 # ServiceClient class to manage the connection to the cloud server via Socket.IO
 class ServiceClient:
@@ -514,9 +557,70 @@ class ServiceClient:
 # Create an instance of our MCP server
 mcp_server = DynamicAdditionServer()
 
-# WebSocket handler for the MCP server
+# Custom WebSocket handler for the MCP server
 async def handle_websocket(websocket):
-    await websocket_server(websocket, mcp_server)
+    # Accept the WebSocket connection with MCP subprotocol
+    await websocket.accept(subprotocol="mcp")
+    
+    logger.info(f"🔌 New WebSocket connection established from {websocket.client.host}")
+    
+    try:
+        # Message loop
+        while True:
+            # Wait for a message from the client
+            message = await websocket.receive_text()
+            
+            try:
+                # Parse the message as JSON
+                request = json.loads(message)
+                logger.debug(f"📥 Received: {request}")
+                
+                # Process the request using our MCP server
+                response = await process_mcp_request(mcp_server, request)
+                
+                # Send the response back to the client
+                logger.debug(f"📤 Sending: {response}")
+                await websocket.send_text(json.dumps(response))
+                
+            except json.JSONDecodeError:
+                logger.error(f"🚫 Invalid JSON received: {message}")
+                await websocket.send_text(json.dumps({"error": "Invalid JSON"}))
+            except Exception as e:
+                logger.error(f"🚫 Error processing request: {e}")
+                await websocket.send_text(json.dumps({"error": str(e)}))
+    
+    except Exception as e:
+        logger.error(f"🚫 WebSocket error: {e}")
+    finally:
+        logger.info(f"👋 WebSocket connection closed with {websocket.client.host}")
+
+# Process MCP request and generate response
+async def process_mcp_request(server, request):
+    """Process an MCP request and return a response"""
+    if "id" not in request:
+        return {"error": "Missing request ID"}
+    
+    req_id = request.get("id")
+    method = request.get("method")
+    params = request.get("params", {})
+    
+    # Route the request to the appropriate handler
+    if method == "tools/list":
+        result = await server._get_tools_list()
+        return {"id": req_id, "result": result}
+    elif method == "prompts/list":
+        result = await server._get_prompts_list()
+        return {"id": req_id, "result": result}
+    elif method == "resources/list":
+        result = await server._get_resources_list()
+        return {"id": req_id, "result": result}
+    elif method == "tools/call":
+        name = params.get("name")
+        args = params.get("arguments", {})
+        result = await server._execute_tool(name, args)
+        return {"id": req_id, "result": result}
+    else:
+        return {"id": req_id, "error": f"Unknown method: {method}"}
 
 # Set up the Starlette application with a WebSocket route
 app = Starlette(
@@ -555,7 +659,7 @@ if __name__ == "__main__":
 
     # Initialize the MCP server
     loop.run_until_complete(mcp_server.initialize())
-    
+
     # Start the Uvicorn server
     config = uvicorn.Config(app, host=HOST, port=PORT, log_level="warning")
     server = uvicorn.Server(config)

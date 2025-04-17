@@ -9,7 +9,7 @@ import importlib.util
 import datetime
 import traceback
 import shutil # Using shutil for potentially more robust file operations
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, Union
 from werkzeug.utils import secure_filename
 from state import logger, FUNCTIONS_DIR # Import FUNCTIONS_DIR
 from dynamic import _fs_save_code, _fs_load_code, _code_validate_syntax, _code_generate_stub # Import the utility functions
@@ -120,28 +120,68 @@ def function_remove(name: str) -> bool:
         logger.debug(traceback.format_exc())
         return False
 
-def function_validate(name: str) -> Dict[bool, Optional[str]]:
+def _write_error_log(name: str, error_message: str) -> None:
+    '''
+    Write an error message to a function-specific log file in the dynamic_functions folder.
+    Overwrites any existing log to only keep the latest error.
+    Creates a log file named {name}.log with timestamp.
+    '''
+    try:
+        secure_name = secure_filename(name)
+        log_path = os.path.join(FUNCTIONS_DIR, f"{secure_name}.log")
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Open in write mode to overwrite previous content
+        with open(log_path, 'w') as log_file:
+            log_file.write(f"{timestamp} [ERROR] {error_message}\n")
+            
+        logger.debug(f"Wrote error log for '{secure_name}' at {log_path}")
+    except Exception as e:
+        # Don't let logging errors disrupt the main flow
+        logger.error(f"Failed to write error log for '{name}': {e}")
+
+def function_validate(name: str) -> Dict[str, Union[bool, Optional[str]]]:
     '''
     Validates the syntax of a function file without executing it.
-    Returns a dictionary {'valid': bool, 'error': Optional[str]}.
+    Returns a dictionary {'valid': bool, 'error': Optional[str]} with detailed error messages.
     '''
     secure_name = secure_filename(name)
     if not secure_name:
-        return {'valid': False, 'error': f"Invalid function name '{name}'"}
+        error_msg = f"Invalid function name '{name}'"
+        _write_error_log(name, error_msg)
+        return {'valid': False, 'error': error_msg}
 
     code = _fs_load_code(secure_name)
     if code is None:
-        return {'valid': False, 'error': f"Function '{secure_name}' not found or could not be read."}
+        error_msg = f"Function '{secure_name}' not found or could not be read."
+        _write_error_log(name, error_msg)
+        return {'valid': False, 'error': error_msg}
 
-    is_valid = _code_validate_syntax(code)
+    # Now _code_validate_syntax returns a tuple of (is_valid, error_message)
+    is_valid, error_message = _code_validate_syntax(code)
+    
     if is_valid:
-        logger.info(f"Syntax validation successful for function '{secure_name}'.")
+        # Successful validation - log to server log but don't create function log
+        logger.info(f"Syntax validation successful for function '{secure_name}'")
+        
+        # If there was a previous error log, remove it since the function is now valid
+        try:
+            log_path = os.path.join(FUNCTIONS_DIR, f"{secure_name}.log")
+            if os.path.exists(log_path):
+                os.remove(log_path)
+                logger.debug(f"Removed error log for '{secure_name}' as validation now passes")
+        except Exception as e:
+            logger.debug(f"Failed to remove old error log for '{secure_name}': {e}")
+            
         return {'valid': True, 'error': None}
     else:
-        # _code_validate_syntax logs the specific error, but doesn't return it.
-        logger.warning(f"Syntax validation failed for function '{secure_name}'.")
-        # In a future enhancement, _code_validate_syntax could return the error message.
-        return {'valid': False, 'error': 'Invalid Python syntax.'}
+        # Failed validation - write to the error log
+        error_msg = f"Syntax validation failed: {error_message}"
+        logger.warning(f"{error_msg} Function: '{secure_name}'")
+        _write_error_log(secure_name, error_msg)
+        
+        # Return the detailed error message
+        return {'valid': False, 'error': error_message}
 
 def function_call(name: str, **kwargs) -> Any:
     '''

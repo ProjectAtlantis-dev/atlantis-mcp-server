@@ -34,7 +34,7 @@ from state import (
     tasks
 )
 
-# Import dynamic functions
+# Import dynamic functions and utilities
 from dynamic_manager import (
     function_create,
     function_update,
@@ -42,6 +42,7 @@ from dynamic_manager import (
     function_validate,
     function_call
 )
+from dynamic import _fs_load_code
 
 # Import task functions
 from task import task_add, task_run, task_remove, task_peek
@@ -93,6 +94,29 @@ if not create_pid_file():
 
 
 
+
+# Function to get code for a dynamic function
+async def get_function_code(args, mcp_server) -> list[TextContent]:
+    """
+    Get the source code for a dynamic function by name using _fs_load_code.
+    Returns the code as a TextContent object.
+    """
+    # Get function name
+    name = args.get("name")
+    
+    # Validate parameters
+    if not name:
+        raise ValueError("Missing required parameter: name")
+        
+    # Load the code using the existing _fs_load_code utility
+    code = _fs_load_code(name)
+    if code is None:
+        raise ValueError(f"Function '{name}' not found or could not be read")
+    
+    logger.info(f"📋 Retrieved code for function: {name}")
+    
+    # Return the code as text content
+    return [TextContent(type="text", text=code)]
 
 # Create an MCP server with proper MCP protocol handling
 class DynamicAdditionServer(Server):
@@ -237,26 +261,26 @@ class DynamicAdditionServer(Server):
             import os
             # Ensure the functions directory exists
             os.makedirs(FUNCTIONS_DIR, exist_ok=True)
-            
+
             # Get all Python files in the directory
             function_files = [f for f in os.listdir(FUNCTIONS_DIR) if f.endswith('.py')]
             logger.info(f"📝 FOUND {len(function_files)} POTENTIAL DYNAMIC FUNCTIONS")
-            
+
             # For each Python file, create a Tool entry
             for file_name in function_files:
                 try:
                     # Get function name from file name (without .py)
                     name = os.path.splitext(file_name)[0]
-                    
+
                     # Skip if this seems to be a utility file
                     if name.startswith('_') or name == '__init__' or name == '__pycache__':
                         continue
-                    
+
                     # Validate the function
                     validation_result = function_validate(name)
                     is_valid = validation_result.get('valid', False)
                     error_message = validation_result.get('error')
-                    
+
                     # Create basic annotations
                     annotations = {
                         "lastModified": datetime.datetime.fromtimestamp(
@@ -264,11 +288,11 @@ class DynamicAdditionServer(Server):
                         ).isoformat(),
                         "validationStatus": "VALID" if is_valid else "INVALID"
                     }
-                    
+
                     # Add error message if invalid
                     if not is_valid and error_message:
                         annotations["errorMessage"] = error_message
-                    
+
                     # Try to read the file to extract description
                     description = f"Dynamic function: {name}"
                     try:
@@ -281,7 +305,7 @@ class DynamicAdditionServer(Server):
                                 description = docstring_match.group(1).strip()
                     except Exception as e:
                         logger.debug(f"Error reading docstring for {name}: {e}")
-                    
+
                     # Create input schema
                     # For now, use a simple generic schema - in the future we could parse the function signature
                     input_schema = {
@@ -289,7 +313,7 @@ class DynamicAdditionServer(Server):
                         "properties": {},
                         "additionalProperties": True  # Allow any parameters
                     }
-                    
+
                     # Create and add the tool
                     tool_obj = Tool(
                         name=name,
@@ -297,15 +321,15 @@ class DynamicAdditionServer(Server):
                         inputSchema=input_schema,
                         annotations=annotations
                     )
-                    
+
                     tools_list.append(tool_obj)
                     logger.debug(f"📝 Added dynamic tool: {name}, valid: {is_valid}")
-                    
+
                 except Exception as e:
                     logger.warning(f"⚠️ Error creating tool for {file_name}: {str(e)}")
                     # Don't let one bad function prevent others from loading
                     continue
-                    
+
         except Exception as e:
             logger.error(f"❌ Error scanning for dynamic functions: {str(e)}")
             # Continue with just the built-in tools
@@ -353,12 +377,12 @@ class DynamicAdditionServer(Server):
                 function_path = os.path.join(FUNCTIONS_DIR, f"{name}.py")
                 if not os.path.exists(function_path):
                     raise ValueError(f"Function '{name}' not found")
-                    
+
                 # Call the dynamic function
                 try:
                     logger.info(f"🔧 CALLING DYNAMIC FUNCTION: {name}")
                     result = function_call(name, **args)
-                    
+
                     # Convert result to TextContent
                     if isinstance(result, str):
                         return [TextContent(type="text", text=result)]
@@ -372,7 +396,7 @@ class DynamicAdditionServer(Server):
                         except:
                             result_str = str(result)
                         return [TextContent(type="text", text=result_str)]
-                        
+
                 except Exception as e:
                     raise ValueError(f"Error executing function '{name}': {str(e)}")
             else:

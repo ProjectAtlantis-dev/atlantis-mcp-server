@@ -16,6 +16,9 @@ from utils import check_server_running, create_pid_file, remove_pid_file
 from typing import Any, Callable, Dict, List, Optional, Union
 import datetime
 
+# Version
+SERVER_VERSION = "0.1.0"
+
 from mcp.server import Server
 # Removed websocket_server import - implementing our own handler
 from mcp.client.websocket import websocket_client
@@ -149,10 +152,41 @@ class DynamicAdditionServer(Server):
             return await self._execute_tool(name=name, args=args)
 
     # Initialization for function discovery
-    async def initialize(self):
-        """Initialize the server by discovering available functions"""
-        # Scan the functions directory to discover available functions
+    async def initialize(self, params={}):
+        """Initialize the server, sending a toolsList notification with initial tools"""
+        logger.info(f"🚀 Server initialized with version {SERVER_VERSION}")
+        tools_list = await self._get_tools_list()
+        try:
+            await self.send_tool_notification()
+        except Exception as e:
+            logger.warning(f"Could not send initial tool notification: {str(e)}")
+        return {}  # Empty response per MCP protocol
 
+    async def send_tool_notification(self):
+        """Send a tool list changed notification to clients"""
+        try:
+            # Get the current list of tools
+            tools = await self._get_tools_list()
+            
+            # Create the notification parameters
+            notification_params = NotificationParams(
+                changed_tools=tools
+            )
+            
+            # Create the notification
+            notification = ToolListChangedNotification(
+                params=notification_params
+            )
+            
+            # Send the notification
+            if hasattr(self, 'service_connections'):
+                for client in self.service_connections.values():
+                    await client.send_notification('tools/listChanged', notification.params.model_dump())
+                logger.info(f"📢 Sent tool list notification to {len(self.service_connections)} clients")
+            
+        except Exception as e:
+            logger.error(f"❌ Error sending tool notification: {str(e)}")
+            # Don't re-raise, as this is a notification and shouldn't fail the main operation
 
     # --- Core Logic Methods (callable directly) ---
 
@@ -359,9 +393,73 @@ class DynamicAdditionServer(Server):
             elif name == "_function_get":
                 return await get_function_code(args, self)
             elif name == "_function_remove":
-                return await function_remove(args, self)
+                # Remove function
+                func_name = args.get("name")
+                if not func_name:
+                    raise ValueError("Missing required parameter: name")
+                
+                # Check if function exists before attempting to remove
+                function_path = os.path.join(FUNCTIONS_DIR, f"{func_name}.py")
+                if not os.path.exists(function_path):
+                    return [TextContent(
+                        type="text", 
+                        text=f"Function '{func_name}' does not exist or was already removed."
+                    )]
+                    
+                # Remove the function using dynamic_manager.function_remove
+                try:
+                    if function_remove(func_name):
+                        try:
+                            await self.send_tool_notification()
+                        except Exception as e:
+                            logger.error(f"Error sending tool notification: {str(e)}")
+                        return [TextContent(type="text", text=f"Function '{func_name}' removed successfully.")]
+                    else:
+                        return [TextContent(
+                            type="text", 
+                            text=f"Error removing function '{func_name}'. Check server logs for details."
+                        )]
+                except Exception as e:
+                    logger.error(f"Error removing function: {str(e)}")
+                    return [TextContent(
+                        type="text", 
+                        text=f"Error removing function '{func_name}': {str(e)}"
+                    )]
+                    
             elif name == "_function_add":
-                return await function_add(args, self)
+                # Add empty function
+                func_name = args.get("name")
+                if not func_name:
+                    raise ValueError("Missing required parameter: name")
+                
+                # Check if function already exists
+                function_path = os.path.join(FUNCTIONS_DIR, f"{func_name}.py")
+                if os.path.exists(function_path):
+                    # Function already exists - inform the client rather than raise error
+                    return [TextContent(
+                        type="text", 
+                        text=f"Function '{func_name}' already exists. Use _function_register to modify it."
+                    )]
+                    
+                # Create empty function (stub) using dynamic_manager.function_create
+                try:
+                    if function_create(func_name):
+                        try:
+                            await self.send_tool_notification()
+                        except Exception as e:
+                            logger.error(f"Error sending tool notification: {str(e)}")
+                        return [TextContent(type="text", text=f"Empty function '{func_name}' created successfully.")]
+                    else:
+                        return [TextContent(
+                            type="text", 
+                            text=f"Error creating function '{func_name}'. Check server logs for details."
+                        )]
+                except Exception as e:
+                    logger.error(f"Error creating function: {str(e)}")
+                    return [TextContent(
+                        type="text", 
+                        text=f"Error creating function '{func_name}': {str(e)}"
+                    )]
             # Task management
             elif name == "_task_add":
                 return await task_add(args)

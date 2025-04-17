@@ -312,8 +312,7 @@ class DynamicAdditionServer(Server):
 
                     # Validate the function
                     validation_result = function_validate(name)
-                    is_valid = validation_result.get('valid', False)
-                    error_message = validation_result.get('error')
+                    is_valid, error_message, function_info = validation_result.get('valid', False), validation_result.get('error'), validation_result.get('function_info')
 
                     # Create basic annotations
                     annotations = {

@@ -45,7 +45,7 @@ from dynamic_manager import (
     function_validate,
     function_call
 )
-from dynamic import _fs_load_code
+from dynamic_manager import _fs_load_code
 
 # Import task functions
 from task import task_add, task_run, task_remove, task_peek
@@ -106,18 +106,18 @@ async def get_function_code(args, mcp_server) -> list[TextContent]:
     """
     # Get function name
     name = args.get("name")
-    
+
     # Validate parameters
     if not name:
         raise ValueError("Missing required parameter: name")
-        
+
     # Load the code using the existing _fs_load_code utility
     code = _fs_load_code(name)
     if code is None:
         raise ValueError(f"Function '{name}' not found or could not be read")
-    
+
     logger.info(f"📋 Retrieved code for function: {name}")
-    
+
     # Return the code as text content
     return [TextContent(type="text", text=code)]
 
@@ -167,23 +167,23 @@ class DynamicAdditionServer(Server):
         try:
             # Get the current list of tools
             tools = await self._get_tools_list()
-            
+
             # Create the notification parameters
             notification_params = NotificationParams(
                 changed_tools=tools
             )
-            
+
             # Create the notification
             notification = ToolListChangedNotification(
                 params=notification_params
             )
-            
+
             # Send the notification
             if hasattr(self, 'service_connections'):
                 for client in self.service_connections.values():
                     await client.send_notification('tools/listChanged', notification.params.model_dump())
                 logger.info(f"📢 Sent tool list notification to {len(self.service_connections)} clients")
-            
+
         except Exception as e:
             logger.error(f"❌ Error sending tool notification: {str(e)}")
             # Don't re-raise, as this is a notification and shouldn't fail the main operation
@@ -302,65 +302,70 @@ class DynamicAdditionServer(Server):
 
             # For each Python file, create a Tool entry
             for file_name in function_files:
+                tool_name_from_file = os.path.splitext(file_name)[0]
                 try:
-                    # Get function name from file name (without .py)
-                    name = os.path.splitext(file_name)[0]
-
                     # Skip if this seems to be a utility file
-                    if name.startswith('_') or name == '__init__' or name == '__pycache__':
+                    if tool_name_from_file.startswith('_') or tool_name_from_file == '__init__' or tool_name_from_file == '__pycache__':
                         continue
 
-                    # Validate the function
-                    validation_result = function_validate(name)
-                    is_valid, error_message, function_info = validation_result.get('valid', False), validation_result.get('error'), validation_result.get('function_info')
+                    # Validate the function and get info
+                    validation_result = function_validate(tool_name_from_file)
+                    is_valid = validation_result.get('valid', False)
+                    error_message = validation_result.get('error')
+                    function_info = validation_result.get('function_info') # Should be a dict if valid
 
-                    # Create basic annotations
-                    annotations = {
-                        "lastModified": datetime.datetime.fromtimestamp(
-                            os.path.getmtime(os.path.join(FUNCTIONS_DIR, file_name))
-                        ).isoformat(),
-                        "validationStatus": "VALID" if is_valid else "INVALID"
-                    }
+                    # --- Create Tool --- #
+                    tool_name = tool_name_from_file
+                    tool_description = f"Dynamic function: {tool_name_from_file}"
+                    tool_input_schema = {"type": "object", "properties": {}}
+                    tool_annotations = {}
 
-                    # Add error message if invalid
-                    if not is_valid and error_message:
-                        annotations["errorMessage"] = error_message
+                    if is_valid and function_info:
+                         # Use extracted info if valid and available
+                         tool_name = function_info.get('name', tool_name_from_file) # Use AST name, fallback to filename
+                         tool_description = function_info.get('description', f"Dynamic function '{tool_name}'")
+                         tool_input_schema = function_info.get('inputSchema', {"type": "object", "properties": {}})
+                         tool_annotations["validationStatus"] = "VALID"
+                    elif is_valid and not function_info:
+                         # Valid syntax but failed to extract info (should ideally not happen)
+                         tool_description = f"Dynamic function: {tool_name_from_file} (Details unavailable)"
+                         tool_input_schema = {"type": "object", "description": "Could not parse arguments."}
+                         tool_annotations["validationStatus"] = "VALID_SYNTAX_UNKNOWN_STRUCTURE"
+                    else:
+                         # Invalid syntax
+                         tool_description = f"Dynamic function: {tool_name_from_file} (INVALID)"
+                         tool_input_schema = {"type": "object", "description": "Function has syntax errors."}
+                         tool_annotations["validationStatus"] = "INVALID"
+                         if error_message:
+                             tool_annotations["errorMessage"] = error_message
 
-                    # Try to read the file to extract description
-                    description = f"Dynamic function: {name}"
+                    # Add common annotations
                     try:
-                        with open(os.path.join(FUNCTIONS_DIR, file_name), 'r') as f:
-                            content = f.read()
-                            # Extract docstring if available (simple approach)
-                            import re
-                            docstring_match = re.search(r'"""(.*?)"""', content, re.DOTALL)
-                            if docstring_match:
-                                description = docstring_match.group(1).strip()
-                    except Exception as e:
-                        logger.debug(f"Error reading docstring for {name}: {e}")
+                        tool_annotations["lastModified"] = datetime.datetime.fromtimestamp(
+                            os.path.getmtime(os.path.join(FUNCTIONS_DIR, file_name))
+                        ).isoformat()
+                    except Exception:
+                        pass # Ignore if file stat fails
 
-                    # Create input schema
-                    # For now, use a simple generic schema - in the future we could parse the function signature
-                    input_schema = {
-                        "type": "object",
-                        "properties": {},
-                        "additionalProperties": True  # Allow any parameters
-                    }
-
-                    # Create and add the tool
+                    # Create and add the tool object
                     tool_obj = Tool(
-                        name=name,
-                        description=description,
-                        inputSchema=input_schema,
-                        annotations=annotations
+                        name=tool_name,
+                        description=tool_description,
+                        inputSchema=tool_input_schema,
+                        annotations=tool_annotations
                     )
-
                     tools_list.append(tool_obj)
-                    logger.debug(f"📝 Added dynamic tool: {name}, valid: {is_valid}")
+                    logger.debug(f"📝 Added dynamic tool: {tool_name}, valid: {is_valid}")
 
                 except Exception as e:
-                    logger.warning(f"⚠️ Error creating tool for {file_name}: {str(e)}")
-                    # Don't let one bad function prevent others from loading
+                    logger.warning(f"⚠️ Error processing potential tool file {file_name}: {str(e)}")
+                    # Add a placeholder indicating the error
+                    tools_list.append(Tool(
+                        name=tool_name_from_file,
+                        description=f"Error loading dynamic function: {str(e)}",
+                        inputSchema={"type": "object"},
+                        annotations={"validationStatus": "ERROR_LOADING"}
+                    ))
                     continue
 
         except Exception as e:
@@ -396,15 +401,15 @@ class DynamicAdditionServer(Server):
                 func_name = args.get("name")
                 if not func_name:
                     raise ValueError("Missing required parameter: name")
-                
+
                 # Check if function exists before attempting to remove
                 function_path = os.path.join(FUNCTIONS_DIR, f"{func_name}.py")
                 if not os.path.exists(function_path):
                     return [TextContent(
-                        type="text", 
+                        type="text",
                         text=f"Function '{func_name}' does not exist or was already removed."
                     )]
-                    
+
                 # Remove the function using dynamic_manager.function_remove
                 try:
                     if function_remove(func_name):
@@ -415,31 +420,31 @@ class DynamicAdditionServer(Server):
                         return [TextContent(type="text", text=f"Function '{func_name}' removed successfully.")]
                     else:
                         return [TextContent(
-                            type="text", 
+                            type="text",
                             text=f"Error removing function '{func_name}'. Check server logs for details."
                         )]
                 except Exception as e:
                     logger.error(f"Error removing function: {str(e)}")
                     return [TextContent(
-                        type="text", 
+                        type="text",
                         text=f"Error removing function '{func_name}': {str(e)}"
                     )]
-                    
+
             elif name == "_function_add":
                 # Add empty function
                 func_name = args.get("name")
                 if not func_name:
                     raise ValueError("Missing required parameter: name")
-                
+
                 # Check if function already exists
                 function_path = os.path.join(FUNCTIONS_DIR, f"{func_name}.py")
                 if os.path.exists(function_path):
                     # Function already exists - inform the client rather than raise error
                     return [TextContent(
-                        type="text", 
+                        type="text",
                         text=f"Function '{func_name}' already exists. Use _function_register to modify it."
                     )]
-                    
+
                 # Create empty function (stub) using dynamic_manager.function_create
                 try:
                     if function_create(func_name):
@@ -450,13 +455,13 @@ class DynamicAdditionServer(Server):
                         return [TextContent(type="text", text=f"Empty function '{func_name}' created successfully.")]
                     else:
                         return [TextContent(
-                            type="text", 
+                            type="text",
                             text=f"Error creating function '{func_name}'. Check server logs for details."
                         )]
                 except Exception as e:
                     logger.error(f"Error creating function: {str(e)}")
                     return [TextContent(
-                        type="text", 
+                        type="text",
                         text=f"Error creating function '{func_name}': {str(e)}"
                     )]
             # Task management

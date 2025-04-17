@@ -37,9 +37,9 @@ from state import (
     tasks
 )
 
-# Import dynamic functions and utilities
+# Import dynamic function management utilities
 from dynamic_manager import (
-    function_create,
+    function_register,
     function_update,
     function_remove,
     function_validate,

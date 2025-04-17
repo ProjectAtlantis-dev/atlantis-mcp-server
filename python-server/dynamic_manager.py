@@ -735,3 +735,54 @@ def function_call(name: str, **kwargs) -> Any:
         logger.debug(traceback.format_exc())
         # Re-raise the exception so the caller knows something went wrong
         raise # Or return a specific error object/dict
+
+async def function_register(args: Dict[str, Any], server: Any) -> List[TextContent]:
+    """
+    Handles the _function_register tool call.
+    Extracts the function name using basic regex, saves the provided code,
+    and notifies clients of the tool list change.
+    Does *not* perform full syntax validation before saving.
+    """
+    logger.info("⚙️ Handling _function_register call (using basic name extraction)")
+    code_buffer = args.get("code")
+
+    if not code_buffer or not isinstance(code_buffer, str):
+        logger.warning("⚠️ function_register: Missing or invalid 'code' parameter.")
+        return [TextContent(type="text", text="Error: Missing or invalid 'code' parameter.")]
+
+    # 1. Extract function name using basic regex
+    metadata = _code_extract_basic_metadata(code_buffer)
+    function_name = metadata.get('name')
+
+    if not function_name:
+        error_response = "Error: Could not extract function name from the provided code using basic parsing. Ensure it starts with 'def function_name(...):'"
+        logger.warning(f"⚠️ function_register: Failed to extract name via regex.")
+        return [TextContent(type="text", text=error_response)]
+
+    logger.info(f"⚙️ Extracted function name via regex: {function_name}")
+
+    # 2. Save the code (validation will happen later when tools are listed/called)
+    saved_path = _fs_save_code(function_name, code_buffer)
+
+    if not saved_path:
+        error_response = f"Error saving function '{function_name}' to file."
+        logger.error(f"❌ function_register: {error_response}")
+        return [TextContent(type="text", text=error_response)]
+
+    logger.info(f"💾 Function '{function_name}' code saved successfully to {saved_path}")
+
+    # 3. Notify clients about the tool list change
+    if hasattr(server, '_notify_tool_list_changed'):
+        try:
+            await server._notify_tool_list_changed()
+            logger.info(f"📢 Notified clients of tool list update after registering '{function_name}'.")
+        except Exception as notify_e:
+            logger.error(f"❌ Failed to notify clients after registering '{function_name}': {notify_e}")
+            # Continue even if notification fails
+    else:
+        logger.warning("⚠️ Server object provided to function_register lacks _notify_tool_list_changed method.")
+
+    # 4. Return success message
+    success_message = f"Function '{function_name}' code registered/updated successfully."
+    # Note: Syntax validation will occur when the tool list is generated or the tool is called.
+    return [TextContent(type="text", text=success_message)]

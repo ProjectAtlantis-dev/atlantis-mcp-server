@@ -12,6 +12,7 @@ import shutil # Using shutil for potentially more robust file operations
 from typing import Optional, Any, Dict, Union
 from werkzeug.utils import secure_filename
 from state import logger, FUNCTIONS_DIR # Import FUNCTIONS_DIR
+import utils # Import our utility module for dynamic functions
 
 import logging
 import json
@@ -48,7 +49,7 @@ def _fs_save_code(name: str, code: str) -> Optional[str]:
         logger.error("❌ _fs_save_code: Invalid name provided.")
         return None
 
-    safe_name = secure_filename(f"{name}.py")
+    safe_name = utils.clean_filename(f"{name}.py")
     if not safe_name.endswith(".py"): # Ensure it's still a python file after securing
          safe_name = f"{name}.py" # Fallback if secure_filename removes extension (less likely)
 
@@ -75,7 +76,7 @@ def _fs_load_code(name: str) -> Optional[str]:
         logger.error("❌ _fs_load_code: Invalid name provided.")
         return None
 
-    safe_name = secure_filename(f"{name}.py")
+    safe_name = utils.clean_filename(f"{name}.py")
     if not safe_name.endswith(".py"):
          safe_name = f"{name}.py"
 
@@ -527,7 +528,7 @@ def function_create(name: str, code: Optional[str] = None) -> bool:
     If code is provided, it saves it. Otherwise, generates and saves a stub.
     Returns True on success, False if the function already exists or on error.
     '''
-    secure_name = secure_filename(name)
+    secure_name = utils.clean_filename(name)
     if not secure_name:
         logger.error(f"Create failed: Invalid function name '{name}'")
         return False
@@ -557,7 +558,7 @@ def function_update(name: str, code: str) -> bool:
     Moves the old version to the OLD subdirectory before saving.
     Returns True on success, False if the function doesn't exist or on error.
     '''
-    secure_name = secure_filename(name)
+    secure_name = utils.clean_filename(name)
     if not secure_name:
         logger.error(f"Update failed: Invalid function name '{name}'")
         return False
@@ -600,7 +601,7 @@ def function_remove(name: str) -> bool:
     Removes a function file by moving it to the OLD subdirectory.
     Returns True on success, False if the function doesn't exist or on error.
     '''
-    secure_name = secure_filename(name)
+    secure_name = utils.clean_filename(name)
     if not secure_name:
         logger.error(f"Remove failed: Invalid function name '{name}'")
         return False
@@ -629,7 +630,7 @@ def _write_error_log(name: str, error_message: str) -> None:
     Creates a log file named {name}.log with timestamp.
     '''
     try:
-        secure_name = secure_filename(name)
+        secure_name = utils.clean_filename(name)
         log_path = os.path.join(FUNCTIONS_DIR, f"{secure_name}.log")
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -648,7 +649,7 @@ def function_validate(name: str) -> Dict[str, Any]:
     Returns a dictionary {'valid': bool, 'error': Optional[str], 'function_info': Optional[Dict]}
     with detailed error messages and extracted function details on success.
     '''
-    secure_name = secure_filename(name)
+    secure_name = utils.clean_filename(name)
     if not secure_name:
         error_msg = f"Invalid function name '{name}'"
         _write_error_log(name, error_msg)
@@ -693,7 +694,7 @@ def function_call(name: str, **kwargs) -> Any:
     Returns the function's return value.
     Raises exceptions if the function doesn't exist, fails to load, or errors during execution.
     '''
-    secure_name = secure_filename(name)
+    secure_name = utils.clean_filename(name)
     if not secure_name:
         raise ValueError(f"Invalid function name '{name}' for calling.")
 
@@ -713,6 +714,10 @@ def function_call(name: str, **kwargs) -> Any:
         module = importlib.util.module_from_spec(spec)
         # Add to sys.modules *before* execution to handle relative imports within the func
         # sys.modules[module_name] = module # Be careful with namespace pollution if many functions
+
+        # Inject our utils module into the module's globals
+        # This makes client_log available to the dynamic function without explicit imports
+        module.__dict__['client_log'] = utils.client_log
 
         spec.loader.exec_module(module)
         logger.info(f"Dynamically loaded module for function '{secure_name}'.")
@@ -736,18 +741,18 @@ def function_call(name: str, **kwargs) -> Any:
         # Re-raise the exception so the caller knows something went wrong
         raise # Or return a specific error object/dict
 
-async def function_register(args: Dict[str, Any], server: Any) -> List[TextContent]:
+async def function_set(args: Dict[str, Any], server: Any) -> List[TextContent]:
     """
-    Handles the _function_register tool call.
+    Handles the _function_set tool call.
     Extracts the function name using basic regex, saves the provided code,
     and notifies clients of the tool list change.
     Does *not* perform full syntax validation before saving.
     """
-    logger.info("⚙️ Handling _function_register call (using basic name extraction)")
+    logger.info("⚙️ Handling _function_set call (using basic name extraction)")
     code_buffer = args.get("code")
 
     if not code_buffer or not isinstance(code_buffer, str):
-        logger.warning("⚠️ function_register: Missing or invalid 'code' parameter.")
+        logger.warning("⚠️ function_set: Missing or invalid 'code' parameter.")
         return [TextContent(type="text", text="Error: Missing or invalid 'code' parameter.")]
 
     # 1. Extract function name using basic regex
@@ -756,7 +761,7 @@ async def function_register(args: Dict[str, Any], server: Any) -> List[TextConte
 
     if not function_name:
         error_response = "Error: Could not extract function name from the provided code using basic parsing. Ensure it starts with 'def function_name(...):'"
-        logger.warning(f"⚠️ function_register: Failed to extract name via regex.")
+        logger.warning(f"⚠️ function_set: Failed to extract name via regex.")
         return [TextContent(type="text", text=error_response)]
 
     logger.info(f"⚙️ Extracted function name via regex: {function_name}")
@@ -766,7 +771,7 @@ async def function_register(args: Dict[str, Any], server: Any) -> List[TextConte
 
     if not saved_path:
         error_response = f"Error saving function '{function_name}' to file."
-        logger.error(f"❌ function_register: {error_response}")
+        logger.error(f"❌ function_set: {error_response}")
         return [TextContent(type="text", text=error_response)]
 
     logger.info(f"💾 Function '{function_name}' code saved successfully to {saved_path}")
@@ -780,7 +785,7 @@ async def function_register(args: Dict[str, Any], server: Any) -> List[TextConte
             logger.error(f"❌ Failed to notify clients after registering '{function_name}': {notify_e}")
             # Continue even if notification fails
     else:
-        logger.warning("⚠️ Server object provided to function_register lacks _notify_tool_list_changed method.")
+        logger.warning("⚠️ Server object provided to function_set lacks _notify_tool_list_changed method.")
 
     # 4. Return success message
     success_message = f"Function '{function_name}' code registered/updated successfully."

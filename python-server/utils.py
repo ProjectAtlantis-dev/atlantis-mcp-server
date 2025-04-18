@@ -11,7 +11,7 @@ PID_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_server.
 
 def check_server_running():
     """Check if a server is already running by examining the PID file.
-    
+
     Returns:
         int or None: The PID of the running server, or None if no server is running.
     """
@@ -39,7 +39,7 @@ def check_server_running():
 
 def create_pid_file():
     """Create a PID file with the current process ID.
-    
+
     Returns:
         bool: True if the file was created successfully, False otherwise.
     """
@@ -61,3 +61,82 @@ def remove_pid_file():
             logger.info(f"🧹 Removed PID file")
     except Exception as e:
         logger.error(f"❌ Failed to remove PID file: {str(e)}")
+
+
+"""
+Utility functions available for dynamic functions to use.
+Provides easy access to client-side logging and other shared functionality.
+"""
+
+import logging
+from typing import Any
+
+# Empty function for filename cleaning - placeholder for future implementation
+def clean_filename(name: str) -> str:
+    """
+    Cleans/sanitizes a filename for filesystem usage.
+    This is a placeholder function that will be implemented later.
+
+    Args:
+        name: The filename to clean
+
+    Returns:
+        Cleaned filename safe for filesystem usage
+    """
+    return name
+
+# Initialize a module logger
+logger = logging.getLogger("utils")
+
+# Global server reference to be set at startup
+_server_instance = None
+
+def set_server_instance(server):
+    """Set the server instance for dynamic functions to use."""
+    global _server_instance
+    _server_instance = server
+    logger.debug("Server instance set in utils module")
+
+def client_log(message: Any, level: str = "info", logger_name: str = None, client_id: str = None):
+    """
+    Send a log message to the client.
+
+    This function can be imported and called from dynamic functions to send
+    logs directly to the client using MCP notifications.
+
+    Args:
+        message: The message to log (can be a string or structured data)
+        level: Log level ("debug", "info", "warning", "error")
+        logger_name: Optional name to identify the logger source
+        client_id: Optional client identifier to send logs to a specific client
+                  If None, logs will be sent to all connected clients
+
+    Example:
+        ```python
+        from utils import client_log
+
+        def my_dynamic_function(param1, param2):
+            client_log(f"Processing with params: {param1}, {param2}")
+            # Do work...
+            client_log("Function complete!", level="debug")
+            return result
+        ```
+    """
+    # Log locally first
+    log_method = getattr(logger, level.lower(), logger.info)
+    log_method(f"CLIENT LOG: {message}")
+
+    # Send to client if server is available
+    if _server_instance is not None:
+        import asyncio
+        try:
+            # Create a task to send the log asynchronously
+            loop = asyncio.get_event_loop()
+            if logger_name is None:
+                logger_name = "dynamic_function"
+
+            asyncio.create_task(_server_instance.send_client_log(level, message, logger_name, client_id))
+        except Exception as e:
+            logger.error(f"Error sending client log: {e}")
+    else:
+        logger.warning("Cannot send client log: server instance not set")

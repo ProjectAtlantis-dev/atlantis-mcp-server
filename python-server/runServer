@@ -1,2 +1,2 @@
-python server.py --email=rein.dapp@gmail.com --api-key=foobar --port=8002 --service-name=python-foo | tee server.log
+python server.py --email=rein.dapp@gmail.com --api-key=foobar --port=8002 --service-name=python-foo
 

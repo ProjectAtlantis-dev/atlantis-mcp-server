@@ -15,6 +15,7 @@
 - each server has task capability (which is mostly about parameter passing) which is still in-work
 - we use the term dynamic tool and function interchangeably although mcp prefers tool
 - ignore node-server folder for now
+- the python mcp sdk is located at /Users/reinman/work/mcp/python-sdk
 
 # dynamic functions
 - dynamic functions are stored in the dynamic_functions folder

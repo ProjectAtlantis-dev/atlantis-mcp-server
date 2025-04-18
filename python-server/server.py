@@ -12,7 +12,7 @@ import time
 import random
 import socketio
 import argparse
-from utils import check_server_running, create_pid_file, remove_pid_file
+from utils import check_server_running, create_pid_file, remove_pid_file, clean_filename
 from typing import Any, Callable, Dict, List, Optional, Union
 import datetime
 
@@ -39,7 +39,7 @@ from state import (
 
 # Import dynamic function management utilities
 from dynamic_manager import (
-    function_register,
+    function_set,
     function_update,
     function_remove,
     function_validate,
@@ -49,6 +49,9 @@ from dynamic_manager import _fs_load_code
 
 # Import task functions
 from task import task_add, task_run, task_remove, task_peek
+
+# Import our utility module for dynamic functions
+import utils
 
 # NOTE: This server uses two different socket protocols:
 # 1. Standard WebSockets: When acting as a SERVER to accept connections from node-mcp-client
@@ -155,6 +158,11 @@ class DynamicAdditionServer(Server):
     async def initialize(self, params={}):
         """Initialize the server, sending a toolsList notification with initial tools"""
         logger.info(f"🚀 Server initialized with version {SERVER_VERSION}")
+
+        # Set the server instance in utils module for client logging
+        utils.set_server_instance(self)
+        logger.info("🔌 Dynamic functions utility module initialized")
+
         tools_list = await self._get_tools_list()
         try:
             await self.send_tool_notification()
@@ -197,7 +205,7 @@ class DynamicAdditionServer(Server):
         # Start with our built-in tools
         tools_list = [
             Tool(
-                name="_function_register",
+                name="_function_set",
                 description="Sets the content of a dynamic Python function", # Updated description
                 inputSchema={
                     "type": "object",
@@ -385,15 +393,95 @@ class DynamicAdditionServer(Server):
         # Currently no resources supported
         return []
 
-    async def _execute_tool(self, name: str, args: dict) -> list[TextContent]:
+    async def send_client_log(self, level: str, data: Any, logger_name: str = None, client_id: str = None):
+        """Send a log message notification to connected clients using direct WebSocket communication.
+
+        Args:
+            level: The log level ("debug", "info", "warning", "error")
+            data: The log message content (can be string or structured data)
+            logger_name: Optional name to identify the logger source
+        """
+        try:
+            # Normalize level to uppercase for consistency
+            level = level.upper()
+
+            # Create a simple JSON-RPC notification structure
+            # This bypasses the SDK entirely and sends a direct WebSocket message
+            notification = {
+                "jsonrpc": "2.0",
+                "method": "notifications/message",
+                "params": {
+                    "level": level,
+                    "data": data,
+                    "logger": logger_name or "dynamic_function"
+                }
+            }
+
+            # Convert to JSON string
+            import json
+            notification_json = json.dumps(notification)
+
+            # Log the notification for debugging
+            logger.debug(f"Sending client log notification: {notification_json}")
+
+            # Directly send to all connected WebSocket clients
+            sent_count = 0
+
+            # Get the global tracking collections
+            global active_websockets, client_connections, current_request_client_id
+
+            # If no specific client_id was provided, try to use the one from the current request
+            if client_id is None and 'current_request_client_id' in globals():
+                client_id = current_request_client_id
+
+            # ONLY send to the specific client that made the request - NO broadcasting
+            if client_id and client_id in client_connections:
+                client_info = client_connections[client_id]
+                client_type = client_info.get("type")
+                connection = client_info.get("connection")
+
+                if client_type == "websocket" and connection:
+                    try:
+                        await connection.send_text(notification_json)
+                        sent_count += 1
+                        logger.debug(f"📢 Sent notification to specific client: {client_id}")
+                    except Exception as e:
+                        logger.warning(f"Failed to send to client {client_id}: {e}")
+
+                elif client_type == "cloud" and connection and connection.is_connected:
+                    try:
+                        await connection.send_message('mcp_notification', notification)
+                        sent_count += 1
+                        logger.debug(f"☁️ Sent notification to cloud client: {client_id}")
+                    except Exception as e:
+                        logger.warning(f"Failed to send to cloud client {client_id}: {e}")
+            else:
+                # If we don't know which client to send to, this is a problem - don't send to anyone
+                logger.warning(f"Cannot send client log: no valid client_id provided or client not found: {client_id}")
+                # Log the client connections we know about for debugging
+                logger.debug(f"Known client connections: {list(client_connections.keys())}")
+
+            if sent_count > 0:
+                logger.debug(f"📢 Notification sent successfully to client {client_id}")
+            else:
+                logger.debug(f"Failed to send notification to client {client_id}")
+
+        except Exception as e:
+            # Don't let logging errors affect the main operation
+            logger.error(f"❌ Error sending direct client log notification: {str(e)}")
+            import traceback
+            logger.debug(f"Log notification error details: {traceback.format_exc()}")
+            # We intentionally don't re-raise here
+
+    async def _execute_tool(self, name: str, args: dict, client_id: str = None) -> list[TextContent]:
         """Core logic to handle a tool call. Ensures result is List[TextContent(type='text')]"""
         logger.info(f"🔧 EXECUTING TOOL: {name}")
         logger.debug(f"WITH ARGUMENTS: {args}")
 
         try:
             # Handle built-in tool calls
-            if name == "_function_register":
-                return await function_register(args, self)
+            if name == "_function_set":
+                return await function_set(args, self)
             elif name == "_function_get":
                 return await get_function_code(args, self)
             elif name == "_function_remove":
@@ -442,7 +530,7 @@ class DynamicAdditionServer(Server):
                     # Function already exists - inform the client rather than raise error
                     return [TextContent(
                         type="text",
-                        text=f"Function '{func_name}' already exists. Use _function_register to modify it."
+                        text=f"Function '{func_name}' already exists"
                     )]
 
                 # Create empty function (stub) using dynamic_manager.function_create
@@ -668,6 +756,8 @@ class ServiceClient:
                 logger.warning(f"⚠️ Received non-JSON-RPC message, ignoring: {data}")
 
     async def _process_mcp_request(self, request: dict) -> Union[dict, None]:
+        # Generate a cloud client ID
+        client_id = f"cloud_{int(time.time())}_{id(request)}"
         """Process an MCP JSON-RPC request from the cloud server by manually routing
         to the appropriate logic method in the DynamicAdditionServer.
         """
@@ -684,7 +774,7 @@ class ServiceClient:
 
         try:
             if method == "tools/list":
-                # Call the core logic method directly
+                # Call the core logic method directly (pass client_id)
                 result_list = await self.mcp_server._get_tools_list()
                 # Convert Tool objects to dictionaries for JSON serialization using model_dump()
                 response["result"] = {"tools": [tool.model_dump() for tool in result_list]} # Use model_dump()
@@ -697,8 +787,14 @@ class ServiceClient:
                     response["error"] = {"code": -32602, "message": "Invalid params: missing tool name or arguments"}
                 else:
                     logger.debug(f"☁️ Calling _execute_tool for: {tool_name}")
-                    # Call the core logic method directly
-                    call_result_list = await self.mcp_server._execute_tool(name=tool_name, args=tool_args)
+                    # Register this client connection
+                    global client_connections
+                    if not hasattr(self, "cloud_client_id"):
+                        self.cloud_client_id = client_id
+                    client_connections[client_id] = {"type": "cloud", "connection": self}
+
+                    # Call the core logic method directly with client ID
+                    call_result_list = await self.mcp_server._execute_tool(name=tool_name, args=tool_args, client_id=client_id)
                     # The _execute_tool method ensures result is List[TextContent]
                     # Convert TextContent objects to dictionaries for JSON serialization using model_dump()
                     # IMPORTANT: We use "contents" (plural) key to match format between Python and Node servers
@@ -750,12 +846,27 @@ class ServiceClient:
 # Create an instance of our MCP server
 mcp_server = DynamicAdditionServer()
 
+# Global collection to track active websocket connections
+active_websockets = set()
+
+# Global dictionary to track client connections by ID
+client_connections = {}
+
 # Custom WebSocket handler for the MCP server
 async def handle_websocket(websocket):
     # Accept the WebSocket connection with MCP subprotocol
     await websocket.accept(subprotocol="mcp")
 
-    logger.info(f"🔌 New WebSocket connection established from {websocket.client.host}")
+    # Generate a unique client ID based on address
+    client_id = f"ws_{websocket.client.host}_{id(websocket)}"
+
+    # Track this websocket connection both globally and by ID
+    global active_websockets, client_connections
+    active_websockets.add(websocket)
+    client_connections[client_id] = {"type": "websocket", "connection": websocket}
+    connection_count = len(active_websockets)
+
+    logger.info(f"🔌 New WebSocket connection established from {websocket.client.host} (ID: {client_id}, Active: {connection_count})")
 
     try:
         # Message loop
@@ -768,8 +879,8 @@ async def handle_websocket(websocket):
                 request = json.loads(message)
                 logger.debug(f"📥 Received: {request}")
 
-                # Process the request using our MCP server
-                response = await process_mcp_request(mcp_server, request)
+                # Process the request using our MCP server (include client_id)
+                response = await process_mcp_request(mcp_server, request, client_id)
 
                 # Send the response back to the client
                 logger.debug(f"📤 Sending: {response}")
@@ -783,19 +894,42 @@ async def handle_websocket(websocket):
                 await websocket.send_text(json.dumps({"error": str(e)}))
 
     except Exception as e:
-        logger.error(f"🚫 WebSocket error: {e}")
+        logger.error(f"🛑 WebSocket error: {e}")
     finally:
-        logger.info(f"👋 WebSocket connection closed with {websocket.client.host}")
+        # Remove this connection from all tracking
+        active_websockets.discard(websocket)
+
+        # Find and remove from client_connections
+        to_remove = []
+        for cid, info in client_connections.items():
+            if info.get("type") == "websocket" and info.get("connection") is websocket:
+                to_remove.append(cid)
+        for cid in to_remove:
+            client_connections.pop(cid, None)
+
+        connection_count = len(active_websockets)
+        logger.info(f"👋 WebSocket connection closed with {websocket.client.host} (Active: {connection_count})")
 
 # Process MCP request and generate response
-async def process_mcp_request(server, request):
-    """Process an MCP request and return a response"""
+async def process_mcp_request(server, request, client_id=None):
+    """Process an MCP request and return a response
+
+    Args:
+        server: The MCP server instance
+        request: The request to process
+        client_id: Optional ID of the requesting client for tracking
+    """
     if "id" not in request:
         return {"error": "Missing request ID"}
 
     req_id = request.get("id")
     method = request.get("method")
     params = request.get("params", {})
+
+    # Store client_id in thread-local storage or other request context
+    # This allows tools called during this request to know who's calling
+    global current_request_client_id
+    current_request_client_id = client_id
 
     # Route the request to the appropriate handler
     if method == "tools/list":

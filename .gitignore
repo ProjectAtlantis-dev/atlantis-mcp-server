@@ -42,3 +42,6 @@ yarn-error.log
 *.swo
 .DS_Store
 mcp_server.pid
+
+
+python-server/dynamic_functions/OLD/

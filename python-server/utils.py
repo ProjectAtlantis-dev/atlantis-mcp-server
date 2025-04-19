@@ -2,6 +2,7 @@
 import os
 import psutil
 import logging
+import json
 
 # Set up logger
 logger = logging.getLogger("mcp_server")
@@ -140,3 +141,14 @@ def client_log(message: Any, level: str = "info", logger_name: str = None, clien
             logger.error(f"Error sending client log: {e}")
     else:
         logger.warning("Cannot send client log: server instance not set")
+
+
+# --- JSON Formatting Utility --- #
+
+def format_json_log(data: dict) -> str:
+    """Formats a Python dictionary into a pretty-printed JSON string for logging."""
+    try:
+        return json.dumps(data, indent=2, default=str) # Added default=str to handle non-serializable types gracefully
+    except Exception as e:
+        logger.error(f"❌ Error formatting JSON for logging: {e}")
+        return str(data) # Fallback to string representation

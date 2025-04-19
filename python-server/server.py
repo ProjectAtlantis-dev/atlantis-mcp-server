@@ -796,9 +796,11 @@ class ServiceClient:
 
         try:
             # Format data nicely if it's an mcp_response
-            log_data = format_json_log(data) if event == 'mcp_response' else str(data)
+            #print_log_data = format_json_log(data)
+            log_data = str(data)
             logger.debug(f"☁️ SENDING MESSAGE: {event} - \n{log_data}") # Log formatted data on new line
             await self.sio.emit(event, data, namespace=self.namespace)
+
             return True
         except Exception as e:
             logger.error(f"❌ ERROR SENDING MESSAGE: {str(e)}")
@@ -924,7 +926,27 @@ async def process_mcp_request(server, request, client_id=None):
         elif method == "tools/list":
             logger.info(f"🧰 Processing 'tools/list' request")
             # Pass context indicating this call is from the SDK handler (likely a direct request)
-            return await server._get_tools_list(caller_context="process_mcp_request")
+            tool_list = await server._get_tools_list(caller_context="process_mcp_request_websocket")
+            # Convert Tool objects to dictionaries for JSON serialization
+            try:
+                # Ensure model_dump is called correctly for each tool
+                tools_dict_list = [tool.model_dump() for tool in tool_list]
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": {"tools": tools_dict_list}
+                }
+                logger.debug(f"📦 Prepared tools/list response (ID: {req_id}) with {len(tools_dict_list)} tools.")
+                return response
+            except Exception as e:
+                 logger.error(f"💥 Error serializing tool list for JSON-RPC response: {e}")
+                 # Return a valid JSON-RPC error response
+                 return {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "error": {"code": -32000, "message": f"Internal server error: Failed to serialize tool list - {e}"}
+                 }
+
         elif method == "prompts/list":
             result = await server._get_prompts_list()
             return {"jsonrpc": "2.0", "id": req_id, "result": {"prompts": result}}

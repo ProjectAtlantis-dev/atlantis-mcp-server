@@ -932,22 +932,68 @@ async def process_mcp_request(server, request, client_id=None):
     current_request_client_id = client_id
 
     # Route the request to the appropriate handler
-    if method == "tools/list":
-        result = await server._get_tools_list()
-        return {"id": req_id, "result": result}
-    elif method == "prompts/list":
-        result = await server._get_prompts_list()
-        return {"id": req_id, "result": result}
-    elif method == "resources/list":
-        result = await server._get_resources_list()
-        return {"id": req_id, "result": result}
-    elif method == "tools/call":
-        name = params.get("name")
-        args = params.get("arguments", {})
-        result = await server._execute_tool(name, args)
-        return {"id": req_id, "result": result}
-    else:
-        return {"id": req_id, "error": f"Unknown method: {method}"}
+    try:
+        if method == "initialize":
+            # Process initialize request
+            logger.info(f"🚀 Processing 'initialize' request with params: {params}")
+            await server.initialize(params)
+            logger.info(f"✅ Successfully processed 'initialize' request")
+            # Return empty object per MCP protocol spec
+            return {"jsonrpc": "2.0", "id": req_id, "result": {}}
+        elif method == "tools/list":
+            logger.info(f"🧰 Processing 'tools/list' request")
+            result = await server._get_tools_list()
+            logger.info(f"🧰 Got tools list with {len(result)} tools")
+            
+            # Debug log each tool
+            for i, tool in enumerate(result):
+                logger.debug(f"Tool {i+1}: {tool.name} (type: {type(tool).__name__})")
+            
+            # Manually convert Tool objects to dictionaries
+            tools_dict = {"tools": []}
+            for tool in result:
+                try:
+                    tool_data = tool.model_dump()
+                    logger.debug(f"✅ Serialized tool '{tool.name}' successfully")
+                    tools_dict["tools"].append(tool_data)
+                except Exception as e:
+                    logger.error(f"❌ Error serializing tool '{getattr(tool, 'name', '?')}': {e}")
+                    # Add a simple dict with just the name if serialization fails
+                    tools_dict["tools"].append({"name": getattr(tool, "name", "unknown"), "_error": str(e)})
+            
+            return {"jsonrpc": "2.0", "id": req_id, "result": tools_dict}
+        elif method == "prompts/list":
+            result = await server._get_prompts_list()
+            return {"jsonrpc": "2.0", "id": req_id, "result": {"prompts": result}}
+        elif method == "resources/list":
+            result = await server._get_resources_list()
+            return {"jsonrpc": "2.0", "id": req_id, "result": {"resources": result}}
+        elif method == "tools/call":
+            name = params.get("name")
+            args = params.get("arguments", {})
+            logger.info(f"🔧 Processing 'tools/call' for tool '{name}' with args: {args}")
+            result = await server._execute_tool(name, args, client_id)
+            
+            # Manually convert TextContent objects to dictionaries
+            contents_dict = {"contents": []}
+            for content in result:
+                try:
+                    content_data = content.model_dump() 
+                    contents_dict["contents"].append(content_data)
+                except Exception as e:
+                    logger.error(f"❌ Error serializing content result: {e}")
+                    # Add simple text content as fallback
+                    contents_dict["contents"].append({"type": "text", "text": str(content)})
+            
+            return {"jsonrpc": "2.0", "id": req_id, "result": contents_dict}
+        else:
+            logger.warning(f"⚠️ Unknown method requested: {method}")
+            return {"jsonrpc": "2.0", "id": req_id, "error": f"Unknown method: {method}"}
+    except Exception as e:
+        import traceback
+        logger.error(f"🚫 Error processing request '{method}': {e}")
+        logger.debug(f"Traceback: {traceback.format_exc()}")
+        return {"jsonrpc": "2.0", "id": req_id, "error": f"Error processing request: {e}"}
 
 # Set up the Starlette application with a WebSocket route
 app = Starlette(

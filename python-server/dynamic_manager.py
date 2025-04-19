@@ -525,7 +525,7 @@ os.makedirs(FUNCTIONS_DIR, exist_ok=True)
 OLD_DIR = os.path.join(FUNCTIONS_DIR, "OLD")
 os.makedirs(OLD_DIR, exist_ok=True)
 
-def function_create(name: str, code: Optional[str] = None) -> bool:
+def function_add(name: str, code: Optional[str] = None) -> bool:
     '''
     Creates a new function file.
     If code is provided, it saves it. Otherwise, generates and saves a stub.
@@ -554,50 +554,6 @@ def function_create(name: str, code: Optional[str] = None) -> bool:
         logger.debug(traceback.format_exc())
         return False
 
-
-def function_update(name: str, code: str) -> bool:
-    '''
-    Updates an existing function file with new code.
-    Moves the old version to the OLD subdirectory before saving.
-    Returns True on success, False if the function doesn't exist or on error.
-    '''
-    secure_name = utils.clean_filename(name)
-    if not secure_name:
-        logger.error(f"Update failed: Invalid function name '{name}'")
-        return False
-    file_path = os.path.join(FUNCTIONS_DIR, f"{secure_name}.py")
-
-    if not os.path.exists(file_path):
-        logger.warning(f"Update failed: Function '{secure_name}' does not exist.")
-        return False
-
-    try:
-        # Backup existing file
-        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S%f")
-        backup_path = os.path.join(OLD_DIR, f"{secure_name}_{timestamp}.py.old")
-        shutil.move(file_path, backup_path) # Use shutil.move for robustness
-        logger.info(f"Backed up existing function '{secure_name}' to '{backup_path}'")
-
-        # Save new code
-        if _fs_save_code(secure_name, code):
-            logger.info(f"Function '{secure_name}' updated successfully.")
-            return True
-        else:
-            # Attempt to restore backup if save fails?
-            logger.error(f"Update failed: Could not save new code for '{secure_name}'. Backup retained.")
-            # Consider trying to move backup_path back to file_path here, though it might also fail.
-            return False
-    except Exception as e:
-        logger.error(f"Error during function update for '{secure_name}': {e}")
-        logger.debug(traceback.format_exc())
-        # Attempt to restore backup if an unexpected error occurred during the process
-        try:
-            if 'backup_path' in locals() and os.path.exists(backup_path) and not os.path.exists(file_path):
-                 shutil.move(backup_path, file_path)
-                 logger.info(f"Restored backup for '{secure_name}' due to update error.")
-        except Exception as restore_e:
-            logger.error(f"Failed to restore backup for '{secure_name}' after update error: {restore_e}")
-        return False
 
 def function_remove(name: str) -> bool:
     '''
@@ -779,18 +735,79 @@ async def function_set(args: Dict[str, Any], server: Any) -> List[TextContent]:
 
     logger.info(f"💾 Function '{function_name}' code saved successfully to {saved_path}")
 
-    # 3. Notify clients about the tool list change
+    # 3. Attempt AST parsing for immediate feedback (but save regardless)
+    syntax_error = None
+    try:
+        ast.parse(code_buffer)
+        logger.info(f"✅ Basic syntax validation (AST parse) successful for '{function_name}'.")
+    except SyntaxError as e:
+        syntax_error = str(e)
+        logger.warning(f"⚠️ Basic syntax validation (AST parse) failed for '{function_name}': {syntax_error}")
+
+    # 4. Notify clients about the tool list change (might happen even if syntax is bad)
     if hasattr(server, '_notify_tool_list_changed'):
         try:
+            # Maybe call _get_tools_list(force_refresh=True) before notifying?
             await server._notify_tool_list_changed()
-            logger.info(f"📢 Notified clients of tool list update after registering '{function_name}'.")
         except Exception as notify_e:
             logger.error(f"❌ Failed to notify clients after registering '{function_name}': {notify_e}")
             # Continue even if notification fails
     else:
         logger.warning("⚠️ Server object provided to function_set lacks _notify_tool_list_changed method.")
 
-    # 4. Return success message
-    success_message = f"Function '{function_name}' code registered/updated successfully."
-    # Note: Syntax validation will occur when the tool list is generated or the tool is called.
-    return [TextContent(type="text", text=success_message)]
+    # 5. Return success message, including validation status
+    save_status = f"Function '{function_name}' code registered/updated successfully."
+    if syntax_error:
+        validation_status = f"WARNING: Syntax validation failed: {syntax_error}"
+        response_message = f"{save_status} {validation_status}"
+    else:
+        validation_status = "Syntax validation successful."
+        response_message = f"{save_status} {validation_status}"
+
+    # Note: Full validation including signature extraction happens when tools are listed/called.
+    return [TextContent(type="text", text=response_message)]
+
+
+def function_update(name: str, code: str) -> bool:
+    '''
+    Updates an existing function file with new code.
+    Moves the old version to the OLD subdirectory before saving.
+    Returns True on success, False if the function doesn't exist or on error.
+    '''
+    secure_name = utils.clean_filename(name)
+    if not secure_name:
+        logger.error(f"Update failed: Invalid function name '{name}'")
+        return False
+    file_path = os.path.join(FUNCTIONS_DIR, f"{secure_name}.py")
+
+    if not os.path.exists(file_path):
+        logger.warning(f"Update failed: Function '{secure_name}' does not exist.")
+        return False
+
+    try:
+        # Backup existing file
+        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S%f")
+        backup_path = os.path.join(OLD_DIR, f"{secure_name}_{timestamp}.py.old")
+        shutil.move(file_path, backup_path) # Use shutil.move for robustness
+        logger.info(f"Backed up existing function '{secure_name}' to '{backup_path}'")
+
+        # Save new code
+        if _fs_save_code(secure_name, code):
+            logger.info(f"Function '{secure_name}' updated successfully.")
+            return True
+        else:
+            # Attempt to restore backup if save fails?
+            logger.error(f"Update failed: Could not save new code for '{secure_name}'. Backup retained.")
+            # Consider trying to move backup_path back to file_path here, though it might also fail.
+            return False
+    except Exception as e:
+        logger.error(f"Error during function update for '{secure_name}': {e}")
+        logger.debug(traceback.format_exc())
+        # Attempt to restore backup if an unexpected error occurred during the process
+        try:
+            if 'backup_path' in locals() and os.path.exists(backup_path) and not os.path.exists(file_path):
+                 shutil.move(backup_path, file_path)
+                 logger.info(f"Restored backup for '{secure_name}' due to update error.")
+        except Exception as restore_e:
+            logger.error(f"Failed to restore backup for '{secure_name}' after update error: {restore_e}")
+        return False

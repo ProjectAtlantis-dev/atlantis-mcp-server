@@ -12,7 +12,7 @@ import time
 import random
 import socketio
 import argparse
-from utils import check_server_running, create_pid_file, remove_pid_file, clean_filename
+from utils import check_server_running, create_pid_file, remove_pid_file, clean_filename, format_json_log
 from typing import Any, Callable, Dict, List, Optional, Union
 import datetime
 
@@ -34,21 +34,18 @@ from state import (
     CLOUD_SERVER_HOST, CLOUD_SERVER_PORT, CLOUD_SERVER_URL,
     CLOUD_SERVICE_NAMESPACE, CLOUD_CONNECTION_RETRY_SECONDS,
     CLOUD_CONNECTION_MAX_RETRIES, CLOUD_CONNECTION_MAX_BACKOFF_SECONDS,
-    tasks, BOLD, RESET, CYAN # <-- Added CYAN
+    tasks, BOLD, RESET, CYAN, BRIGHT_WHITE
 )
 
 # Import dynamic function management utilities
 from dynamic_manager import (
     function_set,
-    function_update,
+    function_add,
     function_remove,
     function_validate,
     function_call
 )
 from dynamic_manager import _fs_load_code
-
-# Import task functions
-from task import task_add, task_run, task_remove, task_peek
 
 # Import our utility module for dynamic functions
 import utils
@@ -137,7 +134,9 @@ class DynamicAdditionServer(Server):
         @self.list_tools()
         async def handle_list_tools() -> list[Tool]:
             """SDK Handler for tools/list"""
-            return await self._get_tools_list()
+            logger.info(f"🚀 Processing MCP tool list request")
+            # Pass context indicating this call is from the SDK handler (likely a direct request)
+            return await self._get_tools_list(caller_context="handle_list_tools_sdk")
 
         @self.list_prompts()
         async def handle_list_prompts() -> list:
@@ -157,24 +156,36 @@ class DynamicAdditionServer(Server):
     # Initialization for function discovery
     async def initialize(self, params={}):
         """Initialize the server, sending a toolsList notification with initial tools"""
+        logger.info(f"{CYAN}🔧 === ENTERING SERVER INITIALIZE METHOD ==={RESET}")
         logger.info(f"🚀 Server initialized with version {SERVER_VERSION}")
 
         # Set the server instance in utils module for client logging
         utils.set_server_instance(self)
         logger.info("🔌 Dynamic functions utility module initialized")
 
-        tools_list = await self._get_tools_list()
+        tools_list = await self._get_tools_list(caller_context="initialize_method")
         try:
-            await self.send_tool_notification()
+            # Pass the already fetched list to the notification function
+            await self.send_tool_notification(tools=tools_list)
         except Exception as e:
             logger.warning(f"Could not send initial tool notification: {str(e)}")
+        logger.info(f"{CYAN}🔧 Server initialize method completed.{RESET}")
         return {}  # Empty response per MCP protocol
 
-    async def send_tool_notification(self):
-        """Send a tool list changed notification to clients"""
+    async def send_tool_notification(self, tools: Optional[list[Tool]] = None):
+        """Send a tool list changed notification to clients
+
+        Args:
+            tools: An optional list of tools. If provided, this list is used directly.
+                   If None, the current tool list will be fetched.
+        """
         try:
-            # Get the current list of tools
-            tools = await self._get_tools_list()
+            # Get the current list of tools only if not provided
+            if tools is None:
+                logger.info("📢 Fetching tools list for notification as it was not provided.")
+                tools = await self._get_tools_list(caller_context="send_tool_notification_fallback")
+            else:
+                logger.info("📢 Using provided tools list for notification.")
 
             # Create the notification parameters
             notification_params = NotificationParams(
@@ -199,10 +210,9 @@ class DynamicAdditionServer(Server):
 
     # --- Core Logic Methods (callable directly) ---
 
-    async def _get_tools_list(self) -> list[Tool]:
+    async def _get_tools_list(self, caller_context: str = "unknown") -> list[Tool]:
         """Core logic to return a list of available tools"""
-        logger.info(f"{CYAN}📋 === Reloading Full Tool List ==={RESET}") # <-- Changed to CYAN
-        logger.info("📋 TOOLS LIST LOGIC EXECUTED")
+        logger.info(f"{BRIGHT_WHITE}📋 === GETTING TOOL LIST (Called by: {caller_context}) ==={RESET}")
 
         # Start with our built-in tools
         tools_list = [
@@ -249,56 +259,11 @@ class DynamicAdditionServer(Server):
                     },
                     "required": ["name"]
                 }
-            ),
-            # --- Task Management Tools --- #
-            Tool(
-                name="_task_add",
-                description="Adds a task with the provided payload data.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "payload": {
-                            "type": "object",
-                            "description": "The task payload object. Must include 'functionName' and 'arguments'."
-                        }
-                    },
-                    "required": ["payload"]
-                }
-            ),
-            Tool(
-                name="_task_run",
-                description="Runs a task with the specified ID and stores the result.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "id": {"type": "string", "description": "The ID of the task to run"}
-                    },
-                    "required": ["id"]
-                }
-            ),
-            Tool(
-                name="_task_remove",
-                description="Removes a task by its ID.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "id": {"type": "string", "description": "The ID of the task to remove"}
-                    },
-                    "required": ["id"]
-                }
-            ),
-            Tool(
-                name="_task_peek",
-                description="Gets the details of a task by its ID.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "id": {"type": "string", "description": "The ID of the task to get details for"}
-                    },
-                    "required": ["id"]
-                }
-            ),
+            )
         ]
+        # Log the static tools being included
+        static_tool_names = [tool.name for tool in tools_list]
+        logger.info(f"🔩 INCLUDING {len(static_tool_names)} STATIC TOOLS: {', '.join(static_tool_names)}")
 
         # Scan the FUNCTIONS_DIR directory for dynamic functions
         try:
@@ -545,9 +510,9 @@ class DynamicAdditionServer(Server):
                         text=f"Function '{func_name}' already exists"
                     )]
                 else: # <-- ADD else block
-                    # Create empty function (stub) using dynamic_manager.function_create
+                    # Create empty function (stub) using dynamic_manager.function_add
                     try:
-                        if function_create(func_name):
+                        if function_add(func_name):
                             try:
                                 await self.send_tool_notification()
                             except Exception as e:
@@ -564,19 +529,6 @@ class DynamicAdditionServer(Server):
                             type="text",
                             text=f"Error creating function '{func_name}': {str(e)}"
                         )]
-            # Task management
-            elif name == "_task_add":
-                logger.debug(f"---> Calling built-in: task_add") # <-- ADD THIS LINE
-                result_raw = await task_add(args) # <-- CHANGE TO result_raw
-            elif name == "_task_run":
-                logger.debug(f"---> Calling built-in: task_run") # <-- ADD THIS LINE
-                result_raw = await task_run(args) # <-- CHANGE TO result_raw
-            elif name == "_task_remove":
-                logger.debug(f"---> Calling built-in: task_remove") # <-- ADD THIS LINE
-                result_raw = await task_remove(args) # <-- CHANGE TO result_raw
-            elif name == "_task_peek":
-                logger.debug(f"---> Calling built-in: task_peek") # <-- ADD THIS LINE
-                result_raw = await task_peek(args) # <-- CHANGE TO result_raw
             # Handle dynamic function calls
             elif not name.startswith('_'):  # Only non-underscore names are potential dynamic functions
                 # Check if function exists
@@ -746,7 +698,7 @@ class ServiceClient:
             logger.info("✅ CONNECTED TO CLOUD SERVER!")
 
             # Get the list of tools to log them
-            tools_list = await self.mcp_server._get_tools_list()
+            tools_list = await self.mcp_server._get_tools_list(caller_context="_handle_connect_cloud")
             tool_names = [tool.name for tool in tools_list]
             logger.info(f"📊 REGISTERING {len(tools_list)} TOOLS WITH CLOUD: {', '.join(tool_names)}")
 
@@ -799,7 +751,7 @@ class ServiceClient:
         try:
             if method == "tools/list":
                 # Call the core logic method directly (pass client_id)
-                result_list = await self.mcp_server._get_tools_list()
+                result_list = await self.mcp_server._get_tools_list(caller_context="process_mcp_request")
                 # Convert Tool objects to dictionaries for JSON serialization using model_dump()
                 response["result"] = {"tools": [tool.model_dump() for tool in result_list]} # Use model_dump()
 
@@ -843,7 +795,9 @@ class ServiceClient:
             return False
 
         try:
-            logger.debug(f"☁️ SENDING MESSAGE: {event} - {data}")
+            # Format data nicely if it's an mcp_response
+            log_data = format_json_log(data) if event == 'mcp_response' else str(data)
+            logger.debug(f"☁️ SENDING MESSAGE: {event} - \n{log_data}") # Log formatted data on new line
             await self.sio.emit(event, data, namespace=self.namespace)
             return True
         except Exception as e:
@@ -943,6 +897,9 @@ async def process_mcp_request(server, request, client_id=None):
         request: The request to process
         client_id: Optional ID of the requesting client for tracking
     """
+
+    logger.info(f"🚀 Processing MCP request")
+
     if "id" not in request:
         return {"error": "Missing request ID"}
 
@@ -960,33 +917,14 @@ async def process_mcp_request(server, request, client_id=None):
         if method == "initialize":
             # Process initialize request
             logger.info(f"🚀 Processing 'initialize' request with params: {params}")
-            await server.initialize(params)
+            result = await server.initialize(params)
             logger.info(f"✅ Successfully processed 'initialize' request")
             # Return empty object per MCP protocol spec
             return {"jsonrpc": "2.0", "id": req_id, "result": {}}
         elif method == "tools/list":
             logger.info(f"🧰 Processing 'tools/list' request")
-            result = await server._get_tools_list()
-            logger.info(f"🧰 Got tools list with {len(result)} tools")
-
-            # Debug log each tool
-            for i, tool in enumerate(result):
-                logger.debug(f"Tool {i+1}: {tool.name} (type: {type(tool).__name__})")
-
-            # Manually convert Tool objects to dictionaries
-            tools_list = []
-            for tool in result:
-                try:
-                    tool_data = tool.model_dump()
-                    logger.debug(f"✅ Serialized tool '{tool.name}' successfully")
-                    tools_list.append(tool_data)
-                except Exception as e:
-                    logger.error(f"❌ Error serializing tool '{getattr(tool, 'name', '?')}': {e}")
-                    # Add a simple dict with just the name if serialization fails
-                    tools_list.append({"name": getattr(tool, "name", "unknown"), "_error": str(e)})
-
-            # Format response according to JSON-RPC 2.0 spec
-            return {"jsonrpc": "2.0", "id": req_id, "result": {"tools": tools_list}}
+            # Pass context indicating this call is from the SDK handler (likely a direct request)
+            return await server._get_tools_list(caller_context="process_mcp_request")
         elif method == "prompts/list":
             result = await server._get_prompts_list()
             return {"jsonrpc": "2.0", "id": req_id, "result": {"prompts": result}}
@@ -1092,6 +1030,7 @@ if __name__ == "__main__":
     asyncio.set_event_loop(loop)
 
     # Initialize the MCP server
+    logger.info(f"{BRIGHT_WHITE}🔧 === CALLING SERVER INITIALIZE FROM MAIN ==={RESET}")
     loop.run_until_complete(mcp_server.initialize())
 
     # Start the Uvicorn server

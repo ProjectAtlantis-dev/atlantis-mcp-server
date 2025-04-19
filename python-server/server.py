@@ -127,6 +127,8 @@ class DynamicAdditionServer(Server):
 
     def __init__(self):
         super().__init__("Dynamic Function Server")
+        self._cached_tools: Optional[List[Tool]] = None # Cache for tool list
+        self._last_functions_dir_mtime: float = 0.0 # Timestamp for cache invalidation
 
         # Register tool handlers using SDK decorators
         # These now wrap the actual logic methods defined below
@@ -214,6 +216,25 @@ class DynamicAdditionServer(Server):
         """Core logic to return a list of available tools"""
         logger.info(f"{BRIGHT_WHITE}📋 === GETTING TOOL LIST (Called by: {caller_context}) ==={RESET}")
 
+        # --- Caching Logic ---
+        try:
+            # Ensure the directory exists before checking mtime
+            if not os.path.exists(FUNCTIONS_DIR):
+                 os.makedirs(FUNCTIONS_DIR, exist_ok=True)
+                 logger.info(f"📂 Created missing FUNCTIONS_DIR: {FUNCTIONS_DIR}")
+                 current_mtime = os.path.getmtime(FUNCTIONS_DIR)
+            else:
+                 current_mtime = os.path.getmtime(FUNCTIONS_DIR)
+
+            if current_mtime == self._last_functions_dir_mtime and self._cached_tools is not None:
+                logger.info(f"⚡️ USING CACHED TOOL LIST (DIR UNCHANGED - mtime: {current_mtime})")
+                # Return a copy to prevent external modification of the cache
+                return list(self._cached_tools)
+            logger.info(f"🔄 FUNCTIONS DIR MODIFIED (mtime: {current_mtime} vs last: {self._last_functions_dir_mtime}) or cache empty, REGENERATING TOOL LIST")
+        except Exception as e:
+             logger.error(f"❌ Error checking FUNCTIONS_DIR mtime: {e}. Proceeding without cache.")
+             current_mtime = time.time() # Use current time to force regeneration
+
         # Start with our built-in tools
         tools_list = [
             Tool(
@@ -267,7 +288,6 @@ class DynamicAdditionServer(Server):
 
         # Scan the FUNCTIONS_DIR directory for dynamic functions
         try:
-            import os
             # Ensure the functions directory exists
             os.makedirs(FUNCTIONS_DIR, exist_ok=True)
 
@@ -348,6 +368,12 @@ class DynamicAdditionServer(Server):
             # Continue with just the built-in tools
 
         logger.info(f"📝 RETURNING {len(tools_list)} TOOLS")
+
+        # --- Update Cache ---
+        self._cached_tools = list(tools_list) # Store a copy
+        self._last_functions_dir_mtime = current_mtime
+        logger.info(f"💾 CACHED TOOL LIST (Timestamp: {current_mtime})")
+
         return tools_list
 
     async def _get_prompts_list(self) -> list:

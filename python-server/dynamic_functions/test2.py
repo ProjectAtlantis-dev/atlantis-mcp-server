@@ -1,5 +1,5 @@
-def test2(x, y):
+def test2(x, y, z):
     """
-    This simply adds x and y and stuff
+    This simply adds x, y and z and stuff
     """
-    return x+y+200
+    return int(x) + int(y) + int(z) + 50

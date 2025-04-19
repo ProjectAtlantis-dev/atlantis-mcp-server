@@ -11,7 +11,7 @@ import traceback
 import shutil # Using shutil for potentially more robust file operations
 from typing import Optional, Any, Dict, Union
 from werkzeug.utils import secure_filename
-from state import logger, FUNCTIONS_DIR # Import FUNCTIONS_DIR
+from state import logger, FUNCTIONS_DIR, CYAN, RESET # Import FUNCTIONS_DIR, CYAN, and RESET
 import utils # Import our utility module for dynamic functions
 
 import logging
@@ -89,6 +89,9 @@ def _fs_load_code(name: str) -> Optional[str]:
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             code = f.read()
+
+        logger.info(f"{CYAN}📋 === LOADING {name} ==={RESET}")
+
         logger.debug(f"💾 Loaded code for '{name}' from {file_path}")
         return code
     except IOError as e:

@@ -34,7 +34,7 @@ from state import (
     CLOUD_SERVER_HOST, CLOUD_SERVER_PORT, CLOUD_SERVER_URL,
     CLOUD_SERVICE_NAMESPACE, CLOUD_CONNECTION_RETRY_SECONDS,
     CLOUD_CONNECTION_MAX_RETRIES, CLOUD_CONNECTION_MAX_BACKOFF_SECONDS,
-    tasks
+    tasks, BOLD, RESET, CYAN # <-- Added CYAN
 )
 
 # Import dynamic function management utilities
@@ -183,6 +183,7 @@ class DynamicAdditionServer(Server):
 
             # Create the notification
             notification = ToolListChangedNotification(
+                method="notifications/tools/list_changed",
                 params=notification_params
             )
 
@@ -200,6 +201,7 @@ class DynamicAdditionServer(Server):
 
     async def _get_tools_list(self) -> list[Tool]:
         """Core logic to return a list of available tools"""
+        logger.info(f"{CYAN}📋 === Reloading Full Tool List ==={RESET}") # <-- Changed to CYAN
         logger.info("📋 TOOLS LIST LOGIC EXECUTED")
 
         # Start with our built-in tools

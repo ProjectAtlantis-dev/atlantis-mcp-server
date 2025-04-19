@@ -1,15 +1,56 @@
 #!/usr/bin/env python3
 import logging
 import os
+import sys
 
-# Configure logging - focus on our application logs
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
-)
-# Set our app logger to DEBUG
+# ANSI escape codes for colors
+GREY = "\x1b[90m"
+YELLOW = "\x1b[33m"
+RED = "\x1b[31m"
+BOLD_RED = "\x1b[31;1m"
+RESET = "\x1b[0m"
+GREEN = "\x1b[32m" # Added Green for INFO
+BOLD = "\x1b[1m"   # Added Bold
+CYAN = "\x1b[36m"   # Added Cyan
+BRIGHT_WHITE = "\x1b[97m" # Added Bright White
+
+# Custom Formatter
+class ColoredFormatter(logging.Formatter):
+    FORMATS = {
+        logging.DEBUG: GREY + "%(asctime)s [%(levelname)s] %(name)s: %(message)s" + RESET,
+        logging.INFO: GREEN + "%(asctime)s [%(levelname)s] %(name)s: %(message)s" + RESET,
+        logging.WARNING: YELLOW + "%(asctime)s [%(levelname)s] %(name)s: %(message)s" + RESET,
+        logging.ERROR: RED + "%(asctime)s [%(levelname)s] %(name)s: %(message)s" + RESET,
+        logging.CRITICAL: BOLD_RED + "%(asctime)s [%(levelname)s] %(name)s: %(message)s" + RESET
+    }
+
+    def format(self, record):
+        log_fmt = self.FORMATS.get(record.levelno, logging.BASIC_FORMAT)
+        # Use a specific date format
+        formatter = logging.Formatter(log_fmt, datefmt='%Y-%m-%d %H:%M:%S')
+        return formatter.format(record)
+
+# --- REMOVED basicConfig ---
+
+# Get our app logger
 logger = logging.getLogger("mcp_server")
 logger.setLevel(logging.DEBUG)
+
+# --- ADDED Handler setup ---
+# Create console handler
+ch = logging.StreamHandler(sys.stdout) # Use stdout
+ch.setLevel(logging.DEBUG) # Process all messages from logger
+
+# Set the custom formatter
+ch.setFormatter(ColoredFormatter())
+
+# Add handler to the logger
+logger.addHandler(ch)
+
+# Prevent logging from propagating to the root logger
+# (important if basicConfig was ever called or might be by libraries)
+logger.propagate = False
+# --- End Handler setup ---
 
 # Directory to store dynamic function files
 FUNCTIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dynamic_functions")

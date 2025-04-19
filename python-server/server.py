@@ -473,50 +473,58 @@ class DynamicAdditionServer(Server):
             logger.debug(f"Log notification error details: {traceback.format_exc()}")
             # We intentionally don't re-raise here
 
+
     async def _execute_tool(self, name: str, args: dict, client_id: str = None) -> list[TextContent]:
         """Core logic to handle a tool call. Ensures result is List[TextContent(type='text')]"""
         logger.info(f"🔧 EXECUTING TOOL: {name}")
         logger.debug(f"WITH ARGUMENTS: {args}")
+        # ---> ADDED: Log entry and raw args
+        logger.debug(f"---> _execute_tool ENTERED. Name: '{name}', Raw Args: {args!r}") # <-- ADD THIS LINE
 
         try:
+            result_raw = None # Initialize raw result variable
             # Handle built-in tool calls
             if name == "_function_set":
-                return await function_set(args, self)
+                logger.debug(f"---> Calling built-in: function_set") # <-- ADD THIS LINE
+                result_raw = await function_set(args, self)
             elif name == "_function_get":
-                return await get_function_code(args, self)
+                logger.debug(f"---> Calling built-in: get_function_code") # <-- ADD THIS LINE
+                result_raw = await get_function_code(args, self)
             elif name == "_function_remove":
                 # Remove function
                 func_name = args.get("name")
                 if not func_name:
                     raise ValueError("Missing required parameter: name")
 
+                logger.debug(f"---> Calling built-in: function_remove for '{func_name}'") # <-- ADD THIS LINE
+
                 # Check if function exists before attempting to remove
                 function_path = os.path.join(FUNCTIONS_DIR, f"{func_name}.py")
                 if not os.path.exists(function_path):
-                    return [TextContent(
+                    result_raw = [TextContent( # <-- CHANGE TO result_raw
                         type="text",
                         text=f"Function '{func_name}' does not exist or was already removed."
                     )]
-
-                # Remove the function using dynamic_manager.function_remove
-                try:
-                    if function_remove(func_name):
-                        try:
-                            await self.send_tool_notification()
-                        except Exception as e:
-                            logger.error(f"Error sending tool notification: {str(e)}")
-                        return [TextContent(type="text", text=f"Function '{func_name}' removed successfully.")]
-                    else:
-                        return [TextContent(
+                else: # <-- ADD else block
+                    # Remove the function using dynamic_manager.function_remove
+                    try:
+                        if function_remove(func_name):
+                            try:
+                                await self.send_tool_notification()
+                            except Exception as e:
+                                logger.error(f"Error sending tool notification: {str(e)}")
+                            result_raw = [TextContent(type="text", text=f"Function '{func_name}' removed successfully.")] # <-- CHANGE TO result_raw
+                        else:
+                            result_raw = [TextContent( # <-- CHANGE TO result_raw
+                                type="text",
+                                text=f"Error removing function '{func_name}'. Check server logs for details."
+                            )]
+                    except Exception as e:
+                        logger.error(f"Error removing function: {str(e)}")
+                        result_raw = [TextContent( # <-- CHANGE TO result_raw
                             type="text",
-                            text=f"Error removing function '{func_name}'. Check server logs for details."
+                            text=f"Error removing function '{func_name}': {str(e)}"
                         )]
-                except Exception as e:
-                    logger.error(f"Error removing function: {str(e)}")
-                    return [TextContent(
-                        type="text",
-                        text=f"Error removing function '{func_name}': {str(e)}"
-                    )]
 
             elif name == "_function_add":
                 # Add empty function
@@ -524,43 +532,49 @@ class DynamicAdditionServer(Server):
                 if not func_name:
                     raise ValueError("Missing required parameter: name")
 
+                logger.debug(f"---> Calling built-in: function_add for '{func_name}'") # <-- ADD THIS LINE
+
                 # Check if function already exists
                 function_path = os.path.join(FUNCTIONS_DIR, f"{func_name}.py")
                 if os.path.exists(function_path):
                     # Function already exists - inform the client rather than raise error
-                    return [TextContent(
+                    result_raw = [TextContent( # <-- CHANGE TO result_raw
                         type="text",
                         text=f"Function '{func_name}' already exists"
                     )]
-
-                # Create empty function (stub) using dynamic_manager.function_create
-                try:
-                    if function_create(func_name):
-                        try:
-                            await self.send_tool_notification()
-                        except Exception as e:
-                            logger.error(f"Error sending tool notification: {str(e)}")
-                        return [TextContent(type="text", text=f"Empty function '{func_name}' created successfully.")]
-                    else:
-                        return [TextContent(
+                else: # <-- ADD else block
+                    # Create empty function (stub) using dynamic_manager.function_create
+                    try:
+                        if function_create(func_name):
+                            try:
+                                await self.send_tool_notification()
+                            except Exception as e:
+                                logger.error(f"Error sending tool notification: {str(e)}")
+                            result_raw = [TextContent(type="text", text=f"Empty function '{func_name}' created successfully.")] # <-- CHANGE TO result_raw
+                        else:
+                            result_raw = [TextContent( # <-- CHANGE TO result_raw
+                                type="text",
+                                text=f"Error creating function '{func_name}'. Check server logs for details."
+                            )]
+                    except Exception as e:
+                        logger.error(f"Error creating function: {str(e)}")
+                        result_raw = [TextContent( # <-- CHANGE TO result_raw
                             type="text",
-                            text=f"Error creating function '{func_name}'. Check server logs for details."
+                            text=f"Error creating function '{func_name}': {str(e)}"
                         )]
-                except Exception as e:
-                    logger.error(f"Error creating function: {str(e)}")
-                    return [TextContent(
-                        type="text",
-                        text=f"Error creating function '{func_name}': {str(e)}"
-                    )]
             # Task management
             elif name == "_task_add":
-                return await task_add(args)
+                logger.debug(f"---> Calling built-in: task_add") # <-- ADD THIS LINE
+                result_raw = await task_add(args) # <-- CHANGE TO result_raw
             elif name == "_task_run":
-                return await task_run(args)
+                logger.debug(f"---> Calling built-in: task_run") # <-- ADD THIS LINE
+                result_raw = await task_run(args) # <-- CHANGE TO result_raw
             elif name == "_task_remove":
-                return await task_remove(args)
+                logger.debug(f"---> Calling built-in: task_remove") # <-- ADD THIS LINE
+                result_raw = await task_remove(args) # <-- CHANGE TO result_raw
             elif name == "_task_peek":
-                return await task_peek(args)
+                logger.debug(f"---> Calling built-in: task_peek") # <-- ADD THIS LINE
+                result_raw = await task_peek(args) # <-- CHANGE TO result_raw
             # Handle dynamic function calls
             elif not name.startswith('_'):  # Only non-underscore names are potential dynamic functions
                 # Check if function exists
@@ -571,39 +585,47 @@ class DynamicAdditionServer(Server):
                 # Call the dynamic function
                 try:
                     logger.info(f"🔧 CALLING DYNAMIC FUNCTION: {name}")
-                    result = function_call(name, **args)
-
-                    # Convert result to TextContent
-                    if isinstance(result, str):
-                        return [TextContent(type="text", text=result)]
-                    elif isinstance(result, list) and all(isinstance(item, TextContent) for item in result):
-                        return result
-                    else:
-                        # Convert any other result to string
-                        import json
-                        try:
-                            result_str = json.dumps(result)
-                        except:
-                            result_str = str(result)
-                        return [TextContent(type="text", text=result_str)]
+                    logger.debug(f"---> Calling dynamic: function_call for '{name}' with args: {args}") # <-- ADD THIS LINE
+                    result_raw = function_call(name, **args)
+                    logger.debug(f"<--- Dynamic function '{name}' RAW result: {result_raw!r} (type: {type(result_raw)})") # <-- ADD THIS LINE
 
                 except Exception as e:
-                    raise ValueError(f"Error executing function '{name}': {str(e)}")
+                    logger.error(f"❌ Error during dynamic function call '{name}': {str(e)}", exc_info=True)
+                    raise ValueError(f"Error executing function '{name}': {str(e)}") from e
             else:
-                # Unknown tool
-                error_message = f"Unknown tool: {name}"
-                logger.error(f"❌ {error_message}")
-                raise ValueError(error_message)
+                # Handle unknown tool names starting with '_', or if no branch matched
+                logger.error(f"❓ Unknown or unhandled tool name: {name}")
+                raise ValueError(f"Unknown or unhandled tool name: {name}")
+
+            # ---> ADDED: Process raw result into final_result format (List[TextContent])
+            if isinstance(result_raw, str):
+                final_result = [TextContent(type="text", text=result_raw)]
+            elif isinstance(result_raw, list) and all(isinstance(item, TextContent) for item in result_raw):
+                final_result = result_raw
+            elif result_raw is None: # Handle cases where built-ins might not have set result_raw (e.g., error occurred before assignment)
+                logger.error(f"❓ result_raw was None for tool '{name}'. This might indicate an unhandled path or early error.")
+                raise ValueError(f"Internal error processing tool '{name}': result was None.")
+            else:
+                # Convert any other result to string
+                import json
+                try:
+                    result_str = json.dumps(result_raw)
+                except TypeError:
+                    result_str = str(result_raw) # Fallback to plain string conversion
+                logger.warning(f"⚠️ Tool '{name}' returned non-standard type {type(result_raw)}. Converting to JSON string: {result_str}")
+                final_result = [TextContent(type="text", text=result_str)]
+
+            # ---> ADDED: Log final result before returning
+            logger.debug(f"<--- _execute_tool RETURNING final result: {final_result!r}") # <-- ADD THIS LINE
+            return final_result
 
         except Exception as e:
-            logger.error(f"❌ TOOL EXECUTION ERROR: {str(e)}")
-            import traceback
-            logger.debug(f"Traceback: {traceback.format_exc()}")
-
-            # Re-raise the exception with its original message
-            raise type(e)(str(e))
-
-
+            logger.error(f"❌ Error in _execute_tool for '{name}': {str(e)}", exc_info=True)
+            # Return a generic error message as TextContent
+            error_message = f"Error executing tool '{name}': {str(e)}"
+            final_result = [TextContent(type="text", text=error_message)]
+            logger.debug(f"<--- _execute_tool RETURNING error result: {final_result!r}") # <-- ADD THIS LINE
+            return final_result
 
 
 
@@ -944,24 +966,25 @@ async def process_mcp_request(server, request, client_id=None):
             logger.info(f"🧰 Processing 'tools/list' request")
             result = await server._get_tools_list()
             logger.info(f"🧰 Got tools list with {len(result)} tools")
-            
+
             # Debug log each tool
             for i, tool in enumerate(result):
                 logger.debug(f"Tool {i+1}: {tool.name} (type: {type(tool).__name__})")
-            
+
             # Manually convert Tool objects to dictionaries
-            tools_dict = {"tools": []}
+            tools_list = []
             for tool in result:
                 try:
                     tool_data = tool.model_dump()
                     logger.debug(f"✅ Serialized tool '{tool.name}' successfully")
-                    tools_dict["tools"].append(tool_data)
+                    tools_list.append(tool_data)
                 except Exception as e:
                     logger.error(f"❌ Error serializing tool '{getattr(tool, 'name', '?')}': {e}")
                     # Add a simple dict with just the name if serialization fails
-                    tools_dict["tools"].append({"name": getattr(tool, "name", "unknown"), "_error": str(e)})
-            
-            return {"jsonrpc": "2.0", "id": req_id, "result": tools_dict}
+                    tools_list.append({"name": getattr(tool, "name", "unknown"), "_error": str(e)})
+
+            # Format response according to JSON-RPC 2.0 spec
+            return {"jsonrpc": "2.0", "id": req_id, "result": {"tools": tools_list}}
         elif method == "prompts/list":
             result = await server._get_prompts_list()
             return {"jsonrpc": "2.0", "id": req_id, "result": {"prompts": result}}
@@ -970,22 +993,58 @@ async def process_mcp_request(server, request, client_id=None):
             return {"jsonrpc": "2.0", "id": req_id, "result": {"resources": result}}
         elif method == "tools/call":
             name = params.get("name")
-            args = params.get("arguments", {})
+            args = params.get("arguments", {}) # MCP spec uses 'arguments'
             logger.info(f"🔧 Processing 'tools/call' for tool '{name}' with args: {args}")
+
+            # Log the tool name and arguments for debugging
+            logger.debug(f"Tool name: '{name}', Arguments: {json.dumps(args, default=str)}")
+
+            # Execute the tool
             result = await server._execute_tool(name, args, client_id)
-            
-            # Manually convert TextContent objects to dictionaries
-            contents_dict = {"contents": []}
-            for content in result:
-                try:
-                    content_data = content.model_dump() 
-                    contents_dict["contents"].append(content_data)
-                except Exception as e:
-                    logger.error(f"❌ Error serializing content result: {e}")
-                    # Add simple text content as fallback
-                    contents_dict["contents"].append({"type": "text", "text": str(content)})
-            
-            return {"jsonrpc": "2.0", "id": req_id, "result": contents_dict}
+            logger.info(f"🎯 Tool '{name}' execution completed with {len(result)} content items")
+
+            # Debug what kind of result we got
+            logger.debug(f"Result type: {type(result)}, Items: {len(result)}")
+            for i, item in enumerate(result):
+                logger.debug(f"  Item {i}: {type(item).__name__}")
+
+            # Format response according to JSON-RPC 2.0 spec for MCP
+            try:
+                # Manually convert TextContent objects to dictionaries
+                contents_list = []
+                for content in result:
+                    try:
+                        if hasattr(content, 'model_dump'):
+                            content_data = content.model_dump()
+                            contents_list.append(content_data)
+                        else:
+                            # Handle non-pydantic objects
+                            logger.warning(f"⚠️ Non-pydantic content object: {type(content)}")
+                            if hasattr(content, 'to_dict'):
+                                contents_list.append(content.to_dict())
+                            else:
+                                # Fallback for simple objects
+                                contents_list.append({"type": "text", "text": str(content)})
+                    except Exception as e:
+                        logger.error(f"❌ Error serializing content result: {e}")
+                        # Add simple text content as fallback
+                        contents_list.append({"type": "text", "text": str(content)})
+
+                # Construct the response according to JSON-RPC 2.0 and MCP spec
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": {
+                        "content": contents_list
+                    }
+                }
+                logger.debug(f"📦 Formatted response: {json.dumps(response, default=str)[:200]}...")
+                return response
+            except Exception as e:
+                logger.error(f"💥 Error formatting tool call response: {e}")
+                import traceback
+                logger.debug(traceback.format_exc())
+                return {"jsonrpc": "2.0", "id": req_id, "error": f"Error formatting tool call response: {e}"}
         else:
             logger.warning(f"⚠️ Unknown method requested: {method}")
             return {"jsonrpc": "2.0", "id": req_id, "error": f"Unknown method: {method}"}

@@ -16,6 +16,8 @@
 - we use the term dynamic tool and function interchangeably although mcp prefers tool
 - ignore node-server folder for now
 - the python mcp sdk is located at /Users/reinman/work/mcp/python-sdk
+- the typescript node mcp sdk is located at /Users/reinman/work/mcp/typescript-sdk
+- node-mcp-client compatiblity is always more important than cloud server compatibility because it is closer to the true mcp spec
 
 # dynamic functions
 - dynamic functions are stored in the dynamic_functions folder

@@ -50,6 +50,9 @@ from dynamic_manager import _fs_load_code
 # Import our utility module for dynamic functions
 import utils
 
+# Import server manager functions
+from server_manager import server_list, server_get, server_add, server_remove, server_set, server_validate
+
 # NOTE: This server uses two different socket protocols:
 # 1. Standard WebSockets: When acting as a SERVER to accept connections from node-mcp-client
 # 2. Socket.IO: When acting as a CLIENT to connect to the cloud Node.js server
@@ -618,6 +621,43 @@ class DynamicAdditionServer(Server):
                             type="text",
                             text=f"Error creating function '{func_name}': {str(e)}"
                         )]
+            # MCP server CRUD tool cases
+            elif name == "_server_list":
+                logger.debug("---> Calling built-in: server_list")
+                result_raw = server_list()
+            elif name == "_server_get":
+                svc_name = args.get("name")
+                if not svc_name:
+                    raise ValueError("Missing required parameter: name")
+                logger.debug(f"---> Calling built-in: server_get for '{svc_name}'")
+                result_raw = server_get(svc_name)
+            elif name == "_server_add":
+                svc_name = args.get("name")
+                config = args.get("config")
+                if not svc_name or not isinstance(config, dict):
+                    raise ValueError("Missing or invalid parameters: 'name' must be str and 'config' must be dict")
+                logger.debug(f"---> Calling built-in: server_add for '{svc_name}'")
+                success = server_add(svc_name, config)
+                if success:
+                    result_raw = [TextContent(type="text", text=f"Server '{svc_name}' added successfully.")]
+                else:
+                    result_raw = [TextContent(type="text", text=f"Failed to add server '{svc_name}'.")]
+            elif name == "_server_remove":
+                svc_name = args.get("name")
+                if not svc_name:
+                    raise ValueError("Missing required parameter: name")
+                logger.debug(f"---> Calling built-in: server_remove for '{svc_name}'")
+                success = server_remove(svc_name)
+                result_raw = [TextContent(type="text", text=f"Server '{svc_name}' removed successfully.")] if success else [TextContent(type="text", text=f"Failed to remove server '{svc_name}'.")]
+            elif name == "_server_set":
+                logger.debug(f"---> Calling built-in: server_set with args: {args!r}")
+                result_raw = await server_set(args, self)
+            elif name == "_server_validate":
+                svc_name = args.get("name")
+                if not svc_name:
+                    raise ValueError("Missing required parameter: name")
+                logger.debug(f"---> Calling built-in: server_validate for '{svc_name}'")
+                result_raw = server_validate(svc_name)
             # Handle dynamic function calls
             elif not name.startswith('_'):  # Only non-underscore names are potential dynamic functions
                 # Check if function exists

@@ -90,7 +90,7 @@ def server_list() -> List[str]:
     return [os.path.splitext(f)[0] for f in files if f.endswith('.json')]
 
 
-def server_set(args: Dict[str, Any], server) -> List[TextContent]:
+async def server_set(args: Dict[str, Any], server) -> List[TextContent]:
     """
     MCP handler to add/update a server config.
     Expects args['name']: str, args['config']: dict

@@ -548,6 +548,14 @@ def function_remove(name: str) -> bool:
         backup_path = os.path.join(OLD_DIR, f"{secure_name}_{timestamp}.py.old")
         shutil.move(file_path, backup_path)
         logger.info(f"Function '{secure_name}' removed (moved to '{backup_path}')")
+        # Remove corresponding log file if it exists
+        log_path = os.path.join(FUNCTIONS_DIR, f"{secure_name}.log")
+        if os.path.exists(log_path):
+            try:
+                os.remove(log_path)
+                logger.info(f"Removed log file for '{secure_name}' at {log_path}")
+            except Exception as e:
+                logger.error(f"Failed to remove log file for '{secure_name}': {e}")
         return True
     except Exception as e:
         logger.error(f"Error during function removal for '{secure_name}': {e}")

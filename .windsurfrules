@@ -18,8 +18,15 @@
 - the python mcp sdk is located at /Users/reinman/work/mcp/python-sdk
 - the typescript node mcp sdk is located at /Users/reinman/work/mcp/typescript-sdk
 - node-mcp-client compatiblity is always more important than cloud server compatibility because it is closer to the true mcp spec
+- server.py is the main python server that runs everyone
 
 # dynamic functions
 - dynamic functions are stored in the dynamic_functions folder
 - dynamic functions are written in pure python, no mcp artifacts or dependencies
+- tools for CRUD operations are named like _function_add, _function_list, _function_set, _function_remove in dynamic_manager.py
 - dynamic functions can still be stored and retrieved even if invalid so the user can work errors, but they must be valid ofc for running
+
+# mcp server functions
+- somewhat confusion naming because these point to other mcp servers
+- not to be confused with python-server or dynamic functions
+- CRUD for these are _server_add, _server_list,_server_set etc. in server_manager.py

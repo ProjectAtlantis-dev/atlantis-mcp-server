@@ -280,6 +280,69 @@ class DynamicAdditionServer(Server):
                     },
                     "required": ["name"]
                 }
+            ),
+            # MCP server CRUD tools
+            Tool(
+                name="_server_list",
+                description="Lists all configured MCP servers",
+                inputSchema={"type": "object", "properties": {}}
+            ),
+            Tool(
+                name="_server_get",
+                description="Gets the configuration JSON for a server",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Server name to fetch"}
+                    },
+                    "required": ["name"]
+                }
+            ),
+            Tool(
+                name="_server_add",
+                description="Adds a new MCP server configuration",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "config": {"type": "object", "description": "Server config JSON"}
+                    },
+                    "required": ["name", "config"]
+                }
+            ),
+            Tool(
+                name="_server_remove",
+                description="Removes an MCP server configuration",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"}
+                    },
+                    "required": ["name"]
+                }
+            ),
+            Tool(
+                name="_server_set",
+                description="Sets (adds or updates) an MCP server configuration",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "config": {"type": "object"}
+                    },
+                    "required": ["name", "config"]
+                }
+            ),
+            Tool(
+                name="_server_validate",
+                description="Validates an MCP server configuration",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"}
+                    },
+                    "required": ["name"]
+                }
             )
         ]
         # Log the static tools being included

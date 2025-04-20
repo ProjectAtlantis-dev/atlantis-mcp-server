@@ -58,6 +58,11 @@ FUNCTIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dynami
 # Create functions directory if it doesn't exist
 os.makedirs(FUNCTIONS_DIR, exist_ok=True)
 
+# Directory to store dynamic server configs
+SERVERS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dynamic_servers")
+# Create servers directory if it doesn't exist
+os.makedirs(SERVERS_DIR, exist_ok=True)
+
 # Server configuration
 HOST = "0.0.0.0"  # Listen on all interfaces by default
 PORT = 8000

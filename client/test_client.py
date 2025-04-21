@@ -105,6 +105,61 @@ def foo(a: int, b: int) -> int:
                 except Exception as e:
                     logger.error(f"❌ FAILED TO SET 'foo' FUNCTION: {str(e)}")
 
+                # --- ADDED: Define and Register 'bar' function ---
+                # Step 1: Add the empty 'bar' function stub
+                logger.info("🔧 ADDING 'bar' FUNCTION STUB VIA _function_add")
+                add_bar_args = {"name": "bar"}
+                try:
+                    add_bar_result = await session.call_tool("_function_add", add_bar_args)
+                    for item in add_bar_result.content:
+                        if isinstance(item, TextContent):
+                            logger.info(f"✅ ADD BAR STUB RESULT: {item.text}")
+                except Exception as e:
+                    logger.error(f"❌ FAILED TO ADD 'bar' STUB: {str(e)}")
+
+                # Step 2: Set the code for the 'bar' function
+                logger.info("🔧 REGISTERING A 'bar' FUNCTION VIA _function_set")
+                bar_code = """
+def bar(x: int, y: int) -> int:
+    \"\"\"Subtracts integer y from integer x.\"\"\"
+    result = x - y
+    print(f'[bar tool execution] {x} - {y} = {result}') # Add server-side print
+    return result
+"""
+                set_bar_args = {"code": bar_code}
+                try:
+                    set_bar_result = await session.call_tool("_function_set", set_bar_args)
+                    for item in set_bar_result.content:
+                        if isinstance(item, TextContent):
+                            logger.info(f"✅ SET BAR FUNCTION RESULT: {item.text}")
+                except Exception as e:
+                    logger.error(f"❌ FAILED TO SET 'bar' FUNCTION: {str(e)}")
+                # --- END Define and Register 'bar' function ---
+
+                # --- ADDED: Get and print code for foo ---
+                logger.info("📄 GETTING CODE FOR 'foo' VIA _function_get")
+                get_foo_args = {"name": "foo"}
+                try:
+                    get_foo_result = await session.call_tool("_function_get", get_foo_args)
+                    for item in get_foo_result.content:
+                        if isinstance(item, TextContent):
+                            logger.info(f"✅ GOT FOO CODE:\n-------\n{item.text}\n-------")
+                except Exception as e:
+                    logger.error(f"❌ FAILED TO GET 'foo' CODE: {str(e)}")
+                # --- END Get and print code for foo ---
+
+                # --- ADDED: Get and print code for bar ---
+                logger.info("📄 GETTING CODE FOR 'bar' VIA _function_get")
+                get_bar_args = {"name": "bar"}
+                try:
+                    get_bar_result = await session.call_tool("_function_get", get_bar_args)
+                    for item in get_bar_result.content:
+                        if isinstance(item, TextContent):
+                            logger.info(f"✅ GOT BAR CODE:\n-------\n{item.text}\n-------")
+                except Exception as e:
+                    logger.error(f"❌ FAILED TO GET 'bar' CODE: {str(e)}")
+                # --- END Get and print code for bar ---
+
                 # List tools again to see if the new one appears
                 logger.info("🔍 LISTING AVAILABLE TOOLS AGAIN")
                 tools_result_after_register = await session.list_tools()
@@ -132,6 +187,27 @@ def foo(a: int, b: int) -> int:
                         logger.info(f"✨ FOO RESULT: {a_foo} + {b_foo} = {result}")
                         print(f"\n✨ FOO RESULT: {a_foo} + {b_foo} = {result} ✨\n")
 
+                # --- ADDED: Call the bar tool ---
+                x_bar, y_bar = 10, 3
+                logger.info(f"🧮 CALLING BAR TOOL: {x_bar} - {y_bar}")
+                try:
+                    call_bar_result = await session.call_tool(
+                        "bar",
+                        {
+                            "x": x_bar,
+                            "y": y_bar
+                        }
+                    )
+                    # Display the result
+                    for item in call_bar_result.content:
+                        if isinstance(item, TextContent):
+                            result = item.text
+                            logger.info(f"✨ BAR RESULT: {x_bar} - {y_bar} = {result}")
+                            print(f"\n✨ BAR RESULT: {x_bar} - {y_bar} = {result} ✨\n")
+                except Exception as e:
+                     logger.error(f"❌ FAILED TO CALL 'bar' FUNCTION: {str(e)}")
+                # --- END Call the bar tool ---
+
                 # --- ADDED: Remove 'foo' function ---
                 logger.info("🗑️ REMOVING 'foo' FUNCTION VIA _function_remove")
                 remove_foo_args = {"name": "foo"}
@@ -142,6 +218,18 @@ def foo(a: int, b: int) -> int:
                             logger.info(f"✅ REMOVE FOO RESULT: {item.text}")
                 except Exception as e:
                     logger.error(f"❌ FAILED TO REMOVE 'foo' FUNCTION: {str(e)}")
+
+                # --- ADDED: Remove 'bar' function ---
+                logger.info("🗑️ REMOVING 'bar' FUNCTION VIA _function_remove")
+                remove_bar_args = {"name": "bar"}
+                try:
+                    remove_bar_result = await session.call_tool("_function_remove", remove_bar_args)
+                    for item in remove_bar_result.content:
+                        if isinstance(item, TextContent):
+                            logger.info(f"✅ REMOVE BAR RESULT: {item.text}")
+                except Exception as e:
+                    logger.error(f"❌ FAILED TO REMOVE 'bar' FUNCTION: {str(e)}")
+                # --- END REMOVE 'bar' function ---
 
                 # List tools one last time to confirm removal
                 logger.info("🔍 LISTING AVAILABLE TOOLS AFTER REMOVAL")

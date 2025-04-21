@@ -724,11 +724,17 @@ async def function_set(args: Dict[str, Any], server: Any) -> List[TextContent]:
         syntax_error = str(e)
         logger.warning(f"⚠️ Basic syntax validation (AST parse) failed for '{function_name}': {syntax_error}")
 
-    # 4. Notify clients about the tool list change (might happen even if syntax is bad)
+    # 4. Clear cache and notify clients about the tool list change
+    logger.info(f"🧹 Clearing tool cache on server due to function_set for '{function_name}'.")
+    server._cached_tools = None
+    server._last_functions_dir_mtime = None # Reset mtime to force reload
+    server._last_servers_dir_mtime = None # Reset mtime to force reload
+
     if hasattr(server, '_notify_tool_list_changed'):
         try:
-            # Maybe call _get_tools_list(force_refresh=True) before notifying?
+            # Maybe call _get_tools_list(force_refresh=True) before notifying? # Keep original comment
             await server._notify_tool_list_changed()
+            logger.info(f"📬 Notified clients of tool list change for '{function_name}'.")
         except Exception as notify_e:
             logger.error(f"❌ Failed to notify clients after registering '{function_name}': {notify_e}")
             # Continue even if notification fails
@@ -746,5 +752,3 @@ async def function_set(args: Dict[str, Any], server: Any) -> List[TextContent]:
 
     # Note: Full validation including signature extraction happens when tools are listed/called.
     return [TextContent(type="text", text=response_message)]
-
-

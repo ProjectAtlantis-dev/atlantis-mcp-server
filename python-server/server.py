@@ -763,6 +763,17 @@ class DynamicAdditionServer(Server):
             # ---> ADDED: Process raw result into final_result format (List[TextContent])
             if isinstance(result_raw, str):
                 final_result = [TextContent(type="text", text=result_raw)]
+            elif isinstance(result_raw, dict):
+                # Serialize dict to JSON string and wrap in TextContent
+                logger.debug(f"<--- Serializing dict result to JSON string for tool '{name}'.")
+                import json
+                try:
+                    json_string = json.dumps(result_raw)
+                    result_content = [TextContent(type="text", text=json_string, annotations={'sourceType': 'json'})]
+                except TypeError as e:
+                    logger.error(f"Error serializing dictionary result to JSON for tool '{name}': {e}")
+                    result_content = [TextContent(type="error", text=f"Error serializing result: {e}")]
+                final_result = result_content
             elif isinstance(result_raw, list) and all(isinstance(item, TextContent) for item in result_raw):
                 final_result = result_raw
             elif result_raw is None: # Handle cases where built-ins might not have set result_raw (e.g., error occurred before assignment)

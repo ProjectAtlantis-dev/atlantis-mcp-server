@@ -3,9 +3,11 @@ import os
 import psutil
 import logging
 import json
+from state import logger
 
-# Set up logger
-logger = logging.getLogger("mcp_server")
+# ANSI escape codes for colors
+PINK = "\x1b[95m"  # Added Pink
+RESET = "\x1b[0m"
 
 # Path for the PID file
 PID_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_server.pid")
@@ -86,9 +88,6 @@ def clean_filename(name: str) -> str:
     """
     return name
 
-# Initialize a module logger
-logger = logging.getLogger("utils")
-
 # Global server reference to be set at startup
 _server_instance = None
 
@@ -123,9 +122,8 @@ def client_log(message: Any, level: str = "info", logger_name: str = None, clien
             return result
         ```
     """
-    # Log locally first
-    log_method = getattr(logger, level.lower(), logger.info)
-    log_method(f"CLIENT LOG: {message}")
+    # Log locally first (always using INFO level for local display)
+    logger.info(f"{PINK}CLIENT LOG [{level.upper()}]: {message}{RESET}")
 
     # Send to client if server is available
     if _server_instance is not None:

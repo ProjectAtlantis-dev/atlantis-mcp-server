@@ -12,6 +12,7 @@ import time
 import random
 import socketio
 import argparse
+import uuid
 from utils import check_server_running, create_pid_file, remove_pid_file, clean_filename, format_json_log
 from typing import Any, Callable, Dict, List, Optional, Union
 import datetime
@@ -24,13 +25,18 @@ from mcp.server import Server
 from mcp.client.websocket import websocket_client
 from mcp.types import Tool, TextContent, CallToolResult, ToolListChangedNotification, NotificationParams, Annotations
 from starlette.applications import Starlette
-from starlette.routing import WebSocketRoute
+from starlette.routing import WebSocketRoute, Route
+from starlette.websockets import WebSocket, WebSocketDisconnect
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+# Import Uvicorn for running the server
 import uvicorn
 
-# Import from our newly created modules
+# Import state variables and custom formatter
 from state import (
     logger, HOST, PORT,
-    FUNCTIONS_DIR, is_shutting_down, cloud_connection_active,
+    FUNCTIONS_DIR, SERVERS_DIR, is_shutting_down, cloud_connection_active,
     CLOUD_SERVER_HOST, CLOUD_SERVER_PORT, CLOUD_SERVER_URL,
     CLOUD_SERVICE_NAMESPACE, CLOUD_CONNECTION_RETRY_SECONDS,
     CLOUD_CONNECTION_MAX_RETRIES, CLOUD_CONNECTION_MAX_BACKOFF_SECONDS,
@@ -51,7 +57,7 @@ from dynamic_manager import _fs_load_code
 import utils
 
 # Import server manager functions
-from server_manager import server_list, server_get, server_add, server_remove, server_set, server_validate
+from server_manager import server_list, server_get, server_add, server_remove, server_set, server_validate, server_start, server_stop
 
 # NOTE: This server uses two different socket protocols:
 # 1. Standard WebSockets: When acting as a SERVER to accept connections from node-mcp-client
@@ -132,6 +138,7 @@ class DynamicAdditionServer(Server):
         super().__init__("Dynamic Function Server")
         self._cached_tools: Optional[List[Tool]] = None # Cache for tool list
         self._last_functions_dir_mtime: float = 0.0 # Timestamp for cache invalidation
+        self._last_servers_dir_mtime: float = 0.0 # Timestamp for dynamic servers cache invalidation
 
         # Register tool handlers using SDK decorators
         # These now wrap the actual logic methods defined below
@@ -224,16 +231,22 @@ class DynamicAdditionServer(Server):
             # Ensure the directory exists before checking mtime
             if not os.path.exists(FUNCTIONS_DIR):
                  os.makedirs(FUNCTIONS_DIR, exist_ok=True)
-                 logger.info(f"📂 Created missing FUNCTIONS_DIR: {FUNCTIONS_DIR}")
                  current_mtime = os.path.getmtime(FUNCTIONS_DIR)
             else:
                  current_mtime = os.path.getmtime(FUNCTIONS_DIR)
 
-            if current_mtime == self._last_functions_dir_mtime and self._cached_tools is not None:
+            # Ensure the dynamic servers directory exists and get its mtime
+            if not os.path.exists(SERVERS_DIR):
+                os.makedirs(SERVERS_DIR, exist_ok=True)
+                server_mtime = os.path.getmtime(SERVERS_DIR)
+            else:
+                server_mtime = os.path.getmtime(SERVERS_DIR)
+
+            if (current_mtime == self._last_functions_dir_mtime and server_mtime == self._last_servers_dir_mtime and self._cached_tools is not None):
                 logger.info(f"⚡️ USING CACHED TOOL LIST (DIR UNCHANGED - mtime: {current_mtime})")
                 # Return a copy to prevent external modification of the cache
                 return list(self._cached_tools)
-            logger.info(f"🔄 FUNCTIONS DIR MODIFIED (mtime: {current_mtime} vs last: {self._last_functions_dir_mtime}) or cache empty, REGENERATING TOOL LIST")
+            logger.info(f"🔄 DIRECTORIES MODIFIED (functions mtime: {current_mtime} vs last: {self._last_functions_dir_mtime}; servers mtime: {server_mtime} vs last: {self._last_servers_dir_mtime}) or cache empty, REGENERATING TOOL LIST")
         except Exception as e:
              logger.error(f"❌ Error checking FUNCTIONS_DIR mtime: {e}. Proceeding without cache.")
              current_mtime = time.time() # Use current time to force regeneration
@@ -346,6 +359,28 @@ class DynamicAdditionServer(Server):
                     },
                     "required": ["name"]
                 }
+            ),
+            Tool(
+                name="_server_start",
+                description="Starts a managed MCP server background task using its configuration name.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "The name of the server config to start."}
+                    },
+                    "required": ["name"]
+                }
+            ),
+            Tool(
+                name="_server_stop",
+                description="Stops a managed MCP server background task by its configuration name.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "The name of the server config to stop."}
+                    },
+                    "required": ["name"]
+                }
             )
         ]
         # Log the static tools being included
@@ -380,6 +415,8 @@ class DynamicAdditionServer(Server):
                     tool_description = f"Dynamic function: {tool_name_from_file}"
                     tool_input_schema = {"type": "object", "properties": {}}
                     tool_annotations = {}
+
+                    tool_annotations["type"] = "function"
 
                     if is_valid and function_info:
                          # Use extracted info if valid and available
@@ -433,12 +470,49 @@ class DynamicAdditionServer(Server):
             logger.error(f"❌ Error scanning for dynamic functions: {str(e)}")
             # Continue with just the built-in tools
 
+        # Scan dynamic servers
+        try:
+            server_names = server_list()
+            logger.info(f"📝 FOUND {len(server_names)} MCP servers")
+            for server_name in server_names:
+                try:
+                    config = server_get(server_name)
+                    annotations = {}
+                    annotations["type"] = "server"
+                    annotations["serverConfig"] = config or {}
+                    # Add lastModified timestamp for server config file
+                    try:
+                        server_file = os.path.join(SERVERS_DIR, f"{server_name}.json")
+                        mtime = os.path.getmtime(server_file)
+                        annotations["lastModified"] = datetime.datetime.fromtimestamp(mtime).isoformat()
+                    except Exception as me:
+                        logger.warning(f"⚠️ Could not get mtime for server '{server_name}': {me}")
+                    server_tool = Tool(
+                        name=server_name,
+                        description=f"MCP server: {server_name}",
+                        inputSchema={"type": "object"},
+                        annotations=annotations
+                    )
+                    tools_list.append(server_tool)
+                    logger.debug(f"📝 Added dynamic server tool: {server_name}")
+                except Exception as se:
+                    logger.warning(f"⚠️ Error loading MCP server '{server_name}': {se}")
+                    tools_list.append(Tool(
+                        name=server_name,
+                        description=f"Error loading MCP server: {se}",
+                        inputSchema={"type": "object"},
+                        annotations={"validationStatus": "ERROR_LOADING_SERVER"}
+                    ))
+        except Exception as ee:
+            logger.error(f"❌ Error scanning for dynamic servers: {ee}")
+
         logger.info(f"📝 RETURNING {len(tools_list)} TOOLS")
 
         # --- Update Cache ---
         self._cached_tools = list(tools_list) # Store a copy
         self._last_functions_dir_mtime = current_mtime
-        logger.info(f"💾 CACHED TOOL LIST (Timestamp: {current_mtime})")
+        self._last_servers_dir_mtime = server_mtime
+        logger.info(f"💾 CACHED TOOL LIST (functions ts: {current_mtime}; servers ts: {server_mtime})")
 
         return tools_list
 
@@ -658,6 +732,12 @@ class DynamicAdditionServer(Server):
                     raise ValueError("Missing required parameter: name")
                 logger.debug(f"---> Calling built-in: server_validate for '{svc_name}'")
                 result_raw = server_validate(svc_name)
+            elif name == "_server_start":
+                logger.debug(f"---> Calling built-in: server_start with args: {args!r}")
+                result_raw = await server_start(args, self)
+            elif name == "_server_stop":
+                logger.debug(f"---> Calling built-in: server_stop with args: {args!r}")
+                result_raw = await server_stop(args, self)
             # Handle dynamic function calls
             elif not name.startswith('_'):  # Only non-underscore names are potential dynamic functions
                 # Check if function exists
@@ -804,7 +884,7 @@ class ServiceClient:
                 logger.debug(f"Traceback: {traceback.format_exc()}")
 
                 # Calculate exponential backoff delay with jitter
-                backoff_delay = CLOUD_CONNECTION_RETRY_SECONDS * (2 ** self.retry_count)
+                backoff_delay = CLOUD_CONNECTION_RETRY_SECONDS * (1.2 ** self.retry_count)
                 jitter = random.uniform(0, 1) # Add random jitter (0-1 seconds)
                 actual_delay = min(backoff_delay + jitter, CLOUD_CONNECTION_MAX_BACKOFF_SECONDS)
 
@@ -927,7 +1007,8 @@ class ServiceClient:
             # Format data nicely if it's an mcp_response
             #print_log_data = format_json_log(data)
             log_data = str(data)
-            logger.debug(f"☁️ SENDING MESSAGE: {event} - \n{log_data}") # Log formatted data on new line
+            #logger.debug(f"☁️ SENDING MESSAGE: {event} - \n{log_data}") # Log formatted data on new line
+            logger.debug(f"☁️ SENDING MESSAGE: {event}") # Log formatted data on new line
             await self.sio.emit(event, data, namespace=self.namespace)
 
             return True
@@ -961,8 +1042,11 @@ active_websockets = set()
 # Global dictionary to track client connections by ID
 client_connections = {}
 
+# Global dictionary to store dynamically registered clients (in-memory for now)
+REGISTERED_CLIENTS: Dict[str, Dict[str, Any]] = {}
+
 # Custom WebSocket handler for the MCP server
-async def handle_websocket(websocket):
+async def handle_websocket(websocket: WebSocket):
     # Accept the WebSocket connection with MCP subprotocol
     await websocket.accept(subprotocol="mcp")
 
@@ -1145,10 +1229,49 @@ async def process_mcp_request(server, request, client_id=None):
         logger.debug(f"Traceback: {traceback.format_exc()}")
         return {"jsonrpc": "2.0", "id": req_id, "error": f"Error processing request: {e}"}
 
-# Set up the Starlette application with a WebSocket route
+# Set up the Starlette application with routes
+async def handle_registration(request: Request) -> JSONResponse:
+    """Handle dynamic client registration requests (POST /register)."""
+    try:
+        client_metadata = await request.json()
+        logger.info(f"🔑 Received registration request: {client_metadata}")
+
+        # Basic validation (can be expanded)
+        client_name = client_metadata.get("client_name")
+        if not client_name:
+            return JSONResponse({"error": "Missing 'client_name' in request"}, status_code=400)
+
+        # Generate unique client ID
+        client_id = str(uuid.uuid4())
+
+        # Store client details (add secrets, scopes etc. later)
+        REGISTERED_CLIENTS[client_id] = {
+            "client_id": client_id,
+            "client_name": client_name,
+            "registration_time": datetime.datetime.utcnow().isoformat()
+            # Add secret generation/storage here if needed
+        }
+
+        logger.info(f"✅ Registered new client: ID={client_id}, Name='{client_name}'")
+
+        # Return the client ID (and secret if applicable)
+        response_data = {
+            "client_id": client_id,
+            # "client_secret": generated_secret # Include if using secrets
+        }
+        return JSONResponse(response_data, status_code=201) # 201 Created
+
+    except json.JSONDecodeError:
+        logger.error("❌ Registration failed: Invalid JSON in request body")
+        return JSONResponse({"error": "Invalid JSON format"}, status_code=400)
+    except Exception as e:
+        logger.error(f"❌ Registration failed: {str(e)}", exc_info=True)
+        return JSONResponse({"error": "Internal server error during registration"}, status_code=500)
+
 app = Starlette(
     routes=[
         WebSocketRoute("/mcp", endpoint=handle_websocket),
+        Route("/register", endpoint=handle_registration, methods=["POST"])
     ]
 )
 

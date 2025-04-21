@@ -38,7 +38,9 @@ async def test_mcp_add(server_url: str):
                 # Print available tools
                 logger.info(f"📦 AVAILABLE TOOLS ({len(tools_result.tools)}):")
                 for tool in tools_result.tools:
-                    logger.info(f"   🔧 {tool.name}: {tool.description}")
+                    # Access type from annotations dictionary via __pydantic_extra__
+                    tool_type = tool.__pydantic_extra__.get('annotations', {}).get('type', 'internal') # Default to internal if missing
+                    logger.info(f"   🔧 [{tool_type}] {tool.name}: {tool.description}") 
 
                 # --- Test dynamic function registration --- START ---
                 # Step 1: Add the empty 'greet' function stub
@@ -108,7 +110,9 @@ def foo(a: int, b: int) -> int:
                 tools_result_after_register = await session.list_tools()
                 logger.info(f"📦 AVAILABLE TOOLS ({len(tools_result_after_register.tools)}):")
                 for tool in tools_result_after_register.tools:
-                    logger.info(f"   🔧 {tool.name}: {tool.description}")
+                    # Access type from annotations dictionary via __pydantic_extra__
+                    tool_type = tool.__pydantic_extra__.get('annotations', {}).get('type', 'internal') # Default to internal if missing
+                    logger.info(f"   🔧 [{tool_type}] {tool.name}: {tool.description}")
 
                 # Call the foo tool with two numbers
                 a_foo, b_foo = 5, 7
@@ -144,7 +148,9 @@ def foo(a: int, b: int) -> int:
                 tools_result_after_remove = await session.list_tools()
                 logger.info(f"📦 AVAILABLE TOOLS ({len(tools_result_after_remove.tools)}):")
                 for tool in tools_result_after_remove.tools:
-                    logger.info(f"   🔧 {tool.name}: {tool.description}")
+                    # Access type from annotations dictionary via __pydantic_extra__
+                    tool_type = tool.__pydantic_extra__.get('annotations', {}).get('type', 'internal') # Default to internal if missing
+                    logger.info(f"   🔧 [{tool_type}] {tool.name}: {tool.description}")
 
                 # Only the client connection is disconnecting, the server remains running
                 logger.info("👋 CLIENT DISCONNECTING (SERVER REMAINS ACTIVE FOR FUTURE CONNECTIONS)")

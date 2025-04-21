@@ -128,6 +128,24 @@ def foo(a: int, b: int) -> int:
                         logger.info(f"✨ FOO RESULT: {a_foo} + {b_foo} = {result}")
                         print(f"\n✨ FOO RESULT: {a_foo} + {b_foo} = {result} ✨\n")
 
+                # --- ADDED: Remove 'foo' function ---
+                logger.info("🗑️ REMOVING 'foo' FUNCTION VIA _function_remove")
+                remove_foo_args = {"name": "foo"}
+                try:
+                    remove_foo_result = await session.call_tool("_function_remove", remove_foo_args)
+                    for item in remove_foo_result.content:
+                        if isinstance(item, TextContent):
+                            logger.info(f"✅ REMOVE FOO RESULT: {item.text}")
+                except Exception as e:
+                    logger.error(f"❌ FAILED TO REMOVE 'foo' FUNCTION: {str(e)}")
+
+                # List tools one last time to confirm removal
+                logger.info("🔍 LISTING AVAILABLE TOOLS AFTER REMOVAL")
+                tools_result_after_remove = await session.list_tools()
+                logger.info(f"📦 AVAILABLE TOOLS ({len(tools_result_after_remove.tools)}):")
+                for tool in tools_result_after_remove.tools:
+                    logger.info(f"   🔧 {tool.name}: {tool.description}")
+
                 # Only the client connection is disconnecting, the server remains running
                 logger.info("👋 CLIENT DISCONNECTING (SERVER REMAINS ACTIVE FOR FUTURE CONNECTIONS)")
                 # The MCP server will stay running for long-running conversations and future connections

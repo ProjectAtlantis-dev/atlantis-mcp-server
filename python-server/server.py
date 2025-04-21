@@ -13,6 +13,7 @@ import random
 import socketio
 import argparse
 import uuid
+import secrets
 from utils import check_server_running, create_pid_file, remove_pid_file, clean_filename, format_json_log
 from typing import Any, Callable, Dict, List, Optional, Union
 import datetime
@@ -100,12 +101,6 @@ if existing_pid:
 if not create_pid_file():
     logger.error("❌ Failed to create PID file! Exiting...")
     sys.exit(1)
-
-
-
-
-
-
 
 # Function to get code for a dynamic function
 async def get_function_code(args, mcp_server) -> list[TextContent]:
@@ -1033,17 +1028,44 @@ class ServiceClient:
                 pass
         logger.info("☁️ CLOUD SERVER CONNECTION CLOSED")
 
-# Create an instance of our MCP server
-mcp_server = DynamicAdditionServer()
-
 # Global collection to track active websocket connections
 active_websockets = set()
 
 # Global dictionary to track client connections by ID
 client_connections = {}
 
-# Global dictionary to store dynamically registered clients (in-memory for now)
+# Global dictionary to store dynamically registered clients (loaded from file)
 REGISTERED_CLIENTS: Dict[str, Dict[str, Any]] = {}
+CLIENTS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "registered_clients.json")
+
+# --- ADDED Persistence Functions ---
+def _load_registered_clients():
+    """Load registered clients from the JSON file into memory."""
+    global REGISTERED_CLIENTS
+    if os.path.exists(CLIENTS_FILE):
+        try:
+            with open(CLIENTS_FILE, 'r') as f:
+                REGISTERED_CLIENTS = json.load(f)
+                logger.info(f"💾 Loaded {len(REGISTERED_CLIENTS)} registered clients from {CLIENTS_FILE}")
+        except (json.JSONDecodeError, IOError) as e:
+            logger.error(f"❌ Error loading {CLIENTS_FILE}: {e}. Starting with empty registrations.")
+            REGISTERED_CLIENTS = {}
+    else:
+        logger.info(f"ℹ️ Client registration file not found ({CLIENTS_FILE}). Starting fresh.")
+        REGISTERED_CLIENTS = {}
+
+def _save_registered_clients():
+    """Save the current registered clients dictionary to the JSON file."""
+    try:
+        with open(CLIENTS_FILE, 'w') as f:
+            json.dump(REGISTERED_CLIENTS, f, indent=2) # Use indent for readability
+            logger.debug(f"💾 Saved {len(REGISTERED_CLIENTS)} registered clients to {CLIENTS_FILE}") # DEBUG level
+    except IOError as e:
+        logger.error(f"❌ Error saving registered clients to {CLIENTS_FILE}: {e}")
+# --- End Persistence Functions ---
+
+# --- ADDED BACK Global MCP Server Instantiation ---
+mcp_server = DynamicAdditionServer()
 
 # Custom WebSocket handler for the MCP server
 async def handle_websocket(websocket: WebSocket):
@@ -1231,42 +1253,62 @@ async def process_mcp_request(server, request, client_id=None):
 
 # Set up the Starlette application with routes
 async def handle_registration(request: Request) -> JSONResponse:
-    """Handle dynamic client registration requests (POST /register)."""
+    """Handle dynamic client registration requests (POST /register).
+
+    Expects JSON body with at least 'client_name' and 'redirect_uris'.
+    Generates client_id and client_secret.
+    Persists client data to file.
+    Based on RFC 7591.
+    """
     try:
         client_metadata = await request.json()
         logger.info(f"🔑 Received registration request: {client_metadata}")
 
-        # Basic validation (can be expanded)
+        # --- Enhanced Validation --- 
         client_name = client_metadata.get("client_name")
+        redirect_uris = client_metadata.get("redirect_uris")
+
         if not client_name:
-            return JSONResponse({"error": "Missing 'client_name' in request"}, status_code=400)
+            return JSONResponse({"error": "invalid_client_metadata", "error_description": "Missing 'client_name'"}, status_code=400)
+        if not redirect_uris or not isinstance(redirect_uris, list) or not all(isinstance(uri, str) for uri in redirect_uris):
+            return JSONResponse({"error": "invalid_redirect_uri", "error_description": "'redirect_uris' must be a non-empty array of strings"}, status_code=400)
+        # Add more validation for other DCR params (grant_types, response_types, scope etc.) if needed
 
-        # Generate unique client ID
+        # --- Client Creation --- 
         client_id = str(uuid.uuid4())
+        issued_at = int(datetime.datetime.utcnow().timestamp()) # Use timestamp
+        client_secret = secrets.token_urlsafe(32) # Generate client secret
 
-        # Store client details (add secrets, scopes etc. later)
-        REGISTERED_CLIENTS[client_id] = {
+        # --- Store Client Details --- 
+        # Store all provided valid metadata
+        registered_data = {
             "client_id": client_id,
             "client_name": client_name,
-            "registration_time": datetime.datetime.utcnow().isoformat()
-            # Add secret generation/storage here if needed
+            "redirect_uris": redirect_uris,
+            "client_id_issued_at": issued_at,
+            "client_secret": client_secret, # Store client secret
+            "client_secret_expires_at": 0, # 0 means never expires, or set a timestamp
+            # Store other validated DCR fields here (grant_types, response_types, scope etc.)
+            # "token_endpoint_auth_method": client_metadata.get("token_endpoint_auth_method", "client_secret_basic") # Default or from request
         }
+        REGISTERED_CLIENTS[client_id] = registered_data
+        _save_registered_clients() # Save after modification
 
-        logger.info(f"✅ Registered new client: ID={client_id}, Name='{client_name}'")
+        logger.info(f"✅ Registered new client: ID={client_id}, Name='{client_name}', URIs={redirect_uris}")
 
-        # Return the client ID (and secret if applicable)
-        response_data = {
-            "client_id": client_id,
-            # "client_secret": generated_secret # Include if using secrets
-        }
+        # --- Response --- 
+        # Return the registered client metadata (INCLUDING secret for M2M simplicity for now)
+        response_data = registered_data.copy()
+        # Consider *not* returning the secret in production for higher security
+
         return JSONResponse(response_data, status_code=201) # 201 Created
 
     except json.JSONDecodeError:
         logger.error("❌ Registration failed: Invalid JSON in request body")
-        return JSONResponse({"error": "Invalid JSON format"}, status_code=400)
+        return JSONResponse({"error": "invalid_client_metadata", "error_description": "Invalid JSON format"}, status_code=400)
     except Exception as e:
         logger.error(f"❌ Registration failed: {str(e)}", exc_info=True)
-        return JSONResponse({"error": "Internal server error during registration"}, status_code=500)
+        return JSONResponse({"error": "internal_server_error", "error_description": "Internal server error during registration"}, status_code=500)
 
 app = Starlette(
     routes=[
@@ -1292,6 +1334,8 @@ if __name__ == "__main__":
     # Update host and port from command line arguments
     HOST = args.host
     PORT = args.port
+
+    _load_registered_clients() # Load clients at startup
 
     # Update cloud server settings if provided
     if args.cloud_host != CLOUD_SERVER_HOST or args.cloud_port != CLOUD_SERVER_PORT:
@@ -1323,7 +1367,7 @@ if __name__ == "__main__":
         if not args.no_cloud:
             if not args.email or not args.api_key or not args.service_name:
                 logger.error("❌ CLOUD SERVER CONNECTION REQUIRES EMAIL, API KEY AND SERVICE NAME")
-                logger.error("❌ Use --email and --api-key to specify credentials, --service-name to specify desired service name")
+                logger.error("❌ Use --email and --api_key to specify credentials, --service-name to specify desired service name")
                 logger.info("☁️ CLOUD SERVER CONNECTION DISABLED")
             else:
                 logger.info(f"☁️ CLOUD SERVER CONNECTION ENABLED: {CLOUD_SERVER_URL}")

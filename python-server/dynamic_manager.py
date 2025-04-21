@@ -13,14 +13,12 @@ from typing import Optional, Any, Dict, Union
 from werkzeug.utils import secure_filename
 from state import logger, FUNCTIONS_DIR, CYAN, RESET # Import FUNCTIONS_DIR, CYAN, and RESET
 import utils # Import our utility module for dynamic functions
-
 import logging
 import json
 import inspect
 import importlib
 import importlib.util
 import re
-
 import ast
 import functools
 import datetime
@@ -217,7 +215,7 @@ def _map_ast_type_to_json_schema(annotation_node: Optional[ast.expr]) -> Dict[st
     elif isinstance(annotation_node, ast.Subscript):
         container_node = annotation_node.value
         # Handle slice difference between Python versions
-        slice_node = node.slice
+        slice_node = annotation_node.slice # Corrected variable name
         if hasattr(ast, 'Index') and isinstance(slice_node, ast.Index): # Python < 3.9
              slice_inner_node = slice_node.value
         else: # Python 3.9+
@@ -627,7 +625,7 @@ def function_validate(name: str) -> Dict[str, Any]:
         # Return the detailed error message
         return {'valid': False, 'error': error_message, 'function_info': None}
 
-def function_call(name: str, **kwargs) -> Any:
+async def function_call(name: str, client_id, **kwargs) -> Any:
     '''
     Loads and executes a dynamic function by its name, passing kwargs.
     Returns the function's return value.
@@ -656,7 +654,9 @@ def function_call(name: str, **kwargs) -> Any:
 
         # Inject our utils module into the module's globals
         # This makes client_log available to the dynamic function without explicit imports
-        module.__dict__['client_log'] = utils.client_log
+        bound_client_log = functools.partial(utils.client_log, client_id=client_id)
+        logger.debug(f"Bound client_log with client_id: {client_id}") # Log the bound client_id
+        module.__dict__['client_log'] = bound_client_log
 
         spec.loader.exec_module(module)
         logger.info(f"Dynamically loaded module for function '{secure_name}'.")
@@ -670,7 +670,8 @@ def function_call(name: str, **kwargs) -> Any:
             raise AttributeError(f"Function '{secure_name}' not found or not callable within its module.")
 
         logger.info(f"Calling dynamic function '{secure_name}' with args: {kwargs}")
-        result = func_to_call(**kwargs)
+        result = func_to_call(**kwargs['args']) # Call the function with the provided keyword arguments
+
         logger.info(f"Dynamic function '{secure_name}' executed successfully.")
         return result
 

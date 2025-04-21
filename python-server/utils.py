@@ -123,7 +123,9 @@ def client_log(message: Any, level: str = "info", logger_name: str = None, clien
         ```
     """
     # Log locally first (always using INFO level for local display)
-    logger.info(f"{PINK}CLIENT LOG [{level.upper()}]: {message}{RESET}")
+    log_prefix = f"{PINK}CLIENT LOG [{level.upper()}]"
+    log_suffix = f"(Client: {client_id}): {message}{RESET}"
+    logger.info(f"{log_prefix} {log_suffix}") # Use imported logger and add color/client_id
 
     # Send to client if server is available
     if _server_instance is not None:

@@ -748,9 +748,10 @@ class DynamicAdditionServer(Server):
                 # Call the dynamic function
                 try:
                     logger.info(f"🔧 CALLING DYNAMIC FUNCTION: {name}")
-                    logger.debug(f"---> Calling dynamic: function_call for '{name}' with args: {args}") # <-- ADD THIS LINE
-                    result_raw = function_call(name, **args)
-                    logger.debug(f"<--- Dynamic function '{name}' RAW result: {result_raw!r} (type: {type(result_raw)})") # <-- ADD THIS LINE
+                    logger.debug(f"---> Calling dynamic: function_call for '{name}' with args: {args} and client_id: {client_id}") # Log args and client_id separately
+                    # Pass arguments and client_id distinctly
+                    result_raw = await function_call(name, client_id=client_id, args=args)
+                    logger.debug(f"<--- Dynamic function '{name}' RAW result: {result_raw} (type: {type(result_raw)})")
 
                 except Exception as e:
                     logger.error(f"❌ Error during dynamic function call '{name}': {str(e)}", exc_info=True)

@@ -177,7 +177,12 @@ class DynamicAdditionServer(Server):
         except Exception as e:
             logger.warning(f"Could not send initial tool notification: {str(e)}")
         logger.info(f"{CYAN}🔧 Server initialize method completed.{RESET}")
-        return {}  # Empty response per MCP protocol
+        # Return required InitializeResult fields
+        return {
+            "protocolVersion": params.get("protocolVersion"),
+            "capabilities": params.get("capabilities"),
+            "serverInfo": {"name": self.name, "version": SERVER_VERSION}
+        }
 
     async def send_tool_notification(self, tools: Optional[list[Tool]] = None):
         """Send a tool list changed notification to clients
@@ -1098,7 +1103,8 @@ async def handle_websocket(websocket: WebSocket):
                 response = await process_mcp_request(mcp_server, request, client_id)
 
                 # Send the response back to the client
-                logger.debug(f"📤 Sending: {response}")
+                #logger.debug(f"📤 Sending: {response}")
+                logger.debug(f"📤 Sending response")
                 await websocket.send_text(json.dumps(response))
 
             except json.JSONDecodeError:
@@ -1108,6 +1114,8 @@ async def handle_websocket(websocket: WebSocket):
                 logger.error(f"🚫 Error processing request: {e}")
                 await websocket.send_text(json.dumps({"error": str(e)}))
 
+    except WebSocketDisconnect as e:
+        logger.info(f"☑️ WebSocket client disconnected normally: code={e.code}, reason={e.reason}")
     except Exception as e:
         logger.error(f"🛑 WebSocket error: {e}")
     finally:
@@ -1157,7 +1165,7 @@ async def process_mcp_request(server, request, client_id=None):
             result = await server.initialize(params)
             logger.info(f"✅ Successfully processed 'initialize' request")
             # Return empty object per MCP protocol spec
-            return {"jsonrpc": "2.0", "id": req_id, "result": {}}
+            return {"jsonrpc": "2.0", "id": req_id, "result": result}
         elif method == "tools/list":
             logger.info(f"🧰 Processing 'tools/list' request")
             # Pass context indicating this call is from the SDK handler (likely a direct request)
@@ -1264,7 +1272,7 @@ async def handle_registration(request: Request) -> JSONResponse:
         client_metadata = await request.json()
         logger.info(f"🔑 Received registration request: {client_metadata}")
 
-        # --- Enhanced Validation --- 
+        # --- Enhanced Validation ---
         client_name = client_metadata.get("client_name")
         redirect_uris = client_metadata.get("redirect_uris")
 
@@ -1274,12 +1282,12 @@ async def handle_registration(request: Request) -> JSONResponse:
             return JSONResponse({"error": "invalid_redirect_uri", "error_description": "'redirect_uris' must be a non-empty array of strings"}, status_code=400)
         # Add more validation for other DCR params (grant_types, response_types, scope etc.) if needed
 
-        # --- Client Creation --- 
+        # --- Client Creation ---
         client_id = str(uuid.uuid4())
         issued_at = int(datetime.datetime.utcnow().timestamp()) # Use timestamp
         client_secret = secrets.token_urlsafe(32) # Generate client secret
 
-        # --- Store Client Details --- 
+        # --- Store Client Details ---
         # Store all provided valid metadata
         registered_data = {
             "client_id": client_id,
@@ -1296,7 +1304,7 @@ async def handle_registration(request: Request) -> JSONResponse:
 
         logger.info(f"✅ Registered new client: ID={client_id}, Name='{client_name}', URIs={redirect_uris}")
 
-        # --- Response --- 
+        # --- Response ---
         # Return the registered client metadata (INCLUDING secret for M2M simplicity for now)
         response_data = registered_data.copy()
         # Consider *not* returning the secret in production for higher security

@@ -102,6 +102,84 @@ if not create_pid_file():
     logger.error("❌ Failed to create PID file! Exiting...")
     sys.exit(1)
 
+# --- File Watcher Setup ---
+
+import threading # Added for watcher thread
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+
+class DynamicConfigEventHandler(FileSystemEventHandler):
+    """Handles file system events in dynamic_functions and dynamic_servers directories."""
+    def __init__(self, mcp_server, loop):
+        self.mcp_server = mcp_server
+        self.loop = loop
+        self._debounce_timer = None
+        self._debounce_interval = 1.0 # seconds
+
+    def _trigger_reload(self, event_path):
+        # Check if the change is relevant (Python file in functions dir or JSON file in servers dir)
+        is_function_change = event_path.endswith(".py") and os.path.dirname(event_path) == FUNCTIONS_DIR
+        is_server_change = event_path.endswith(".json") and os.path.dirname(event_path) == SERVERS_DIR
+
+        if not is_function_change and not is_server_change:
+            # logger.debug(f"Ignoring irrelevant change: {event_path}")
+            return
+
+        change_type = "function" if is_function_change else "server configuration"
+        logger.info(f"🐍 Change detected in dynamic {change_type}: {os.path.basename(event_path)}. Debouncing...")
+
+        # Debounce: Cancel existing timer if a new event comes quickly
+        if self._debounce_timer:
+            self._debounce_timer.cancel()
+
+        # Schedule the actual reload after a short delay
+        self._debounce_timer = threading.Timer(self._debounce_interval, self._do_reload)
+        self._debounce_timer.start()
+
+    def _do_reload(self):
+        logger.info(f"⏰ Debounce finished. Reloading dynamic functions tool list.")
+        # Clear the cache - Must run in the main event loop
+        async def clear_cache_and_notify():
+            logger.info(f"🧹 Clearing tool cache on server due to file change.")
+            self.mcp_server._cached_tools = None
+            self.mcp_server._last_functions_dir_mtime = None # Reset functions mtime to force reload
+            self.mcp_server._last_servers_dir_mtime = None   # Reset servers mtime to force reload
+            # Notify clients
+            if hasattr(self.mcp_server, '_notify_tool_list_changed'):
+                try:
+                    await self.mcp_server._notify_tool_list_changed()
+                    logger.info(f"📬 Notified clients of tool list change.")
+                except Exception as notify_e:
+                    logger.error(f"❌ Failed to notify clients after file change: {notify_e}")
+            else:
+                logger.warning("⚠️ Server object lacks _notify_tool_list_changed method.")
+
+        # Schedule the coroutine to run in the event loop from this thread
+        if self.loop.is_running():
+             asyncio.run_coroutine_threadsafe(clear_cache_and_notify(), self.loop)
+        else:
+             logger.warning("⚠️ Event loop not running, cannot reload dynamic functions.")
+
+    def on_modified(self, event):
+        if not event.is_directory:
+            self._trigger_reload(event.src_path)
+
+    def on_created(self, event):
+        if not event.is_directory:
+            self._trigger_reload(event.src_path)
+
+    def on_deleted(self, event):
+        if not event.is_directory:
+            self._trigger_reload(event.src_path)
+
+    def on_moved(self, event):
+        if not event.is_directory:
+            # Trigger reload for both source and destination paths
+            self._trigger_reload(event.src_path)
+            self._trigger_reload(event.dest_path)
+
+# --- End File Watcher Setup ---
+
 # Function to get code for a dynamic function
 async def get_function_code(args, mcp_server) -> list[TextContent]:
     """
@@ -1370,6 +1448,20 @@ if __name__ == "__main__":
     # Initialize the MCP server
     logger.info(f"{BRIGHT_WHITE}🔧 === CALLING SERVER INITIALIZE FROM MAIN ==={RESET}")
     loop.run_until_complete(mcp_server.initialize())
+
+    # Ensure dynamic directories exist
+    os.makedirs(FUNCTIONS_DIR, exist_ok=True)
+    logger.info(f"📁 Dynamic functions directory: {FUNCTIONS_DIR}")
+    os.makedirs(SERVERS_DIR, exist_ok=True)
+    logger.info(f"📁 Dynamic servers directory: {SERVERS_DIR}")
+
+    # Start the file watcher
+    event_handler = DynamicConfigEventHandler(mcp_server, loop)
+    observer = Observer()
+    observer.schedule(event_handler, FUNCTIONS_DIR, recursive=False) # Don't watch subdirs
+    observer.schedule(event_handler, SERVERS_DIR, recursive=False)
+    observer.start()
+    logger.info(f"👁️ Watching for changes in {FUNCTIONS_DIR} and {SERVERS_DIR}...")
 
     # Start the Uvicorn server
     config = uvicorn.Config(app, host=HOST, port=PORT, log_level="warning")

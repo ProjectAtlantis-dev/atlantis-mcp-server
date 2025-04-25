@@ -24,7 +24,7 @@ SERVER_VERSION = "0.1.0"
 from mcp.server import Server
 # Removed websocket_server import - implementing our own handler
 from mcp.client.websocket import websocket_client
-from mcp.types import Tool, TextContent, CallToolResult, ToolListChangedNotification, NotificationParams, Annotations
+from mcp.types import Tool, TextContent, CallToolResult, NotificationParams, Annotations # Ensure Annotation, ToolErrorAnnotation are NOT imported
 from starlette.applications import Starlette
 from starlette.routing import WebSocketRoute, Route
 from starlette.websockets import WebSocket, WebSocketDisconnect
@@ -282,13 +282,18 @@ class DynamicAdditionServer(Server):
                 changed_tools=tools
             )
 
-            # Create the notification
-            notification = ToolListChangedNotification(
-                method="notifications/tools/list_changed",
-                params=notification_params
-            )
+            # Construct the notification dictionary manually to use 'tools/listChanged'
+            notification = {
+                "jsonrpc": "2.0",
+                "method": "tools/listChanged", # Use the desired custom method name
+                "params": notification_params
+            }
 
-            # Send the notification
+            # Serialize the manually created dictionary to JSON
+            notification_json = json.dumps(notification)
+
+            # Send notification to all clients
+            logger.info(f"📢 Broadcasting initial tools list notification ({len(tools)} tools).")
             if hasattr(self, 'service_connections'):
                 for client in self.service_connections.values():
                     await client.send_notification('tools/listChanged', notification.params.model_dump())
@@ -689,7 +694,12 @@ class DynamicAdditionServer(Server):
             # Handle built-in tool calls
             if name == "_function_set":
                 logger.debug(f"---> Calling built-in: function_set") # <-- ADD THIS LINE
-                result_raw = await function_set(args, self)
+                # function_set now returns (extracted_name, result_messages)
+                extracted_name, result_messages = await function_set(args, self)
+                result_raw = result_messages # Use the messages returned by function_set
+                if extracted_name:
+                    # Notify only if function_set successfully extracted a name
+                    await self._notify_tool_list_changed(change_type="updated", tool_name=extracted_name)
             elif name == "_function_get":
                 logger.debug(f"---> Calling built-in: get_function_code") # <-- ADD THIS LINE
                 result_raw = await get_function_code(args, self)
@@ -704,30 +714,24 @@ class DynamicAdditionServer(Server):
                 # Check if function exists before attempting to remove
                 function_path = os.path.join(FUNCTIONS_DIR, f"{func_name}.py")
                 if not os.path.exists(function_path):
-                    result_raw = [TextContent( # <-- CHANGE TO result_raw
-                        type="text",
-                        text=f"Function '{func_name}' does not exist or was already removed."
-                    )]
+                    # Create annotation dict for 'function does not exist' error
+                    error_message = f"Function '{func_name}' does not exist or was already removed."
+                    error_annotations = {
+                        "tool_error": {"tool_name": name, "message": error_message}
+                    }
+                    result_raw = [TextContent(type="text", text=error_message, annotations=error_annotations)]
                 else: # <-- ADD else block
-                    # Remove the function using dynamic_manager.function_remove
-                    try:
-                        if function_remove(func_name):
-                            try:
-                                await self.send_tool_notification()
-                            except Exception as e:
-                                logger.error(f"Error sending tool notification: {str(e)}")
-                            result_raw = [TextContent(type="text", text=f"Function '{func_name}' removed successfully.")] # <-- CHANGE TO result_raw
-                        else:
-                            result_raw = [TextContent( # <-- CHANGE TO result_raw
-                                type="text",
-                                text=f"Error removing function '{func_name}'. Check server logs for details."
-                            )]
-                    except Exception as e:
-                        logger.error(f"Error removing function: {str(e)}")
-                        result_raw = [TextContent( # <-- CHANGE TO result_raw
-                            type="text",
-                            text=f"Error removing function '{func_name}': {str(e)}"
-                        )]
+                    # Remove the function using dynamic_manager.function_remove (raise error on failure)
+                    removed = function_remove(func_name)
+                    if removed:
+                        try:
+                            await self._notify_tool_list_changed(change_type="removed", tool_name=func_name) # Pass params
+                        except Exception as e:
+                            logger.error(f"Error sending tool notification after removing {func_name}: {str(e)}")
+                        result_raw = [TextContent(type="text", text=f"Function '{func_name}' removed successfully.")] # <-- Success message
+                    else:
+                        # Raise error to be caught by the main handler
+                        raise RuntimeError(f"Function '{func_name}' could not be removed (function_remove returned False). Check logs.")
 
             elif name == "_function_add":
                 # Add empty function
@@ -741,30 +745,25 @@ class DynamicAdditionServer(Server):
                 function_path = os.path.join(FUNCTIONS_DIR, f"{func_name}.py")
                 if os.path.exists(function_path):
                     # Function already exists - inform the client rather than raise error
-                    result_raw = [TextContent( # <-- CHANGE TO result_raw
-                        type="text",
-                        text=f"Function '{func_name}' already exists"
-                    )]
+                    # Create annotation dict for 'function already exists' error
+                    error_message = f"Function '{func_name}' already exists"
+                    error_annotations = {
+                        "tool_error": {"tool_name": name, "message": error_message}
+                    }
+                    result_raw = [TextContent(type="text", text=error_message, annotations=error_annotations)]
                 else: # <-- ADD else block
-                    # Create empty function (stub) using dynamic_manager.function_add
-                    try:
-                        if function_add(func_name):
-                            try:
-                                await self.send_tool_notification()
-                            except Exception as e:
-                                logger.error(f"Error sending tool notification: {str(e)}")
-                            result_raw = [TextContent(type="text", text=f"Empty function '{func_name}' created successfully.")] # <-- CHANGE TO result_raw
-                        else:
-                            result_raw = [TextContent( # <-- CHANGE TO result_raw
-                                type="text",
-                                text=f"Error creating function '{func_name}'. Check server logs for details."
-                            )]
-                    except Exception as e:
-                        logger.error(f"Error creating function: {str(e)}")
-                        result_raw = [TextContent( # <-- CHANGE TO result_raw
-                            type="text",
-                            text=f"Error creating function '{func_name}': {str(e)}"
-                        )]
+                    # Create empty function (stub) using dynamic_manager.function_add (raise error on failure)
+                    added = function_add(func_name)
+                    if added:
+                        try:
+                            await self._notify_tool_list_changed(change_type="added", tool_name=func_name) # Pass params
+                        except Exception as e:
+                            logger.error(f"Error sending tool notification after adding {func_name}: {str(e)}")
+                        result_raw = [TextContent(type="text", text=f"Empty function '{func_name}' created successfully.")] # <-- Success message
+                    else:
+                        # Raise error to be caught by the main handler
+                        raise RuntimeError(f"Function '{func_name}' could not be added (function_add returned False). Check logs.")
+
             # MCP server CRUD tool cases
             elif name == "_server_list":
                 logger.debug("---> Calling built-in: server_list")
@@ -866,14 +865,64 @@ class DynamicAdditionServer(Server):
 
         except Exception as e:
             logger.error(f"❌ Error in _execute_tool for '{name}': {str(e)}", exc_info=True)
-            # Return a generic error message as TextContent
+            # Return a generic error message as TextContent with tool_error annotation dict
             error_message = f"Error executing tool '{name}': {str(e)}"
-            final_result = [TextContent(type="text", text=error_message)]
+            error_annotations = {
+                "tool_error": {"tool_name": name, "message": str(e)} # Use original exception message
+            }
+            final_result = [TextContent(type="text", text=error_message, annotations=error_annotations)]
             logger.debug(f"<--- _execute_tool RETURNING error result: {final_result!r}") # <-- ADD THIS LINE
             return final_result
 
+    async def _notify_tool_list_changed(self, change_type: str, tool_name: str):
+        """Send a 'tools/listChanged' notification with details to all connected clients."""
+        logger.info(f"🔔 Notifying clients about tool list change ({change_type}: {tool_name})...")
+        notification_params = {
+            "changeType": change_type,
+            "toolName": tool_name
+        }
+        notification = {
+            "jsonrpc": "2.0",
+            "method": "tools/listChanged", # Corrected to tools/listChanged
+            "params": notification_params # Include details in params
+        }
+        notification_json = json.dumps(notification)
 
+        # Access global connection tracking
+        global client_connections
 
+        if not client_connections:
+            logger.debug("No clients connected, skipping tool list change notification.")
+            return
+
+        # Iterate through a copy of the keys to avoid issues if connections change during iteration
+        client_ids = list(client_connections.keys())
+        for client_id in client_ids:
+            if client_id not in client_connections: # Check if client disconnected during iteration
+                continue
+
+            client_info = client_connections[client_id]
+            client_type = client_info.get("type")
+            connection = client_info.get("connection")
+            logger.debug(f"Attempting to notify client: {client_id} (Type: {client_type})")
+
+            if not connection:
+                logger.warning(f"No connection object found for client {client_id}, skipping notification.")
+                continue
+
+            try:
+                if client_type == "websocket":
+                    await connection.send_text(notification_json)
+                    logger.debug(f"📢 Sent tools/listChanged to WebSocket client: {client_id}")
+                elif client_type == "cloud" and connection.is_connected:
+                    await connection.send_message('mcp_notification', notification)
+                    logger.debug(f"☁️ Sent tools/listChanged to Cloud client: {client_id}")
+                else:
+                    logger.warning(f"Unknown or disconnected client type for {client_id}, skipping notification.")
+
+            except Exception as e:
+                logger.warning(f"Failed to send tools/listChanged notification to client {client_id}: {e}")
+                # Consider removing the client connection if sending fails repeatedly?
 
 # ServiceClient class to manage the connection to the cloud server via Socket.IO
 class ServiceClient:

@@ -97,7 +97,7 @@ def set_server_instance(server):
     _server_instance = server
     logger.debug("Server instance set in utils module")
 
-def client_log(message: Any, level: str = "info", logger_name: str = None, client_id: str = None):
+def client_log(message: Any, level: str = "info", logger_name: str = None, request_id: str = None, client_id_for_routing: str = None):
     """
     Send a log message to the client.
 
@@ -108,8 +108,8 @@ def client_log(message: Any, level: str = "info", logger_name: str = None, clien
         message: The message to log (can be a string or structured data)
         level: Log level ("debug", "info", "warning", "error")
         logger_name: Optional name to identify the logger source
-        client_id: Optional client identifier to send logs to a specific client
-                  If None, logs will be sent to all connected clients
+        request_id: Optional ID of the original request that triggered this log
+        client_id_for_routing: Optional client identifier to route the log message
 
     Example:
         ```python
@@ -124,8 +124,8 @@ def client_log(message: Any, level: str = "info", logger_name: str = None, clien
     """
     # Log locally first (always using INFO level for local display)
     log_prefix = f"{PINK}CLIENT LOG [{level.upper()}]"
-    log_suffix = f"(Client: {client_id}): {message}{RESET}"
-    logger.info(f"{log_prefix} {log_suffix}") # Use imported logger and add color/client_id
+    log_suffix = f"(Client: {client_id_for_routing}, Req: {request_id}): {message}{RESET}"
+    logger.info(f"{log_prefix} {log_suffix}") # Use imported logger and add color/client_id/request_id
 
     # Send to client if server is available
     if _server_instance is not None:
@@ -136,7 +136,8 @@ def client_log(message: Any, level: str = "info", logger_name: str = None, clien
             if logger_name is None:
                 logger_name = "dynamic_function"
 
-            asyncio.create_task(_server_instance.send_client_log(level, message, logger_name, client_id))
+            # Pass request_id and client_id_for_routing to the server's method
+            asyncio.create_task(_server_instance.send_client_log(level, message, logger_name, request_id, client_id_for_routing))
         except Exception as e:
             logger.error(f"Error sending client log: {e}")
     else:

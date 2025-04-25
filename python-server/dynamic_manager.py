@@ -163,11 +163,12 @@ def _ast_node_to_string(node: Optional[ast.expr]) -> str:
     elif isinstance(node, ast.Subscript):
         value_str = _ast_node_to_string(node.value)
         # Handle slice difference between Python versions
-        slice_node = node.slice
+        slice_node = node.slice # Corrected variable name
         if hasattr(ast, 'Index') and isinstance(slice_node, ast.Index): # Python < 3.9
              slice_inner_node = slice_node.value
         else: # Python 3.9+
              slice_inner_node = slice_node
+
         slice_str = _ast_node_to_string(slice_inner_node)
         return f"{value_str}[{slice_str}]"
     elif isinstance(node, ast.Tuple): # For Tuple[A, B] or Union[A, B] slices
@@ -625,7 +626,9 @@ def function_validate(name: str) -> Dict[str, Any]:
         # Return the detailed error message
         return {'valid': False, 'error': error_message, 'function_info': None}
 
-async def function_call(name: str, client_id, **kwargs) -> Any:
+import inspect # Add import
+
+async def function_call(name: str, client_id: str, request_id: str, **kwargs) -> Any:
     '''
     Loads and executes a dynamic function by its name, passing kwargs.
     Returns the function's return value.
@@ -654,8 +657,8 @@ async def function_call(name: str, client_id, **kwargs) -> Any:
 
         # Inject our utils module into the module's globals
         # This makes client_log available to the dynamic function without explicit imports
-        bound_client_log = functools.partial(utils.client_log, client_id=client_id)
-        logger.debug(f"Bound client_log with client_id: {client_id}") # Log the bound client_id
+        bound_client_log = functools.partial(utils.client_log, request_id=request_id, client_id_for_routing=client_id)
+        logger.debug(f"Bound client_log with request_id: {request_id}, client_id_for_routing: {client_id}")
         module.__dict__['client_log'] = bound_client_log
 
         spec.loader.exec_module(module)
@@ -670,7 +673,11 @@ async def function_call(name: str, client_id, **kwargs) -> Any:
             raise AttributeError(f"Function '{secure_name}' not found or not callable within its module.")
 
         logger.info(f"Calling dynamic function '{secure_name}' with args: {kwargs}")
-        result = func_to_call(**kwargs['args']) # Call the function with the provided keyword arguments
+        # Check if the function is async and await it if necessary
+        if inspect.iscoroutinefunction(func_to_call):
+            result = await func_to_call(**kwargs['args'])
+        else:
+            result = func_to_call(**kwargs['args']) # Call the function normally
 
         logger.info(f"Dynamic function '{secure_name}' executed successfully.")
         return result

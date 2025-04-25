@@ -604,39 +604,32 @@ class DynamicAdditionServer(Server):
         # Currently no resources supported
         return []
 
-    async def send_client_log(self, level: str, data: Any, logger_name: str = None, client_id: str = None):
+    async def send_client_log(self, level: str, data: Any, logger_name: str = None, request_id: str = None, client_id: str = None):
         """Send a log message notification to connected clients using direct WebSocket communication.
 
         Args:
             level: The log level ("debug", "info", "warning", "error")
             data: The log message content (can be string or structured data)
             logger_name: Optional name to identify the logger source
+            request_id: Optional ID of the original request for client-side correlation
+            client_id: Optional client identifier for routing the message
         """
         try:
             # Normalize level to uppercase for consistency
             level = level.upper()
 
             # Create a simple JSON-RPC notification structure
-            # This bypasses the SDK entirely and sends a direct WebSocket message
             notification = {
                 "jsonrpc": "2.0",
                 "method": "notifications/message",
                 "params": {
                     "level": level,
                     "data": data,
-                    "logger": logger_name or "dynamic_function"
+                    "logger": logger_name or "dynamic_function",
+                    # Add request_id to the payload if available
+                    "requestId": request_id
                 }
             }
-
-            # Convert to JSON string
-            import json
-            notification_json = json.dumps(notification)
-
-            # Log the notification for debugging
-            logger.debug(f"Sending client log notification: {notification_json}")
-
-            # Directly send to all connected WebSocket clients
-            sent_count = 0
 
             # Get the global tracking collections
             global active_websockets, client_connections, current_request_client_id
@@ -647,6 +640,13 @@ class DynamicAdditionServer(Server):
 
             # ONLY send to the specific client that made the request - NO broadcasting
             if client_id and client_id in client_connections:
+                # Convert to JSON string
+                import json
+                notification_json = json.dumps(notification)
+
+                # Log the notification for debugging (now includes client_id if added)
+                logger.debug(f"Sending client log notification: {notification_json}")
+
                 client_info = client_connections[client_id]
                 client_type = client_info.get("type")
                 connection = client_info.get("connection")
@@ -654,7 +654,6 @@ class DynamicAdditionServer(Server):
                 if client_type == "websocket" and connection:
                     try:
                         await connection.send_text(notification_json)
-                        sent_count += 1
                         logger.debug(f"📢 Sent notification to specific client: {client_id}")
                     except Exception as e:
                         logger.warning(f"Failed to send to client {client_id}: {e}")
@@ -662,20 +661,13 @@ class DynamicAdditionServer(Server):
                 elif client_type == "cloud" and connection and connection.is_connected:
                     try:
                         await connection.send_message('mcp_notification', notification)
-                        sent_count += 1
                         logger.debug(f"☁️ Sent notification to cloud client: {client_id}")
                     except Exception as e:
                         logger.warning(f"Failed to send to cloud client {client_id}: {e}")
             else:
-                # If we don't know which client to send to, this is a problem - don't send to anyone
                 logger.warning(f"Cannot send client log: no valid client_id provided or client not found: {client_id}")
                 # Log the client connections we know about for debugging
                 logger.debug(f"Known client connections: {list(client_connections.keys())}")
-
-            if sent_count > 0:
-                logger.debug(f"📢 Notification sent successfully to client {client_id}")
-            else:
-                logger.debug(f"Failed to send notification to client {client_id}")
 
         except Exception as e:
             # Don't let logging errors affect the main operation
@@ -685,7 +677,7 @@ class DynamicAdditionServer(Server):
             # We intentionally don't re-raise here
 
 
-    async def _execute_tool(self, name: str, args: dict, client_id: str = None) -> list[TextContent]:
+    async def _execute_tool(self, name: str, args: dict, client_id: str = None, request_id: str = None) -> list[TextContent]:
         """Core logic to handle a tool call. Ensures result is List[TextContent(type='text')]"""
         logger.info(f"🔧 EXECUTING TOOL: {name}")
         logger.debug(f"WITH ARGUMENTS: {args}")
@@ -826,9 +818,9 @@ class DynamicAdditionServer(Server):
                 # Call the dynamic function
                 try:
                     logger.info(f"🔧 CALLING DYNAMIC FUNCTION: {name}")
-                    logger.debug(f"---> Calling dynamic: function_call for '{name}' with args: {args} and client_id: {client_id}") # Log args and client_id separately
+                    logger.debug(f"---> Calling dynamic: function_call for '{name}' with args: {args} and client_id: {client_id} and request_id: {request_id}") # Log args and client_id separately
                     # Pass arguments and client_id distinctly
-                    result_raw = await function_call(name, client_id=client_id, args=args)
+                    result_raw = await function_call(name=name, client_id=client_id, request_id=request_id, args=args)
                     logger.debug(f"<--- Dynamic function '{name}' RAW result: {result_raw} (type: {type(result_raw)})")
 
                 except Exception as e:
@@ -1068,8 +1060,8 @@ class ServiceClient:
                         self.cloud_client_id = client_id
                     client_connections[client_id] = {"type": "cloud", "connection": self}
 
-                    # Call the core logic method directly with client ID
-                    call_result_list = await self.mcp_server._execute_tool(name=tool_name, args=tool_args, client_id=client_id)
+                    # Call the core logic method directly with client ID and request ID
+                    call_result_list = await self.mcp_server._execute_tool(name=tool_name, args=tool_args, client_id=client_id, request_id=request_id)
                     # The _execute_tool method ensures result is List[TextContent]
                     # Convert TextContent objects to dictionaries for JSON serialization using model_dump()
                     # IMPORTANT: We use "contents" (plural) key to match format between Python and Node servers
@@ -1295,7 +1287,7 @@ async def process_mcp_request(server, request, client_id=None):
             logger.debug(f"Tool name: '{name}', Arguments: {json.dumps(args, default=str)}")
 
             # Execute the tool
-            result = await server._execute_tool(name, args, client_id)
+            result = await server._execute_tool(name, args, client_id=client_id, request_id=req_id)
             logger.info(f"🎯 Tool '{name}' execution completed with {len(result)} content items")
 
             # Debug what kind of result we got

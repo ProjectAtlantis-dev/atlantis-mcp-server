@@ -147,10 +147,11 @@ class DynamicConfigEventHandler(FileSystemEventHandler):
             # Notify clients
             if hasattr(self.mcp_server, '_notify_tool_list_changed'):
                 try:
-                    await self.mcp_server._notify_tool_list_changed()
-                    logger.info(f"📬 Notified clients of tool list change.")
-                except Exception as notify_e:
-                    logger.error(f"❌ Failed to notify clients after file change: {notify_e}")
+                    # Pass placeholder args as the watcher doesn't know specifics
+                    await self.mcp_server._notify_tool_list_changed(change_type="unknown", tool_name="unknown/file_watcher")
+                except Exception as e:
+                    # Log the specific error from the notification call
+                    logger.error(f"❌ Failed to notify clients after file change: {e}")
             else:
                 logger.warning("⚠️ Server object lacks _notify_tool_list_changed method.")
 
@@ -209,6 +210,9 @@ class DynamicAdditionServer(Server):
 
     def __init__(self):
         super().__init__("Dynamic Function Server")
+        self.websocket_connections = set()  # Store active WebSocket connections
+        self.service_connections = {} # Store active Service connections (e.g. cloud)
+        # TODO: Add prompts and resources
         self._cached_tools: Optional[List[Tool]] = None # Cache for tool list
         self._last_functions_dir_mtime: float = 0.0 # Timestamp for cache invalidation
         self._last_servers_dir_mtime: float = 0.0 # Timestamp for dynamic servers cache invalidation
@@ -277,28 +281,47 @@ class DynamicAdditionServer(Server):
             else:
                 logger.info("📢 Using provided tools list for notification.")
 
-            # Create the notification parameters
+            # Create the parameters Pydantic object
             notification_params = NotificationParams(
                 changed_tools=tools
             )
+            # Convert the Pydantic object to a plain dictionary
+            params_dict = notification_params.model_dump()
 
-            # Construct the notification dictionary manually to use 'tools/listChanged'
+            # Construct the full notification dictionary using the params dict
             notification = {
                 "jsonrpc": "2.0",
-                "method": "tools/listChanged", # Use the desired custom method name
-                "params": notification_params
+                "method": "tools/listChanged",
+                "params": params_dict  # Use the dumped dictionary here
             }
 
-            # Serialize the manually created dictionary to JSON
-            notification_json = json.dumps(notification)
+            # No need to dump to JSON string now, send the dict directly
+            # notification_json = json.dumps(notification)
 
-            # Send notification to all clients
+            # Send notification dictionary to all clients using send_json
             logger.info(f"📢 Broadcasting initial tools list notification ({len(tools)} tools).")
             if hasattr(self, 'service_connections'):
-                for client in self.service_connections.values():
-                    await client.send_notification('tools/listChanged', notification.params.model_dump())
-                logger.info(f"📢 Sent tool list notification to {len(self.service_connections)} clients")
+                for client_id, client in self.service_connections.items():
+                    try:
+                        # Assuming service_connection clients have a send_json method or similar
+                        if hasattr(client, 'send_json'):
+                            await client.send_json(notification)
+                        else: # Fallback or specific method if known
+                             logger.warning(f"Client {client_id} lacks send_json, attempting send_notification (may not work as intended)")
+                             # Previous method might not work correctly with the full structure
+                             await client.send_notification('tools/listChanged', params_dict)
+                    except Exception as e:
+                        logger.error(f"❌ Error sending tool notification to service client {client_id}: {e}")
 
+            if hasattr(self, 'websocket_connections'):
+                for ws in self.websocket_connections:
+                    try:
+                        await ws.send_json(notification) # Starlette websockets have send_json
+                    except WebSocketDisconnect:
+                        logger.warning(f"🔌 WebSocket client disconnected during tool notification broadcast.")
+                        # Handle disconnection if needed, e.g., remove from list
+                    except Exception as e:
+                        logger.error(f"❌ Error sending tool notification to WebSocket client: {e}")
         except Exception as e:
             logger.error(f"❌ Error sending tool notification: {str(e)}")
             # Don't re-raise, as this is a notification and shouldn't fail the main operation
@@ -1037,6 +1060,17 @@ class ServiceClient:
             self.retry_count = 0  # Reset retry counter on successful connection
             logger.info("✅ CONNECTED TO CLOUD SERVER!")
 
+            # --- ADDED: Register this connection with the MCP server --- 
+            cloud_sid = self.sio.sid if self.sio else 'unknown_sid' # Get Socket.IO session ID if available
+            connection_id = f"service_{cloud_sid}"
+            self.mcp_server.service_connections[connection_id] = {
+                "type": "service", 
+                "connection": self.sio, 
+                "id": connection_id
+            }
+            logger.info(f"✅ Registered cloud service connection: {connection_id}")
+            # -------------------------------------------------------------
+
             # Get the list of tools to log them
             tools_list = await self.mcp_server._get_tools_list(caller_context="_handle_connect_cloud")
             tool_names = [tool.name for tool in tools_list]
@@ -1052,11 +1086,26 @@ class ServiceClient:
 
         # Disconnection event
         @self.sio.event(namespace=self.namespace)
-        def disconnect():
-            logger.info(f"☁️ DISCONNECTED FROM CLOUD SERVER")
+        async def disconnect(): # Ensure handler is async
             self.is_connected = False
+            logger.warning("🔌 DISCONNECTED FROM CLOUD SERVER!")
 
+            # --- ADDED: Unregister this connection from the MCP server --- 
+            cloud_sid = self.sio.sid if self.sio else 'unknown_sid'
+            connection_id = f"service_{cloud_sid}"
+            removed = self.mcp_server.service_connections.pop(connection_id, None)
+            if removed:
+                logger.info(f"✅ Unregistered cloud service connection: {connection_id}")
+            else:
+                logger.warning(f"⚠️ Tried to unregister non-existent cloud service connection: {connection_id}")
+            # --------------------------------------------------------------
 
+            # If disconnection was not intentional (e.g., server shutdown), try reconnecting
+            if self.connection_active and not is_shutting_down:
+                logger.info("☁️ Attempting to reconnect to cloud server...")
+                # The _maintain_connection loop will handle the retry logic
+            else:
+                logger.info("☁️ Disconnection was expected or shutdown initiated, not reconnecting.")
         # Service message event
         @self.sio.event(namespace=self.namespace)
         async def service_message(data):

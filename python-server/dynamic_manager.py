@@ -9,7 +9,7 @@ import importlib.util
 import datetime
 import traceback
 import shutil # Using shutil for potentially more robust file operations
-from typing import Optional, Any, Dict, Union
+from typing import Optional, Any, Dict, Union, Tuple
 from werkzeug.utils import secure_filename
 from state import logger, FUNCTIONS_DIR, CYAN, RESET # Import FUNCTIONS_DIR, CYAN, and RESET
 import utils # Import our utility module for dynamic functions
@@ -688,69 +688,62 @@ async def function_call(name: str, client_id: str, request_id: str, **kwargs) ->
         # Re-raise the exception so the caller knows something went wrong
         raise # Or return a specific error object/dict
 
-async def function_set(args: Dict[str, Any], server: Any) -> List[TextContent]:
+async def function_set(args: Dict[str, Any], server: Any) -> Tuple[Optional[str], List[TextContent]]:
     """
     Handles the _function_set tool call.
-    Extracts the function name using basic regex, saves the provided code,
-    and notifies clients of the tool list change.
+    Extracts the function name using basic regex, saves the provided code.
+    Returns the extracted function name (if successful) and a status message.
     Does *not* perform full syntax validation before saving.
     """
     logger.info("⚙️ Handling _function_set call (using basic name extraction)")
     code_buffer = args.get("code")
+    extracted_function_name: Optional[str] = None # Keep track of extracted name
 
     if not code_buffer or not isinstance(code_buffer, str):
         logger.warning("⚠️ function_set: Missing or invalid 'code' parameter.")
-        return [TextContent(type="text", text="Error: Missing or invalid 'code' parameter.")]
+        # Return None for name, and the error message
+        return None, [TextContent(type="text", text="Error: Missing or invalid 'code' parameter.")]
 
     # 1. Extract function name using basic regex
     metadata = _code_extract_basic_metadata(code_buffer)
-    function_name = metadata.get('name')
+    extracted_function_name = metadata.get('name') # Store extracted name
 
-    if not function_name:
+    if not extracted_function_name:
         error_response = "Error: Could not extract function name from the provided code using basic parsing. Ensure it starts with 'def function_name(...):'"
         logger.warning(f"⚠️ function_set: Failed to extract name via regex.")
-        return [TextContent(type="text", text=error_response)]
+         # Return None for name, and the error message
+        return None, [TextContent(type="text", text=error_response)]
 
-    logger.info(f"⚙️ Extracted function name via regex: {function_name}")
+    logger.info(f"⚙️ Extracted function name via regex: {extracted_function_name}")
 
     # 2. Save the code (validation will happen later when tools are listed/called)
-    saved_path = _fs_save_code(function_name, code_buffer)
+    saved_path = _fs_save_code(extracted_function_name, code_buffer)
 
     if not saved_path:
-        error_response = f"Error saving function '{function_name}' to file."
+        error_response = f"Error saving function '{extracted_function_name}' to file."
         logger.error(f"❌ function_set: {error_response}")
-        return [TextContent(type="text", text=error_response)]
+         # Return extracted name (as we got this far), but with error message
+        return extracted_function_name, [TextContent(type="text", text=error_response)]
 
-    logger.info(f"💾 Function '{function_name}' code saved successfully to {saved_path}")
+    logger.info(f"💾 Function '{extracted_function_name}' code saved successfully to {saved_path}")
 
     # 3. Attempt AST parsing for immediate feedback (but save regardless)
     syntax_error = None
     try:
         ast.parse(code_buffer)
-        logger.info(f"✅ Basic syntax validation (AST parse) successful for '{function_name}'.")
+        logger.info(f"✅ Basic syntax validation (AST parse) successful for '{extracted_function_name}'.")
     except SyntaxError as e:
         syntax_error = str(e)
-        logger.warning(f"⚠️ Basic syntax validation (AST parse) failed for '{function_name}': {syntax_error}")
+        logger.warning(f"⚠️ Basic syntax validation (AST parse) failed for '{extracted_function_name}': {syntax_error}")
 
-    # 4. Clear cache and notify clients about the tool list change
-    logger.info(f"🧹 Clearing tool cache on server due to function_set for '{function_name}'.")
+    # 4. Clear cache (server needs to reload tools)
+    logger.info(f"🧹 Clearing tool cache on server due to function_set for '{extracted_function_name}'.")
     server._cached_tools = None
     server._last_functions_dir_mtime = None # Reset mtime to force reload
     server._last_servers_dir_mtime = None # Reset mtime to force reload
 
-    if hasattr(server, '_notify_tool_list_changed'):
-        try:
-            # Maybe call _get_tools_list(force_refresh=True) before notifying? # Keep original comment
-            await server._notify_tool_list_changed()
-            logger.info(f"📬 Notified clients of tool list change for '{function_name}'.")
-        except Exception as notify_e:
-            logger.error(f"❌ Failed to notify clients after registering '{function_name}': {notify_e}")
-            # Continue even if notification fails
-    else:
-        logger.warning("⚠️ Server object provided to function_set lacks _notify_tool_list_changed method.")
-
-    # 5. Return success message, including validation status
-    save_status = f"Function '{function_name}' code registered/updated successfully."
+    # 5. Prepare success message, including validation status
+    save_status = f"Function '{extracted_function_name}' code registered/updated successfully."
     if syntax_error:
         validation_status = f"WARNING: Syntax validation failed: {syntax_error}"
         response_message = f"{save_status} {validation_status}"
@@ -758,5 +751,8 @@ async def function_set(args: Dict[str, Any], server: Any) -> List[TextContent]:
         validation_status = "Syntax validation successful."
         response_message = f"{save_status} {validation_status}"
 
-    # Note: Full validation including signature extraction happens when tools are listed/called.
-    return [TextContent(type="text", text=response_message)]
+    # Return extracted name and the status message
+    return extracted_function_name, [TextContent(type="text", text=response_message)]
+
+
+## Dynamic Function Calling

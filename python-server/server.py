@@ -216,6 +216,7 @@ class DynamicAdditionServer(Server):
         self._cached_tools: Optional[List[Tool]] = None # Cache for tool list
         self._last_functions_dir_mtime: float = 0.0 # Timestamp for cache invalidation
         self._last_servers_dir_mtime: float = 0.0 # Timestamp for dynamic servers cache invalidation
+        self._last_active_server_keys: Optional[set] = None # Store active server keys for cache invalidation
 
         # Register tool handlers using SDK decorators
         # These now wrap the actual logic methods defined below
@@ -348,12 +349,24 @@ class DynamicAdditionServer(Server):
             else:
                 server_mtime = os.path.getmtime(SERVERS_DIR)
 
-            if (current_mtime == self._last_functions_dir_mtime and server_mtime == self._last_servers_dir_mtime and self._cached_tools is not None):
-                logger.info(f"⚡️ USING CACHED TOOL LIST (DIR UNCHANGED - mtime: {current_mtime})")
-                # Return a copy to prevent external modification of the cache
+            dirs_changed = current_mtime != self._last_functions_dir_mtime or server_mtime != self._last_servers_dir_mtime
+            servers_changed = set(ACTIVE_SERVER_TASKS.keys()) != self._last_active_server_keys
+
+            # Add 'and False' to always invalidate cache for now
+            if not dirs_changed and not servers_changed and self._cached_tools is not None and False:
+                logger.info(f"⚡️ USING CACHED TOOL LIST (Dirs unchanged - func mtime: {current_mtime}, server mtime: {server_mtime}; Active Servers unchanged: {self._last_active_server_keys})")
                 return list(self._cached_tools)
-            logger.info(f"🔄 DIRECTORIES MODIFIED (functions mtime: {current_mtime} vs last: {self._last_functions_dir_mtime}; servers mtime: {server_mtime} vs last: {self._last_servers_dir_mtime}) or cache empty, REGENERATING TOOL LIST")
-        except Exception as e:
+            # Log reason for regeneration
+            reason = []
+            if dirs_changed:
+                reason.append(f"Dirs changed (func mtime: {current_mtime} vs {self._last_functions_dir_mtime}, server mtime: {server_mtime} vs {self._last_servers_dir_mtime})")
+            if servers_changed:
+                reason.append(f"Active servers changed ({set(ACTIVE_SERVER_TASKS.keys())} vs {self._last_active_server_keys})")
+            if self._cached_tools is None:
+                 reason.append("Cache empty")
+            logger.info(f"🔄 Cache invalid ({', '.join(reason)}). REGENERATING TOOL LIST")
+
+        except FileNotFoundError as e:
              logger.error(f"❌ Error checking FUNCTIONS_DIR mtime: {e}. Proceeding without cache.")
              current_mtime = time.time() # Use current time to force regeneration
 
@@ -653,7 +666,8 @@ class DynamicAdditionServer(Server):
         self._cached_tools = list(tools_list) # Store a copy
         self._last_functions_dir_mtime = current_mtime
         self._last_servers_dir_mtime = server_mtime
-        logger.info(f"💾 CACHED TOOL LIST (functions ts: {current_mtime}; servers ts: {server_mtime})")
+        self._last_active_server_keys = set(ACTIVE_SERVER_TASKS.keys()) # Store active server keys
+        logger.info(f"💾 TOOL LIST (functions ts: {current_mtime}; servers ts: {server_mtime})")
 
         return tools_list
 

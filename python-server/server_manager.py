@@ -7,6 +7,8 @@ import os
 import json
 import logging
 import asyncio
+import shutil
+import datetime
 from typing import Any, Dict, Optional, List
 
 # Assuming the MCP SDK is correctly installed/available in the Python path
@@ -29,6 +31,9 @@ from state import SERVERS_DIR, logger
 
 # Ensure SERVERS_DIR exists
 os.makedirs(SERVERS_DIR, exist_ok=True)
+# Define and ensure OLD_DIR exists for backups
+OLD_DIR = os.path.join(SERVERS_DIR, 'OLD')
+os.makedirs(OLD_DIR, exist_ok=True)
 
 # --- Tracking for Active Server Tasks ---
 # Stores {'server_name': {'task': asyncio.Task, 'params': StdioServerParameters}}
@@ -128,78 +133,97 @@ def server_list() -> List[str]:
 async def server_set(args: Dict[str, Any], server) -> List[TextContent]:
     """
     MCP handler to add/update a server config.
-    Expects args['config']: dict containing {"mcpServers": {"server_name": {...}}}
+    Expects args['config']: dict or JSON string containing {"mcpServers": {"server_name": {...}}}
     The server name is derived from the key within 'mcpServers'.
     If the server is running and the config is updated, it might need restarting.
     """
     logger.debug(f"Received server_set request with args: {args}")
-
     config_input = args.get('config')
+    config_container = None # Will hold the final dictionary
 
+    # Handle if input is a JSON string
     if isinstance(config_input, str):
         try:
-            config = json.loads(config_input)
+            config_container = json.loads(config_input)
             logger.debug("Parsed 'config' from JSON string to dictionary.")
         except json.JSONDecodeError as e:
             msg = f"Invalid parameter: 'config' was a string but failed JSON parsing: {e}"
-            logger.error(f" server_set: {msg}")
+            logger.error(f"❌ server_set: {msg}")
             return [TextContent(type='text', text=msg)]
     elif isinstance(config_input, dict):
-        config = config_input # It's already a dictionary
+        config_container = config_input # It's already a dictionary
+    else:
+         msg = "Missing or invalid parameter type: 'config' must be a dictionary or JSON string."
+         logger.error(f"❌ server_set: {msg}")
+         return [TextContent(type='text', text=msg)]
 
-    if not config or not isinstance(config, dict):
-        msg = "Missing or invalid parameter: 'config' must be a dictionary."
+    # Now validate the container
+    if not config_container:
+         msg = "Invalid parameter: 'config' could not be processed."
+         logger.error(f"❌ server_set: {msg}")
+         return [TextContent(type='text', text=msg)]
+
+    mcp_servers = config_container.get("mcpServers")
+    if not mcp_servers or not isinstance(mcp_servers, dict) or len(mcp_servers) != 1:
+        msg = "Invalid 'config': Expected a single key under 'mcpServers'."
         logger.error(f"❌ server_set: {msg}")
         return [TextContent(type='text', text=msg)]
 
-    mcp_servers_config = config.get('mcpServers')
-    if not mcp_servers_config or not isinstance(mcp_servers_config, dict):
-        msg = "Invalid config: Missing or invalid 'mcpServers' dictionary within 'config'."
+    name = list(mcp_servers.keys())[0]
+    server_specific_config = mcp_servers[name] # The inner config
+
+    if not name or not isinstance(name, str):
+        msg = "Invalid server name derived from 'config'."
         logger.error(f"❌ server_set: {msg}")
         return [TextContent(type='text', text=msg)]
 
-    if not mcp_servers_config:
-        msg = "Invalid config: 'mcpServers' dictionary cannot be empty."
-        logger.error(f"❌ server_set: {msg}")
-        return [TextContent(type='text', text=msg)]
-
-    # Extract the server name from the first key in mcpServers
-    name = next(iter(mcp_servers_config))
-    server_specific_config = mcp_servers_config[name] # The actual config for this server
-
-    # Validate the extracted server-specific config minimally
+    # Validate the extracted server-specific config minimally (e.g., has command)
     if not isinstance(server_specific_config, dict) or 'command' not in server_specific_config:
         msg = f"Invalid config structure for server '{name}' under 'mcpServers'. Must be a dictionary with at least a 'command' key."
         logger.error(f"❌ server_set: {msg}")
         return [TextContent(type='text', text=msg)]
 
-    logger.info(f"Processing server_set for derived name: '{name}'")
+    logger.info(f"Processing set request for server: '{name}'")
+    logger.debug(f"Config details for '{name}': {json.dumps(server_specific_config, indent=2)}") # Log inner config for detail
 
-    # Check if the server is currently running - potential restart needed notification?
-    # Note: We don't automatically restart here, just save the config.
-    # Manual restart via server_stop/server_start might be required.
-    is_running = name in ACTIVE_SERVER_TASKS
-    if is_running:
-        logger.warning(f"⚠️ Server '{name}' is currently running. Updating config may require a manual restart.")
+    # --- Backup Logic Start ---
+    file_path = os.path.join(SERVERS_DIR, f"{name}.json") # Construct the target file path
+    if os.path.exists(file_path):
+            logger.info(f"💾 Found existing file for '{name}', attempting backup...")
+            try:
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S%f")
+                # Using .json.bak for clarity, matching the original file type
+                backup_filename = f"{name}_{timestamp}.json.bak"
+                backup_path = os.path.join(OLD_DIR, backup_filename)
+                shutil.copy2(file_path, backup_path) # copy2 preserves metadata
+                logger.info(f"🛡️ Successfully backed up '{name}' to '{backup_path}'")
+            except Exception as e:
+                logger.error(f"❌ Failed to backup existing file '{file_path}' to OLD folder: {e}")
+                # Log error but continue
+    else:
+        logger.info(f"ⓘ No existing file found for '{name}', creating new file.")
+    # --- Backup Logic End ---
 
-    # Save the full original config structure (including 'mcpServers' wrapper)
-    # This ensures _fs_load_server retrieves the same structure later
-    saved_path = _fs_save_server(name, config) # Save the whole config blob under the derived name
+    # Save the *entire original config container* structure
+    saved_path = _fs_save_server(name, config_container)
 
     if saved_path:
         validation = server_validate(name) # Validate the *saved* config
-        valid_msg = f"Config for server '{name}' saved successfully."
-        if not validation.get('valid'):
-            valid_msg += f" WARNING: Config validation failed: {validation.get('error')}"
+        valid_msg = f"Server config '{name}' saved successfully."
+        if not validation.get('valid', False):
+            error = validation.get('error', 'Unknown validation error')
+            valid_msg += f" WARNING: Validation failed: {error}"
         else:
             valid_msg += " Config structure appears valid."
 
-        if is_running:
+        # Add running status warning if needed
+        if name in ACTIVE_SERVER_TASKS:
+            logger.warning(f"🔔 Server '{name}' is currently running. Configuration updated. Restart may be required for changes to take effect.")
             valid_msg += " Server is running; manual restart might be needed to apply changes."
 
         return [TextContent(type='text', text=valid_msg)]
     else:
-        return [TextContent(type='text', text=f"Failed to save config for server '{name}'.")]
+        return [TextContent(type='text', text=f"Failed to save server config '{name}'.")]
 
 
 def server_validate(name: str) -> Dict[str, Any]:

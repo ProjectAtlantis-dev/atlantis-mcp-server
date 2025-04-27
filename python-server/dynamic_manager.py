@@ -38,6 +38,12 @@ from state import FUNCTIONS_DIR, logger # Assuming logger and FUNCTIONS_DIR are 
 
 # --- 1. File Save/Load ---
 
+# Ensure FUNCTIONS_DIR exists at startup (or wherever appropriate)
+os.makedirs(FUNCTIONS_DIR, exist_ok=True)
+OLD_DIR = os.path.join(FUNCTIONS_DIR, "OLD")
+os.makedirs(OLD_DIR, exist_ok=True)
+
+
 def _fs_save_code(name: str, code: str) -> Optional[str]:
     """
     Saves the provided code string to a file named {name}.py in the FUNCTIONS_DIR.
@@ -54,7 +60,6 @@ def _fs_save_code(name: str, code: str) -> Optional[str]:
     file_path = os.path.join(FUNCTIONS_DIR, safe_name)
 
     try:
-        os.makedirs(FUNCTIONS_DIR, exist_ok=True) # Ensure directory exists
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(code)
         logger.debug(f"💾 Saved code for '{name}' to {file_path}")
@@ -491,10 +496,6 @@ def {name}():
 
 
 
-# Ensure FUNCTIONS_DIR exists at startup (or wherever appropriate)
-os.makedirs(FUNCTIONS_DIR, exist_ok=True)
-OLD_DIR = os.path.join(FUNCTIONS_DIR, "OLD")
-os.makedirs(OLD_DIR, exist_ok=True)
 
 def function_add(name: str, code: Optional[str] = None) -> bool:
     '''
@@ -715,6 +716,29 @@ async def function_set(args: Dict[str, Any], server: Any) -> Tuple[Optional[str]
         return None, [TextContent(type="text", text=error_response)]
 
     logger.info(f"⚙️ Extracted function name via regex: {extracted_function_name}")
+
+    # --- Backup existing file before saving new one ---
+    secure_name = utils.clean_filename(extracted_function_name)
+    if secure_name: # Should always be true if extracted_function_name is valid
+        file_path = os.path.join(FUNCTIONS_DIR, f"{secure_name}.py")
+        if os.path.exists(file_path):
+            logger.info(f"💾 Found existing file for '{secure_name}', attempting backup...")
+            try:
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S%f")
+                # Using .py.bak for clarity
+                backup_filename = f"{secure_name}_{timestamp}.py.bak"
+                backup_path = os.path.join(OLD_DIR, backup_filename)
+                shutil.copy2(file_path, backup_path) # copy2 preserves metadata
+                logger.info(f"🛡️ Successfully backed up '{secure_name}' to '{backup_path}'")
+            except Exception as e:
+                logger.error(f"❌ Failed to backup existing file '{file_path}' to OLD folder: {e}")
+                # Log error but continue, saving the new file might still be desired
+        else:
+            logger.info(f"ⓘ No existing file found for '{secure_name}', creating new file.")
+    else:
+        # This case should ideally not happen if name extraction was successful
+        logger.warning("⚠️ Could not create secure filename for backup check in function_set.")
+    # --- End Backup ---
 
     # 2. Save the code (validation will happen later when tools are listed/called)
     saved_path = _fs_save_code(extracted_function_name, code_buffer)

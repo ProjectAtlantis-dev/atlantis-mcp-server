@@ -118,17 +118,23 @@ def server_get(name: str) -> Optional[Dict[str, Any]]:
     return _fs_load_server(name)
 
 
-def server_list() -> List[str]:
+def server_list() -> List[TextContent]:
     """
-    Lists all server config names available in SERVERS_DIR.
+    Lists all server config names available in SERVERS_DIR and their status.
+    Returns a list of TextContent objects.
     """
+    results = []
     try:
-        files = os.listdir(SERVERS_DIR)
-        return [os.path.splitext(f)[0] for f in files if f.endswith('.json')]
-    except FileNotFoundError:
-        logger.warning(f"Server directory {SERVERS_DIR} not found during list.")
-        return []
-
+        for filename in os.listdir(SERVERS_DIR):
+            if filename.endswith('.json'):
+                name = filename[:-5] # Remove .json
+                status = "Running" if name in ACTIVE_SERVER_TASKS else "Stopped"
+                results.append(TextContent(type='text', text=f"{name} (Status: {status})"))
+    except Exception as e:
+        logger.error(f"❌ server_list: Failed to list servers in {SERVERS_DIR}: {e}")
+        # Optionally return an error message as TextContent
+        # return [TextContent(text=f"Error listing servers: {e}")]
+    return results
 
 async def server_set(args: Dict[str, Any], server) -> List[TextContent]:
     """
@@ -246,7 +252,7 @@ def server_validate(name: str) -> Dict[str, Any]:
 # --- 3. Background Task Runner ---
 async def _run_mcp_client_session(name: str, params: StdioServerParameters):
     """Runs the MCP client session in the background using stdio_client."""
-    logger.info(f"Background task starting for MCP server '{name}'...")
+    logger.info(f"MCP server '{name}' started")
     session = None # Define session here to potentially use in finally if needed
     try:
         # stdio_client handles process start, stream creation, and cleanup
@@ -282,36 +288,51 @@ async def server_start(args: Dict[str, Any], server) -> List[TextContent]:
     if not name or not isinstance(name, str):
         msg = "Missing or invalid parameter: 'name' must be str."
         logger.error(f"❌ server_start: {msg}")
-        return [TextContent(type='text', text=msg)]
+        raise ValueError(msg)
+
+    # Load the config from file
+    full_config = _fs_load_server(name)
+    if not full_config:
+        msg = f"Config file not found for server '{name}'."
+        logger.error(f"❌ server_start: {msg}")
+        raise FileNotFoundError(msg)
+
+    # Extract the specific server's config from the 'mcpServers' structure
+    try:
+        server_config = full_config['mcpServers'][name]
+    except KeyError as e:
+        msg = f"Could not find server '{name}' within the 'mcpServers' key in the config file."
+        logger.error(f"❌ server_start: {msg} - KeyError: {e}")
+        raise KeyError(msg)
+    except TypeError:
+        msg = f"Invalid config structure for server '{name}'. Expected dict with 'mcpServers'."
+        logger.error(f"❌ server_start: {msg} - Loaded config: {full_config!r}")
+        raise TypeError(msg)
 
     if name in ACTIVE_SERVER_TASKS:
-        logger.warning(f"⚠️ server_start: Server '{name}' is already running or starting.")
-        return [TextContent(type='text', text=f"Server '{name}' is already running.")]
-
-    config = _fs_load_server(name)
-    if config is None:
-        msg = f"Server '{name}' config not found."
-        logger.error(f"❌ server_start: {msg}")
-        return [TextContent(type='text', text=msg)]
+        msg = f"Server '{name}' is already running."
+        logger.warning(f"⚠️ server_start: {msg}")
+        raise ValueError(msg)
 
     validation = server_validate(name)
     if not validation.get('valid', False):
         error = validation.get('error', 'Unknown error')
         msg = f"Invalid config for '{name}': {error}"
         logger.error(f"❌ server_start: {msg}")
-        return [TextContent(type='text', text=msg)]
+        raise ValueError(msg)
 
     try:
         # Prepare parameters for stdio_client
         params = StdioServerParameters(
-            command=config['command'],
-            args=config.get('args', []),
-            env=config.get('env', None), # Pass None if not present, SDK handles default
-            cwd=config.get('cwd', None)  # Add cwd support to config
+            command=server_config['command'], # Use extracted server_config
+            args=server_config.get('args', []),
+            env=server_config.get('env', None),
+            cwd=server_config.get('cwd', None)
         )
-    except Exception as e: # Catch potential Pydantic validation errors
-        logger.error(f"❌ server_start: Failed to create StdioServerParameters for '{name}': {e}", exc_info=True)
-        return [TextContent(type='text', text=f"Failed to prepare start parameters for '{name}': {e}")]
+    except Exception as e: # Catch potential Pydantic validation errors or KeyErrors
+        msg = f"Failed to prepare start parameters for '{name}': {e}"
+        logger.error(f"❌ server_start: {msg}", exc_info=True)
+        raise ValueError(msg)
 
     # Start the background task
     logger.info(f"Attempting to start background task for server '{name}'...")
@@ -321,7 +342,7 @@ async def server_start(args: Dict[str, Any], server) -> List[TextContent]:
     ACTIVE_SERVER_TASKS[name] = {'task': task, 'params': params}
 
     # Return success - PID is not available synchronously here
-    return [TextContent(type='text', text=f"Background task started to connect to server '{name}'.")]
+    return [TextContent(type='text', text=f"MCP service '{name}' started")]
 
 
 async def server_stop(args: Dict[str, Any], server) -> List[TextContent]:
@@ -333,19 +354,21 @@ async def server_stop(args: Dict[str, Any], server) -> List[TextContent]:
     if not name or not isinstance(name, str):
         msg = "Missing or invalid parameter: 'name' must be str."
         logger.error(f"❌ server_stop: {msg}")
-        return [TextContent(type='text', text=msg)]
+        raise ValueError(msg)
 
     if name not in ACTIVE_SERVER_TASKS:
-        logger.warning(f"⚠️ server_stop: Server '{name}' not found in active tasks.")
-        return [TextContent(type='text', text=f"Server '{name}' is not running or not managed.")]
+        msg = f"Server '{name}' is not running or not managed."
+        logger.warning(f"⚠️ server_stop: {msg}")
+        raise ValueError(msg)
 
     task_info = ACTIVE_SERVER_TASKS.get(name)
     if not task_info or 'task' not in task_info:
-        logger.error(f"❌ server_stop: Inconsistent state for server '{name}'. No task found.")
+        msg = f"Error stopping server '{name}': Inconsistent state."
+        logger.error(f"❌ server_stop: {msg}")
         # Clean up if entry exists but is broken
         if name in ACTIVE_SERVER_TASKS:
             del ACTIVE_SERVER_TASKS[name]
-        return [TextContent(type='text', text=f"Error stopping server '{name}': Inconsistent state.")]
+        raise RuntimeError(msg)
 
     task = task_info['task']
     if task.done():
@@ -374,4 +397,4 @@ async def server_stop(args: Dict[str, Any], server) -> List[TextContent]:
         # if name in ACTIVE_SERVER_TASKS:
         #     del ACTIVE_SERVER_TASKS[name]
 
-        return [TextContent(type='text', text=f"Stop request sent to server '{name}'.")]
+        return [TextContent(type='text', text=f"MCP server '{name}' stopped")]

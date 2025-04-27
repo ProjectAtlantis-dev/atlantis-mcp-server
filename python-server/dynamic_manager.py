@@ -767,13 +767,14 @@ async def function_set(args: Dict[str, Any], server: Any) -> Tuple[Optional[str]
     server._last_servers_dir_mtime = None # Reset mtime to force reload
 
     # 5. Prepare success message, including validation status
-    save_status = f"Function '{extracted_function_name}' code registered/updated successfully."
+    save_status = f"Function '{extracted_function_name}' saved"
     if syntax_error:
         validation_status = f"WARNING: Syntax validation failed: {syntax_error}"
         response_message = f"{save_status} {validation_status}"
     else:
         validation_status = "Syntax validation successful."
-        response_message = f"{save_status} {validation_status}"
+        # no need to add validation msg
+        #response_message = f"{save_status} {validation_status}"
 
     # Return extracted name and the status message
     return extracted_function_name, [TextContent(type="text", text=response_message)]

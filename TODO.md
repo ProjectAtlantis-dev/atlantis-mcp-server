@@ -1,22 +1,14 @@
 # Python MCP Server TODO List
 
--   [x] **WebSocket Connectivity:**
-    -   [x] Fix WebSocket connection handling for node-mcp-client (implemented custom handler)
-    -   [x] Ensure proper error handling for all WebSocket connections
-    -   [ ] Add more detailed logging for connection diagnostics
 
--   [ ] **Dynamic Functions Enhancement:**
-    -   [ ] Add validation for function parameters
-    -   [ ] Improve error reporting for invalid functions
-    -   [ ] Add support for function version tracking
+- [ ] implement servers
+- [ ] make sure tools can see each toerh in running vm
+- [ ] tool call history
+- [ ] launch command from client side (such as run a bot)
+- [ ] cd tool that remembers and handles server failure
+- [ ] implement ux widgets (rich client log)
+- [ ] get error and info styling from old multix
+- [ ] detect foreign server and permissions
+- [ ] onboarding w Kitty; downloading server etc
 
--   [ ] **Task Management Improvements:**
-    -   [ ] Complete task execution implementation
-    -   [ ] Add scheduling capabilities for tasks
-    -   [ ] Implement task status tracking
-    -   [ ] Add task result storage
 
--   [ ] **Testing:**
-    -   [ ] Create comprehensive tests for WebSocket handler
-    -   [ ] Test all dynamic function operations
-    -   [ ] Verify task functionality

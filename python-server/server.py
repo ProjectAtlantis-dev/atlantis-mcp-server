@@ -58,7 +58,7 @@ from dynamic_manager import _fs_load_code
 import utils
 
 # Import server manager functions
-from server_manager import server_list, server_get, server_add, server_remove, server_set, server_validate, server_start, server_stop
+from server_manager import server_list, server_get, server_add, server_remove, server_set, server_validate, server_start, server_stop, ACTIVE_SERVER_TASKS
 
 # NOTE: This server uses two different socket protocols:
 # 1. Standard WebSockets: When acting as a SERVER to accept connections from node-mcp-client
@@ -406,7 +406,7 @@ class DynamicAdditionServer(Server):
             # MCP server CRUD tools
             Tool(
                 name="_server_list",
-                description="Lists all configured MCP servers",
+                description="Lists all configured MCP servers and their running status (Running/Stopped)", # MODIFIED description
                 inputSchema={"type": "object", "properties": {}}
             ),
             Tool(
@@ -599,9 +599,13 @@ class DynamicAdditionServer(Server):
 
         # Scan dynamic servers
         try:
-            server_names = server_list()
-            logger.info(f"📝 FOUND {len(server_names)} MCP servers")
-            for server_name in server_names:
+            # server_list now returns List[TextContent]
+            server_list_results = server_list()
+            logger.info(f"📝 FOUND {len(server_list_results)} MCP server configs")
+            for server_name_text in server_list_results:
+                # Extract name from text like "weather (Status: Stopped)"
+                server_name = server_name_text.text.split(' ')[0]
+                status = "Running" if server_name in ACTIVE_SERVER_TASKS else "Stopped" # Determine status
                 try:
                     config = server_get(server_name)
                     annotations = {}
@@ -614,9 +618,11 @@ class DynamicAdditionServer(Server):
                         annotations["lastModified"] = datetime.datetime.fromtimestamp(mtime).isoformat()
                     except Exception as me:
                         logger.warning(f"⚠️ Could not get mtime for server '{server_name}': {me}")
+
+                    # Modify description to include status
                     server_tool = Tool(
                         name=server_name,
-                        description=f"MCP server: {server_name}",
+                        description=f"MCP server: {server_name} (Status: {status})", # Include status
                         inputSchema={"type": "object"},
                         annotations=annotations
                     )

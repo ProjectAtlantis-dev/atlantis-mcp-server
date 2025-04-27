@@ -58,7 +58,7 @@ from dynamic_manager import _fs_load_code
 import utils
 
 # Import server manager functions
-from server_manager import server_list, server_get, server_add, server_remove, server_set, server_validate, server_start, server_stop, ACTIVE_SERVER_TASKS
+from server_manager import server_list, server_get, server_add, server_remove, server_set, server_validate, server_start, server_stop, ACTIVE_SERVER_TASKS, SERVER_START_TIMES
 
 # NOTE: This server uses two different socket protocols:
 # 1. Standard WebSockets: When acting as a SERVER to accept connections from node-mcp-client
@@ -612,13 +612,20 @@ class DynamicAdditionServer(Server):
                     annotations["type"] = "server"
                     annotations["serverConfig"] = config or {}
                     annotations["runningStatus"] = status # Add status to annotations
-                    # Add lastModified timestamp for server config file
+
                     try:
                         server_file = os.path.join(SERVERS_DIR, f"{server_name}.json")
                         mtime = os.path.getmtime(server_file)
                         annotations["lastModified"] = datetime.datetime.fromtimestamp(mtime).isoformat()
                     except Exception as me:
                         logger.warning(f"⚠️ Could not get mtime for server '{server_name}': {me}")
+
+                    if status == "running":
+                        start_time = SERVER_START_TIMES.get(server_name)
+                        if start_time:
+                            annotations["lastStarted"] = start_time.isoformat()
+                        else:
+                            logger.warning(f"⚠️ Server '{server_name}' is marked running but no start time found.")
 
                     # Modify description to include status
                     server_tool = Tool(

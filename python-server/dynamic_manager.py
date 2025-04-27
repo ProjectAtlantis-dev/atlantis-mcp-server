@@ -767,17 +767,24 @@ async def function_set(args: Dict[str, Any], server: Any) -> Tuple[Optional[str]
     server._last_servers_dir_mtime = None # Reset mtime to force reload
 
     # 5. Prepare success message, including validation status
-    save_status = f"Function '{extracted_function_name}' saved"
+    save_status = f"Function '{extracted_function_name}' saved."
+    annotations = None # Default to no annotations
     if syntax_error:
-        validation_status = f"WARNING: Syntax validation failed: {syntax_error}"
-        response_message = f"{save_status} {validation_status}"
+        # If validation failed, add structured error to annotations
+        validation_status = f"WARNING: Validation failed."
+        response_message = f"{save_status} {validation_status}" # Keep text informative
+        annotations = {
+            "validationStatus": "ERROR",
+            "validationMessage": syntax_error
+        }
+        logger.warning(f"⚠️ {response_message}")
     else:
-        validation_status = "Syntax validation successful."
-        # no need to add validation msg
-        #response_message = f"{save_status} {validation_status}"
+        # If validation succeeded
+        response_message = f"{save_status} Validation successful."
+        logger.info(f"✅ {response_message}")
 
-    # Return extracted name and the status message
-    return extracted_function_name, [TextContent(type="text", text=response_message)]
+    # Return TextContent with text and potentially annotations
+    return extracted_function_name, [TextContent(type="text", text=response_message, annotations=annotations)]
 
 
 ## Dynamic Function Calling

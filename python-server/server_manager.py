@@ -38,6 +38,7 @@ os.makedirs(OLD_DIR, exist_ok=True)
 # --- Tracking for Active Server Tasks ---
 # Stores {'server_name': {'task': asyncio.Task, 'params': StdioServerParameters}}
 ACTIVE_SERVER_TASKS: Dict[str, Dict[str, Any]] = {}
+SERVER_START_TIMES: Dict[str, datetime.datetime] = {} # New dictionary for start times
 
 # --- 1. File Save/Load ---
 def _fs_save_server(name: str, config: Dict[str, Any]) -> Optional[str]:
@@ -278,6 +279,7 @@ async def _run_mcp_client_session(name: str, params: StdioServerParameters):
              del ACTIVE_SERVER_TASKS[name]
              logger.info(f"Removed '{name}' from active server task tracking.")
 
+
 # --- 4. Server Start/Stop Operations ---
 async def server_start(args: Dict[str, Any], server) -> List[TextContent]:
     """
@@ -340,6 +342,7 @@ async def server_start(args: Dict[str, Any], server) -> List[TextContent]:
 
     # Store task info immediately
     ACTIVE_SERVER_TASKS[name] = {'task': task, 'params': params}
+    SERVER_START_TIMES[name] = datetime.datetime.now() # Record start time
 
     # Return success - PID is not available synchronously here
     return [TextContent(type='text', text=f"MCP service '{name}' started")]
@@ -376,6 +379,7 @@ async def server_stop(args: Dict[str, Any], server) -> List[TextContent]:
         # Cleanup potentially missed by the finally block
         if name in ACTIVE_SERVER_TASKS:
             del ACTIVE_SERVER_TASKS[name]
+        SERVER_START_TIMES.pop(name, None) # Remove start time
         return [TextContent(type='text', text=f"Server '{name}' task was already finished.")]
     else:
         logger.info(f"Attempting to cancel task for server '{name}'...")
@@ -396,5 +400,6 @@ async def server_stop(args: Dict[str, Any], server) -> List[TextContent]:
         # If immediate feedback is needed, could remove here, but safer to let task clean itself up.
         # if name in ACTIVE_SERVER_TASKS:
         #     del ACTIVE_SERVER_TASKS[name]
+        SERVER_START_TIMES.pop(name, None) # Remove start time
 
         return [TextContent(type='text', text=f"MCP server '{name}' stopped")]

@@ -605,12 +605,13 @@ class DynamicAdditionServer(Server):
             for server_name_text in server_list_results:
                 # Extract name from text like "weather (Status: Stopped)"
                 server_name = server_name_text.text.split(' ')[0]
-                status = "Running" if server_name in ACTIVE_SERVER_TASKS else "Stopped" # Determine status
+                status = "running" if server_name in ACTIVE_SERVER_TASKS else "stopped" # Determine status
                 try:
                     config = server_get(server_name)
                     annotations = {}
                     annotations["type"] = "server"
                     annotations["serverConfig"] = config or {}
+                    annotations["runningStatus"] = status # Add status to annotations
                     # Add lastModified timestamp for server config file
                     try:
                         server_file = os.path.join(SERVERS_DIR, f"{server_name}.json")
@@ -622,7 +623,7 @@ class DynamicAdditionServer(Server):
                     # Modify description to include status
                     server_tool = Tool(
                         name=server_name,
-                        description=f"MCP server: {server_name} (Status: {status})", # Include status
+                        description=f"MCP server: {server_name}",
                         inputSchema={"type": "object"},
                         annotations=annotations
                     )

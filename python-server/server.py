@@ -291,7 +291,7 @@ class DynamicAdditionServer(Server):
             # Construct the full notification dictionary using the params dict
             notification = {
                 "jsonrpc": "2.0",
-                "method": "tools/listChanged",
+                "method": "notifications/tools/list_changed", # MCP spec format
                 "params": params_dict  # Use the dumped dictionary here
             }
 
@@ -309,7 +309,7 @@ class DynamicAdditionServer(Server):
                         else: # Fallback or specific method if known
                              logger.warning(f"Client {client_id} lacks send_json, attempting send_notification (may not work as intended)")
                              # Previous method might not work correctly with the full structure
-                             await client.send_notification('tools/listChanged', params_dict)
+                             await client.send_notification('notifications/tools/list_changed', params_dict)
                     except Exception as e:
                         logger.error(f"❌ Error sending tool notification to service client {client_id}: {e}")
 
@@ -919,7 +919,7 @@ class DynamicAdditionServer(Server):
             return final_result
 
     async def _notify_tool_list_changed(self, change_type: str, tool_name: str):
-        """Send a 'tools/listChanged' notification with details to all connected clients."""
+        """Send a 'notifications/tools/list_changed' notification with details to all connected clients."""
         logger.info(f"🔔 Notifying clients about tool list change ({change_type}: {tool_name})...")
         notification_params = {
             "changeType": change_type,
@@ -927,7 +927,7 @@ class DynamicAdditionServer(Server):
         }
         notification = {
             "jsonrpc": "2.0",
-            "method": "tools/listChanged", # Corrected to tools/listChanged
+            "method": "notifications/tools/list_changed", # MCP spec format
             "params": notification_params # Include details in params
         }
         notification_json = json.dumps(notification)
@@ -957,15 +957,15 @@ class DynamicAdditionServer(Server):
             try:
                 if client_type == "websocket":
                     await connection.send_text(notification_json)
-                    logger.debug(f"📢 Sent tools/listChanged to WebSocket client: {client_id}")
+                    logger.debug(f"📢 Sent notifications/tools/list_changed to WebSocket client: {client_id}")
                 elif client_type == "cloud" and connection.is_connected:
                     await connection.send_message('mcp_notification', notification)
-                    logger.debug(f"☁️ Sent tools/listChanged to Cloud client: {client_id}")
+                    logger.debug(f"☁️ Sent notifications/tools/list_changed to Cloud client: {client_id}")
                 else:
                     logger.warning(f"Unknown or disconnected client type for {client_id}, skipping notification.")
 
             except Exception as e:
-                logger.warning(f"Failed to send tools/listChanged notification to client {client_id}: {e}")
+                logger.warning(f"Failed to send notifications/tools/list_changed notification to client {client_id}: {e}")
                 # Consider removing the client connection if sending fails repeatedly?
 
 # ServiceClient class to manage the connection to the cloud server via Socket.IO

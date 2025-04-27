@@ -128,51 +128,78 @@ def server_list() -> List[str]:
 async def server_set(args: Dict[str, Any], server) -> List[TextContent]:
     """
     MCP handler to add/update a server config.
-    Expects args['name']: str, args['config']: dict
+    Expects args['config']: dict containing {"mcpServers": {"server_name": {...}}}
+    The server name is derived from the key within 'mcpServers'.
     If the server is running and the config is updated, it might need restarting.
     """
-    name = args.get('name')
-    config = args.get('config')
-    if not name or not isinstance(config, dict):
-        msg = "Missing or invalid parameters: 'name' must be str and 'config' must be dict."
+    logger.debug(f"Received server_set request with args: {args}")
+
+    config_input = args.get('config')
+
+    if isinstance(config_input, str):
+        try:
+            config = json.loads(config_input)
+            logger.debug("Parsed 'config' from JSON string to dictionary.")
+        except json.JSONDecodeError as e:
+            msg = f"Invalid parameter: 'config' was a string but failed JSON parsing: {e}"
+            logger.error(f" server_set: {msg}")
+            return [TextContent(type='text', text=msg)]
+    elif isinstance(config_input, dict):
+        config = config_input # It's already a dictionary
+
+    if not config or not isinstance(config, dict):
+        msg = "Missing or invalid parameter: 'config' must be a dictionary."
         logger.error(f"❌ server_set: {msg}")
         return [TextContent(type='text', text=msg)]
 
-    was_running = name in ACTIVE_SERVER_TASKS
-    existing_config = _fs_load_server(name)
-    action = 'Updated' if existing_config else 'Added'
-
-    # Basic validation before saving (reuse server_validate)
-    # Note: server_validate operates on the *saved* file, so save first or adapt validation
-    temp_config = config # Use the incoming config for validation checks if needed before save
-
-    req = ['command'] # Define minimal required keys here or in server_validate
-    missing = [k for k in req if k not in temp_config]
-    if missing:
-         msg = f"Invalid config for '{name}': Missing keys: {missing}"
-         logger.error(f"❌ server_set: {msg}")
-         return [TextContent(type='text', text=msg)]
-
-
-    saved = _fs_save_server(name, config)
-    if not saved:
-        msg = f"Failed to save server config for '{name}'."
+    mcp_servers_config = config.get('mcpServers')
+    if not mcp_servers_config or not isinstance(mcp_servers_config, dict):
+        msg = "Invalid config: Missing or invalid 'mcpServers' dictionary within 'config'."
+        logger.error(f"❌ server_set: {msg}")
         return [TextContent(type='text', text=msg)]
 
-    # Notify clients if server has a notification method
-    if hasattr(server, '_notify_tool_list_changed'): # Reusing tool notification potentially
-        try:
-            await server._notify_tool_list_changed() # Or a dedicated server list notification
-        except Exception as e:
-            logger.error(f"❌ Failed to notify clients after '{action}' server '{name}': {e}")
+    if not mcp_servers_config:
+        msg = "Invalid config: 'mcpServers' dictionary cannot be empty."
+        logger.error(f"❌ server_set: {msg}")
+        return [TextContent(type='text', text=msg)]
 
-    restart_msg = ""
-    if was_running and action == 'Updated':
-        logger.warning(f"Server '{name}' was running and its config was updated. Manual restart required using server_stop then server_start.")
-        restart_msg = " Server was running; restart required for changes to take effect."
+    # Extract the server name from the first key in mcpServers
+    name = next(iter(mcp_servers_config))
+    server_specific_config = mcp_servers_config[name] # The actual config for this server
 
+    # Validate the extracted server-specific config minimally
+    if not isinstance(server_specific_config, dict) or 'command' not in server_specific_config:
+        msg = f"Invalid config structure for server '{name}' under 'mcpServers'. Must be a dictionary with at least a 'command' key."
+        logger.error(f"❌ server_set: {msg}")
+        return [TextContent(type='text', text=msg)]
 
-    return [TextContent(type='text', text=f"Server '{name}' config {action.lower()} successfully.{restart_msg}")]
+    logger.info(f"Processing server_set for derived name: '{name}'")
+
+    # Check if the server is currently running - potential restart needed notification?
+    # Note: We don't automatically restart here, just save the config.
+    # Manual restart via server_stop/server_start might be required.
+    is_running = name in ACTIVE_SERVER_TASKS
+    if is_running:
+        logger.warning(f"⚠️ Server '{name}' is currently running. Updating config may require a manual restart.")
+
+    # Save the full original config structure (including 'mcpServers' wrapper)
+    # This ensures _fs_load_server retrieves the same structure later
+    saved_path = _fs_save_server(name, config) # Save the whole config blob under the derived name
+
+    if saved_path:
+        validation = server_validate(name) # Validate the *saved* config
+        valid_msg = f"Config for server '{name}' saved successfully."
+        if not validation.get('valid'):
+            valid_msg += f" WARNING: Config validation failed: {validation.get('error')}"
+        else:
+            valid_msg += " Config structure appears valid."
+
+        if is_running:
+            valid_msg += " Server is running; manual restart might be needed to apply changes."
+
+        return [TextContent(type='text', text=valid_msg)]
+    else:
+        return [TextContent(type='text', text=f"Failed to save config for server '{name}'.")]
 
 
 def server_validate(name: str) -> Dict[str, Any]:
@@ -185,7 +212,7 @@ def server_validate(name: str) -> Dict[str, Any]:
         return {'valid': False, 'error': f"Server '{name}' config not found."}
     # Basic required keys
     # 'args' and 'env' are optional in StdioServerParameters technically
-    req = ['command']
+    req = ['mcpServers']
     missing = [k for k in req if k not in config]
     if missing:
         return {'valid': False, 'error': f"Missing keys: {missing}"}

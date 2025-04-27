@@ -449,10 +449,31 @@ class DynamicAdditionServer(Server):
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "name": {"type": "string"},
-                        "config": {"type": "object"}
+                        "config": {
+                            "type": "object",
+                            "description": "Server config JSON, must contain 'mcpServers' key with the server name as its child.",
+                            "properties": {
+                                "mcpServers": {
+                                    "type": "object",
+                                    "description": "A dictionary where the key is the server name.",
+                                    # We don't strictly enforce the structure *within* the named server config here,
+                                    # relying on server_manager's validation, but describe the expectation.
+                                    "additionalProperties": {
+                                         "type": "object",
+                                         "properties": {
+                                            "command": {"type": "string"},
+                                            "args": {"type": "array", "items": {"type": "string"}},
+                                            "env": {"type": "object"},
+                                            "cwd": {"type": "string"}
+                                         },
+                                         "required": ["command"]
+                                    }
+                                }
+                            },
+                            "required": ["mcpServers"]
+                        }
                     },
-                    "required": ["name", "config"]
+                    "required": ["config"] # Only config is required top-level
                 }
             ),
             Tool(
@@ -1060,12 +1081,12 @@ class ServiceClient:
             self.retry_count = 0  # Reset retry counter on successful connection
             logger.info("✅ CONNECTED TO CLOUD SERVER!")
 
-            # --- ADDED: Register this connection with the MCP server --- 
+            # --- ADDED: Register this connection with the MCP server ---
             cloud_sid = self.sio.sid if self.sio else 'unknown_sid' # Get Socket.IO session ID if available
             connection_id = f"service_{cloud_sid}"
             self.mcp_server.service_connections[connection_id] = {
-                "type": "service", 
-                "connection": self.sio, 
+                "type": "service",
+                "connection": self.sio,
                 "id": connection_id
             }
             logger.info(f"✅ Registered cloud service connection: {connection_id}")
@@ -1090,7 +1111,7 @@ class ServiceClient:
             self.is_connected = False
             logger.warning("🔌 DISCONNECTED FROM CLOUD SERVER!")
 
-            # --- ADDED: Unregister this connection from the MCP server --- 
+            # --- ADDED: Unregister this connection from the MCP server ---
             cloud_sid = self.sio.sid if self.sio else 'unknown_sid'
             connection_id = f"service_{cloud_sid}"
             removed = self.mcp_server.service_connections.pop(connection_id, None)

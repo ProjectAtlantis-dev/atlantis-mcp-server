@@ -634,10 +634,7 @@ class DynamicAdditionServer(Server):
                 server_name = server_name_text.text.split(' ')[0]
                 status = "running" if server_name in ACTIVE_SERVER_TASKS else "stopped" # Determine status
                 try:
-                    logger.debug(f"SERVER_TOOL_DEBUG: Attempting to get config for '{server_name}' using server_get. Current cache: {_server_load_errors.get(server_name)}")
                     config = server_get(server_name)
-                    logger.debug(f"SERVER_TOOL_DEBUG: server_get('{server_name}') returned config: {'present' if config else 'None'}. Current cache: {_server_load_errors.get(server_name)}")
-
                     annotations = {}
                     annotations["type"] = "server"
                     annotations["serverConfig"] = config or {}
@@ -657,12 +654,8 @@ class DynamicAdditionServer(Server):
                         else:
                             logger.warning(f"⚠️ Server '{server_name}' is marked running but no start time found.")
 
-                    logger.debug(f"SERVER_TOOL_DEBUG: Checking _server_load_errors cache for '{server_name}' before adding tool.")
                     if server_name in _server_load_errors:
-                        logger.debug(f"SERVER_TOOL_DEBUG: Found load error for '{server_name}': {_server_load_errors[server_name]}")
                         annotations["loadError"] = _server_load_errors[server_name]
-                    else:
-                        logger.debug(f"SERVER_TOOL_DEBUG: No load error found for '{server_name}' in cache.")
 
                     # Modify description to include status
                     server_tool = Tool(
@@ -943,9 +936,8 @@ class DynamicAdditionServer(Server):
             elif isinstance(result_raw, list) and all(isinstance(item, TextContent) for item in result_raw):
                 final_result = result_raw
             elif result_raw is None: # Handle cases where built-ins might not have set result_raw (e.g., error occurred before assignment)
-                pass
-                #logger.warning(f"⚠️ result_raw was None for tool '{name}'. This might indicate an unhandled path or early error.")
-                #raise ValueError(f"Internal error processing tool '{name}': result was None.")
+                logger.warning(f"⚠️ result_raw was None for tool '{name}'. This might indicate an unhandled path or early error.")
+                final_result = [] # Assign a default empty list
             else:
                 # Convert any other result to string
                 import json

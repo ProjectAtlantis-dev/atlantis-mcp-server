@@ -59,7 +59,12 @@ from dynamic_manager import (
 import utils
 
 # Import server manager functions
-from server_manager import server_list, server_get, server_add, server_remove, server_set, server_validate, server_start, server_stop, ACTIVE_SERVER_TASKS, SERVER_START_TIMES
+from server_manager import (
+    server_list, server_get, server_add, server_remove, server_set,
+    server_validate, server_start, server_stop, ACTIVE_SERVER_TASKS,
+    SERVER_START_TIMES,
+    _server_load_errors # Import the server load error cache
+)
 
 # NOTE: This server uses two different socket protocols:
 # 1. Standard WebSockets: When acting as a SERVER to accept connections from node-mcp-client
@@ -582,6 +587,10 @@ class DynamicAdditionServer(Server):
                     if tool_name_from_file in _runtime_errors:
                         tool_annotations["runtimeError"] = _runtime_errors[tool_name_from_file]
 
+                    # Add server config load error if present in cache
+                    if tool_name_from_file in _server_load_errors:
+                        tool_annotations["loadError"] = _server_load_errors[tool_name_from_file]
+
                     # Add common annotations
                     try:
                         tool_annotations["lastModified"] = datetime.datetime.fromtimestamp(
@@ -625,7 +634,10 @@ class DynamicAdditionServer(Server):
                 server_name = server_name_text.text.split(' ')[0]
                 status = "running" if server_name in ACTIVE_SERVER_TASKS else "stopped" # Determine status
                 try:
+                    logger.debug(f"SERVER_TOOL_DEBUG: Attempting to get config for '{server_name}' using server_get. Current cache: {_server_load_errors.get(server_name)}")
                     config = server_get(server_name)
+                    logger.debug(f"SERVER_TOOL_DEBUG: server_get('{server_name}') returned config: {'present' if config else 'None'}. Current cache: {_server_load_errors.get(server_name)}")
+
                     annotations = {}
                     annotations["type"] = "server"
                     annotations["serverConfig"] = config or {}
@@ -644,6 +656,13 @@ class DynamicAdditionServer(Server):
                             annotations["lastStarted"] = start_time.isoformat()
                         else:
                             logger.warning(f"⚠️ Server '{server_name}' is marked running but no start time found.")
+
+                    logger.debug(f"SERVER_TOOL_DEBUG: Checking _server_load_errors cache for '{server_name}' before adding tool.")
+                    if server_name in _server_load_errors:
+                        logger.debug(f"SERVER_TOOL_DEBUG: Found load error for '{server_name}': {_server_load_errors[server_name]}")
+                        annotations["loadError"] = _server_load_errors[server_name]
+                    else:
+                        logger.debug(f"SERVER_TOOL_DEBUG: No load error found for '{server_name}' in cache.")
 
                     # Modify description to include status
                     server_tool = Tool(

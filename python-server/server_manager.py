@@ -77,17 +77,17 @@ def _fs_load_server(name: str) -> Optional[Dict[str, Any]]:
         _server_load_errors.pop(name, None)
         return config_data
     except json.JSONDecodeError as e:
-        error_msg = f"JSON decode error in {file_path}: {e}"
+        error_msg = f"JSON decode error: {e}"
         logger.error(f"❌ _fs_load_server: {error_msg}")
         _server_load_errors[name] = error_msg # Cache the error
         return None
     except IOError as e:
-        error_msg = f"IO error reading {file_path}: {e}"
+        error_msg = f"IO error: {e}"
         logger.error(f"❌ _fs_load_server: {error_msg}")
         _server_load_errors[name] = error_msg # Cache the error
         return None
     except Exception as e:
-        error_msg = f"Unexpected error reading {file_path}: {e}"
+        error_msg = f"Unexpected error: {e}"
         logger.error(f"❌ _fs_load_server: {error_msg}", exc_info=True)
         _server_load_errors[name] = error_msg # Cache the error
         return None

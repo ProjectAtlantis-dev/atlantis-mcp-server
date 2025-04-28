@@ -562,6 +562,7 @@ def function_remove(name: str) -> bool:
                 logger.info(f"Removed log file for '{secure_name}' at {log_path}")
             except Exception as e:
                 logger.error(f"Failed to remove log file for '{secure_name}': {e}")
+
         return True
     except Exception as e:
         logger.error(f"Error during function removal for '{secure_name}': {e}")

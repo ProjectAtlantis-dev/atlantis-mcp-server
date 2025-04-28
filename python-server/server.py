@@ -50,9 +50,10 @@ from dynamic_manager import (
     function_add,
     function_remove,
     function_validate,
-    function_call
+    function_call,
+    _runtime_errors, # Import the runtime error cache
+    _fs_load_code
 )
-from dynamic_manager import _fs_load_code
 
 # Import our utility module for dynamic functions
 import utils
@@ -576,6 +577,10 @@ class DynamicAdditionServer(Server):
                          tool_annotations["validationStatus"] = "INVALID"
                          if error_message:
                              tool_annotations["errorMessage"] = error_message
+
+                    # Add runtime error message if present in cache
+                    if tool_name_from_file in _runtime_errors:
+                        tool_annotations["runtimeError"] = _runtime_errors[tool_name_from_file]
 
                     # Add common annotations
                     try:

@@ -1,6 +1,6 @@
 def prompt_default():
     """
-    This is a placeholder function for 'prompt_default'
+    This is a placeholder for boston redsocks
     """
     print(f"Executing placeholder function: prompt_default...")
 

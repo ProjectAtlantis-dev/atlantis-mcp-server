@@ -80,17 +80,42 @@ def _fs_load_server(name: str) -> Optional[Dict[str, Any]]:
         error_msg = f"JSON decode error: {e}"
         logger.error(f"❌ _fs_load_server: {error_msg}")
         _server_load_errors[name] = error_msg # Cache the error
+        _write_server_error_log(name, error_msg)
         return None
     except IOError as e:
         error_msg = f"IO error: {e}"
         logger.error(f"❌ _fs_load_server: {error_msg}")
         _server_load_errors[name] = error_msg # Cache the error
+        _write_server_error_log(name, error_msg)
         return None
     except Exception as e:
         error_msg = f"Unexpected error: {e}"
         logger.error(f"❌ _fs_load_server: {error_msg}", exc_info=True)
         _server_load_errors[name] = error_msg # Cache the error
+        _write_server_error_log(name, error_msg)
         return None
+
+
+def _write_server_error_log(name: str, error_message: str) -> None:
+    '''
+    Write an error message to a server-specific log file in the SERVERS_DIR.
+    Overwrites any existing log to only keep the latest error.
+    Creates a log file named {name}.log with timestamp.
+    '''
+    try:
+        # Use the original name directly as it's used for the .json file
+        log_path = os.path.join(SERVERS_DIR, f"{name}.log")
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Open in write mode to overwrite previous content
+        with open(log_path, 'w', encoding='utf-8') as log_file:
+            log_file.write(f"{timestamp} [ERROR] {error_message}\n")
+
+        logger.debug(f"Wrote error log for server '{name}' at {log_path}")
+    except Exception as e:
+        # Don't let logging errors disrupt the main flow
+        logger.error(f"Failed to write server error log for '{name}': {e}")
+
 
 # --- 2. Config CRUD Operations ---
 def server_add(name: str, config: Dict[str, Any]) -> bool:

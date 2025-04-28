@@ -30,3 +30,4 @@
 - somewhat confusion naming because the word 'server' here means other mcp servers
 - CRUD for these are _server_add, _server_list,_server_set etc. in server_manager.py
 - we need to at least support uvx and npx stdio mcp servers
+- NEVER TOUCH THE PROTOCOL WITHOUT EXPLICIT APPROVAL BECAUSE IT CAN BREAK THE CLOUD SERVER

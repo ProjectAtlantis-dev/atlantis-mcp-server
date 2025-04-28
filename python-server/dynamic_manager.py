@@ -36,6 +36,9 @@ from typing import Optional, Dict
 from werkzeug.utils import secure_filename
 from state import FUNCTIONS_DIR, logger # Assuming logger and FUNCTIONS_DIR are defined/imported earlier
 
+# Runtime error cache (stores last known runtime error string for a function)
+_runtime_errors: Dict[str, str] = {}
+
 # --- 1. File Save/Load ---
 
 # Ensure FUNCTIONS_DIR exists at startup (or wherever appropriate)
@@ -543,6 +546,9 @@ def function_remove(name: str) -> bool:
         return False
 
     try:
+        # First, clear any potential old runtime error cache for this name
+        _runtime_errors.pop(name, None)
+
         # Move to OLD directory
         timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S%f")
         backup_path = os.path.join(OLD_DIR, f"{secure_name}_{timestamp}.py.old")
@@ -645,6 +651,9 @@ async def function_call(name: str, client_id: str, request_id: str, **kwargs) ->
         raise FileNotFoundError(f"Dynamic function '{secure_name}' not found at {file_path}")
 
     try:
+        # Clear any previous runtime error before attempting execution
+        _runtime_errors.pop(name, None)
+
         # Dynamically import the module
         # The module name should be unique, using the file name is common
         module_name = f"dynamic_functions.{secure_name}"
@@ -684,10 +693,13 @@ async def function_call(name: str, client_id: str, request_id: str, **kwargs) ->
         return result
 
     except Exception as e:
-        logger.error(f"Error calling dynamic function '{secure_name}': {e}")
-        logger.debug(traceback.format_exc())
-        # Re-raise the exception so the caller knows something went wrong
-        raise # Or return a specific error object/dict
+        error_message = f"❌ function_call: Error executing function '{name}': {traceback.format_exc()}"
+        logger.error(error_message)
+        # Cache the runtime error string
+        _runtime_errors[name] = str(e)
+        raise # Re-raise the exception so the caller knows it failed
+    finally:
+        pass
 
 async def function_set(args: Dict[str, Any], server: Any) -> Tuple[Optional[str], List[TextContent]]:
     """
@@ -750,6 +762,9 @@ async def function_set(args: Dict[str, Any], server: Any) -> Tuple[Optional[str]
         return extracted_function_name, [TextContent(type="text", text=error_response)]
 
     logger.info(f"💾 Function '{extracted_function_name}' code saved successfully to {saved_path}")
+
+    # Clear any cached runtime error for this function, as it's been updated
+    _runtime_errors.pop(extracted_function_name, None)
 
     # 3. Attempt AST parsing for immediate feedback (but save regardless)
     syntax_error = None

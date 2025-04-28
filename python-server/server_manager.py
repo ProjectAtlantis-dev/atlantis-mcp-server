@@ -39,6 +39,7 @@ os.makedirs(OLD_DIR, exist_ok=True)
 # Stores {'server_name': {'task': asyncio.Task, 'params': StdioServerParameters}}
 ACTIVE_SERVER_TASKS: Dict[str, Dict[str, Any]] = {}
 SERVER_START_TIMES: Dict[str, datetime.datetime] = {} # New dictionary for start times
+_server_load_errors: Dict[str, str] = {} # Cache for server config load errors
 
 # --- 1. File Save/Load ---
 def _fs_save_server(name: str, config: Dict[str, Any]) -> Optional[str]:
@@ -67,12 +68,28 @@ def _fs_load_server(name: str) -> Optional[Dict[str, Any]]:
     file_path = os.path.join(SERVERS_DIR, safe_name)
     if not os.path.exists(file_path):
         logger.info(f"⚠️ _fs_load_server: Existing config not found for '{name}' at {file_path}")
+        _server_load_errors.pop(name, None) # Clear potential old error if file is gone
         return None
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            config_data = json.load(f)
+        # Success: clear any cached error for this server
+        _server_load_errors.pop(name, None)
+        return config_data
+    except json.JSONDecodeError as e:
+        error_msg = f"JSON decode error in {file_path}: {e}"
+        logger.error(f"❌ _fs_load_server: {error_msg}")
+        _server_load_errors[name] = error_msg # Cache the error
+        return None
+    except IOError as e:
+        error_msg = f"IO error reading {file_path}: {e}"
+        logger.error(f"❌ _fs_load_server: {error_msg}")
+        _server_load_errors[name] = error_msg # Cache the error
+        return None
     except Exception as e:
-        logger.error(f"❌ _fs_load_server: Failed to read {file_path}: {e}")
+        error_msg = f"Unexpected error reading {file_path}: {e}"
+        logger.error(f"❌ _fs_load_server: {error_msg}", exc_info=True)
+        _server_load_errors[name] = error_msg # Cache the error
         return None
 
 # --- 2. Config CRUD Operations ---
@@ -104,8 +121,22 @@ def server_remove(name: str) -> bool:
         logger.warning(f"Remove failed: Server config for '{name}' does not exist.")
         return False # Config doesn't exist
     try:
+        # This might be more robust to move than delete, similar to functions
+        try:
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S%f")
+            backup_filename = f"{name}_{timestamp}.json.removed"
+            backup_path = os.path.join(OLD_DIR, backup_filename)
+            shutil.move(file_path, backup_path)
+            logger.info(f"🗑️ Moved server config '{name}' to '{backup_path}'")
+            # Clear any cached load error after successful removal
+            _server_load_errors.pop(name, None)
+            return True
+        except Exception as e:
+            logger.error(f"❌ Failed to move server config file '{file_path}': {e}")
         os.remove(file_path)
         logger.info(f"🗑️ Removed server config '{name}' at {file_path}")
+        # Clear any cached load error after successful removal
+        _server_load_errors.pop(name, None)
         return True
     except Exception as e:
         logger.error(f"❌ server_remove: Failed to delete {file_path}: {e}")
@@ -227,6 +258,9 @@ async def server_set(args: Dict[str, Any], server) -> List[TextContent]:
         if name in ACTIVE_SERVER_TASKS:
             logger.warning(f"🔔 Server '{name}' is currently running. Configuration updated. Restart may be required for changes to take effect.")
             valid_msg += " Server is running; manual restart might be needed to apply changes."
+
+        # Clear any cached load error now that it's updated
+        _server_load_errors.pop(name, None)
 
         return [TextContent(type='text', text=valid_msg)]
     else:

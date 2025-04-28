@@ -924,8 +924,9 @@ class DynamicAdditionServer(Server):
             elif isinstance(result_raw, list) and all(isinstance(item, TextContent) for item in result_raw):
                 final_result = result_raw
             elif result_raw is None: # Handle cases where built-ins might not have set result_raw (e.g., error occurred before assignment)
-                logger.error(f"❓ result_raw was None for tool '{name}'. This might indicate an unhandled path or early error.")
-                raise ValueError(f"Internal error processing tool '{name}': result was None.")
+                pass
+                #logger.warning(f"⚠️ result_raw was None for tool '{name}'. This might indicate an unhandled path or early error.")
+                #raise ValueError(f"Internal error processing tool '{name}': result was None.")
             else:
                 # Convert any other result to string
                 import json

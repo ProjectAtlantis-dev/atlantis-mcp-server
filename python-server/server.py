@@ -1053,6 +1053,7 @@ class ServiceClient:
     async def _maintain_connection(self):
         """Maintains the connection to the cloud server with retries"""
         while self.connection_active and not is_shutting_down:
+            logger.info("☁️ Starting _maintain_connection loop iteration") # DEBUG ADDED
             try:
                 # Create a new Socket.IO client instance
                 self.sio = socketio.AsyncClient()
@@ -1081,7 +1082,7 @@ class ServiceClient:
 
                 # Wait for disconnection
                 await self.sio.wait()
-                logger.info("☁️ Socket.IO connection closed")
+                logger.info("☁️ Socket.IO connection closed (wait() returned)") # DEBUG ADDED
 
             except Exception as e:
                 if is_shutting_down:
@@ -1153,8 +1154,9 @@ class ServiceClient:
         # Disconnection event
         @self.sio.event(namespace=self.namespace)
         async def disconnect(): # Ensure handler is async
+            logger.warning("⚠️ DISCONNECTED FROM CLOUD SERVER! (disconnect event)") # DEBUG ADDED
             self.is_connected = False
-            logger.warning("🔌 DISCONNECTED FROM CLOUD SERVER!")
+            logger.info("☁️ DISCONNECTED FROM CLOUD SERVER!") # DEBUG ADDED
 
             # --- ADDED: Unregister this connection from the MCP server ---
             cloud_sid = self.sio.sid if self.sio else 'unknown_sid'

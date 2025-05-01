@@ -62,7 +62,7 @@ import utils
 from server_manager import (
     server_list, server_get, server_add, server_remove, server_set,
     server_validate, server_start, server_stop, ACTIVE_SERVER_TASKS,
-    SERVER_START_TIMES,
+    SERVER_START_TIMES, get_server_tools, # <<< Added get_server_tools
     _server_load_errors # Import the server load error cache
 )
 
@@ -422,12 +422,6 @@ class DynamicAdditionServer(Server):
                     "required": ["name"]
                 }
             ),
-            # MCP server CRUD tools
-            Tool(
-                name="_server_list",
-                description="Lists all configured MCP servers and their running status (Running/Stopped)", # MODIFIED description
-                inputSchema={"type": "object", "properties": {}}
-            ),
             Tool(
                 name="_server_get",
                 description="Gets the configuration JSON for a server",
@@ -527,7 +521,19 @@ class DynamicAdditionServer(Server):
                     },
                     "required": ["name"]
                 }
-            )
+            ),
+            Tool(
+                name="_server_get_tools",
+                description="Gets the list of tools from a specific *running* managed server.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"}
+                    },
+                    "required": ["name"]
+                }
+            ),
+
         ]
         # Log the static tools being included
         static_tool_names = [tool.name for tool in tools_list]
@@ -853,10 +859,6 @@ class DynamicAdditionServer(Server):
                         # Raise error to be caught by the main handler
                         raise RuntimeError(f"Function '{func_name}' could not be added (function_add returned False). Check logs.")
 
-            # MCP server CRUD tool cases
-            elif name == "_server_list":
-                logger.debug("---> Calling built-in: server_list")
-                result_raw = server_list()
             elif name == "_server_get":
                 svc_name = args.get("name")
                 if not svc_name:
@@ -896,6 +898,9 @@ class DynamicAdditionServer(Server):
             elif name == "_server_stop":
                 logger.debug(f"---> Calling built-in: server_stop with args: {args!r}")
                 result_raw = await server_stop(args, self)
+            elif name == "_server_get_tools":
+                logger.debug(f"---> Calling built-in: get_server_tools with args: {args!r}")
+                result_raw = await get_server_tools(args)
             # Handle dynamic function calls
             elif not name.startswith('_'):  # Only non-underscore names are potential dynamic functions
                 # Check if function exists
@@ -993,7 +998,6 @@ class DynamicAdditionServer(Server):
             client_info = client_connections[client_id]
             client_type = client_info.get("type")
             connection = client_info.get("connection")
-            logger.debug(f"Attempting to notify client: {client_id} (Type: {client_type})")
 
             if not connection:
                 logger.warning(f"No connection object found for client {client_id}, skipping notification.")
@@ -1012,6 +1016,52 @@ class DynamicAdditionServer(Server):
             except Exception as e:
                 logger.warning(f"Failed to send notifications/tools/list_changed notification to client {client_id}: {e}")
                 # Consider removing the client connection if sending fails repeatedly?
+
+
+async def get_all_tools_for_response(server: 'DynamicAdditionServer', caller_context: str) -> List[Dict[str, Any]]:
+    """
+    Fetches all tools from the server and prepares them as dictionaries for a JSON response.
+    """
+    logger.debug(f"Helper: Calling _get_tools_list for all tools from {caller_context}")
+    raw_tool_list: List[Tool] = await server._get_tools_list(caller_context=caller_context)
+    tools_dict_list: List[Dict[str, Any]] = []
+    for tool in raw_tool_list:
+        try:
+            # Ensure model_dump is called correctly for each tool
+            tools_dict_list.append(tool.model_dump(mode='json')) # Use mode='json' for better serialization
+        except Exception as e:
+            logger.error(f"❌ Error dumping tool model '{tool.name}' to dict: {e}", exc_info=True)
+            # Optionally skip this tool or add placeholder error? For now, skipping.
+    logger.debug(f"Helper: Prepared {len(tools_dict_list)} tool dictionaries.")
+    return tools_dict_list
+
+async def get_filtered_tools_for_response(server: 'DynamicAdditionServer', caller_context: str) -> List[Dict[str, Any]]:
+    """
+    Fetches tools, filters out server-type tools, and prepares them for a JSON response.
+    """
+    logger.debug(f"Helper: Calling get_all_tools_for_response for filtering from {caller_context}")
+    all_tools_dict_list = await get_all_tools_for_response(server, caller_context)
+
+    filtered_tools_dict_list: List[Dict[str, Any]] = []
+    filtered_out_names: List[str] = []
+
+    for tool_dict in all_tools_dict_list:
+        # Check annotations safely
+        annotations = tool_dict.get('annotations')
+        if isinstance(annotations, dict) and annotations.get('type') == 'server':
+            filtered_out_names.append(tool_dict.get('name', '<Unnamed Tool>'))
+        else:
+            filtered_tools_dict_list.append(tool_dict)
+
+    if filtered_out_names:
+        logger.info(f"🐾 Helper: Filtered out {len(filtered_out_names)} server-type tools from list requested by {caller_context}: {', '.join(filtered_out_names)}")
+
+    logger.debug(f"Helper: Returning {len(filtered_tools_dict_list)} filtered tool dictionaries.")
+    return filtered_tools_dict_list
+
+
+
+
 
 # ServiceClient class to manage the connection to the cloud server via Socket.IO
 class ServiceClient:
@@ -1206,24 +1256,29 @@ class ServiceClient:
         }
 
         try:
-            if method == "tools/list_all":
+
+            if method == "tools/list":
+                logger.info(f"🧰 Processing 'tools/list' request via helper")
+                filtered_tools_dict_list = await get_filtered_tools_for_response(self.mcp_server, caller_context="process_mcp_request_websocket")
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "result": {"tools": filtered_tools_dict_list}
+                }
+                logger.debug(f"📦 Prepared tools/list response (ID: {request_id}) with {len(filtered_tools_dict_list)} tools.")
+                return response
+            elif method == "tools/list_all": # Handling for list_all in direct connections
                 # get all tools including internal
                 # get servers including those not running
                 # Call the core logic method directly (pass client_id)
-                result_list = await self.mcp_server._get_tools_list(caller_context="process_mcp_request")
-                # Convert Tool objects to dictionaries for JSON serialization using model_dump()
-                response["result"] = {"tools": [tool.model_dump() for tool in result_list]} # Use model_dump()
-
-            elif method == "tools/list":
-                # Call the core logic method directly (pass client_id)
-                result_list = await self.mcp_server._get_tools_list(caller_context="process_mcp_request")
-                # Filter out any tools where annotations['type'] == 'server' for the standard list
-                filtered_result_list = [tool for tool in result_list if not (hasattr(tool, 'annotations') and tool.annotations and tool.annotations.get('type') == 'server')]
-                filtered_count = len(result_list) - len(filtered_result_list)
-                if filtered_count > 0:
-                    logger.info(f"🐾 Filtered out {filtered_count} server-type tools from tools/list response (not shown to client)")
-                # Convert Tool objects to dictionaries for JSON serialization using model_dump()
-                response["result"] = {"tools": [tool.model_dump() for tool in filtered_result_list]} # Use filtered list
+                logger.info(f"🧰 Processing 'tools/list_all' request via helper")
+                all_tools_dict_list = await get_all_tools_for_response(self.mcp_server, caller_context="process_mcp_request_websocket")
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "result": {"tools": all_tools_dict_list}
+                }
+                return response
 
             elif method == "tools/call":
                 tool_name = params.get("name")
@@ -1428,33 +1483,27 @@ async def process_mcp_request(server, request, client_id=None):
             # Return empty object per MCP protocol spec
             return {"jsonrpc": "2.0", "id": req_id, "result": result}
         elif method == "tools/list":
-            logger.info(f"🧰 Processing 'tools/list' request")
-            # Pass context indicating this call is from the SDK handler (likely a direct request)
-            tool_list = await server._get_tools_list(caller_context="process_mcp_request_websocket")
-            # Filter out any tools where annotations['type'] == 'server' for the standard list
-            filtered_tool_list = [tool for tool in tool_list if not (hasattr(tool, 'annotations') and tool.annotations and tool.annotations.get('type') == 'server')]
-            filtered_count = len(tool_list) - len(filtered_tool_list)
-            if filtered_count > 0:
-                logger.info(f"🐾 Filtered out {filtered_count} server-type tools from tools/list response (not shown to client)")
-            # Convert Tool objects to dictionaries for JSON serialization using model_dump()
-            try:
-                # Ensure model_dump is called correctly for each tool
-                tools_dict_list = [tool.model_dump() for tool in filtered_tool_list]
-                response = {
-                    "jsonrpc": "2.0",
-                    "id": req_id,
-                    "result": {"tools": tools_dict_list}
-                }
-                logger.debug(f"📦 Prepared tools/list response (ID: {req_id}) with {len(tools_dict_list)} tools.")
-                return response
-            except Exception as e:
-                 logger.error(f"💥 Error serializing tool list for JSON-RPC response: {e}")
-                 # Return a valid JSON-RPC error response
-                 return {
-                    "jsonrpc": "2.0",
-                    "id": req_id,
-                    "error": {"code": -32000, "message": f"Internal server error: Failed to serialize tool list - {e}"}
-                 }
+            logger.info(f"🧰 Processing 'tools/list' request via helper")
+            filtered_tools_dict_list = await get_filtered_tools_for_response(server, caller_context="process_mcp_request_websocket")
+            response = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {"tools": filtered_tools_dict_list}
+            }
+            logger.debug(f"📦 Prepared tools/list response (ID: {req_id}) with {len(filtered_tools_dict_list)} tools.")
+            return response
+        elif method == "tools/list_all": # Handling for list_all in direct connections
+            # get all tools including internal
+            # get servers including those not running
+            # Call the core logic method directly (pass client_id)
+            logger.info(f"🧰 Processing 'tools/list_all' request via helper")
+            all_tools_dict_list = await get_all_tools_for_response(server, caller_context="process_mcp_request_websocket")
+            response = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {"tools": all_tools_dict_list}
+            }
+            return response
 
         elif method == "prompts/list":
             result = await server._get_prompts_list()
@@ -1520,6 +1569,7 @@ async def process_mcp_request(server, request, client_id=None):
             logger.warning(f"⚠️ Unknown method requested: {method}")
             return {"jsonrpc": "2.0", "id": req_id, "error": f"Unknown method: {method}"}
     except Exception as e:
+
         import traceback
         logger.error(f"🚫 Error processing request '{method}': {e}")
         logger.debug(f"Traceback: {traceback.format_exc()}")

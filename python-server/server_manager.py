@@ -175,11 +175,143 @@ def server_get(name: str) -> Optional[Dict[str, Any]]:
     return _fs_load_server(name)
 
 
+import asyncio
+import logging
+from typing import List, Dict, Any, Optional
+from state import SERVERS_DIR, logger # Assuming state.py provides logger
+# ---- Make sure these imports are correct based on your mcp sdk ----
+try:
+    from mcp import ClientSession, StdioServerParameters, stdio_client
+    from mcp.types import Tool, ErrorResponse, Response # Add Response/ErrorResponse if needed
+except ImportError as e:
+    logging.error(f"MCP SDK components not found. Please ensure the SDK is installed and accessible: {e}")
+    # Dummy types if import fails, adjust as necessary
+    class Tool: pass
+    class ErrorResponse: pass
+    class Response: pass
+    class ClientSession: pass
+    class StdioServerParameters: pass
+    async def stdio_client(*args, **kwargs): raise NotImplementedError("MCP SDK not loaded")
+# -------------------------------------------------------------------
+from server_manager import ACTIVE_SERVER_TASKS # Import necessary items from server_manager
+
+# Define Timeout for Requests (adjust as needed)
+SERVER_REQUEST_TIMEOUT = 10.0 # seconds
+
+
+
+
+async def get_server_tools(name: str) -> List[Tool]:
+    """
+    Connects to a specific running managed server using its stored start
+    parameters and fetches its tool list via a temporary connection.
+
+    Args:
+        name: The name of the managed server.
+
+    Returns:
+        A list of Tool objects (or dictionaries representing them)
+        from the target server.
+
+    Raises:
+        ValueError: If the server is not found, not running, or config is invalid.
+        TimeoutError: If the connection or request to the server times out.
+        Exception: For other communication or MCP errors.
+    """
+    logger.info(f"Attempting to get tools for server '{name}'...")
+    task_info = ACTIVE_SERVER_TASKS.get(name)
+
+    if not task_info:
+        msg = f"Server '{name}' not found in active tasks (may not be running)."
+        logger.warning(f"⚠️ get_server_tools: {msg}")
+        raise ValueError(msg)
+
+    # Retrieve the parameters used to start the server
+    params: Optional[StdioServerParameters] = task_info.get('params')
+    if not params:
+         msg = f"Could not retrieve start parameters for running server '{name}'."
+         logger.error(f"❌ get_server_tools: {msg}")
+         raise ValueError(msg)
+
+    logger.info(f"Found active task for '{name}'. Attempting temporary connection...")
+
+    session: Optional[ClientSession] = None
+    try:
+        # Establish a *new, temporary* connection using the stored parameters
+        # Use a timeout for the connection attempt itself
+        logger.debug(f"Attempting stdio_client with params: {params}")
+        session_context = stdio_client(params)
+        session = await asyncio.wait_for(
+            session_context.__aenter__(), # Manually enter the async context
+            timeout=SERVER_REQUEST_TIMEOUT
+        )
+        logger.info(f"✅ Temporary connection established to '{name}'. Requesting tools/list...")
+
+        # Make the tools/list request with a timeout
+        response: Response = await asyncio.wait_for(
+            session.request("tools/list"),
+            timeout=SERVER_REQUEST_TIMEOUT
+        )
+
+        # --- Process Response ---
+        # Check for MCP error response (adjust based on actual mcp.py types)
+        if isinstance(response, ErrorResponse): # Check if it's an ErrorResponse type
+            error_msg = f"MCP Error from '{name}' on tools/list: {response.error.code} - {response.error.message}"
+            logger.error(f"❌ get_server_tools: {error_msg}")
+            raise Exception(error_msg) # Propagate MCP error
+
+        # Assuming success, check if result exists and is a list
+        # Adjust '.result' if the SDK uses a different attribute name
+        if hasattr(response, 'result') and isinstance(response.result, list):
+             raw_tools = response.result
+             tools: List[Tool] = [] # Explicitly type hint
+             # Attempt to parse/validate tools (optional, depends on SDK guarantees)
+             for i, item in enumerate(raw_tools):
+                 if isinstance(item, Tool): # If SDK already returns Tool objects
+                     tools.append(item)
+                 elif isinstance(item, dict): # If SDK returns dicts
+                     try:
+                         # Attempt to create Tool object - requires Tool class to handle **kwargs
+                         tools.append(Tool(**item))
+                     except Exception as tool_parse_error:
+                          logger.warning(f"⚠️ Could not parse tool item #{i} from '{name}': {item}. Error: {tool_parse_error}")
+                 else:
+                      logger.warning(f"⚠️ Unexpected item type #{i} in tools/list response from '{name}': {type(item)}")
+
+             logger.info(f"✅ Successfully retrieved {len(tools)} tools from '{name}'.")
+             return tools
+        else:
+            # Handle unexpected success response format
+            error_msg = f"Unexpected success response format from '{name}' for tools/list: {response}"
+            logger.error(f"❌ get_server_tools: {error_msg}")
+            raise Exception(error_msg)
+        # --- End Response Processing ---
+
+    except asyncio.TimeoutError:
+        logger.error(f"❌ Timeout connecting to or requesting tools from server '{name}'.")
+        # Check if session was created before timeout occurred during request
+        if session:
+             await session_context.__aexit__(None, None, None) # Ensure cleanup if timeout happened after connect
+        raise TimeoutError(f"Timeout communicating with server '{name}'.")
+    except ConnectionRefusedError:
+         logger.error(f"❌ Connection refused by server '{name}'. Is it running correctly?")
+         raise TimeoutError(f"Connection refused by server '{name}'.") # Treat as timeout/unavailability
+    except Exception as e:
+        logger.error(f"❌ Error getting tools from server '{name}': {e}", exc_info=True)
+        raise # Re-raise the original exception
+    finally:
+        # Ensure the temporary session context is exited properly
+        if session: # If __aenter__ succeeded
+            logger.info(f"🔌 Ensuring temporary connection to '{name}' is closed...")
+            try:
+                # Manually exit the async context manager
+                await session_context.__aexit__(None, None, None)
+                logger.info(f"✅ Temporary connection context to '{name}' exited.")
+            except Exception as close_e:
+                 logger.error(f"❌ Error closing temporary connection context to '{name}': {close_e}", exc_info=True)
+
+
 def server_list() -> List[TextContent]:
-    """
-    Lists all server config names available in SERVERS_DIR and their status.
-    Returns a list of TextContent objects.
-    """
     results = []
     try:
         for filename in os.listdir(SERVERS_DIR):
@@ -192,6 +324,8 @@ def server_list() -> List[TextContent]:
         # Optionally return an error message as TextContent
         # return [TextContent(text=f"Error listing servers: {e}")]
     return results
+
+
 
 async def server_set(args: Dict[str, Any], server) -> List[TextContent]:
     """
@@ -403,6 +537,8 @@ async def server_start(args: Dict[str, Any], server) -> List[TextContent]:
     # Store task info immediately
     ACTIVE_SERVER_TASKS[name] = {'task': task, 'params': params}
     SERVER_START_TIMES[name] = datetime.datetime.now() # Record start time
+
+
 
     # Return success - PID is not available synchronously here
     return [TextContent(type='text', text=f"MCP service '{name}' started")]

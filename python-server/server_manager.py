@@ -9,12 +9,15 @@ import logging
 import asyncio
 import shutil
 import datetime
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional, List, Tuple, Union
 
 from mcp import ClientSession, StdioServerParameters, stdio_client
 from mcp.types import TextContent
 
 from state import SERVERS_DIR, logger
+
+# Directory to store error logs for server configs
+SERVER_ERRORS_DIR = "." # Store error logs in the current directory
 
 # Ensure SERVERS_DIR exists
 os.makedirs(SERVERS_DIR, exist_ok=True)
@@ -46,10 +49,12 @@ def _fs_save_server(name: str, config: Dict[str, Any]) -> Optional[str]:
         return None
 
 
-def _fs_load_server(name: str) -> Optional[Dict[str, Any]]:
+def _fs_load_server(name: str) -> Optional[Union[Dict[str, Any], str]]:
     """
-    Loads and returns the JSON config dict from {name}.json in SERVERS_DIR.
-    Returns None if not found or error.
+    Loads the config for server '{name}' from {name}.json in SERVERS_DIR.
+    Returns the parsed JSON dict on success.
+    Returns the raw file content (str) if JSON parsing fails.
+    Returns None if the file doesn't exist or an IO error occurs.
     """
     safe_name = f"{name}.json"
     file_path = os.path.join(SERVERS_DIR, safe_name)
@@ -59,7 +64,9 @@ def _fs_load_server(name: str) -> Optional[Dict[str, Any]]:
         return None
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
-            config_data = json.load(f)
+            raw_content = f.read()
+        # Attempt to parse the JSON
+        config_data = json.loads(raw_content)
         # Success: clear any cached error for this server
         _server_load_errors.pop(name, None)
         return config_data
@@ -67,41 +74,47 @@ def _fs_load_server(name: str) -> Optional[Dict[str, Any]]:
         error_msg = f"JSON decode error: {e}"
         logger.error(f"❌ _fs_load_server: {error_msg}")
         _server_load_errors[name] = error_msg # Cache the error
-        _write_server_error_log(name, error_msg)
-        return None
+        _write_server_error_log(name, error_msg, raw_content) # Pass raw_content to error log func
+        return raw_content # Return raw content on JSON error
     except IOError as e:
-        error_msg = f"IO error: {e}"
+        error_msg = f"IO error reading {file_path}: {e}"
         logger.error(f"❌ _fs_load_server: {error_msg}")
         _server_load_errors[name] = error_msg # Cache the error
-        _write_server_error_log(name, error_msg)
-        return None
+        _write_server_error_log(name, error_msg) # Don't have raw_content here necessarily
+        return None # Return None on IO error
     except Exception as e:
-        error_msg = f"Unexpected error: {e}"
+        error_msg = f"Unexpected error loading {file_path}: {e}"
         logger.error(f"❌ _fs_load_server: {error_msg}", exc_info=True)
         _server_load_errors[name] = error_msg # Cache the error
         _write_server_error_log(name, error_msg)
-        return None
+        return None # Return None on unexpected errors
 
 
-def _write_server_error_log(name: str, error_message: str) -> None:
+def _write_server_error_log(name: str, error_msg: str, raw_content: Optional[str] = None) -> None:
     '''
-    Write an error message to a server-specific log file in the SERVERS_DIR.
+    Write an error message to a server-specific log file in the SERVER_ERRORS_DIR.
     Overwrites any existing log to only keep the latest error.
-    Creates a log file named {name}.log with timestamp.
+    Includes raw content if provided (e.g., for JSON decode errors).
     '''
     try:
-        # Use the original name directly as it's used for the .json file
-        log_path = os.path.join(SERVERS_DIR, f"{name}.log")
+        if not os.path.exists(SERVER_ERRORS_DIR):
+            os.makedirs(SERVER_ERRORS_DIR)
+
+        log_path = os.path.join(SERVER_ERRORS_DIR, f"{name}.error.log")
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # Open in write mode to overwrite previous content
         with open(log_path, 'w', encoding='utf-8') as log_file:
             log_file.write(f"{timestamp} [ERROR] {error_msg}\n")
+            if raw_content:
+                log_file.write("\n--- Raw Config Content ---\n")
+                log_file.write(raw_content)
+                log_file.write("\n--------------------------\n")
 
-        logger.debug(f"Wrote error log for server '{name}' at {log_path}")
+        logger.debug(f"📝 Wrote error log for server '{name}' at {log_path}")
     except Exception as e:
-        # Don't let logging errors disrupt the main flow
-        logger.error(f"Failed to write server error log for '{name}': {e}")
+        # Avoid nested errors, just log if writing the error log fails
+        logger.error(f"❌ Failed to write server error log for '{name}': {e}", exc_info=True)
 
 
 # --- 2. Config CRUD Operations ---
@@ -155,7 +168,7 @@ def server_remove(name: str) -> bool:
         return False
 
 
-def server_get(name: str) -> Optional[Dict[str, Any]]:
+def server_get(name: str) -> Optional[Union[Dict[str, Any], str]]:
     """
     Returns the server config dict or None if not found.
     """
@@ -438,7 +451,7 @@ async def _run_mcp_client_session(name: str, params: StdioServerParameters):
             # --- Add a check to confirm the server is responsive ---
             try:
                 # Give the server a moment to fully initialize its MCP listener
-                await asyncio.sleep(2.0) 
+                await asyncio.sleep(2.0)
                 logger.debug(f"▶️ _run_mcp_client_session: Sending initial tools/list request to '{name}'...")
                 # Add delay and type check for debugging
                 await asyncio.sleep(0.1) # Small delay - KEEPING this tiny one too for now

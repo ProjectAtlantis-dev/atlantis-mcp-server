@@ -11,21 +11,8 @@ import shutil
 import datetime
 from typing import Any, Dict, Optional, List
 
-# Assuming the MCP SDK is correctly installed/available in the Python path
-# If it's directly from a path, sys.path manipulation might be needed elsewhere
-try:
-    from mcp import ClientSession, StdioServerParameters, stdio_client
-    from mcp.types import TextContent
-except ImportError as e:
-    # Handle case where SDK might not be installed or path isn't set up
-    # This is a basic placeholder; more robust handling might be needed
-    logging.error(f"MCP SDK components not found. Please ensure the SDK is installed and accessible: {e}")
-    # Define dummy types/classes to allow the rest of the module to load without errors,
-    # although functionality will be broken.
-    class TextContent: pass
-    class ClientSession: pass
-    class StdioServerParameters: pass
-    async def stdio_client(*args, **kwargs): raise NotImplementedError("MCP SDK not loaded")
+from mcp import ClientSession, StdioServerParameters, stdio_client
+from mcp.types import TextContent
 
 from state import SERVERS_DIR, logger
 
@@ -179,20 +166,8 @@ import asyncio
 import logging
 from typing import List, Dict, Any, Optional
 from state import SERVERS_DIR, logger # Assuming state.py provides logger
-# ---- Make sure these imports are correct based on your mcp sdk ----
-try:
-    from mcp import ClientSession, StdioServerParameters, stdio_client
-    from mcp.types import Tool, ErrorResponse, Response # Add Response/ErrorResponse if needed
-except ImportError as e:
-    logging.error(f"MCP SDK components not found. Please ensure the SDK is installed and accessible: {e}")
-    # Dummy types if import fails, adjust as necessary
-    class Tool: pass
-    class ErrorResponse: pass
-    class Response: pass
-    class ClientSession: pass
-    class StdioServerParameters: pass
-    async def stdio_client(*args, **kwargs): raise NotImplementedError("MCP SDK not loaded")
-# -------------------------------------------------------------------
+from mcp import ClientSession, StdioServerParameters, stdio_client
+from mcp.types import Tool
 from server_manager import ACTIVE_SERVER_TASKS # Import necessary items from server_manager
 
 # Define Timeout for Requests (adjust as needed)
@@ -248,17 +223,11 @@ async def get_server_tools(name: str) -> List[Tool]:
         logger.info(f"✅ Temporary connection established to '{name}'. Requesting tools/list...")
 
         # Make the tools/list request with a timeout
-        response: Response = await asyncio.wait_for(
+        response = await asyncio.wait_for(
             session.request("tools/list"),
             timeout=SERVER_REQUEST_TIMEOUT
         )
 
-        # --- Process Response ---
-        # Check for MCP error response (adjust based on actual mcp.py types)
-        if isinstance(response, ErrorResponse): # Check if it's an ErrorResponse type
-            error_msg = f"MCP Error from '{name}' on tools/list: {response.error.code} - {response.error.message}"
-            logger.error(f"❌ get_server_tools: {error_msg}")
-            raise Exception(error_msg) # Propagate MCP error
 
         # Assuming success, check if result exists and is a list
         # Adjust '.result' if the SDK uses a different attribute name
@@ -285,7 +254,7 @@ async def get_server_tools(name: str) -> List[Tool]:
             error_msg = f"Unexpected success response format from '{name}' for tools/list: {response}"
             logger.error(f"❌ get_server_tools: {error_msg}")
             raise Exception(error_msg)
-        # --- End Response Processing ---
+
 
     except asyncio.TimeoutError:
         logger.error(f"❌ Timeout connecting to or requesting tools from server '{name}'.")

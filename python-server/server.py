@@ -1620,7 +1620,7 @@ async def handle_registration(request: Request) -> JSONResponse:
 
         logger.info(f"✅ Registered new client: ID={client_id}, Name='{client_name}', URIs={redirect_uris}")
 
-        # --- Response ---
+
         # Return the registered client metadata (INCLUDING secret for M2M simplicity for now)
         response_data = registered_data.copy()
         # Consider *not* returning the secret in production for higher security

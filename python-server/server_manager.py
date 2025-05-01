@@ -96,7 +96,7 @@ def _write_server_error_log(name: str, error_message: str) -> None:
 
         # Open in write mode to overwrite previous content
         with open(log_path, 'w', encoding='utf-8') as log_file:
-            log_file.write(f"{timestamp} [ERROR] {error_message}\n")
+            log_file.write(f"{timestamp} [ERROR] {error_msg}\n")
 
         logger.debug(f"Wrote error log for server '{name}' at {log_path}")
     except Exception as e:
@@ -210,21 +210,26 @@ async def get_server_tools(name: str) -> List[Tool]:
 
     logger.info(f"Found active task for '{name}'. Attempting temporary connection...")
 
-    session: Optional[ClientSession] = None
+    session_context = None
+    streams_tuple = None
     try:
         # Establish a *new, temporary* connection using the stored parameters
         # Use a timeout for the connection attempt itself
         logger.debug(f"Attempting stdio_client with params: {params}")
         session_context = stdio_client(params)
-        session = await asyncio.wait_for(
+        streams_tuple = await asyncio.wait_for(
             session_context.__aenter__(), # Manually enter the async context
             timeout=SERVER_REQUEST_TIMEOUT
         )
+        read_stream, write_stream = streams_tuple # Unpack the tuple
+
+        # Create the ClientSession object AFTER getting the streams
+        session = ClientSession(read_stream, write_stream)
         logger.info(f"✅ Temporary connection established to '{name}'. Requesting tools/list...")
 
         # Make the tools/list request with a timeout
         response = await asyncio.wait_for(
-            session.request("tools/list"),
+            session.send_request("tools/list"), # Now 'session' is a ClientSession
             timeout=SERVER_REQUEST_TIMEOUT
         )
 
@@ -270,14 +275,14 @@ async def get_server_tools(name: str) -> List[Tool]:
         raise # Re-raise the original exception
     finally:
         # Ensure the temporary session context is exited properly
-        if session: # If __aenter__ succeeded
+        if streams_tuple and session_context: # If __aenter__ succeeded
             logger.info(f"🔌 Ensuring temporary connection to '{name}' is closed...")
             try:
                 # Manually exit the async context manager
                 await session_context.__aexit__(None, None, None)
                 logger.info(f"✅ Temporary connection context to '{name}' exited.")
             except Exception as close_e:
-                 logger.error(f"❌ Error closing temporary connection context to '{name}': {close_e}", exc_info=True)
+                 logger.error(f"❌ Error closing temporary connection context for '{name}': {close_e}")
 
 
 def server_list() -> List[TextContent]:
@@ -432,19 +437,23 @@ async def _run_mcp_client_session(name: str, params: StdioServerParameters):
 
             # --- Add a check to confirm the server is responsive ---
             try:
-                logger.debug(f"▶️ _run_mcp_client_session: Sending initial getTools request to '{name}'...")
+                logger.debug(f"▶️ _run_mcp_client_session: Sending initial tools/list request to '{name}'...")
+                # Add delay and type check for debugging
+                await asyncio.sleep(0.1) # Small delay
+                logger.debug(f"▶️ _run_mcp_client_session: Type of session object before request: {type(session)}") # Log type
+                logger.debug(f"▶️ _run_mcp_client_session: Attributes of session: {dir(session)}") # Log attributes
                 # Use a reasonable timeout for this initial check
-                response = await asyncio.wait_for(session.request('getTools', {}), timeout=15.0)
+                response = await asyncio.wait_for(session.list_tools(), timeout=15.0)
                 # Check if the response indicates success (might vary based on MCP spec/server)
                 # Assuming a successful response isn't None or doesn't contain an error field
                 if response: # Basic check, adjust if needed based on actual response structure
                      logger.info(f"👍 Server '{name}' confirmed responsive after startup.")
                 else:
-                     logger.warning(f"❓ Server '{name}' connected but getTools response was unexpected: {response}")
+                     logger.warning(f"❓ Server '{name}' connected but tools/list response was unexpected: {response}")
             except asyncio.TimeoutError:
-                logger.warning(f"⏰ Server '{name}' connected but did not respond to initial getTools check within timeout.")
+                logger.warning(f"⏰ Server '{name}' connected but did not respond to initial tools/list check within timeout.")
             except Exception as check_err:
-                logger.warning(f"⚠️ Server '{name}' connected but failed initial getTools check: {check_err}")
+                logger.warning(f"⚠️ Server '{name}' connected but failed initial tools/list check: {check_err}")
             # --- End responsiveness check ---
 
             # Keep the task alive while the context manager is active

@@ -39,6 +39,7 @@ def _fs_save_server(name: str, config: Dict[str, Any]) -> Optional[str]:
     """
     safe_name = f"{name}.json"
     file_path = os.path.join(SERVERS_DIR, safe_name)
+    logger.debug(f"---> _fs_save_server: Attempting to save '{name}' to path: {file_path}") # Added log
     try:
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(config, f, indent=2)
@@ -100,7 +101,7 @@ def _write_server_error_log(name: str, error_msg: str, raw_content: Optional[str
         if not os.path.exists(SERVER_ERRORS_DIR):
             os.makedirs(SERVER_ERRORS_DIR)
 
-        log_path = os.path.join(SERVER_ERRORS_DIR, f"{name}.error.log")
+        log_path = os.path.join(SERVER_ERRORS_DIR, f"{name}.log")
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # Open in write mode to overwrite previous content
@@ -388,8 +389,10 @@ async def server_set(args: Dict[str, Any], server) -> List[TextContent]:
         logger.info(f"ⓘ No existing file found for '{name}', creating new file.")
     # --- Backup Logic End ---
 
+    logger.debug(f"---> server_set: Preparing to save config for '{name}': {json.dumps(config_container, indent=2)}") # Added log
     # Save the *entire original config container* structure
     saved_path = _fs_save_server(name, config_container)
+    logger.debug(f"<--- server_set: _fs_save_server returned path: {saved_path}") # Added log
 
     if saved_path:
         validation = server_validate(name) # Validate the *saved* config

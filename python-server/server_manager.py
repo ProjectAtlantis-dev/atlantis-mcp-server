@@ -437,15 +437,17 @@ async def _run_mcp_client_session(name: str, params: StdioServerParameters):
 
             # --- Add a check to confirm the server is responsive ---
             try:
+                # Give the server a moment to fully initialize its MCP listener
+                await asyncio.sleep(2.0) 
                 logger.debug(f"▶️ _run_mcp_client_session: Sending initial tools/list request to '{name}'...")
                 # Add delay and type check for debugging
-                await asyncio.sleep(0.1) # Small delay
+                await asyncio.sleep(0.1) # Small delay - KEEPING this tiny one too for now
                 logger.debug(f"▶️ _run_mcp_client_session: Type of session object before request: {type(session)}") # Log type
                 logger.debug(f"▶️ _run_mcp_client_session: Attributes of session: {dir(session)}") # Log attributes
-                # Use a reasonable timeout for this initial check
-                response = await asyncio.wait_for(session.list_tools(), timeout=15.0)
+                # Use the correct method: list_tools()
+                response = await asyncio.wait_for(session.list_tools(), timeout=15.0) # Keep original 15s timeout
                 # Check if the response indicates success (might vary based on MCP spec/server)
-                # Assuming a successful response isn't None or doesn't contain an error field
+                # list_tools should return a ListToolsResult or raise an error
                 if response: # Basic check, adjust if needed based on actual response structure
                      logger.info(f"👍 Server '{name}' confirmed responsive after startup.")
                 else:

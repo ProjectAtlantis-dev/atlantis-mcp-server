@@ -74,7 +74,7 @@ CLOUD_SERVER_URL = f"http://{CLOUD_SERVER_HOST}:{CLOUD_SERVER_PORT}"
 CLOUD_SERVICE_NAMESPACE = "/service"  # Socket.IO namespace for service-to-service communication
 CLOUD_CONNECTION_RETRY_SECONDS = 5  # Initial delay in seconds
 CLOUD_CONNECTION_MAX_RETRIES = 10  # Maximum number of retries before giving up (None for infinite)
-CLOUD_CONNECTION_MAX_BACKOFF_SECONDS = 60  # Maximum delay for exponential backoff
+CLOUD_CONNECTION_MAX_BACKOFF_SECONDS = 15  # Maximum delay for exponential backoff
 
 # Flags to track server state
 is_shutting_down = False

@@ -551,7 +551,7 @@ def function_remove(name: str) -> bool:
 
         # Move to OLD directory
         timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S%f")
-        backup_path = os.path.join(OLD_DIR, f"{secure_name}_{timestamp}.py.old")
+        backup_path = os.path.join(OLD_DIR, f"{secure_name}_{timestamp}.py.bak")
         shutil.move(file_path, backup_path)
         logger.info(f"Function '{secure_name}' removed (moved to '{backup_path}')")
         # Remove corresponding log file if it exists

@@ -1,1 +1,1 @@
-python server.py --email=rein.dapp@gmail.com --api-key=foobar --host=localhost --port=8000 --cloud-host=100.123.48.16 --cloud-port=3010 --service-name=matt
+python server.py --email=rein.dapp@gmail.com --api-key=foobar --host=localhost --port=8000 --cloud-host=100.78.118.74 --cloud-port=3010 --service-name=new_macbook

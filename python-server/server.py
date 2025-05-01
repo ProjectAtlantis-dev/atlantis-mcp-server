@@ -1163,9 +1163,9 @@ class ServiceClient:
             connection_id = f"service_{cloud_sid}"
             removed = self.mcp_server.service_connections.pop(connection_id, None)
             if removed:
-                logger.info(f"✅ Unregistered cloud service connection: {connection_id}")
+                logger.info(f"✅ Removed cloud service connection: {connection_id}")
             else:
-                logger.warning(f"⚠️ Tried to unregister non-existent cloud service connection: {connection_id}")
+                logger.warning(f"⚠️ Tried to remove dead cloud service connection: {connection_id}")
             # --------------------------------------------------------------
 
             # If disconnection was not intentional (e.g., server shutdown), try reconnecting
@@ -1206,11 +1206,24 @@ class ServiceClient:
         }
 
         try:
-            if method == "tools/list":
+            if method == "tools/list_all":
+                # get all tools including internal
+                # get servers including those not running
                 # Call the core logic method directly (pass client_id)
                 result_list = await self.mcp_server._get_tools_list(caller_context="process_mcp_request")
                 # Convert Tool objects to dictionaries for JSON serialization using model_dump()
                 response["result"] = {"tools": [tool.model_dump() for tool in result_list]} # Use model_dump()
+
+            elif method == "tools/list":
+                # Call the core logic method directly (pass client_id)
+                result_list = await self.mcp_server._get_tools_list(caller_context="process_mcp_request")
+                # Filter out any tools where annotations['type'] == 'server' for the standard list
+                filtered_result_list = [tool for tool in result_list if not (hasattr(tool, 'annotations') and tool.annotations and tool.annotations.get('type') == 'server')]
+                filtered_count = len(result_list) - len(filtered_result_list)
+                if filtered_count > 0:
+                    logger.info(f"🐾 Filtered out {filtered_count} server-type tools from tools/list response (not shown to client)")
+                # Convert Tool objects to dictionaries for JSON serialization using model_dump()
+                response["result"] = {"tools": [tool.model_dump() for tool in filtered_result_list]} # Use filtered list
 
             elif method == "tools/call":
                 tool_name = params.get("name")
@@ -1418,10 +1431,15 @@ async def process_mcp_request(server, request, client_id=None):
             logger.info(f"🧰 Processing 'tools/list' request")
             # Pass context indicating this call is from the SDK handler (likely a direct request)
             tool_list = await server._get_tools_list(caller_context="process_mcp_request_websocket")
-            # Convert Tool objects to dictionaries for JSON serialization
+            # Filter out any tools where annotations['type'] == 'server' for the standard list
+            filtered_tool_list = [tool for tool in tool_list if not (hasattr(tool, 'annotations') and tool.annotations and tool.annotations.get('type') == 'server')]
+            filtered_count = len(tool_list) - len(filtered_tool_list)
+            if filtered_count > 0:
+                logger.info(f"🐾 Filtered out {filtered_count} server-type tools from tools/list response (not shown to client)")
+            # Convert Tool objects to dictionaries for JSON serialization using model_dump()
             try:
                 # Ensure model_dump is called correctly for each tool
-                tools_dict_list = [tool.model_dump() for tool in tool_list]
+                tools_dict_list = [tool.model_dump() for tool in filtered_tool_list]
                 response = {
                     "jsonrpc": "2.0",
                     "id": req_id,

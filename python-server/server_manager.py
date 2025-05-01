@@ -312,7 +312,7 @@ def server_validate(name: str) -> Dict[str, Any]:
 # --- 3. Background Task Runner ---
 async def _run_mcp_client_session(name: str, params: StdioServerParameters):
     """Runs the MCP client session in the background using stdio_client."""
-    logger.info(f"MCP server '{name}' started")
+    logger.info(f"Starting MCP server '{name}'")
     session = None # Define session here to potentially use in finally if needed
     try:
         # stdio_client handles process start, stream creation, and cleanup
@@ -398,6 +398,7 @@ async def server_start(args: Dict[str, Any], server) -> List[TextContent]:
     # Start the background task
     logger.info(f"Attempting to start background task for server '{name}'...")
     task = asyncio.create_task(_run_mcp_client_session(name, params))
+    logger.info(f"MCP server '{name}' started")
 
     # Store task info immediately
     ACTIVE_SERVER_TASKS[name] = {'task': task, 'params': params}

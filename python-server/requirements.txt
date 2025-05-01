@@ -16,6 +16,7 @@ httpx-sse==0.4.0
 idna==3.10
 MarkupSafe==3.0.2
 mcp==1.6.0
+mcp-server==0.1.4
 multidict==6.4.2
 netifaces==0.10.6
 propcache==0.3.1

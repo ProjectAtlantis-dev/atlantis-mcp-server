@@ -395,6 +395,18 @@ async def server_set(args: Dict[str, Any], server) -> List[TextContent]:
     logger.debug(f"<--- server_set: _fs_save_server returned path: {saved_path}") # Added log
 
     if saved_path:
+        # Clear any cached load error now that it's updated
+        _server_load_errors.pop(name, None)
+
+        # Attempt to remove the error log file now that config is saved successfully
+        error_log_path = os.path.join(SERVER_ERRORS_DIR, f"{name}.log")
+        if os.path.exists(error_log_path):
+            try:
+                os.remove(error_log_path)
+                logger.debug(f"🧹 Removed stale error log file: {error_log_path}")
+            except OSError as e:
+                logger.warning(f"⚠️ Failed to remove stale error log file {error_log_path}: {e}")
+
         validation = server_validate(name) # Validate the *saved* config
         valid_msg = f"Server config '{name}' saved successfully."
         if not validation.get('valid', False):
@@ -407,9 +419,6 @@ async def server_set(args: Dict[str, Any], server) -> List[TextContent]:
         if name in ACTIVE_SERVER_TASKS:
             logger.warning(f"🔔 Server '{name}' is currently running. Configuration updated. Restart may be required for changes to take effect.")
             valid_msg += " Server is running; manual restart might be needed to apply changes."
-
-        # Clear any cached load error now that it's updated
-        _server_load_errors.pop(name, None)
 
         return [TextContent(type='text', text=valid_msg)]
     else:

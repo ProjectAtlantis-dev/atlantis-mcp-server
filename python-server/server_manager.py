@@ -415,19 +415,43 @@ def server_validate(name: str) -> Dict[str, Any]:
 # --- 3. Background Task Runner ---
 async def _run_mcp_client_session(name: str, params: StdioServerParameters):
     """Runs the MCP client session in the background using stdio_client."""
+    logger.debug(f"▶️ _run_mcp_client_session: Starting for server '{name}' with params: {params}") # DEBUG ADDED
     logger.info(f"Starting MCP server '{name}'")
     session = None # Define session here to potentially use in finally if needed
     try:
+        logger.debug(f"▶️ _run_mcp_client_session: Entering stdio_client context for '{name}'...") # DEBUG ADDED
         # stdio_client handles process start, stream creation, and cleanup
         async with stdio_client(params) as (read_stream, write_stream):
+            logger.debug(f"▶️ _run_mcp_client_session: stdio_client context entered for '{name}'. Creating ClientSession.") # DEBUG ADDED
             session = ClientSession(read_stream, write_stream)
             # Store session if needed for direct interaction (optional)
             if name in ACTIVE_SERVER_TASKS: # Check if task wasn't cancelled before context entered
                  ACTIVE_SERVER_TASKS[name]['session'] = session
+                 logger.debug(f"▶️ _run_mcp_client_session: Session stored for '{name}'.") # DEBUG ADDED
             logger.info(f"✅ Successfully connected to MCP server '{name}' via stdio.")
+
+            # --- Add a check to confirm the server is responsive ---
+            try:
+                logger.debug(f"▶️ _run_mcp_client_session: Sending initial getTools request to '{name}'...")
+                # Use a reasonable timeout for this initial check
+                response = await asyncio.wait_for(session.request('getTools', {}), timeout=15.0)
+                # Check if the response indicates success (might vary based on MCP spec/server)
+                # Assuming a successful response isn't None or doesn't contain an error field
+                if response: # Basic check, adjust if needed based on actual response structure
+                     logger.info(f"👍 Server '{name}' confirmed responsive after startup.")
+                else:
+                     logger.warning(f"❓ Server '{name}' connected but getTools response was unexpected: {response}")
+            except asyncio.TimeoutError:
+                logger.warning(f"⏰ Server '{name}' connected but did not respond to initial getTools check within timeout.")
+            except Exception as check_err:
+                logger.warning(f"⚠️ Server '{name}' connected but failed initial getTools check: {check_err}")
+            # --- End responsiveness check ---
+
             # Keep the task alive while the context manager is active
             # The session communication happens within the context
+            logger.debug(f"▶️ _run_mcp_client_session: Entering sleep loop for '{name}'.") # DEBUG ADDED
             await asyncio.sleep(float('inf')) # Rely on context exit or cancellation
+            logger.debug(f"▶️ _run_mcp_client_session: Exited sleep loop for '{name}' (should not happen unless context exits).") # DEBUG ADDED
     except asyncio.CancelledError:
         logger.info(f"🛑 Task for server '{name}' cancelled.")
         # Process termination should be handled by stdio_client's finally block
@@ -440,6 +464,7 @@ async def _run_mcp_client_session(name: str, params: StdioServerParameters):
         if name in ACTIVE_SERVER_TASKS:
              del ACTIVE_SERVER_TASKS[name]
              logger.info(f"Removed '{name}' from active server task tracking.")
+        logger.debug(f"▶️ _run_mcp_client_session: Finally block completed for '{name}'.") # DEBUG ADDED
 
 
 # --- 4. Server Start/Stop Operations ---
@@ -449,6 +474,7 @@ async def server_start(args: Dict[str, Any], server) -> List[TextContent]:
     Expects args['name']: str.
     """
     name = args.get('name')
+    logger.debug(f"▶️ server_start: Entered with args: {args}") # DEBUG ADDED
     if not name or not isinstance(name, str):
         msg = "Missing or invalid parameter: 'name' must be str."
         logger.error(f"❌ server_start: {msg}")
@@ -476,9 +502,35 @@ async def server_start(args: Dict[str, Any], server) -> List[TextContent]:
     if name in ACTIVE_SERVER_TASKS:
         msg = f"Server '{name}' is already running."
         logger.warning(f"⚠️ server_start: {msg}")
+        raise ValueError(msg) # Or return a message indicating it's already running
+
+    # Load the server configuration first
+    server_config_full = _fs_load_server(name)
+    if not server_config_full:
+        load_error = _server_load_errors.get(name, f"Configuration for '{name}' not found or failed to load.")
+        logger.error(f"❌ server_start: Failed to load config for '{name}': {load_error}")
+        raise ValueError(f"Failed to load config for server '{name}': {load_error}")
+
+    logger.debug(f"▶️ server_start: Loaded full config for '{name}': {server_config_full}") # DEBUG ADDED
+
+    # Extract the specific server's config from within 'mcpServers'
+    # Assuming the structure is { "mcpServers": { "server_name": { ... } } }
+    if 'mcpServers' not in server_config_full or name not in server_config_full['mcpServers']:
+        msg = f"Invalid config structure for '{name}'. Missing 'mcpServers' key or entry for '{name}'."
+        logger.error(f"❌ server_start: {msg}")
+        raise ValueError(msg)
+
+    server_config = server_config_full['mcpServers'][name]
+    logger.debug(f"▶️ server_start: Extracted specific config for '{name}': {server_config}") # DEBUG ADDED
+
+    # Perform basic validation on the extracted config
+    if not isinstance(server_config, dict) or 'command' not in server_config:
+        msg = f"Invalid server config for '{name}': must be a dictionary with at least a 'command' key."
+        logger.warning(f"⚠️ server_start: {msg}")
         raise ValueError(msg)
 
     validation = server_validate(name)
+    logger.debug(f"▶️ server_start: Validation result for '{name}': {validation}") # DEBUG ADDED
     if not validation.get('valid', False):
         error = validation.get('error', 'Unknown error')
         msg = f"Invalid config for '{name}': {error}"
@@ -493,6 +545,7 @@ async def server_start(args: Dict[str, Any], server) -> List[TextContent]:
             env=server_config.get('env', None),
             cwd=server_config.get('cwd', None)
         )
+        logger.debug(f"▶️ server_start: Prepared StdioServerParameters for '{name}': {params}") # DEBUG ADDED
     except Exception as e: # Catch potential Pydantic validation errors or KeyErrors
         msg = f"Failed to prepare start parameters for '{name}': {e}"
         logger.error(f"❌ server_start: {msg}", exc_info=True)
@@ -500,13 +553,14 @@ async def server_start(args: Dict[str, Any], server) -> List[TextContent]:
 
     # Start the background task
     logger.info(f"Attempting to start background task for server '{name}'...")
+    logger.debug(f"▶️ server_start: Creating asyncio task for _run_mcp_client_session('{name}')...") # DEBUG ADDED
     task = asyncio.create_task(_run_mcp_client_session(name, params))
     logger.info(f"MCP server '{name}' started")
 
     # Store task info immediately
     ACTIVE_SERVER_TASKS[name] = {'task': task, 'params': params}
     SERVER_START_TIMES[name] = datetime.datetime.now() # Record start time
-
+    logger.debug(f"▶️ server_start: Task and start time recorded for '{name}'.") # DEBUG ADDED
 
 
     # Return success - PID is not available synchronously here

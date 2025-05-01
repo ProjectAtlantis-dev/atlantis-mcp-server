@@ -899,8 +899,10 @@ class DynamicAdditionServer(Server):
                 logger.debug(f"---> Calling built-in: server_stop with args: {args!r}")
                 result_raw = await server_stop(args, self)
             elif name == "_server_get_tools":
-                logger.debug(f"---> Calling built-in: get_server_tools with args: {args!r}")
-                result_raw = await get_server_tools(args)
+                server_name = args.get('name')
+                if not server_name or not isinstance(server_name, str):
+                     raise ValueError("Missing or invalid 'name' argument for _server_get_tools")
+                result_raw = await get_server_tools(server_name) # Pass only the name string
             # Handle dynamic function calls
             elif not name.startswith('_'):  # Only non-underscore names are potential dynamic functions
                 # Check if function exists

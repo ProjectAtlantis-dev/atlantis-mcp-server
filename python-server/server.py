@@ -936,7 +936,7 @@ class DynamicAdditionServer(Server):
                 import json
                 try:
                     json_string = json.dumps(result_raw)
-                    result_content = [TextContent(type="text", text=json_string, annotations={'sourceType': 'json'})]
+                    result_content = [TextContent(type="text", text=json_string, annotations={"sourceType": "json"})] # <--- CHANGE HERE
                 except TypeError as e:
                     logger.error(f"Error serializing dictionary result to JSON for tool '{name}': {e}")
                     result_content = [TextContent(type="error", text=f"Error serializing result: {e}")]
@@ -951,10 +951,11 @@ class DynamicAdditionServer(Server):
                 import json
                 try:
                     result_str = json.dumps(result_raw)
+                    final_result = [TextContent(type="text", text=result_str, annotations={"sourceType": "json"})] # <--- CHANGE HERE
                 except TypeError:
                     result_str = str(result_raw) # Fallback to plain string conversion
-                logger.warning(f"⚠️ Tool '{name}' returned non-standard type {type(result_raw)}. Converting to JSON string: {result_str}")
-                final_result = [TextContent(type="text", text=result_str)]
+                    logger.warning(f"⚠️ Tool '{name}' returned non-standard type {type(result_raw)}. Converting to string: {result_str}")
+                    final_result = [TextContent(type="text", text=result_str)]
 
             # ---> ADDED: Log final result before returning
             logger.debug(f"<--- _execute_tool RETURNING final result: {final_result!r}") # <-- ADD THIS LINE

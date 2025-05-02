@@ -190,7 +190,7 @@ SERVER_REQUEST_TIMEOUT = 10.0 # seconds
 
 
 
-async def get_server_tools(name: str) -> List[Tool]:
+async def get_server_tools(name: str) -> list[dict]:
     """
     Connects to a specific running managed server using its stored start
     parameters and fetches its tool list via a temporary connection.
@@ -199,7 +199,7 @@ async def get_server_tools(name: str) -> List[Tool]:
         name: The name of the managed server.
 
     Returns:
-        A list of Tool objects (or dictionaries representing them)
+        A list of dictionaries representing Tool objects
         from the target server.
 
     Raises:
@@ -236,32 +236,37 @@ async def get_server_tools(name: str) -> List[Tool]:
 
         # Process the response
         if isinstance(response, ListToolsResult) and isinstance(response.tools, list):
-            tools: List[Tool] = []
+            tools_as_dicts: list[dict] = [] # Changed type hint and variable name
             for i, item in enumerate(response.tools):
+                tool_dict = {}
                 if isinstance(item, Tool):
-                    tools.append(item)
-                elif isinstance(item, dict): # Fallback if SDK gives dicts
+                    # Convert Tool Pydantic model to dict
                     try:
-                        tools.append(Tool(**item)) # Assumes Tool can be created from dict
-                    except Exception as tool_parse_error:
-                        logger.warning(f"⚠️ Could not parse tool item #{i} from '{name}': {item}. Error: {tool_parse_error}")
+                        tool_dict = item.model_dump(mode='json') # Use model_dump for Pydantic v2+
+                    except AttributeError:
+                        tool_dict = item.dict() # Fallback for Pydantic v1
+                    except Exception as dump_err:
+                        logger.warning(f"⚠️ Could not dump tool item #{i} ({item.name}) from '{name}': {dump_err}")
+                        continue # Skip this tool
+                elif isinstance(item, dict):
+                    tool_dict = item # Assume it's already a dict
                 else:
                     logger.warning(f"⚠️ Unexpected item type #{i} in tools/list response from '{name}': {type(item)}")
+                    continue # Skip this tool
 
-            logger.info(f"✅ Successfully retrieved {len(tools)} tools from '{name}' via existing session.")
-            return tools
+                tools_as_dicts.append(tool_dict)
+
+            logger.info(f"✅ Successfully retrieved and processed {len(tools_as_dicts)} tools from '{name}' via existing session.")
+            return tools_as_dicts # Return list of dicts
         else:
             error_msg = f"Unexpected response format from '{name}' for tools/list via existing session: {response}"
             logger.error(f"❌ get_server_tools: {error_msg}")
-            raise McpError(ErrorData(code=-32002, message=error_msg)) # Use MCP specific error
+            raise Exception(ErrorData(code=-32002, message=error_msg)) # Use MCP specific error
 
     except asyncio.TimeoutError:
         logger.error(f"❌ Timeout requesting tools from running server '{name}' via existing session ({SERVER_REQUEST_TIMEOUT}s)." )
         # Wrap timeout in McpError
-        raise McpError(ErrorData(code=-32001, message=f"Timeout getting tools from '{name}' ({SERVER_REQUEST_TIMEOUT}s).")) from None
-    except McpError as e: # Catch specific MCP errors first
-        logger.error(f"❌ MCP Error getting tools from server '{name}' via existing session: {e}")
-        raise # Re-raise the specific McpError
+        raise Exception(ErrorData(code=-32001, message=f"Timeout getting tools from '{name}' ({SERVER_REQUEST_TIMEOUT}s).")) from None
     except Exception as e: # Catch other unexpected errors
         logger.error(f"❌ Unexpected error getting tools from server '{name}' via existing session: {e}", exc_info=True)
         raise # Re-raise other unexpected errors

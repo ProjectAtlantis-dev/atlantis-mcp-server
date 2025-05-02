@@ -12,7 +12,7 @@ import datetime
 from typing import Any, Dict, Optional, List, Tuple, Union
 
 from mcp import ClientSession, StdioServerParameters, stdio_client
-from mcp.types import TextContent, Tool, ListToolsResult
+from mcp.types import TextContent, Tool, ListToolsResult, ListToolsRequest
 
 from state import SERVERS_DIR, logger
 
@@ -181,7 +181,7 @@ import logging
 from typing import List, Dict, Any, Optional
 from state import SERVERS_DIR, logger # Assuming state.py provides logger
 from mcp import ClientSession, StdioServerParameters, stdio_client
-from mcp.types import Tool, ListToolsResult
+from mcp.types import Tool, ListToolsResult # <-- Remove ListToolsRequest import
 from server_manager import ACTIVE_SERVER_TASKS # Import necessary items from server_manager
 
 # Define Timeout for Requests (adjust as needed)
@@ -215,91 +215,65 @@ async def get_server_tools(name: str) -> List[Tool]:
         logger.warning(f"⚠️ get_server_tools: {msg}")
         raise ValueError(msg)
 
-    # Retrieve the parameters used to start the server
-    params: Optional[StdioServerParameters] = task_info.get('params')
-    if not params:
-         msg = f"Could not retrieve start parameters for running server '{name}'."
-         logger.error(f"❌ get_server_tools: {msg}")
-         raise ValueError(msg)
+    session: Optional[ClientSession] = task_info.get('session')
+    if not session:
+        msg = f"Server '{name}' is running but session object is not available"
+        logger.error(f"❌ get_server_tools: {msg}")
+        # This might indicate an issue during startup or session storage
+        raise ValueError(msg)
 
-    logger.info(f"Found active task for '{name}'. Attempting temporary connection...")
+    # Use session.is_active or similar property if available
+    # If not, checking if it's None might suffice if it's only set when ready
+    # Depending on SDK, might need other checks like session.is_closing()
+    if not session.is_active: # Replace with actual property if different
+        msg = f"Session for server '{name}' is not active (closing or closed)."
+        logger.error(f"❌ get_server_tools: {msg}")
+        raise ValueError(msg)
 
-    session_context = None
-    streams_tuple = None
+
+
+    logger.info(f"Found active session for '{name}'. Requesting tools/list...")
+
     try:
-        # Establish a *new, temporary* connection using the stored parameters
-        # Use a timeout for the connection attempt itself
-        logger.debug(f"Attempting stdio_client with params: {params}")
-        session_context = stdio_client(params)
-        streams_tuple = await asyncio.wait_for(
-            session_context.__aenter__(), # Manually enter the async context
-            timeout=SERVER_REQUEST_TIMEOUT
-        )
-        read_stream, write_stream = streams_tuple # Unpack the tuple
-
-        # Create the ClientSession object AFTER getting the streams
-        session = ClientSession(read_stream, write_stream)
-        logger.info(f"✅ Temporary connection established to '{name}'. Requesting tools/list...")
-
-        # Make the tools/list request with a timeout
+        # Use the existing session to list tools with a timeout
         response = await asyncio.wait_for(
-            session.send_request("tools/list", ListToolsResult), # Now 'session' is a ClientSession
+            session.list_tools(),
             timeout=SERVER_REQUEST_TIMEOUT
         )
 
+        # Process the response
+        if isinstance(response, ListToolsResult) and isinstance(response.tools, list):
+            tools: List[Tool] = []
+            for i, item in enumerate(response.tools):
+                if isinstance(item, Tool):
+                    tools.append(item)
+                elif isinstance(item, dict): # Fallback if SDK gives dicts
+                    try:
+                        tools.append(Tool(**item)) # Assumes Tool can be created from dict
+                    except Exception as tool_parse_error:
+                        logger.warning(f"⚠️ Could not parse tool item #{i} from '{name}': {item}. Error: {tool_parse_error}")
+                else:
+                    logger.warning(f"⚠️ Unexpected item type #{i} in tools/list response from '{name}': {type(item)}")
 
-        # Assuming success, check if result exists and is a list
-        # Adjust '.result' if the SDK uses a different attribute name
-        if hasattr(response, 'result') and isinstance(response.result, list):
-             raw_tools = response.result
-             tools: List[Tool] = [] # Explicitly type hint
-             # Attempt to parse/validate tools (optional, depends on SDK guarantees)
-             for i, item in enumerate(raw_tools):
-                 # Assuming the result items are ToolDefinition compatible dicts or objects
-                 # We should ideally validate against ToolDefinition if ListToolsResult isn't directly returning Tool objects
-                 if isinstance(item, Tool): # If SDK already returns Tool objects
-                     tools.append(item)
-                 elif isinstance(item, dict): # If SDK returns dicts
-                     try:
-                         # Attempt to create Tool object - requires Tool class to handle **kwargs
-                         tools.append(Tool(**item))
-                     except Exception as tool_parse_error:
-                          logger.warning(f"⚠️ Could not parse tool item #{i} from '{name}': {item}. Error: {tool_parse_error}")
-                 else:
-                      logger.warning(f"⚠️ Unexpected item type #{i} in tools/list response from '{name}': {type(item)}")
-
-             logger.info(f"✅ Successfully retrieved {len(tools)} tools from '{name}'.")
-             return tools
+            logger.info(f"✅ Successfully retrieved {len(tools)} tools from '{name}' via existing session.")
+            return tools
         else:
-            # Handle unexpected success response format
-            error_msg = f"Unexpected success response format from '{name}' for tools/list: {response}"
+            error_msg = f"Unexpected response format from '{name}' for tools/list via existing session: {response}"
             logger.error(f"❌ get_server_tools: {error_msg}")
-            raise Exception(error_msg)
-
+            raise McpError(ErrorData(code=-32002, message=error_msg)) # Use MCP specific error
 
     except asyncio.TimeoutError:
-        logger.error(f"❌ Timeout connecting to or requesting tools from server '{name}'.")
-        # Check if session was created before timeout occurred during request
-        if session:
-             await session_context.__aexit__(None, None, None) # Ensure cleanup if timeout happened after connect
-        raise TimeoutError(f"Timeout communicating with server '{name}'.")
-    except ConnectionRefusedError:
-         logger.error(f"❌ Connection refused by server '{name}'. Is it running correctly?")
-         raise TimeoutError(f"Connection refused by server '{name}'.") # Treat as timeout/unavailability
-    except Exception as e:
-        logger.error(f"❌ Error getting tools from server '{name}': {e}", exc_info=True)
-        raise # Re-raise the original exception
+        logger.error(f"❌ Timeout requesting tools from running server '{name}' via existing session ({SERVER_REQUEST_TIMEOUT}s)." )
+        # Wrap timeout in McpError
+        raise McpError(ErrorData(code=-32001, message=f"Timeout getting tools from '{name}' ({SERVER_REQUEST_TIMEOUT}s).")) from None
+    except McpError as e: # Catch specific MCP errors first
+        logger.error(f"❌ MCP Error getting tools from server '{name}' via existing session: {e}")
+        raise # Re-raise the specific McpError
+    except Exception as e: # Catch other unexpected errors
+        logger.error(f"❌ Unexpected error getting tools from server '{name}' via existing session: {e}", exc_info=True)
+        raise # Re-raise other unexpected errors
     finally:
-        # Ensure the temporary session context is exited properly
-        if streams_tuple and session_context: # If __aenter__ succeeded
-            logger.info(f"🔌 Ensuring temporary connection to '{name}' is closed...")
-            try:
-                # Manually exit the async context manager
-                await session_context.__aexit__(None, None, None)
-                logger.info(f"✅ Temporary connection context to '{name}' exited.")
-            except Exception as close_e:
-                 logger.error(f"❌ Error closing temporary connection context for '{name}': {close_e}")
-
+        pass
 
 def server_list() -> List[TextContent]:
     results = []

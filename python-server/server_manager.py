@@ -12,7 +12,7 @@ import datetime
 from typing import Any, Dict, Optional, List, Tuple, Union
 
 from mcp import ClientSession, StdioServerParameters, stdio_client
-from mcp.types import TextContent
+from mcp.types import TextContent, Tool, ListToolsResult
 
 from state import SERVERS_DIR, logger
 
@@ -181,7 +181,7 @@ import logging
 from typing import List, Dict, Any, Optional
 from state import SERVERS_DIR, logger # Assuming state.py provides logger
 from mcp import ClientSession, StdioServerParameters, stdio_client
-from mcp.types import Tool
+from mcp.types import Tool, ListToolsResult
 from server_manager import ACTIVE_SERVER_TASKS # Import necessary items from server_manager
 
 # Define Timeout for Requests (adjust as needed)
@@ -243,7 +243,7 @@ async def get_server_tools(name: str) -> List[Tool]:
 
         # Make the tools/list request with a timeout
         response = await asyncio.wait_for(
-            session.send_request("tools/list"), # Now 'session' is a ClientSession
+            session.send_request("tools/list", ListToolsResult), # Now 'session' is a ClientSession
             timeout=SERVER_REQUEST_TIMEOUT
         )
 
@@ -255,6 +255,8 @@ async def get_server_tools(name: str) -> List[Tool]:
              tools: List[Tool] = [] # Explicitly type hint
              # Attempt to parse/validate tools (optional, depends on SDK guarantees)
              for i, item in enumerate(raw_tools):
+                 # Assuming the result items are ToolDefinition compatible dicts or objects
+                 # We should ideally validate against ToolDefinition if ListToolsResult isn't directly returning Tool objects
                  if isinstance(item, Tool): # If SDK already returns Tool objects
                      tools.append(item)
                  elif isinstance(item, dict): # If SDK returns dicts

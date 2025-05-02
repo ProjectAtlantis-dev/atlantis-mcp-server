@@ -412,64 +412,56 @@ def server_validate(name: str) -> Dict[str, Any]:
 
 
 # --- 3. Background Task Runner ---
-async def _run_mcp_client_session(name: str, params: StdioServerParameters):
+async def _run_mcp_client_session(name: str, params: StdioServerParameters, shutdown_event: asyncio.Event):
     """Runs the MCP client session in the background using stdio_client."""
-    logger.debug(f"▶️ _run_mcp_client_session: Starting for server '{name}' with params: {params}") # DEBUG ADDED
     logger.info(f"Starting MCP server '{name}'")
-    session = None # Define session here to potentially use in finally if needed
     try:
-        logger.debug(f"▶️ _run_mcp_client_session: Entering stdio_client context for '{name}'...") # DEBUG ADDED
-        # stdio_client handles process start, stream creation, and cleanup
-        async with stdio_client(params) as (read_stream, write_stream):
-            logger.debug(f"▶️ _run_mcp_client_session: stdio_client context entered for '{name}'. Creating ClientSession.") # DEBUG ADDED
-            session = ClientSession(read_stream, write_stream)
-            # Store session if needed for direct interaction (optional)
-            if name in ACTIVE_SERVER_TASKS: # Check if task wasn't cancelled before context entered
-                 ACTIVE_SERVER_TASKS[name]['session'] = session
-                 logger.debug(f"▶️ _run_mcp_client_session: Session stored for '{name}'.") # DEBUG ADDED
-            logger.info(f"✅ Successfully connected to MCP server '{name}' via stdio.")
+        # Use stdio_client as an async context manager
+        async with stdio_client(params) as (reader, writer):
+            logger.debug(f"▶️ _run_mcp_client_session: stdio_client context entered for '{name}'. Creating ClientSession.")
 
-            # --- Add a check to confirm the server is responsive ---
-            try:
-                # Give the server a moment to fully initialize its MCP listener
-                await asyncio.sleep(2.0)
-                logger.debug(f"▶️ _run_mcp_client_session: Sending initial tools/list request to '{name}'...")
-                # Add delay and type check for debugging
-                await asyncio.sleep(0.1) # Small delay - KEEPING this tiny one too for now
-                logger.debug(f"▶️ _run_mcp_client_session: Type of session object before request: {type(session)}") # Log type
-                logger.debug(f"▶️ _run_mcp_client_session: Attributes of session: {dir(session)}") # Log attributes
-                # Use the correct method: list_tools()
-                response = await asyncio.wait_for(session.list_tools(), timeout=15.0) # Keep original 15s timeout
-                # Check if the response indicates success (might vary based on MCP spec/server)
-                # list_tools should return a ListToolsResult or raise an error
-                if response: # Basic check, adjust if needed based on actual response structure
-                     logger.info(f"👍 Server '{name}' confirmed responsive after startup.")
-                else:
-                     logger.warning(f"❓ Server '{name}' connected but tools/list response was unexpected: {response}")
-            except asyncio.TimeoutError:
-                logger.warning(f"⏰ Server '{name}' connected but did not respond to initial tools/list check within timeout.")
-            except Exception as check_err:
-                logger.warning(f"⚠️ Server '{name}' connected but failed initial tools/list check: {check_err}")
-            # --- End responsiveness check ---
+            # Use ClientSession as an async context manager AND initialize
+            async with ClientSession(reader, writer) as session:
+                logger.debug(f"▶️ _run_mcp_client_session: ClientSession context entered for '{name}'. Initializing session...")
+                try:
+                    await asyncio.wait_for(session.initialize(), timeout=10.0) # Add timeout to initialization
+                    logger.info(f"✅ Successfully initialized session with MCP server '{name}'.")
 
-            # Keep the task alive while the context manager is active
-            # The session communication happens within the context
-            logger.debug(f"▶️ _run_mcp_client_session: Entering sleep loop for '{name}'.") # DEBUG ADDED
-            await asyncio.sleep(float('inf')) # Rely on context exit or cancellation
-            logger.debug(f"▶️ _run_mcp_client_session: Exited sleep loop for '{name}' (should not happen unless context exits).") # DEBUG ADDED
+                    # Store the *active and initialized* session object
+                    if name in ACTIVE_SERVER_TASKS:
+                        ACTIVE_SERVER_TASKS[name]['session'] = session
+                        logger.debug(f"▶️ _run_mcp_client_session: Initialized session stored for '{name}'.")
+                    else:
+                         logger.warning(f"❓ Task entry for '{name}' disappeared before session could be stored.")
+                         return # Exit if task entry is gone
+
+                    # Keep the task alive by waiting for the shutdown event
+                    logger.debug(f"▶️ _run_mcp_client_session: Entering wait loop for shutdown event for '{name}'.")
+                    await shutdown_event.wait() # Wait until signaled to shut down
+                    logger.info(f"🛑 Shutdown event received for '{name}'. Exiting session context.")
+
+                except asyncio.TimeoutError:
+                     logger.error(f"❌ Timeout initializing session with '{name}' after 10s.")
+                     # Ensure session is marked as None or invalid if init fails
+                     if name in ACTIVE_SERVER_TASKS:
+                         ACTIVE_SERVER_TASKS[name]['session'] = None
+                except Exception as init_err:
+                     logger.error(f"❌ Error initializing session with '{name}': {init_err}")
+                     if name in ACTIVE_SERVER_TASKS:
+                         ACTIVE_SERVER_TASKS[name]['session'] = None
+
+            logger.debug(f"▶️ _run_mcp_client_session: Exited ClientSession context for '{name}'.")
+
     except asyncio.CancelledError:
-        logger.info(f"🛑 Task for server '{name}' cancelled.")
-        # Process termination should be handled by stdio_client's finally block
-    except Exception as e:
-        logger.error(f"❌ Error in client session task for '{name}': {e}", exc_info=True)
-        # Process termination should be handled by stdio_client's finally block
+        logger.info(f"🛑 MCP client session task for '{name}' was cancelled.")
     finally:
-        logger.info(f"Background task finished for MCP server '{name}'.")
-        # Clean up tracking entry regardless of how the task ended
+        logger.info(f"MCP server task for '{name}' finished.")
         if name in ACTIVE_SERVER_TASKS:
-             del ACTIVE_SERVER_TASKS[name]
-             logger.info(f"Removed '{name}' from active server task tracking.")
-        logger.debug(f"▶️ _run_mcp_client_session: Finally block completed for '{name}'.") # DEBUG ADDED
+            ACTIVE_SERVER_TASKS[name]['session'] = None # Ensure session is cleared on any exit
+            ACTIVE_SERVER_TASKS[name]['task'].cancel() # Attempt to cancel if somehow still running
+            # Optionally remove the entry entirely or mark as stopped
+            # del ACTIVE_SERVER_TASKS[name]
+            logger.debug(f"▶️ Cleaned up session/task entry for '{name}' in finally block.")
 
 
 # --- 4. Server Start/Stop Operations ---
@@ -559,7 +551,8 @@ async def server_start(args: Dict[str, Any], server) -> List[TextContent]:
     # Start the background task
     logger.info(f"Attempting to start background task for server '{name}'...")
     logger.debug(f"▶️ server_start: Creating asyncio task for _run_mcp_client_session('{name}')...") # DEBUG ADDED
-    task = asyncio.create_task(_run_mcp_client_session(name, params))
+    shutdown_event = asyncio.Event()
+    task = asyncio.create_task(_run_mcp_client_session(name, params, shutdown_event))
     logger.info(f"MCP server '{name}' started")
 
     # Store task info immediately

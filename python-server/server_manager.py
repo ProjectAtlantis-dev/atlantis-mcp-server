@@ -158,7 +158,7 @@ def server_remove(name: str) -> bool:
             _server_load_errors.pop(name, None)
             return True
         except Exception as e:
-            logger.error(f"❌ Failed to move server config file '{file_path}': {e}")
+            logger.error(f"❌ Failed to move server config file '{file_path}' to OLD folder: {e}")
         os.remove(file_path)
         logger.info(f"🗑️ Removed server config '{name}' at {file_path}")
         # Clear any cached load error after successful removal
@@ -222,17 +222,10 @@ async def get_server_tools(name: str) -> List[Tool]:
         # This might indicate an issue during startup or session storage
         raise ValueError(msg)
 
-    # Use session.is_active or similar property if available
-    # If not, checking if it's None might suffice if it's only set when ready
-    # Depending on SDK, might need other checks like session.is_closing()
-    if not session.is_active: # Replace with actual property if different
-        msg = f"Session for server '{name}' is not active (closing or closed)."
-        logger.error(f"❌ get_server_tools: {msg}")
-        raise ValueError(msg)
+    # Removed the session.is_active check as the attribute does not exist.
+    # We will rely on the list_tools() call below to fail if the session is not usable.
 
-
-
-    logger.info(f"Found active session for '{name}'. Requesting tools/list...")
+    logger.info(f"Found session object for '{name}'. Requesting tools/list...")
 
     try:
         # Use the existing session to list tools with a timeout

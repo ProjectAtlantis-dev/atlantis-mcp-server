@@ -30,6 +30,7 @@ from starlette.routing import WebSocketRoute, Route
 from starlette.websockets import WebSocket, WebSocketDisconnect
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+from mcp.shared.exceptions import McpError # <--- ADD THIS IMPORT
 
 # Import Uvicorn for running the server
 import uvicorn

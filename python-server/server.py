@@ -907,10 +907,11 @@ class DynamicAdditionServer(Server):
             # Handle dynamic function calls
             elif not name.startswith('_'):  # Only non-underscore names are potential dynamic functions
 
-                if '.' in name:
-                    # --- Handle Proxied MCP Server Tool Call ---
+                if '.' in name or ' ' in name: # <<< UPDATED Condition
+                    # --- Handle Proxied MCP Server Tool Call --- 
                     logger.info(f"🌐 PROXYING TOOL CALL: {name}")
-                    server_alias, tool_name_on_server = name.split('.', 1)
+                    # Split on the first occurrence of '.' or ' '
+                    server_alias, tool_name_on_server = re.split('[. ]', name, 1) # <<< UPDATED Splitting
                     logger.debug(f"Parsed: Server Alias='{server_alias}', Remote Tool='{tool_name_on_server}'")
 
                     # Check if server config exists and task is running

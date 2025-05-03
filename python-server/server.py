@@ -738,26 +738,35 @@ class DynamicAdditionServer(Server):
                             tool.annotations["toolFetchError"] = str(result)
                             tool.description += f" (Error fetching tools: {result})"
                             break
-                elif isinstance(result, list): # Should be List[Tool]
+                elif isinstance(result, list): # Should be list[dict] now
                     logger.info(f"✅ Fetched {len(result)} tools from server '{server_name}'")
-                    for original_tool in result:
-                        if not isinstance(original_tool, Tool):
-                            logger.warning(f"⚠️ Received non-Tool item from {server_name}: {original_tool}")
+                    for tool_dict in result: # Iterate through dictionaries
+                        if not isinstance(tool_dict, dict):
+                            logger.warning(f"⚠️ Received non-dictionary item from {server_name}: {tool_dict}")
                             continue
 
-                        new_tool_name = f"{server_name}.{original_tool.name}"
-                        new_description = f"[From {server_name}] {original_tool.description or original_tool.name}"
+                        # Safely extract data from the dictionary
+                        original_name = tool_dict.get('name')
+                        if not original_name:
+                            logger.warning(f"⚠️ Received tool dictionary from {server_name} with missing name: {tool_dict}")
+                            continue
+                        original_description = tool_dict.get('description', original_name) # Default desc to name
+                        original_schema = tool_dict.get('inputSchema', {"type": "object"}) # Default schema
+                        original_annotations = tool_dict.get('annotations', {}) # Default annotations
+
+                        new_tool_name = f"{server_name}.{original_name}"
+                        new_description = f"[From {server_name}] {original_description}"
                         new_annotations = {
-                            **(original_tool.annotations or {}),
+                            **original_annotations,
                             "originServer": server_name,
                             "type": "server_tool" # Mark as tool provided by a dynamic server
                         }
 
-                        # Create the new tool entry
+                        # Create the new tool entry using extracted data
                         new_tool = Tool(
                             name=new_tool_name,
                             description=new_description,
-                            inputSchema=original_tool.inputSchema or {"type": "object"},
+                            inputSchema=original_schema,
                             annotations=new_annotations
                         )
                         tools_list.append(new_tool)

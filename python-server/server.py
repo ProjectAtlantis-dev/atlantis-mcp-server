@@ -1303,7 +1303,33 @@ class ServiceClient:
                     # The _execute_tool method ensures result is List[TextContent]
                     # Convert TextContent objects to dictionaries for JSON serialization using model_dump()
                     # IMPORTANT: We use "contents" (plural) key to match format between Python and Node servers
-                    response["result"] = {"contents": [content.model_dump() for content in call_result_list]}
+                    try:
+                        # Manually convert TextContent objects to dictionaries
+                        contents_list = []
+                        for content in call_result_list:
+                            try:
+                                if hasattr(content, 'model_dump'):
+                                    content_data = content.model_dump()
+                                    contents_list.append(content_data)
+                                else:
+                                    # Handle non-pydantic objects
+                                    logger.warning(f"⚠️ Non-pydantic content object: {type(content)}")
+                                    if hasattr(content, 'to_dict'):
+                                        contents_list.append(content.to_dict())
+                                    else:
+                                        # Fallback for simple objects
+                                        contents_list.append({"type": "text", "text": str(content)})
+                            except Exception as e:
+                                logger.error(f"❌ Error serializing content result: {e}")
+                                # Add simple text content as fallback
+                                contents_list.append({"type": "text", "text": str(content)})
+
+                        # Construct the response according to JSON-RPC 2.0 and MCP spec
+                        response["result"] = {"contents": contents_list}
+                    except Exception as e:
+                        logger.error(f"❌ Error constructing final response: {e}")
+                        response["error"] = {"code": -32000, "message": "Internal server error during response formatting"}
+
             else:
                 # Unknown method
                 response["error"] = {"code": -32601, "message": f"Method not found: {method}"}

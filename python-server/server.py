@@ -62,7 +62,7 @@ import utils
 # Import server manager functions
 from server_manager import (
     server_list, server_get, server_add, server_remove, server_set,
-    server_validate, server_start, server_stop, ACTIVE_SERVER_TASKS,
+    server_validate, server_start, ACTIVE_SERVER_TASKS, # <<< Added server_start
     SERVER_START_TIMES, get_server_tools, # <<< Added get_server_tools
     _server_load_errors # Import the server load error cache
 )
@@ -640,6 +640,27 @@ class DynamicAdditionServer(Server):
                 # Extract name from text like "weather (Status: Stopped)"
                 server_name = server_name_text.text.split(' ')[0]
                 status = "running" if server_name in ACTIVE_SERVER_TASKS else "stopped" # Determine status
+
+                # --- AUTO-START LOGIC --- #
+                if status == "stopped":
+                    logger.info(f"⚙️ Server '{server_name}' is stopped. Attempting auto-start during tool list generation...")
+                    try:
+                        # Call server_start logic internally
+                        # Pass self as the 'server' argument required by server_start's MCP handler signature
+                        start_result = await server_start({'name': server_name}, self)
+                        logger.info(f"✅ Auto-start initiated for server '{server_name}'. Result: {start_result}")
+                        # Re-check status *after* attempting start
+                        status = "running" if server_name in ACTIVE_SERVER_TASKS else "stopped"
+                        if status == "stopped":
+                             logger.warning(f"⚠️ Auto-start attempt for '{server_name}' did not result in an active task (check server logs). Status remains 'stopped'.")
+                        else:
+                             logger.info(f"👍 Server '{server_name}' successfully auto-started. Status is now 'running'.")
+                    except Exception as start_err:
+                        logger.error(f"❌ Failed to auto-start server '{server_name}' during tool list generation: {start_err}", exc_info=True)
+                        # Keep status as "stopped" as the start failed
+                        status = "stopped"
+                # --- END AUTO-START LOGIC --- #
+
                 try:
                     config = server_get(server_name)
                     annotations = {}
@@ -908,7 +929,7 @@ class DynamicAdditionServer(Server):
             elif not name.startswith('_'):  # Only non-underscore names are potential dynamic functions
 
                 if '.' in name or ' ' in name: # <<< UPDATED Condition
-                    # --- Handle Proxied MCP Server Tool Call --- 
+                    # --- Handle Proxied MCP Server Tool Call ---
                     logger.info(f"🌐 PROXYING TOOL CALL: {name}")
                     # Split on the first occurrence of '.' or ' '
                     server_alias, tool_name_on_server = re.split('[. ]', name, 1) # <<< UPDATED Splitting

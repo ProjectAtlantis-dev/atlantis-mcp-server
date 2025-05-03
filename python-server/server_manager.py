@@ -26,8 +26,8 @@ OLD_DIR = os.path.join(SERVERS_DIR, 'OLD')
 os.makedirs(OLD_DIR, exist_ok=True)
 
 # --- Tracking for Active Server Tasks ---
-# Stores {'server_name': {'task': asyncio.Task, 'params': StdioServerParameters}}
-ACTIVE_SERVER_TASKS: Dict[str, Dict[str, Any]] = {}
+# Stores {'server_name': {'task': asyncio.Task, 'params': StdioServerParameters, 'shutdown_event': asyncio.Event, 'session': Optional[ClientSession], 'ready_event': asyncio.Event}}
+ACTIVE_SERVER_TASKS: Dict[str, Dict] = {}
 SERVER_START_TIMES: Dict[str, datetime.datetime] = {} # New dictionary for start times
 _server_load_errors: Dict[str, str] = {} # Cache for server config load errors
 
@@ -215,16 +215,39 @@ async def get_server_tools(name: str) -> list[dict]:
         logger.warning(f"⚠️ get_server_tools: {msg}")
         raise ValueError(msg)
 
-    session: Optional[ClientSession] = task_info.get('session')
-    if not session:
-        msg = f"Server '{name}' is running but session object is not available"
+    # --- Wait for session using asyncio.Event --- #
+    session: Optional[ClientSession] = None
+    ready_event = task_info.get('ready_event')
+    session_ready_timeout = 2.0 # How long to wait for the session to become ready
+
+    if not ready_event:
+        msg = f"Server '{name}' task info is missing the 'ready_event'. Cannot wait for session."
         logger.error(f"❌ get_server_tools: {msg}")
-        # This might indicate an issue during startup or session storage
         raise ValueError(msg)
 
-    # Removed the session.is_active check as the attribute does not exist.
-    # We will rely on the list_tools() call below to fail if the session is not usable.
+    try:
+        logger.debug(f"Waiting up to {session_ready_timeout}s for session '{name}' to become ready...")
+        await asyncio.wait_for(ready_event.wait(), timeout=session_ready_timeout)
+        logger.debug(f"Session ready event received for '{name}'.")
+        # Event received, session should be available now
+        session = task_info.get('session')
+        if not session:
+             # This case *shouldn't* happen if the event logic is correct, but check anyway
+            msg = f"Server '{name}' ready_event was set, but session object is still missing."
+            logger.error(f"❌ get_server_tools: {msg}")
+            raise ValueError(msg)
 
+    except asyncio.TimeoutError:
+        msg = f"Timeout ({session_ready_timeout}s) waiting for session for server '{name}' to become ready."
+        logger.error(f"❌ get_server_tools: {msg}")
+        raise ValueError(msg) from None
+    except Exception as e:
+        msg = f"Error while waiting for session event for server '{name}': {e}"
+        logger.error(f"❌ get_server_tools: {msg}", exc_info=True)
+        raise ValueError(msg) from e
+    # --- End wait logic --- #
+
+    # If we get here, session must be valid and ready
     logger.info(f"Found session object for '{name}'. Requesting tools/list...")
 
     try:
@@ -417,7 +440,7 @@ def server_validate(name: str) -> Dict[str, Any]:
 
 
 # --- 3. Background Task Runner ---
-async def _run_mcp_client_session(name: str, params: StdioServerParameters, shutdown_event: asyncio.Event):
+async def _run_mcp_client_session(name: str, params: StdioServerParameters, shutdown_event: asyncio.Event) -> None:
     """Runs the MCP client session in the background using stdio_client."""
     logger.info(f"Starting MCP server '{name}'")
     try:
@@ -435,6 +458,8 @@ async def _run_mcp_client_session(name: str, params: StdioServerParameters, shut
                     # Store the *active and initialized* session object
                     if name in ACTIVE_SERVER_TASKS:
                         ACTIVE_SERVER_TASKS[name]['session'] = session
+                        ready_event = ACTIVE_SERVER_TASKS[name]['ready_event']
+                        ready_event.set() # Signal that the session is ready!
                         logger.debug(f"▶️ _run_mcp_client_session: Initialized session stored for '{name}'.")
                     else:
                          logger.warning(f"❓ Task entry for '{name}' disappeared before session could be stored.")
@@ -557,11 +582,22 @@ async def server_start(args: Dict[str, Any], server) -> List[TextContent]:
     logger.info(f"Attempting to start background task for server '{name}'...")
     logger.debug(f"▶️ server_start: Creating asyncio task for _run_mcp_client_session('{name}')...") # DEBUG ADDED
     shutdown_event = asyncio.Event()
+    ready_event = asyncio.Event() # Create the ready event
+
+    # Create the task first
     task = asyncio.create_task(_run_mcp_client_session(name, params, shutdown_event))
+
+    # Now store the complete task info in one step
+    ACTIVE_SERVER_TASKS[name] = {
+        'task': task, 
+        'config': server_config_full, 
+        'shutdown_event': shutdown_event, 
+        'session': None, # Initialize session as None
+        'ready_event': ready_event 
+    }
+
     logger.info(f"MCP server '{name}' started")
 
-    # Store task info immediately
-    ACTIVE_SERVER_TASKS[name] = {'task': task, 'params': params}
     SERVER_START_TIMES[name] = datetime.datetime.now() # Record start time
     logger.debug(f"▶️ server_start: Task and start time recorded for '{name}'.") # DEBUG ADDED
 

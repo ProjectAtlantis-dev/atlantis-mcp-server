@@ -632,6 +632,9 @@ class DynamicAdditionServer(Server):
             # Continue with just the built-in tools
 
         # Scan dynamic servers
+        servers_found = []
+        server_configs = {}
+        server_statuses = {}
         try:
             # server_list now returns List[TextContent]
             server_list_results = server_list()
@@ -639,34 +642,36 @@ class DynamicAdditionServer(Server):
             for server_name_text in server_list_results:
                 # Extract name from text like "weather (Status: Stopped)"
                 server_name = server_name_text.text.split(' ')[0]
-                status = "running" if server_name in ACTIVE_SERVER_TASKS else "stopped" # Determine status
+                servers_found.append(server_name)
+                status = "running" if server_name in ACTIVE_SERVER_TASKS else "stopped" # Determine initial status
 
                 # --- AUTO-START LOGIC --- #
                 if status == "stopped":
                     logger.info(f"⚙️ Server '{server_name}' is stopped. Attempting auto-start during tool list generation...")
                     try:
                         # Call server_start logic internally
-                        # Pass self as the 'server' argument required by server_start's MCP handler signature
                         start_result = await server_start({'name': server_name}, self)
                         logger.info(f"✅ Auto-start initiated for server '{server_name}'. Result: {start_result}")
                         # Re-check status *after* attempting start
                         status = "running" if server_name in ACTIVE_SERVER_TASKS else "stopped"
                         if status == "stopped":
-                             logger.warning(f"⚠️ Auto-start attempt for '{server_name}' did not result in an active task (check server logs). Status remains 'stopped'.")
+                             logger.warning(f"⚠️ Auto-start attempt for '{server_name}' did not result in an active task. Status remains 'stopped'.")
                         else:
                              logger.info(f"👍 Server '{server_name}' successfully auto-started. Status is now 'running'.")
                     except Exception as start_err:
-                        logger.error(f"❌ Failed to auto-start server '{server_name}' during tool list generation: {start_err}", exc_info=True)
-                        # Keep status as "stopped" as the start failed
+                        logger.error(f"❌ Failed to auto-start server '{server_name}' during tool list generation: {start_err}", exc_info=False) # Less noisy log
                         status = "stopped"
                 # --- END AUTO-START LOGIC --- #
+                server_statuses[server_name] = status # Store final status
 
+                # Always try to get config and add server entry (even if stopped)
                 try:
                     config = server_get(server_name)
+                    server_configs[server_name] = config # Store config
                     annotations = {}
-                    annotations["type"] = "server"
+                    annotations["type"] = "server" # Mark this tool entry as representing a server config
                     annotations["serverConfig"] = config or {}
-                    annotations["runningStatus"] = status # Add status to annotations
+                    annotations["runningStatus"] = status # Add final status
 
                     try:
                         server_file = os.path.join(SERVERS_DIR, f"{server_name}.json")
@@ -680,34 +685,89 @@ class DynamicAdditionServer(Server):
                         if start_time:
                             annotations["lastStarted"] = start_time.isoformat()
                         else:
-                            logger.warning(f"⚠️ Server '{server_name}' is marked running but no start time found.")
+                            logger.warning(f"⚠️ Server '{server_name}' is running but no start time found.")
 
                     if server_name in _server_load_errors:
                         annotations["loadError"] = _server_load_errors[server_name]
 
-                    # Modify description to include status
                     server_tool = Tool(
                         name=server_name,
-                        description=f"MCP server: {server_name}",
-                        inputSchema={"type": "object"},
+                        description=f"MCP server: {server_name} (Status: {status})", # Include status in desc
+                        inputSchema={"type": "object"}, # Servers themselves aren't callable this way
                         annotations=annotations
                     )
                     tools_list.append(server_tool)
-                    logger.debug(f"📝 Added dynamic server tool: {server_name}")
+                    logger.debug(f"📝 Added dynamic server config entry: {server_name} (Status: {status})")
                 except Exception as se:
-                    logger.warning(f"⚠️ Error loading MCP server '{server_name}': {se}")
+                    logger.warning(f"⚠️ Error processing MCP server config '{server_name}': {se}")
                     tools_list.append(Tool(
                         name=server_name,
-                        description=f"Error loading MCP server: {se}",
+                        description=f"Error loading MCP server config: {se}",
                         inputSchema={"type": "object"},
-                        annotations={"validationStatus": "ERROR_LOADING_SERVER"}
+                        annotations={
+                            "validationStatus": "ERROR_LOADING_SERVER",
+                            "runningStatus": status # Still show status even if config load failed
+                            }
                     ))
         except Exception as ee:
             logger.error(f"❌ Error scanning for dynamic servers: {ee}")
 
-        logger.info(f"📝 RETURNING {len(tools_list)} TOOLS")
+        # --- Fetch Tools from RUNNING Servers Concurrently --- #
+        running_servers = [name for name, status in server_statuses.items() if status == "running"]
+        if running_servers:
+            logger.info(f"📡 Fetching tools from {len(running_servers)} running servers: {running_servers}")
+            fetch_tasks = []
+            task_to_server = {}
+            for server_name in running_servers:
+                # Use the imported get_server_tools function
+                task = asyncio.create_task(get_server_tools(server_name))
+                fetch_tasks.append(task)
+                task_to_server[task] = server_name
 
-        # --- Update Cache ---
+            # Wait for all tasks to complete
+            gather_results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
+
+            # Process results
+            for task, result in zip(fetch_tasks, gather_results):
+                server_name = task_to_server[task]
+                if isinstance(result, Exception):
+                    logger.error(f"❌ Failed to fetch tools from running server '{server_name}': {result}")
+                    # Optionally update the server's entry in tools_list with an error annotation
+                    for tool in tools_list:
+                        if tool.name == server_name and tool.annotations.get("type") == "server":
+                            tool.annotations["toolFetchError"] = str(result)
+                            tool.description += f" (Error fetching tools: {result})"
+                            break
+                elif isinstance(result, list): # Should be List[Tool]
+                    logger.info(f"✅ Fetched {len(result)} tools from server '{server_name}'")
+                    for original_tool in result:
+                        if not isinstance(original_tool, Tool):
+                            logger.warning(f"⚠️ Received non-Tool item from {server_name}: {original_tool}")
+                            continue
+
+                        new_tool_name = f"{server_name}.{original_tool.name}"
+                        new_description = f"[From {server_name}] {original_tool.description or original_tool.name}"
+                        new_annotations = {
+                            **(original_tool.annotations or {}),
+                            "originServer": server_name,
+                            "type": "server_tool" # Mark as tool provided by a dynamic server
+                        }
+
+                        # Create the new tool entry
+                        new_tool = Tool(
+                            name=new_tool_name,
+                            description=new_description,
+                            inputSchema=original_tool.inputSchema or {"type": "object"},
+                            annotations=new_annotations
+                        )
+                        tools_list.append(new_tool)
+                        logger.debug(f"  -> Added tool from server: {new_tool_name}")
+                else:
+                     logger.warning(f"❓ Unexpected result type from get_server_tools for '{server_name}': {type(result)}")
+
+        logger.info(f"📝 RETURNING {len(tools_list)} TOTAL TOOLS (including from servers)")
+
+        # --- Update Cache --- #
         self._cached_tools = list(tools_list) # Store a copy
         self._last_functions_dir_mtime = current_mtime
         self._last_servers_dir_mtime = server_mtime

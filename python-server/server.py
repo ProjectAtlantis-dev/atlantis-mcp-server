@@ -906,22 +906,85 @@ class DynamicAdditionServer(Server):
                 result_raw = await get_server_tools(server_name) # Pass only the name string
             # Handle dynamic function calls
             elif not name.startswith('_'):  # Only non-underscore names are potential dynamic functions
-                # Check if function exists
-                function_path = os.path.join(FUNCTIONS_DIR, f"{name}.py")
-                if not os.path.exists(function_path):
-                    raise ValueError(f"Function '{name}' not found")
 
-                # Call the dynamic function
-                try:
-                    logger.info(f"🔧 CALLING DYNAMIC FUNCTION: {name}")
-                    logger.debug(f"---> Calling dynamic: function_call for '{name}' with args: {args} and client_id: {client_id} and request_id: {request_id}") # Log args and client_id separately
-                    # Pass arguments and client_id distinctly
-                    result_raw = await function_call(name=name, client_id=client_id, request_id=request_id, args=args)
-                    logger.debug(f"<--- Dynamic function '{name}' RAW result: {result_raw} (type: {type(result_raw)})")
+                if '.' in name:
+                    # --- Handle Proxied MCP Server Tool Call ---
+                    logger.info(f"🌐 PROXYING TOOL CALL: {name}")
+                    server_alias, tool_name_on_server = name.split('.', 1)
+                    logger.debug(f"Parsed: Server Alias='{server_alias}', Remote Tool='{tool_name_on_server}'")
 
-                except Exception as e:
-                    logger.error(f"❌ Error during dynamic function call '{name}': {str(e)}", exc_info=True)
-                    raise ValueError(f"Error executing function '{name}': {str(e)}") from e
+                    # Check if server config exists and task is running
+                    if server_alias not in server_configs:
+                        raise ValueError(f"Unknown server alias '{server_alias}' in tool name '{name}'")
+                    if server_alias not in ACTIVE_SERVER_TASKS or not ACTIVE_SERVER_TASKS[server_alias]:
+                        raise ValueError(f"Server '{server_alias}' is configured but not running. Cannot proxy tool '{name}'.")
+
+                    # --- KNOWN LIMITATION: Getting target URL ---
+                    # TODO: Need a reliable way to get host/port from running task/config.
+                    # Assuming config *might* have 'host' and 'port' for now. This needs fixing.
+                    server_config = server_configs[server_alias]
+                    target_host = server_config.get('host', 'localhost') # Defaulting, needs improvement
+                    target_port = server_config.get('port')              # Needs improvement
+
+                    if not target_port:
+                         logger.error(f"❌ Cannot determine target port for server '{server_alias}'. Proxying failed.")
+                         raise ValueError(f"Missing connection details for server '{server_alias}'. Cannot proxy tool '{name}'.")
+
+                    target_url = f"ws://{target_host}:{target_port}/mcp" # Assuming /mcp endpoint
+                    logger.info(f"Attempting to proxy call to server '{server_alias}' at {target_url}")
+                    # --- End Known Limitation section ---
+
+                    try:
+                        # Create a temporary client session for this call
+                        async with websocket_client(target_url) as client:
+                            logger.debug(f"Calling remote tool '{tool_name_on_server}' on '{server_alias}' with args: {args}")
+                            # Use the client's call_tool method
+                            result_raw = await client.call_tool(name=tool_name_on_server, args=args)
+                            logger.debug(f"Received raw result from proxied call: {result_raw}")
+                            # The remote server should return List[Content], no extra processing needed here?
+                            # Assuming result_raw is already List[TextContent] or similar
+                            # If not, conversion logic might be needed here.
+
+                    except McpError as e:
+                        logger.error(f"❌ MCP Error proxying call to '{server_alias}': {e}")
+                        raise ValueError(f"Error calling '{tool_name_on_server}' on server '{server_alias}': {e.message}") from e
+                    except ConnectionRefusedError:
+                        logger.error(f"❌ Connection refused when trying to proxy call to '{server_alias}' at {target_url}")
+                        raise ConnectionError(f"Could not connect to server '{server_alias}' at {target_url}")
+                    except Exception as e:
+                        logger.error(f"❌ Unexpected error proxying call to '{server_alias}': {str(e)}", exc_info=True)
+                        raise RuntimeError(f"Unexpected error calling tool on server '{server_alias}': {str(e)}") from e
+
+                else:
+
+                    # --- Handle Local Dynamic Function Call ---
+                    logger.info(f"🔧 CALLING LOCAL DYNAMIC FUNCTION: {name}")
+
+                    # warn if cached load error
+                    if name in _runtime_errors:
+                         load_error_info = _runtime_errors[name]
+                         logger.warn(f"❌ Function '{name}' has a cached load error: {load_error_info['error']}")
+                         # Maybe return a specific error message here instead of raising ValueError?
+                         # Creating an error TextContent for consistency
+
+                    # Check if function exists
+                    function_path = os.path.join(FUNCTIONS_DIR, f"{name}.py")
+                    if not os.path.exists(function_path):
+                        raise ValueError(f"Function '{name}' not found")
+
+                    # Call the dynamic function
+                    try:
+                        logger.info(f"🔧 CALLING DYNAMIC FUNCTION: {name}")
+                        logger.debug(f"---> Calling dynamic: function_call for '{name}' with args: {args} and client_id: {client_id} and request_id: {request_id}") # Log args and client_id separately
+                        # Pass arguments and client_id distinctly
+                        result_raw = await function_call(name=name, client_id=client_id, request_id=request_id, args=args)
+                        logger.debug(f"<--- Dynamic function '{name}' RAW result: {result_raw} (type: {type(result_raw)})")
+
+                    except Exception as e:
+                        logger.error(f"❌ Error during dynamic function call '{name}': {str(e)}", exc_info=True)
+                        raise ValueError(f"Error executing function '{name}': {str(e)}") from e
+
+
             else:
                 # Handle unknown tool names starting with '_', or if no branch matched
                 logger.error(f"❓ Unknown or unhandled tool name: {name}")

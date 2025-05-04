@@ -303,7 +303,7 @@ def server_list() -> List[TextContent]:
             if filename.endswith('.json'):
                 name = filename[:-5] # Remove .json
                 status = "Running" if name in ACTIVE_SERVER_TASKS else "Stopped"
-                results.append(TextContent(type='text', text=f"{name} (Status: {status})"))
+                results.append(TextContent(type='text', text=f"{name}"))
     except Exception as e:
         logger.error(f"❌ server_list: Failed to list servers in {SERVERS_DIR}: {e}")
         # Optionally return an error message as TextContent
@@ -589,11 +589,11 @@ async def server_start(args: Dict[str, Any], server) -> List[TextContent]:
 
     # Now store the complete task info in one step
     ACTIVE_SERVER_TASKS[name] = {
-        'task': task, 
-        'config': server_config_full, 
-        'shutdown_event': shutdown_event, 
+        'task': task,
+        'config': server_config_full,
+        'shutdown_event': shutdown_event,
         'session': None, # Initialize session as None
-        'ready_event': ready_event 
+        'ready_event': ready_event
     }
 
     logger.info(f"MCP server '{name}' started")

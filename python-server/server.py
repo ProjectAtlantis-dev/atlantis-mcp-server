@@ -224,6 +224,7 @@ class DynamicAdditionServer(Server):
         self._last_functions_dir_mtime: float = 0.0 # Timestamp for cache invalidation
         self._last_servers_dir_mtime: float = 0.0 # Timestamp for dynamic servers cache invalidation
         self._last_active_server_keys: Optional[set] = None # Store active server keys for cache invalidation
+        self._server_configs: Dict[str, dict] = {} # Store server configurations
 
         # Register tool handlers using SDK decorators
         # These now wrap the actual logic methods defined below
@@ -633,14 +634,13 @@ class DynamicAdditionServer(Server):
 
         # Scan dynamic servers
         servers_found = []
-        server_configs = {}
+        self._server_configs = {} # Reset server configs
         server_statuses = {}
         try:
             # server_list now returns List[TextContent]
             server_list_results = server_list()
             logger.info(f"📝 FOUND {len(server_list_results)} MCP server configs")
             for server_name_text in server_list_results:
-                # Extract name from text like "weather (Status: Stopped)"
                 server_name = server_name_text.text.split(' ')[0]
                 servers_found.append(server_name)
                 status = "running" if server_name in ACTIVE_SERVER_TASKS else "stopped" # Determine initial status
@@ -667,7 +667,7 @@ class DynamicAdditionServer(Server):
                 # Always try to get config and add server entry (even if stopped)
                 try:
                     config = server_get(server_name)
-                    server_configs[server_name] = config # Store config
+                    self._server_configs[server_name] = config # Populate instance variable
                     annotations = {}
                     annotations["type"] = "server" # Mark this tool entry as representing a server config
                     annotations["serverConfig"] = config or {}
@@ -692,7 +692,7 @@ class DynamicAdditionServer(Server):
 
                     server_tool = Tool(
                         name=server_name,
-                        description=f"MCP server: {server_name} (Status: {status})", # Include status in desc
+                        description=f"MCP server: {server_name}",
                         inputSchema={"type": "object"}, # Servers themselves aren't callable this way
                         annotations=annotations
                     )
@@ -998,53 +998,31 @@ class DynamicAdditionServer(Server):
             elif not name.startswith('_'):  # Only non-underscore names are potential dynamic functions
 
                 if '.' in name or ' ' in name: # <<< UPDATED Condition
-                    # --- Handle Proxied MCP Server Tool Call ---
-                    logger.info(f"🌐 PROXYING TOOL CALL: {name}")
+
+                    # --- Handle MCP tool call ---
+
+                    logger.info(f"🌐 MCP TOOL CALL: {name}")
                     # Split on the first occurrence of '.' or ' '
                     server_alias, tool_name_on_server = re.split('[. ]', name, 1) # <<< UPDATED Splitting
                     logger.debug(f"Parsed: Server Alias='{server_alias}', Remote Tool='{tool_name_on_server}'")
 
-                    # Check if server config exists and task is running
-                    if server_alias not in server_configs:
-                        raise ValueError(f"Unknown server alias '{server_alias}' in tool name '{name}'")
-                    if server_alias not in ACTIVE_SERVER_TASKS or not ACTIVE_SERVER_TASKS[server_alias]:
-                        raise ValueError(f"Server '{server_alias}' is configured but not running. Cannot proxy tool '{name}'.")
+                    # Check if MCP server config exists and is running
+                    if server_alias not in self._server_configs: # Access instance variable
+                        raise ValueError(f"Unknown server alias: '{server_alias}'")
+                    if server_alias not in ACTIVE_SERVER_TASKS:
+                        raise ValueError(f"Server '{server_alias}' is not running.")
 
-                    # --- KNOWN LIMITATION: Getting target URL ---
-                    # TODO: Need a reliable way to get host/port from running task/config.
-                    # Assuming config *might* have 'host' and 'port' for now. This needs fixing.
-                    server_config = server_configs[server_alias]
-                    target_host = server_config.get('host', 'localhost') # Defaulting, needs improvement
-                    target_port = server_config.get('port')              # Needs improvement
+                    # get the taskinfo from ACTIVE_SERVER_TASKS
 
-                    if not target_port:
-                         logger.error(f"❌ Cannot determine target port for server '{server_alias}'. Proxying failed.")
-                         raise ValueError(f"Missing connection details for server '{server_alias}'. Cannot proxy tool '{name}'.")
+                    # now get the session from the task_info.get('session')
 
-                    target_url = f"ws://{target_host}:{target_port}/mcp" # Assuming /mcp endpoint
-                    logger.info(f"Attempting to proxy call to server '{server_alias}' at {target_url}")
-                    # --- End Known Limitation section ---
+                    # now do async wait for session.call_tool() etc
 
-                    try:
-                        # Create a temporary client session for this call
-                        async with websocket_client(target_url) as client:
-                            logger.debug(f"Calling remote tool '{tool_name_on_server}' on '{server_alias}' with args: {args}")
-                            # Use the client's call_tool method
-                            result_raw = await client.call_tool(name=tool_name_on_server, args=args)
-                            logger.debug(f"Received raw result from proxied call: {result_raw}")
-                            # The remote server should return List[Content], no extra processing needed here?
-                            # Assuming result_raw is already List[TextContent] or similar
-                            # If not, conversion logic might be needed here.
+                    # may need to use python MCP docs or sdk to figure out how call tool works
 
-                    except McpError as e:
-                        logger.error(f"❌ MCP Error proxying call to '{server_alias}': {e}")
-                        raise ValueError(f"Error calling '{tool_name_on_server}' on server '{server_alias}': {e.message}") from e
-                    except ConnectionRefusedError:
-                        logger.error(f"❌ Connection refused when trying to proxy call to '{server_alias}' at {target_url}")
-                        raise ConnectionError(f"Could not connect to server '{server_alias}' at {target_url}")
-                    except Exception as e:
-                        logger.error(f"❌ Unexpected error proxying call to '{server_alias}': {str(e)}", exc_info=True)
-                        raise RuntimeError(f"Unexpected error calling tool on server '{server_alias}': {str(e)}") from e
+
+
+
 
                 else:
 

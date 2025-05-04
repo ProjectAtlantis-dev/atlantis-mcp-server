@@ -994,64 +994,100 @@ class DynamicAdditionServer(Server):
                 if not server_name or not isinstance(server_name, str):
                      raise ValueError("Missing or invalid 'name' argument for _server_get_tools")
                 result_raw = await get_server_tools(server_name) # Pass only the name string
-            # Handle dynamic function calls
-            elif not name.startswith('_'):  # Only non-underscore names are potential dynamic functions
+            # Handle MCP tool calls
+            elif '.' in name or ' ' in name: # <<< UPDATED Condition
 
-                if '.' in name or ' ' in name: # <<< UPDATED Condition
+                # --- Handle MCP tool call ---
 
-                    # --- Handle MCP tool call ---
+                logger.info(f"🌐 MCP TOOL CALL: {name}")
+                # Split on the first occurrence of '.' or ' '
+                server_alias, tool_name_on_server = re.split('[. ]', name, 1) # <<< UPDATED Splitting
+                logger.debug(f"Parsed: Server Alias='{server_alias}', Remote Tool='{tool_name_on_server}'")
 
-                    logger.info(f"🌐 MCP TOOL CALL: {name}")
-                    # Split on the first occurrence of '.' or ' '
-                    server_alias, tool_name_on_server = re.split('[. ]', name, 1) # <<< UPDATED Splitting
-                    logger.debug(f"Parsed: Server Alias='{server_alias}', Remote Tool='{tool_name_on_server}'")
+                # Check if MCP server config exists and is running
+                if server_alias not in self._server_configs: # Access instance variable
+                    raise ValueError(f"Unknown server alias: '{server_alias}'")
+                if server_alias not in ACTIVE_SERVER_TASKS:
+                    raise ValueError(f"Server '{server_alias}' is not running.")
 
-                    # Check if MCP server config exists and is running
-                    if server_alias not in self._server_configs: # Access instance variable
-                        raise ValueError(f"Unknown server alias: '{server_alias}'")
-                    if server_alias not in ACTIVE_SERVER_TASKS:
-                        raise ValueError(f"Server '{server_alias}' is not running.")
+                # Get the session for the target server
+                task_info = ACTIVE_SERVER_TASKS.get(server_alias)
+                if not task_info:
+                     # This shouldn't happen if the check above passed, but safety first
+                    raise ValueError(f"Could not find task info for running server '{server_alias}'.")
 
-                    # get the taskinfo from ACTIVE_SERVER_TASKS
-
-                    # now get the session from the task_info.get('session')
-
-                    # now do async wait for session.call_tool() etc
-
-                    # may need to use python MCP docs or sdk to figure out how call tool works
-
-
-
-
-
-                else:
-
-                    # --- Handle Local Dynamic Function Call ---
-                    logger.info(f"🔧 CALLING LOCAL DYNAMIC FUNCTION: {name}")
-
-                    # warn if cached load error
-                    if name in _runtime_errors:
-                         load_error_info = _runtime_errors[name]
-                         logger.warn(f"❌ Function '{name}' has a cached load error: {load_error_info['error']}")
-                         # Maybe return a specific error message here instead of raising ValueError?
-                         # Creating an error TextContent for consistency
-
-                    # Check if function exists
-                    function_path = os.path.join(FUNCTIONS_DIR, f"{name}.py")
-                    if not os.path.exists(function_path):
-                        raise ValueError(f"Function '{name}' not found")
-
-                    # Call the dynamic function
+                session = task_info.get('session')
+                ready_event = task_info.get('ready_event')
+                
+                if not session and ready_event:
+                    session_ready_timeout = 5.0 # Allow a bit more time for proxy calls
+                    logger.debug(f"Session for '{server_alias}' not immediately ready for proxy call. Waiting up to {session_ready_timeout}s...")
                     try:
-                        logger.info(f"🔧 CALLING DYNAMIC FUNCTION: {name}")
-                        logger.debug(f"---> Calling dynamic: function_call for '{name}' with args: {args} and client_id: {client_id} and request_id: {request_id}") # Log args and client_id separately
-                        # Pass arguments and client_id distinctly
-                        result_raw = await function_call(name=name, client_id=client_id, request_id=request_id, args=args)
-                        logger.debug(f"<--- Dynamic function '{name}' RAW result: {result_raw} (type: {type(result_raw)})")
+                        await asyncio.wait_for(ready_event.wait(), timeout=session_ready_timeout)
+                        session = task_info.get('session') # Re-fetch session after wait
+                        if not session:
+                            raise ValueError(f"Server '{server_alias}' session not available even after waiting.")
+                        logger.debug(f"Session for '{server_alias}' became ready.")
+                    except asyncio.TimeoutError:
+                         raise ValueError(f"Timeout waiting for server '{server_alias}' session to become ready for proxy call.")
+                elif not session:
+                     # Session not available and no ready_event to wait for
+                     raise ValueError(f"Server '{server_alias}' is running but its session is not available and cannot wait (no ready_event).")
 
-                    except Exception as e:
-                        logger.error(f"❌ Error during dynamic function call '{name}': {str(e)}", exc_info=True)
-                        raise ValueError(f"Error executing function '{name}': {str(e)}") from e
+                # Proxy the call using the retrieved session
+                try:
+                    logger.info(f"🌐 PROXYING tool call '{tool_name_on_server}' to server '{server_alias}' with args: {args}")
+                    # Use the standard request timeout defined elsewhere
+                    proxy_response = await asyncio.wait_for(
+                        session.call_tool(tool_name_on_server, args),
+                        timeout=SERVER_REQUEST_TIMEOUT 
+                    )
+                    logger.info(f"✅ PROXY response received from '{server_alias}'")
+                    logger.debug(f"Raw Proxy Response: {proxy_response}")
+                    
+                    # Assign to result_raw to be processed later
+                    result_raw = proxy_response
+
+                except McpError as mcp_err:
+                    logger.error(f"❌ MCPError proxying tool call '{name}' to '{server_alias}': {mcp_err}", exc_info=True)
+                    # Format the MCPError into a user-friendly error message
+                    error_message = f"Error calling '{tool_name_on_server}' on server '{server_alias}': {mcp_err.message} (Code: {mcp_err.code})"
+                    raise ValueError(error_message) from mcp_err
+                except asyncio.TimeoutError:
+                    logger.error(f"❌ Timeout proxying tool call '{name}' to '{server_alias}'.")
+                    raise ValueError(f"Timeout calling '{tool_name_on_server}' on server '{server_alias}'.")
+                except Exception as proxy_err:
+                    logger.error(f"❌ Unexpected error proxying tool call '{name}' to '{server_alias}': {proxy_err}", exc_info=True)
+                    raise ValueError(f"Unexpected error calling '{tool_name_on_server}' on server '{server_alias}': {proxy_err}") from proxy_err
+
+            elif not name.startswith('_'): # <--- CHANGED HERE
+
+                # --- Handle Local Dynamic Function Call ---
+                logger.info(f"🔧 CALLING LOCAL DYNAMIC FUNCTION: {name}")
+
+                # warn if cached load error
+                if name in _runtime_errors:
+                     load_error_info = _runtime_errors[name]
+                     logger.warn(f"❌ Function '{name}' has a cached load error: {load_error_info['error']}")
+                     # Maybe return a specific error message here instead of raising ValueError?
+                     # Creating an error TextContent for consistency
+
+                # Check if function exists
+                function_path = os.path.join(FUNCTIONS_DIR, f"{name}.py")
+                if not os.path.exists(function_path):
+                    raise ValueError(f"Function '{name}' not found")
+
+                # Call the dynamic function
+                try:
+                    logger.info(f"🔧 CALLING DYNAMIC FUNCTION: {name}")
+                    logger.debug(f"---> Calling dynamic: function_call for '{name}' with args: {args} and client_id: {client_id} and request_id: {request_id}") # Log args and client_id separately
+                    # Pass arguments and client_id distinctly
+                    result_raw = await function_call(name=name, client_id=client_id, request_id=request_id, args=args)
+                    logger.debug(f"<--- Dynamic function '{name}' RAW result: {result_raw} (type: {type(result_raw)})")
+
+                except Exception as e:
+                    logger.error(f"❌ Error during dynamic function call '{name}': {str(e)}", exc_info=True)
+                    raise ValueError(f"Error executing function '{name}': {str(e)}") from e
 
 
             else:

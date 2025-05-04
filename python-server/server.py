@@ -757,7 +757,8 @@ class DynamicAdditionServer(Server):
                         original_annotations = tool_dict.get('annotations', {}) # Default annotations
 
                         new_tool_name = f"{server_name}.{original_name}"
-                        new_description = f"[From {server_name}] {original_description}"
+                        #new_description = f"[From {server_name}] {original_description}"
+                        new_description = original_description
                         new_annotations = {
                             **original_annotations,
                             "originServer": server_name,

@@ -24,7 +24,14 @@ SERVER_VERSION = "0.1.0"
 from mcp.server import Server
 # Removed websocket_server import - implementing our own handler
 from mcp.client.websocket import websocket_client
-from mcp.types import Tool, TextContent, CallToolResult, NotificationParams, Annotations # Ensure Annotation, ToolErrorAnnotation are NOT imported
+from mcp.types import (
+    Tool,
+    TextContent,
+    CallToolResult,
+    NotificationParams,
+    Annotations # Ensure Annotation, ToolErrorAnnotation are NOT imported
+# <<< REMOVED Content IMPORT >>>
+)
 from starlette.applications import Starlette
 from starlette.routing import WebSocketRoute, Route
 from starlette.websockets import WebSocket, WebSocketDisconnect
@@ -1041,15 +1048,28 @@ class DynamicAdditionServer(Server):
                 try:
                     logger.info(f"🌐 PROXYING tool call '{tool_name_on_server}' to server '{server_alias}' with args: {args}")
                     # Use the standard request timeout defined elsewhere
-                    proxy_response = await asyncio.wait_for(
-                        session.call_tool(tool_name_on_server, args),
+                    proxy_response: CallToolResult = await asyncio.wait_for(
+                        session.call_tool(tool_name_on_server, args or {}),
                         timeout=SERVER_REQUEST_TIMEOUT
                     )
                     logger.info(f"✅ PROXY response received from '{server_alias}'")
-                    logger.debug(f"Raw Proxy Response: {proxy_response}")
+                    logger.debug(f"Raw Proxy Response: {proxy_response}") # proxy_response is CallToolResult
 
-                    # Assign to result_raw to be processed later
-                    result_raw = proxy_response
+                    # Directly use the content from the proxied result if it's a list.
+                    # The isError flag from proxy_response is implicitly handled by the caller
+                    # receiving our server's CallToolResult (which we don't explicitly build here,
+                    # the framework does it based on the returned content list and exceptions).
+                    if proxy_response.content and isinstance(proxy_response.content, list):
+                         final_result = proxy_response.content
+                         logger.debug(f"Using content list directly from proxied response: {final_result}")
+                         logger.debug(f"<--- _execute_tool RETURNING proxied result directly.")
+                         return final_result
+                    else:
+                        # Fallback: If content is missing or not a list - THIS is an error in proxy process.
+                        error_message = f"Proxied server '{server_alias}' returned unexpected content format (expected list): {proxy_response.content}"
+                        logger.error(error_message)
+                        # Raise an exception, which the framework will turn into an error response
+                        raise ValueError(error_message)
 
                 except McpError as mcp_err:
                     logger.error(f"❌ MCPError proxying tool call '{name}' to '{server_alias}': {mcp_err}", exc_info=True)

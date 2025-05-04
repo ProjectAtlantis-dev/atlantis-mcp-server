@@ -14,7 +14,12 @@ from typing import Any, Dict, Optional, List, Tuple, Union
 from mcp import ClientSession, StdioServerParameters, stdio_client
 from mcp.types import TextContent, Tool, ListToolsResult, ListToolsRequest
 
-from state import SERVERS_DIR, logger
+from state import (
+    SERVERS_DIR, 
+    logger, 
+    ACTIVE_SERVER_TASKS, 
+    SERVER_REQUEST_TIMEOUT
+)
 
 # Directory to store error logs for server configs
 SERVER_ERRORS_DIR = "." # Store error logs in the current directory
@@ -26,8 +31,6 @@ OLD_DIR = os.path.join(SERVERS_DIR, 'OLD')
 os.makedirs(OLD_DIR, exist_ok=True)
 
 # --- Tracking for Active Server Tasks ---
-# Stores {'server_name': {'task': asyncio.Task, 'params': StdioServerParameters, 'shutdown_event': asyncio.Event, 'session': Optional[ClientSession], 'ready_event': asyncio.Event}}
-ACTIVE_SERVER_TASKS: Dict[str, Dict] = {}
 SERVER_START_TIMES: Dict[str, datetime.datetime] = {} # New dictionary for start times
 _server_load_errors: Dict[str, str] = {} # Cache for server config load errors
 
@@ -174,20 +177,6 @@ def server_get(name: str) -> Optional[Union[Dict[str, Any], str]]:
     Returns the server config dict or None if not found.
     """
     return _fs_load_server(name)
-
-
-import asyncio
-import logging
-from typing import List, Dict, Any, Optional
-from state import SERVERS_DIR, logger # Assuming state.py provides logger
-from mcp import ClientSession, StdioServerParameters, stdio_client
-from mcp.types import Tool, ListToolsResult # <-- Remove ListToolsRequest import
-from server_manager import ACTIVE_SERVER_TASKS # Import necessary items from server_manager
-
-# Define Timeout for Requests (adjust as needed)
-SERVER_REQUEST_TIMEOUT = 10.0 # seconds
-
-
 
 
 async def get_server_tools(name: str) -> list[dict]:

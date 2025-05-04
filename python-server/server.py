@@ -35,14 +35,16 @@ from mcp.shared.exceptions import McpError # <--- ADD THIS IMPORT
 # Import Uvicorn for running the server
 import uvicorn
 
-# Import state variables and custom formatter
+# Import shared state and utilities
 from state import (
-    logger, HOST, PORT,
+    logger, # Use the configured logger from state
+    HOST, PORT,
     FUNCTIONS_DIR, SERVERS_DIR, is_shutting_down, cloud_connection_active,
     CLOUD_SERVER_HOST, CLOUD_SERVER_PORT, CLOUD_SERVER_URL,
     CLOUD_SERVICE_NAMESPACE, CLOUD_CONNECTION_RETRY_SECONDS,
     CLOUD_CONNECTION_MAX_RETRIES, CLOUD_CONNECTION_MAX_BACKOFF_SECONDS,
-    tasks, BOLD, RESET, CYAN, BRIGHT_WHITE
+    tasks, BOLD, RESET, CYAN, BRIGHT_WHITE,
+    SERVER_REQUEST_TIMEOUT # <<< Import the timeout constant
 )
 
 # Import dynamic function management utilities
@@ -1018,7 +1020,7 @@ class DynamicAdditionServer(Server):
 
                 session = task_info.get('session')
                 ready_event = task_info.get('ready_event')
-                
+
                 if not session and ready_event:
                     session_ready_timeout = 5.0 # Allow a bit more time for proxy calls
                     logger.debug(f"Session for '{server_alias}' not immediately ready for proxy call. Waiting up to {session_ready_timeout}s...")
@@ -1040,11 +1042,11 @@ class DynamicAdditionServer(Server):
                     # Use the standard request timeout defined elsewhere
                     proxy_response = await asyncio.wait_for(
                         session.call_tool(tool_name_on_server, args),
-                        timeout=SERVER_REQUEST_TIMEOUT 
+                        timeout=SERVER_REQUEST_TIMEOUT
                     )
                     logger.info(f"✅ PROXY response received from '{server_alias}'")
                     logger.debug(f"Raw Proxy Response: {proxy_response}")
-                    
+
                     # Assign to result_raw to be processed later
                     result_raw = proxy_response
 

@@ -75,6 +75,7 @@ CLOUD_SERVICE_NAMESPACE = "/service"  # Socket.IO namespace for service-to-servi
 CLOUD_CONNECTION_RETRY_SECONDS = 5  # Initial delay in seconds
 CLOUD_CONNECTION_MAX_RETRIES = 10  # Maximum number of retries before giving up (None for infinite)
 CLOUD_CONNECTION_MAX_BACKOFF_SECONDS = 15  # Maximum delay for exponential backoff
+SERVER_REQUEST_TIMEOUT = 30.0 # Seconds to wait for proxied server requests
 
 # Flags to track server state
 is_shutting_down = False
@@ -83,3 +84,7 @@ cloud_connection_active = False
 # Dictionary to store task information
 tasks = {}
 next_task_id = 1
+
+# --- Tracking for Active Server Tasks (Moved from server_manager) ---
+# Stores {'server_name': {'task': asyncio.Task, 'config': Dict, 'shutdown_event': asyncio.Event, 'session': Optional[ClientSession], 'ready_event': asyncio.Event}}
+ACTIVE_SERVER_TASKS: dict[str, dict] = {}

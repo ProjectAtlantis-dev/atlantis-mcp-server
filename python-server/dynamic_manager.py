@@ -635,7 +635,7 @@ def function_validate(name: str) -> Dict[str, Any]:
         return {'valid': False, 'error': error_message, 'function_info': None}
 
 import inspect # Add import
-import atlantis_context
+import atlantis
 
 async def function_call(name: str, client_id: str, request_id: str, **kwargs) -> Any:
     '''
@@ -665,11 +665,11 @@ async def function_call(name: str, client_id: str, request_id: str, **kwargs) ->
 
         bound_client_log = functools.partial(utils.client_log, request_id=request_id, client_id_for_routing=client_id)
         logger.debug(f"Prepared bound_client_log for context. Request ID: {request_id}, Client ID: {client_id}")
-        
-        logger.debug("Setting context variables via atlantis_context")
-        context_tokens = atlantis_context.set_context(
-            client_log_func=bound_client_log, 
-            request_id=request_id, 
+
+        logger.debug("Setting context variables via atlantis")
+        context_tokens = atlantis.set_context(
+            client_log_func=bound_client_log,
+            request_id=request_id,
             client_id=client_id,
             entry_point_name=secure_name # Pass the entry point name
         )
@@ -703,8 +703,8 @@ async def function_call(name: str, client_id: str, request_id: str, **kwargs) ->
     finally:
         # --- RESET CONTEXT after execution (or error) ---
         if context_tokens:
-            logger.debug("Resetting context variables via atlantis_context")
-            atlantis_context.reset_context(context_tokens)
+            logger.debug("Resetting context variables via atlantis")
+            atlantis.reset_context(context_tokens)
         else:
             logger.debug("No context tokens found to reset.")
 

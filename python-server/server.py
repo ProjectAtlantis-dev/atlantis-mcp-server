@@ -830,7 +830,7 @@ class DynamicAdditionServer(Server):
         # Currently no resources supported
         return []
 
-    async def send_client_log(self, level: str, data: Any, logger_name: str = None, request_id: str = None, client_id: str = None):
+    async def send_client_log(self, level: str, data: Any, logger_name: str = None, request_id: str = None, client_id: str = None, seq_num: Optional[int] = None):
         """Send a log message notification to connected clients using direct WebSocket communication.
 
         Args:
@@ -839,22 +839,28 @@ class DynamicAdditionServer(Server):
             logger_name: Optional name to identify the logger source
             request_id: Optional ID of the original request for client-side correlation
             client_id: Optional client identifier for routing the message
+            seq_num: Optional sequence number for client-side ordering
         """
         try:
             # Normalize level to uppercase for consistency
             level = level.upper()
 
             # Create a simple JSON-RPC notification structure
+            params = {
+                "level": level,
+                "data": data,
+                "logger": logger_name or "dynamic_function",
+                # Add request_id to the payload if available
+                "requestId": request_id
+            }
+            # --- Add sequence number if provided --- 
+            if seq_num is not None:
+                params["seqNum"] = seq_num
+
             notification = {
                 "jsonrpc": "2.0",
                 "method": "notifications/message",
-                "params": {
-                    "level": level,
-                    "data": data,
-                    "logger": logger_name or "dynamic_function",
-                    # Add request_id to the payload if available
-                    "requestId": request_id
-                }
+                "params": params # Use the params dict built above
             }
 
             # Get the global tracking collections
@@ -1766,7 +1772,7 @@ async def process_mcp_request(server, request, client_id=None):
             logger.debug(f"Tool name: '{name}', Arguments: {json.dumps(args, default=str)}")
 
             # Execute the tool
-            result = await server._execute_tool(name, args, client_id=client_id, request_id=req_id)
+            result = await server._execute_tool(name=name, args=args, client_id=client_id, request_id=req_id)
             logger.info(f"🎯 Tool '{name}' execution completed with {len(result)} content items")
 
             # Debug what kind of result we got

@@ -14,19 +14,28 @@ _request_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
 # client_id: The identifier for the client making the request
 _client_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_client_id_var", default=None)
 
+# log_seq_num: A counter for log messages within the current request context
+_log_seq_num_var: contextvars.ContextVar[int] = contextvars.ContextVar("_log_seq_num_var", default=0)
+
 # --- Accessor Functions ---
 # Functions that dynamic code can import and call to get the current context.
 
 def client_log(message: str, level: str = "INFO"):
     """Sends a log message back to the requesting client for the current context.
+    Includes a sequence number for client-side reordering.
     Calls the underlying log function directly; async dispatch is handled internally.
     """
     log_func = _client_log_var.get()
     if log_func:
         try:
-            # Call the function directly. It's synchronous but handles
-            # its own async task creation internally (in utils.client_log).
-            log_func(message) # Or log_func(message, level=level) if needed
+            # Get current sequence number and increment it for the next call
+            current_seq = _log_seq_num_var.get()
+            _log_seq_num_var.set(current_seq + 1)
+
+            # Call the underlying function, passing the sequence number.
+            # NOTE: The underlying log_func (bound_client_log -> utils.client_log) 
+            # MUST be updated to accept a 'seq_num' argument.
+            log_func(message, level=level, seq_num=current_seq) 
         except Exception as e:
             # Catch potential errors in the synchronous part of log_func
             # or if log_func itself raises an unexpected error.
@@ -52,11 +61,14 @@ def set_context(client_log_func: Callable, request_id: str, client_id: str):
     client_log_token = _client_log_var.set(client_log_func)
     request_id_token = _request_id_var.set(request_id)
     client_id_token = _client_id_var.set(client_id)
-    return (client_log_token, request_id_token, client_id_token)
+    # Initialize sequence number to 0 for this context
+    log_seq_num_token = _log_seq_num_var.set(0)
+    return (client_log_token, request_id_token, client_id_token, log_seq_num_token)
 
 def reset_context(tokens):
     """Resets the context variables using the provided tokens."""
-    client_log_token, request_id_token, client_id_token = tokens
+    client_log_token, request_id_token, client_id_token, log_seq_num_token = tokens
     _client_log_var.reset(client_log_token)
     _request_id_var.reset(request_id_token)
     _client_id_var.reset(client_id_token)
+    _log_seq_num_var.reset(log_seq_num_token)

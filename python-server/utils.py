@@ -3,6 +3,7 @@ import os
 import psutil
 import logging
 import json
+import asyncio
 from state import logger
 
 # ANSI escape codes for colors
@@ -97,7 +98,7 @@ def set_server_instance(server):
     _server_instance = server
     logger.debug("Server instance set in utils module")
 
-def client_log(message: Any, level: str = "info", logger_name: str = None, request_id: str = None, client_id_for_routing: str = None):
+def client_log(message: Any, level: str = "info", logger_name: str = None, request_id: str = None, client_id_for_routing: str = None, seq_num: int = None):
     """
     Send a log message to the client.
 
@@ -110,6 +111,7 @@ def client_log(message: Any, level: str = "info", logger_name: str = None, reque
         logger_name: Optional name to identify the logger source
         request_id: Optional ID of the original request that triggered this log
         client_id_for_routing: Optional client identifier to route the log message
+        seq_num: Optional sequence number for client-side ordering
 
     Example:
         ```python
@@ -123,23 +125,24 @@ def client_log(message: Any, level: str = "info", logger_name: str = None, reque
         ```
     """
     # Log locally first (always using INFO level for local display)
-    log_prefix = f"{PINK}CLIENT LOG [{level.upper()}]"
+    seq_prefix = f"(Seq: {seq_num}) " if seq_num is not None else ""
+    log_prefix = f"{PINK}CLIENT LOG [{level.upper()}] {seq_prefix}"
     log_suffix = f"(Client: {client_id_for_routing}, Req: {request_id}): {message}{RESET}"
-    logger.info(f"{log_prefix} {log_suffix}") # Use imported logger and add color/client_id/request_id
+    logger.info(f"{log_prefix}{log_suffix}") # Add seq_num to local log too
 
     # Send to client if server is available
     if _server_instance is not None:
-        import asyncio
         try:
             # Create a task to send the log asynchronously
             loop = asyncio.get_event_loop()
             if logger_name is None:
                 logger_name = "dynamic_function"
 
-            # Pass request_id and client_id_for_routing to the server's method
-            asyncio.create_task(_server_instance.send_client_log(level, message, logger_name, request_id, client_id_for_routing))
+            # Pass request_id, client_id_for_routing, AND seq_num to the server's method
+            # NOTE: _server_instance.send_client_log MUST be updated to accept seq_num
+            asyncio.create_task(_server_instance.send_client_log(level, message, logger_name, request_id, client_id_for_routing, seq_num))
         except Exception as e:
-            logger.error(f"Error sending client log: {e}")
+            logger.error(f"Error scheduling client log task: {e}") # Updated error message clarity
     else:
         logger.warning("Cannot send client log: server instance not set")
 

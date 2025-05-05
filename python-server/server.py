@@ -755,14 +755,17 @@ class DynamicAdditionServer(Server):
 
                 # Always try to get config and add server entry (even if stopped)
                 try:
-                    # Use server_manager.server_get if not imported specifically
+                    # Get server config
                     config = server_manager.server_get(server_name)
                     self._server_configs[server_name] = config # Populate instance variable
+
+                    # Create annotations object
                     annotations = {}
                     annotations["type"] = "server" # Mark this tool entry as representing a server config
                     annotations["serverConfig"] = config or {}
-                    annotations["runningStatus"] = status # Add final status
+                    annotations["runningStatus"] = status # Add status from outer loop
 
+                    # Try to get file modified time
                     try:
                         server_file = os.path.join(SERVERS_DIR, f"{server_name}.json")
                         mtime = os.path.getmtime(server_file)
@@ -770,38 +773,78 @@ class DynamicAdditionServer(Server):
                     except Exception as me:
                         logger.warning(f"⚠️ Could not get mtime for server '{server_name}': {me}")
 
-                    if status == "running":
-                        # -- Correctly get started_at from ACTIVE_SERVER_TASKS --
-                        # Access ACTIVE_SERVER_TASKS via module namespace
-                        task_info = server_manager.ACTIVE_SERVER_TASKS.get(server_name)
-                        start_time = task_info.get('started_at') if task_info else None
-                        #start_time = SERVER_START_TIMES.get(server_name) # <-- OLD WAY
-                        if start_time and isinstance(start_time, datetime.datetime):
-                            # Use 'started_at' as the key in annotations
-                            annotations["started_at"] = start_time.isoformat() # <-- FIXED KEY & SOURCE
-                        else:
-                            # Access ACTIVE_SERVER_TASKS via module namespace
-                            logger.warning(f"⚠️ Server '{server_name}' is running but 'started_at' time not found or invalid in server_manager.ACTIVE_SERVER_TASKS.")
+                    # Define task_info FIRST, outside any status checks
+                    task_info = server_manager.ACTIVE_SERVER_TASKS.get(server_name)
 
+                    # Better check for running status - don't rely on 'status' field which might not be set
+                    # Instead check if task exists, is not done, and session exists
+                    is_running = (
+                        task_info is not None and
+                        'task' in task_info and
+                        not task_info['task'].done() and
+                        'session' in task_info and
+                        task_info['session'] is not None
+                    )
+                    status = "running" if is_running else "stopped"
+
+                    if is_running:
+                        logger.debug(f"🔄 Server '{server_name}' is running (task active and session present)")
+                    else:
+                        logger.debug(f"⏹️ Server '{server_name}' is not running")
+                        if task_info:
+                            logger.debug(f"📊 Task info: task present={('task' in task_info)}, session present={('session' in task_info and task_info['session'] is not None)}")
+                            if 'task' in task_info and task_info['task'].done():
+                                logger.debug(f"⚠️ Task for '{server_name}' is marked as done")
+
+                    # Update annotations with final status
+                    annotations["runningStatus"] = status
+
+                    # Get timestamp if server is running
+                    if status == "running":
+                        # Try to get started_at from task_info
+                        start_time = task_info.get('started_at')
+
+                        # If not found, and we know it's running, set it now with current time
+                        if not start_time or not isinstance(start_time, datetime.datetime):
+                            logger.debug(f"🕒 Setting started_at timestamp for '{server_name}' to current time")
+                            start_time = datetime.datetime.now(datetime.timezone.utc)
+                            # Save it in ACTIVE_SERVER_TASKS for future use
+                            if task_info:
+                                task_info['started_at'] = start_time
+
+                        # Add timestamp to annotations
+                        logger.debug(f"🕒 Using started_at timestamp for '{server_name}': {start_time}")
+                        annotations["started_at"] = start_time.isoformat()
+                    else:
+                        logger.debug(f"📚 No started_at timestamp set for non-running server '{server_name}'")
+
+                        # If this is a stoppped server with a start time in the past, include it anyway
+                        # This lets us preserve timestamps for servers that were running but are now stopped
+                        past_time = task_info.get('started_at') if task_info else None
+                        if past_time and isinstance(past_time, datetime.datetime):
+                            logger.debug(f"📚 Found historical started_at timestamp for '{server_name}': {past_time}")
+                            annotations["started_at"] = past_time.isoformat()
+
+                    # Add any load errors
                     if server_name in server_manager._server_load_errors:
                         annotations["loadError"] = server_manager._server_load_errors[server_name]
 
+                    # Simplified logging that only uses defined variables
                     if task_info:
-                        logger.debug(f"🔧 _get_tools_list: Preparing Tool for '{name}': task_info exists={task_info is not None}, status='{status_msg}', started_at_dt='{started_at_dt}', started_at_iso='{started_at_iso}'")
+                        logger.debug(f"🔧 _get_tools_list: Preparing Tool for '{server_name}': task_info exists={task_info is not None}, status='{status}'")
                     else:
-                        logger.warn(f"🔧 _get_tools_list: Tool '{name}' not running")
+                        logger.warning(f"🔧 _get_tools_list: Tool '{server_name}' not running")
 
+                    # Create tool with correct parameters
                     server_tool = Tool(
-                        name=f"{self.server_name}.{name}", # Corrected: Use composite name
-                        description=f"MCP server: {name}", # Corrected: Use 'name'
-                        input_schema=None,
-                        metadata={
-                            "tool_type": "server",
-                            "server_name": name
-                        }
+                        name=server_name,
+                        description=f"MCP server: {server_name}",
+                        inputSchema={"type": "object"}, # Use inputSchema (camelCase), not input_schema
+                        annotations=annotations # Use annotations object that contains started_at if applicable
                     )
+
                     tools_list.append(server_tool)
-                    logger.debug(f"📝 Added dynamic server config entry: {name} (Status: {status})")
+                    logger.debug(f"📝 Added dynamic server config entry: {server_name} (Status: {status})")
                 except Exception as se:
                     logger.warning(f"⚠️ Error processing MCP server config '{server_name}': {se}")
                     tools_list.append(Tool(
@@ -1203,7 +1246,7 @@ class DynamicAdditionServer(Server):
                 # warn if cached load error
                 if name in _runtime_errors:
                      load_error_info = _runtime_errors[name]
-                     logger.warn(f"❌ Function '{name}' has a cached load error: {load_error_info['error']}")
+                     logger.warning(f"❌ Function '{name}' has a cached load error: {load_error_info['error']}")
                      # Maybe return a specific error message here instead of raising ValueError?
                      # Creating an error TextContent for consistency
 
@@ -1334,8 +1377,32 @@ async def get_all_tools_for_response(server: 'DynamicAdditionServer', caller_con
     tools_dict_list: List[Dict[str, Any]] = []
     for tool in raw_tool_list:
         try:
+            # Debug log to see server tools and their annotations BEFORE serialization
+            if hasattr(tool, 'annotations') and isinstance(tool.annotations, dict) and tool.annotations.get('type') == 'server':
+                logger.debug(f"🔍 SERIALIZING SERVER TOOL '{tool.name}' with annotations: {tool.annotations}")
+                # Check if started_at is in annotations
+                if 'started_at' in tool.annotations:
+                    logger.debug(f"✅ Found started_at in annotations for '{tool.name}': {tool.annotations['started_at']}")
+
             # Ensure model_dump is called correctly for each tool
-            tools_dict_list.append(tool.model_dump(mode='json')) # Use mode='json' for better serialization
+            tool_dict = tool.model_dump(mode='json') # Use mode='json' for better serialization
+
+            # Debug log for server tools AFTER serialization
+            if tool_dict.get('annotations', {}).get('type') == 'server':
+                logger.debug(f"🔍 SERIALIZED SERVER TOOL '{tool_dict.get('name')}' to dict: {tool_dict}")
+                # Check if started_at is in annotations
+                if 'started_at' in tool_dict.get('annotations', {}):
+                    logger.debug(f"✅ Started_at preserved in serialized tool dict for '{tool_dict.get('name')}': {tool_dict['annotations']['started_at']}")
+
+                    # If started_at is in annotations but not at the top level, add it to the top level
+                    started_at_val = tool_dict['annotations']['started_at']
+                    if 'started_at' not in tool_dict:
+                        logger.debug(f"🔎 Adding started_at to TOP LEVEL for '{tool_dict.get('name')}': {started_at_val}")
+                        tool_dict['started_at'] = started_at_val
+                else:
+                    logger.debug(f"❌ Started_at MISSING in serialized tool dict for '{tool_dict.get('name')}'!")
+
+            tools_dict_list.append(tool_dict)
         except Exception as e:
             logger.error(f"❌ Error dumping tool model '{tool.name}' to dict: {e}", exc_info=True)
             # Optionally skip this tool or add placeholder error? For now, skipping.

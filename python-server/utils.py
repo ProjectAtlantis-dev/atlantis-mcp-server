@@ -98,7 +98,19 @@ def set_server_instance(server):
     _server_instance = server
     logger.debug("Server instance set in utils module")
 
-def client_log(message: Any, level: str = "info", logger_name: str = None, request_id: str = None, client_id_for_routing: str = None, seq_num: int = None):
+def get_server_instance():
+    global _server_instance
+    return _server_instance
+
+def client_log(
+    message: Any, 
+    level: str = "info", 
+    logger_name: str = None, 
+    request_id: str = None, 
+    client_id_for_routing: str = None,
+    seq_num: int = None,
+    entry_point_name: str = None
+    ):
     """
     Send a log message to the client.
 
@@ -112,22 +124,12 @@ def client_log(message: Any, level: str = "info", logger_name: str = None, reque
         request_id: Optional ID of the original request that triggered this log
         client_id_for_routing: Optional client identifier to route the log message
         seq_num: Optional sequence number for client-side ordering
-
-    Example:
-        ```python
-        from utils import client_log
-
-        def my_dynamic_function(param1, param2):
-            client_log(f"Processing with params: {param1}, {param2}")
-            # Do work...
-            client_log("Function complete!", level="debug")
-            return result
-        ```
+        entry_point_name: Name of the top-level function called by the request.
     """
     # Log locally first (always using INFO level for local display)
     seq_prefix = f"(Seq: {seq_num}) " if seq_num is not None else ""
     log_prefix = f"{PINK}CLIENT LOG [{level.upper()}] {seq_prefix}"
-    log_suffix = f"(Client: {client_id_for_routing}, Req: {request_id}): {message}{RESET}"
+    log_suffix = f"(Client: {client_id_for_routing}, Req: {request_id}, Entry: {entry_point_name}, Logger: {logger_name}): {message}{RESET}"
     logger.info(f"{log_prefix}{log_suffix}") # Add seq_num to local log too
 
     # Send to client if server is available
@@ -140,7 +142,7 @@ def client_log(message: Any, level: str = "info", logger_name: str = None, reque
 
             # Pass request_id, client_id_for_routing, AND seq_num to the server's method
             # NOTE: _server_instance.send_client_log MUST be updated to accept seq_num
-            asyncio.create_task(_server_instance.send_client_log(level, message, logger_name, request_id, client_id_for_routing, seq_num))
+            asyncio.create_task(_server_instance.send_client_log(level, message, logger_name, request_id, client_id_for_routing, seq_num, entry_point_name))
         except Exception as e:
             logger.error(f"Error scheduling client log task: {e}") # Updated error message clarity
     else:

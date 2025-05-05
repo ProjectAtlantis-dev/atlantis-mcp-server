@@ -830,16 +830,25 @@ class DynamicAdditionServer(Server):
         # Currently no resources supported
         return []
 
-    async def send_client_log(self, level: str, data: Any, logger_name: str = None, request_id: str = None, client_id: str = None, seq_num: Optional[int] = None):
+    async def send_client_log(self, 
+                              level: str, 
+                              data: Any, 
+                              logger_name: str = None, 
+                              request_id: str = None, 
+                              client_id: str = None, 
+                              seq_num: Optional[int] = None,
+                              entry_point_name: Optional[str] = None # <-- Add new param
+                              ):
         """Send a log message notification to connected clients using direct WebSocket communication.
 
         Args:
             level: The log level ("debug", "info", "warning", "error")
             data: The log message content (can be string or structured data)
-            logger_name: Optional name to identify the logger source
+            logger_name: Optional name to identify the specific function emitting the log
             request_id: Optional ID of the original request for client-side correlation
             client_id: Optional client identifier for routing the message
             seq_num: Optional sequence number for client-side ordering
+            entry_point_name: Optional name of the top-level function originally called
         """
         try:
             # Normalize level to uppercase for consistency
@@ -849,11 +858,12 @@ class DynamicAdditionServer(Server):
             params = {
                 "level": level,
                 "data": data,
-                "logger": logger_name or "dynamic_function",
-                # Add request_id to the payload if available
-                "requestId": request_id
+                "logger": logger_name or "unknown_caller", # The immediate caller
+                "requestId": request_id,
+                "entryPoint": entry_point_name or "unknown_entry_point" # The original entry point
             }
-            # --- Add sequence number if provided --- 
+            
+            # Add seqNum if provided
             if seq_num is not None:
                 params["seqNum"] = seq_num
 

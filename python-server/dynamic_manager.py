@@ -652,13 +652,10 @@ async def function_call(name: str, client_id: str, request_id: str, **kwargs) ->
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"Dynamic function '{secure_name}' not found at {file_path}")
 
-    # --- Add variable for context tokens ---
     context_tokens = None
     try:
-        # Clear any previous runtime error before attempting execution
         _runtime_errors.pop(name, None)
 
-        # Dynamically import the module
         module_name = f"dynamic_functions.{secure_name}"
         spec = importlib.util.spec_from_file_location(module_name, file_path)
         if spec is None or spec.loader is None:
@@ -666,22 +663,17 @@ async def function_call(name: str, client_id: str, request_id: str, **kwargs) ->
 
         module = importlib.util.module_from_spec(spec)
 
-        # --- Prepare the context-specific client_log function --- 
         bound_client_log = functools.partial(utils.client_log, request_id=request_id, client_id_for_routing=client_id)
         logger.debug(f"Prepared bound_client_log for context. Request ID: {request_id}, Client ID: {client_id}")
         
-        # --- REMOVE OLD INJECTION ---
-        # module.__dict__['client_log'] = bound_client_log
-
-        # --- SET CONTEXT before executing module code --- 
         logger.debug("Setting context variables via atlantis_context")
         context_tokens = atlantis_context.set_context(
             client_log_func=bound_client_log, 
             request_id=request_id, 
-            client_id=client_id
+            client_id=client_id,
+            entry_point_name=secure_name # Pass the entry point name
         )
 
-        # --- Execute module code (imports, etc.) --- 
         spec.loader.exec_module(module)
         logger.info(f"Dynamically loaded module for function '{secure_name}'.")
 

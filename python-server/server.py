@@ -97,7 +97,7 @@ import utils
 # Import server manager functions
 from server_manager import (
     server_list, server_get, server_add, server_remove, server_set,
-    server_validate, server_start, ACTIVE_SERVER_TASKS, # <<< Added server_start
+    server_validate, server_start, server_stop, ACTIVE_SERVER_TASKS,
     SERVER_START_TIMES, get_server_tools, # <<< Added get_server_tools
     _server_load_errors # Import the server load error cache
 )
@@ -172,7 +172,7 @@ class DynamicConfigEventHandler(FileSystemEventHandler):
         logger.info(f"🐍 Change detected in dynamic {change_type}: {os.path.basename(event_path)}. Debouncing...")
 
         # Store the path that triggered this potential reload
-        self._last_triggered_path = event_path 
+        self._last_triggered_path = event_path
 
         # Debounce: Cancel existing timer if a new event comes quickly
         if self._debounce_timer:
@@ -180,7 +180,7 @@ class DynamicConfigEventHandler(FileSystemEventHandler):
 
         # Schedule the actual reload after a short delay
         # Pass the event path to the target function
-        self._debounce_timer = threading.Timer(self._debounce_interval, self._do_reload, args=[event_path]) 
+        self._debounce_timer = threading.Timer(self._debounce_interval, self._do_reload, args=[event_path])
         self._debounce_timer.start()
 
     def _do_reload(self, event_path: Optional[str] = None):
@@ -189,12 +189,12 @@ class DynamicConfigEventHandler(FileSystemEventHandler):
         if not path_to_process:
             logger.warning("⚠️ _do_reload called without a valid event path.")
             return
-            
+
         logger.info(f"⏰ Debounce finished for {os.path.basename(path_to_process)}. Processing file change.")
-        
+
         # Clear the cache - Must run in the main event loop
         async def _process_file_change(file_path: str):
-            # --- Invalidate ALL Dynamic Function Runtime Caches --- 
+            # --- Invalidate ALL Dynamic Function Runtime Caches ---
             # Check if the change was in the functions or servers directory
             is_function_change = file_path.endswith(".py") and os.path.dirname(file_path) == FUNCTIONS_DIR
             is_server_change = file_path.endswith(".json") and os.path.dirname(file_path) == SERVERS_DIR
@@ -207,7 +207,7 @@ class DynamicConfigEventHandler(FileSystemEventHandler):
                     logger.error(f"❌ Error invalidating all dynamic modules cache from file watcher: {e}")
             # --- End Runtime Cache Invalidation ---
 
-            # --- Existing Tool List Cache Clearing & Notification --- 
+            # --- Existing Tool List Cache Clearing & Notification ---
             # This still runs regardless of whether it was a function or server config change
             logger.info(f"🧹 Clearing tool list cache on server due to file change in {os.path.basename(file_path)}.")
             self.mcp_server._cached_tools = None
@@ -223,7 +223,7 @@ class DynamicConfigEventHandler(FileSystemEventHandler):
                     logger.error(f"❌ Failed to notify clients after file change: {e}")
             else:
                 logger.warning("⚠️ Server object lacks _notify_tool_list_changed method.")
-            # --- End Tool List Cache Clearing --- 
+            # --- End Tool List Cache Clearing ---
 
         # Schedule the coroutine to run in the event loop from this thread
         if self.loop.is_running():
@@ -870,12 +870,12 @@ class DynamicAdditionServer(Server):
         # Currently no resources supported
         return []
 
-    async def send_client_log(self, 
-                              level: str, 
-                              data: Any, 
-                              logger_name: str = None, 
-                              request_id: str = None, 
-                              client_id: str = None, 
+    async def send_client_log(self,
+                              level: str,
+                              data: Any,
+                              logger_name: str = None,
+                              request_id: str = None,
+                              client_id: str = None,
                               seq_num: Optional[int] = None,
                               entry_point_name: Optional[str] = None # <-- Add new param
                               ):
@@ -902,7 +902,7 @@ class DynamicAdditionServer(Server):
                 "requestId": request_id,
                 "entryPoint": entry_point_name or "unknown_entry_point" # The original entry point
             }
-            
+
             # Add seqNum if provided
             if seq_num is not None:
                 params["seqNum"] = seq_num

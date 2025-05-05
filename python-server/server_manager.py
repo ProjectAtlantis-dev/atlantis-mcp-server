@@ -477,10 +477,20 @@ async def _run_mcp_client_session(name: str, params: StdioServerParameters, shut
         logger.info(f"MCP server task for '{name}' finished.")
         if name in ACTIVE_SERVER_TASKS:
             ACTIVE_SERVER_TASKS[name]['session'] = None # Ensure session is cleared on any exit
-            ACTIVE_SERVER_TASKS[name]['task'].cancel() # Attempt to cancel if somehow still running
-            # Optionally remove the entry entirely or mark as stopped
-            # del ACTIVE_SERVER_TASKS[name]
-            logger.debug(f"▶️ Cleaned up session/task entry for '{name}' in finally block.")
+            # It attempts to cancel the task again, though it might already be done/cancelled
+            try: # Add try-except for cancellation
+                if not ACTIVE_SERVER_TASKS[name]['task'].done():
+                    ACTIVE_SERVER_TASKS[name]['task'].cancel() 
+            except Exception as e: # Catch potential errors if task is invalid
+                 logger.warning(f"⚠️ Error attempting final task cancel for '{name}': {e}")
+            
+            # Remove the entire entry for the server task
+            del ACTIVE_SERVER_TASKS[name] # <--- Removes the task entry
+            logger.debug(f"▶️ Cleaned up ACTIVE_SERVER_TASKS entry for '{name}' in finally block.")
+
+            # --- Remove the start time as well --- 
+            SERVER_START_TIMES.pop(name, None)
+            logger.debug(f"▶️ Cleaned up SERVER_START_TIMES entry for '{name}' in finally block.")
 
 
 # --- 4. Server Start/Stop Operations ---

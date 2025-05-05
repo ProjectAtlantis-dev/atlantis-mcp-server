@@ -39,6 +39,31 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from mcp.shared.exceptions import McpError # <--- ADD THIS IMPORT
 
+# --- Add dynamic_functions parent to sys.path for imports ---
+import sys
+import os
+
+try:
+    # Get the absolute path to the server.py file's directory
+    server_file_dir = os.path.dirname(os.path.abspath(__file__))
+    # Construct the absolute path to the dynamic_functions directory
+    dynamic_functions_abs_dir = os.path.abspath(os.path.join(server_file_dir, 'dynamic_functions'))
+    # Get the parent directory of dynamic_functions
+    parent_dir = os.path.dirname(dynamic_functions_abs_dir)
+
+    # Add the parent directory to sys.path if not already present
+    if parent_dir not in sys.path:
+        sys.path.insert(0, parent_dir)
+        # Use state.logger if available, otherwise print
+        try:
+            from state import logger
+            logger.info(f"✅ Added '{parent_dir}' to sys.path for dynamic function imports.")
+        except ImportError:
+            print(f"INFO: Added '{parent_dir}' to sys.path for dynamic function imports.")
+except Exception as e:
+    print(f"ERROR: Failed to add dynamic_functions parent directory to sys.path: {e}")
+# -------------------------------------------------------------
+
 # Import Uvicorn for running the server
 import uvicorn
 

@@ -598,8 +598,7 @@ async def server_start(args: Dict[str, Any], server) -> List[TextContent]:
 
     logger.info(f"MCP server '{name}' started")
 
-    SERVER_START_TIMES[name] = datetime.datetime.now() # Record start time
-    logger.debug(f"▶️ server_start: Task and start time recorded for '{name}'.") # DEBUG ADDED
+    logger.debug(f"▶️ server_start: Task info recorded for '{name}'. Start time will be added upon session init.") # DEBUG ADDED
 
 
     # Return success - PID is not available synchronously here

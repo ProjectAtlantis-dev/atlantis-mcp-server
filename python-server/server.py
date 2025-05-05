@@ -97,8 +97,8 @@ import utils
 # Import server manager functions
 from server_manager import (
     server_list, server_get, server_add, server_remove, server_set,
-    server_validate, server_start, server_stop, ACTIVE_SERVER_TASKS,
-    SERVER_START_TIMES, get_server_tools, # <<< Added get_server_tools
+    server_validate, server_start, server_stop, ACTIVE_SERVER_TASKS, # Import active server tasks
+    get_server_tools, # <<< Added get_server_tools
     _server_load_errors # Import the server load error cache
 )
 
@@ -706,6 +706,9 @@ class DynamicAdditionServer(Server):
             logger.error(f"❌ Error scanning for dynamic functions: {str(e)}")
             # Continue with just the built-in tools
 
+        # --- DEBUG: Log current ACTIVE_SERVER_TASKS state before processing servers ---
+        logger.debug(f"🔧 _get_tools_list: Current ACTIVE_SERVER_TASKS state: {ACTIVE_SERVER_TASKS!r}")
+
         # Scan dynamic servers
         servers_found = []
         self._server_configs = {} # Reset server configs
@@ -757,11 +760,15 @@ class DynamicAdditionServer(Server):
                         logger.warning(f"⚠️ Could not get mtime for server '{server_name}': {me}")
 
                     if status == "running":
-                        start_time = SERVER_START_TIMES.get(server_name)
-                        if start_time:
-                            annotations["lastStarted"] = start_time.isoformat()
+                        # -- Correctly get started_at from ACTIVE_SERVER_TASKS --
+                        task_info = ACTIVE_SERVER_TASKS.get(server_name)
+                        start_time = task_info.get('started_at') if task_info else None
+                        #start_time = SERVER_START_TIMES.get(server_name) # <-- OLD WAY
+                        if start_time and isinstance(start_time, datetime.datetime):
+                            # Use 'started_at' as the key in annotations
+                            annotations["started_at"] = start_time.isoformat() # <-- FIXED KEY & SOURCE
                         else:
-                            logger.warning(f"⚠️ Server '{server_name}' is running but no start time found.")
+                            logger.warning(f"⚠️ Server '{server_name}' is running but 'started_at' time not found or invalid in ACTIVE_SERVER_TASKS.")
 
                     if server_name in _server_load_errors:
                         annotations["loadError"] = _server_load_errors[server_name]

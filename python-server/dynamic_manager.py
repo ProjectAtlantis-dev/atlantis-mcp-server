@@ -25,6 +25,7 @@ import datetime
 from typing import Any, Callable, Dict, List, Optional, Union
 from werkzeug.utils import secure_filename
 from mcp.types import Tool, TextContent, CallToolResult, ToolListChangedNotification, NotificationParams, Annotations
+import sys # <<< ADDED IMPORT SYS HERE >>>
 
 # Import shared state
 from state import logger, FUNCTIONS_DIR
@@ -640,6 +641,8 @@ import atlantis
 async def function_call(name: str, client_id: str, request_id: str, **kwargs) -> Any:
     '''
     Loads and executes a dynamic function by its name, passing kwargs.
+    Ensures the latest version of the function file AND its dynamic dependencies are used
+    by clearing the relevant module cache before loading.
     Returns the function's return value.
     Raises exceptions if the function doesn't exist, fails to load, or errors during execution.
     '''
@@ -657,11 +660,25 @@ async def function_call(name: str, client_id: str, request_id: str, **kwargs) ->
         _runtime_errors.pop(name, None)
 
         module_name = f"dynamic_functions.{secure_name}"
+
+        # --- Clear ALL dynamic function modules from cache --- 
+        prefix_to_clear = "dynamic_functions."
+        modules_to_remove = [mod for mod in sys.modules if mod.startswith(prefix_to_clear)]
+        if modules_to_remove:
+            logger.debug(f"Removing dynamic function modules from cache: {modules_to_remove}")
+            for mod_name in modules_to_remove:
+                del sys.modules[mod_name]
+        # --- End Cache Clear --- 
+
+        # Now load the requested module - it's guaranteed to be fresh
         spec = importlib.util.spec_from_file_location(module_name, file_path)
         if spec is None or spec.loader is None:
             raise ImportError(f"Could not create module spec for {secure_name}")
 
+        logger.debug(f"Loading fresh module: {module_name}")
         module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module # Add to sys.modules *before* exec
+        spec.loader.exec_module(module) # Execute module code 
 
         bound_client_log = functools.partial(utils.client_log, request_id=request_id, client_id_for_routing=client_id)
         logger.debug(f"Prepared bound_client_log for context. Request ID: {request_id}, Client ID: {client_id}")
@@ -674,23 +691,22 @@ async def function_call(name: str, client_id: str, request_id: str, **kwargs) ->
             entry_point_name=secure_name # Pass the entry point name
         )
 
-        spec.loader.exec_module(module)
-        logger.info(f"Dynamically loaded module for function '{secure_name}'.")
+        # We no longer call exec_module here if reload was used, as reload handles execution.
+        # spec.loader.exec_module(module) 
+        logger.info(f"Module '{secure_name}' ready.")
 
-        # Assume the function name inside the file matches the filename
-        func_to_call = getattr(module, secure_name, None)
-
-        if not callable(func_to_call):
+        function_to_call = getattr(module, secure_name, None)
+        if not callable(function_to_call):
             # Maybe try to find *any* function if name doesn't match?
             # For now, strictly enforce matching name.
             raise AttributeError(f"Function '{secure_name}' not found or not callable within its module.")
 
         logger.info(f"Calling dynamic function '{secure_name}' with args: {kwargs}")
         # Check if the function is async and await it if necessary
-        if inspect.iscoroutinefunction(func_to_call):
-            result = await func_to_call(**kwargs['args'])
+        if inspect.iscoroutinefunction(function_to_call):
+            result = await function_to_call(**kwargs['args'])
         else:
-            result = func_to_call(**kwargs['args']) # Call the function normally
+            result = function_to_call(**kwargs['args']) # Call the function normally
 
         logger.info(f"Dynamic function '{secure_name}' executed successfully.")
         return result

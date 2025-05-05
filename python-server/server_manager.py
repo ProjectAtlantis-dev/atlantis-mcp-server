@@ -447,6 +447,7 @@ async def _run_mcp_client_session(name: str, params: StdioServerParameters, shut
                     # Store the *active and initialized* session object
                     if name in ACTIVE_SERVER_TASKS:
                         ACTIVE_SERVER_TASKS[name]['session'] = session
+                        ACTIVE_SERVER_TASKS[name]['started_at'] = datetime.datetime.now(datetime.timezone.utc) # Record start time
                         ready_event = ACTIVE_SERVER_TASKS[name]['ready_event']
                         ready_event.set() # Signal that the session is ready!
                         logger.debug(f"▶️ _run_mcp_client_session: Initialized session stored for '{name}'.")

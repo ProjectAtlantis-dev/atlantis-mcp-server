@@ -2,6 +2,7 @@
 import asyncio
 import argparse
 import logging
+import json
 from mcp.client.session import ClientSession
 from mcp.client.websocket import websocket_client
 from mcp.types import TextContent, CallToolResult
@@ -40,7 +41,7 @@ async def test_mcp_add(server_url: str):
                 for tool in tools_result.tools:
                     # Access type from annotations dictionary via __pydantic_extra__
                     tool_type = tool.__pydantic_extra__.get('annotations', {}).get('type', 'internal') # Default to internal if missing
-                    logger.info(f"   🔧 [{tool_type}] {tool.name}: {tool.description}") 
+                    logger.info(f"   🔧 [{tool_type}] {tool.name}: {tool.description}")
 
                 # --- Test dynamic function registration --- START ---
                 # Step 1: Add the empty 'greet' function stub
@@ -75,7 +76,7 @@ def greet(name: str, times: int = 1) -> str:
                 except Exception as e:
                     logger.error(f"❌ FAILED TO SET 'greet' FUNCTION: {str(e)}")
 
-                # --- ADDED: Define and Register 'foo' function --- 
+                # --- ADDED: Define and Register 'foo' function ---
                 # Step 1: Add the empty 'foo' function stub
                 logger.info("🔧 ADDING 'foo' FUNCTION STUB VIA _function_add")
                 add_foo_args = {"name": "foo"}
@@ -231,6 +232,110 @@ def bar(x: int, y: int) -> int:
                     logger.error(f"❌ FAILED TO REMOVE 'bar' FUNCTION: {str(e)}")
                 # --- END REMOVE 'bar' function ---
 
+                # --- Test dynamic server management --- START ---
+                server_name = "test_sleep_server"
+                server_config = {
+                    "mcpServers": {
+                        server_name: {
+                            "command": "sleep",
+                            "args": ["60"] # Sleep for 60 seconds
+                        }
+                    }
+                }
+                logger.info(f"🧪 TESTING SERVER MANAGEMENT FOR: {server_name}")
+
+                try:
+                    # Step 1: Add the server config
+                    logger.info(f"🔧 ADDING SERVER CONFIG: {server_name}")
+                    add_server_args = {"name": server_name, "config": server_config}
+                    try:
+                        add_server_result = await session.call_tool("_server_add", add_server_args)
+                        for item in add_server_result.content:
+                            if isinstance(item, TextContent):
+                                logger.info(f"✅ ADD SERVER RESULT: {item.text}")
+                                # Basic check - more robust tests could assert content
+                                assert "added" in item.text.lower() or "updated" in item.text.lower()
+                    except Exception as e:
+                        logger.error(f"❌ FAILED TO ADD SERVER '{server_name}': {str(e)}")
+                        raise # Re-raise to indicate test failure in this block
+
+                    # Step 2: Start the server
+                    logger.info(f"🚀 STARTING SERVER: {server_name}")
+                    start_server_args = {"name": server_name}
+                    try:
+                        start_server_result = await session.call_tool("_server_start", start_server_args)
+                        logger.info(f"✅ START SERVER RESULT: {start_server_result}")
+                        assert isinstance(start_server_result, CallToolResult)
+                        # Optional: Add list_tools check here for runningStatus/started_at
+                        logger.info("⏳ Waiting 3 seconds for server state to propagate...")
+                        await asyncio.sleep(3) # <<< INCREASED SLEEP DURATION
+
+                        # ---> Verify server status in tool list after start <--- #
+                        logger.info(f"🔍 VERIFYING TOOL LIST STATUS for {server_name} after START")
+                        # --- MODIFIED: Call _server_get_status instead of list_tools ---
+                        status_result_start = await session.call_tool('_server_get_status', {'name': server_name})
+                        logger.info(f"✅ SERVER STATUS RESULT (After Start): {status_result_start}")
+                        assert isinstance(status_result_start, CallToolResult)
+                        assert status_result_start is not None and len(status_result_start) > 0
+                        status_data_start = json.loads(status_result_start[0].text)
+                        logger.info(f"📊 GOT SERVER STATUS (after start): {status_data_start}")
+
+                        assert status_data_start.get('runningStatus') == 'running', f"Server '{server_name}' not 'running' after start"
+                        assert status_data_start.get('started_at') is not None, f"Server '{server_name}' started_at is None after start"
+                        logger.info(f"✅ Server '{server_name}' has runningStatus='running' and started_at is set.")
+                        # -------------------------------------------------------------------
+
+                        # --------------------
+                        # --- STOP SERVER --- #
+                    except Exception as e:
+                        logger.error(f"❌ FAILED TO START SERVER '{server_name}': {str(e)}")
+                        raise
+
+                    # Step 3: Stop the server
+                    logger.info(f"🛑 STOPPING SERVER: {server_name}")
+                    stop_server_args = {"name": server_name}
+                    try:
+                        stop_server_result = await session.call_tool("_server_stop", stop_server_args)
+                        logger.info(f"✅ STOP SERVER RESULT: {stop_server_result}")
+                        assert isinstance(stop_server_result, CallToolResult)
+                        # Optional: Add list_tools check here for runningStatus/started_at
+                        await asyncio.sleep(1) # Give it a moment to register stopped state
+
+                        # ---> Verify server status in tool list after stop <--- #
+                        logger.info(f"🔍 VERIFYING TOOL LIST STATUS for {server_name} after STOP")
+                        # --- MODIFIED: Call _server_get_status instead of list_tools ---
+                        status_result_stop = await session.call_tool('_server_get_status', {'name': server_name})
+                        logger.info(f"✅ SERVER STATUS RESULT (After Stop): {status_result_stop}")
+                        assert isinstance(status_result_stop, CallToolResult)
+                        assert status_result_stop is not None and len(status_result_stop) > 0
+                        status_data_stop = json.loads(status_result_stop[0].text)
+                        logger.info(f"📊 GOT SERVER STATUS (after stop): {status_data_stop}")
+
+                        assert status_data_stop.get('runningStatus') == 'stopped', f"Server '{server_name}' not 'stopped' after stop"
+                        assert status_data_stop.get('started_at') is None, f"Server '{server_name}' started_at is not None after stop"
+                        logger.info(f"✅ Server '{server_name}' has runningStatus='stopped' and started_at is None.")
+                        # -------------------------------------------------------------------
+
+                        # -----------------------
+                        # --- REMOVE SERVER --- #
+                    except Exception as e:
+                        logger.error(f"❌ FAILED TO STOP SERVER '{server_name}': {str(e)}")
+                        raise
+                finally:
+                    # Step 4: Clean up - Remove the server config
+                    logger.info(f"🗑️ REMOVING SERVER CONFIG (Cleanup): {server_name}")
+                    remove_server_args = {"name": server_name}
+                    try:
+                        remove_server_result = await session.call_tool("_server_remove", remove_server_args)
+                        logger.info(f"✅ REMOVE SERVER RESULT: {remove_server_result}")
+                        assert isinstance(remove_server_result, CallToolResult)
+                    except Exception as e:
+                        # Log cleanup error but don't fail the test run if main part succeeded
+                        logger.error(f"⚠️ FAILED TO REMOVE SERVER '{server_name}' during cleanup: {str(e)}")
+
+                logger.info(f"✅ SERVER MANAGEMENT TEST COMPLETE FOR: {server_name}")
+                # --- Test dynamic server management --- END ---
+
                 # List tools one last time to confirm removal
                 logger.info("🔍 LISTING AVAILABLE TOOLS AFTER REMOVAL")
                 tools_result_after_remove = await session.list_tools()
@@ -253,7 +358,7 @@ if __name__ == "__main__":
     print("\n🐱 MCP WEBSOCKET TEST CLIENT 🐱")
     print("==============================")
     parser = argparse.ArgumentParser(description='MCP Test Client')
-    parser.add_argument('--port', type=int, default=8002, help='Port number of the MCP server to connect to.')
+    parser.add_argument('--port', type=int, default=8000, help='Port number of the MCP server to connect to.')
     args = parser.parse_args()
     server_url = f'ws://127.0.0.1:{args.port}'
     asyncio.run(test_mcp_add(server_url))

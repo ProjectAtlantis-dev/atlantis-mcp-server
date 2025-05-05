@@ -720,6 +720,7 @@ class DynamicAdditionServer(Server):
                 status = "running" if server_name in ACTIVE_SERVER_TASKS else "stopped" # Determine initial status
 
                 # --- AUTO-START LOGIC --- #
+                '''
                 if status == "stopped":
                     logger.info(f"⚙️ Server '{server_name}' is stopped. Attempting auto-start during tool list generation...")
                     try:
@@ -736,6 +737,7 @@ class DynamicAdditionServer(Server):
                         logger.error(f"❌ Failed to auto-start server '{server_name}' during tool list generation: {start_err}", exc_info=False) # Less noisy log
                         status = "stopped"
                 # --- END AUTO-START LOGIC --- #
+                '''
                 server_statuses[server_name] = status # Store final status
 
                 # Always try to get config and add server entry (even if stopped)

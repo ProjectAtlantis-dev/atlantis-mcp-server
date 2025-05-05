@@ -635,6 +635,7 @@ def function_validate(name: str) -> Dict[str, Any]:
         return {'valid': False, 'error': error_message, 'function_info': None}
 
 import inspect # Add import
+import atlantis_context
 
 async def function_call(name: str, client_id: str, request_id: str, **kwargs) -> Any:
     '''
@@ -651,27 +652,36 @@ async def function_call(name: str, client_id: str, request_id: str, **kwargs) ->
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"Dynamic function '{secure_name}' not found at {file_path}")
 
+    # --- Add variable for context tokens ---
+    context_tokens = None
     try:
         # Clear any previous runtime error before attempting execution
         _runtime_errors.pop(name, None)
 
         # Dynamically import the module
-        # The module name should be unique, using the file name is common
         module_name = f"dynamic_functions.{secure_name}"
         spec = importlib.util.spec_from_file_location(module_name, file_path)
         if spec is None or spec.loader is None:
             raise ImportError(f"Could not create module spec for {secure_name}")
 
         module = importlib.util.module_from_spec(spec)
-        # Add to sys.modules *before* execution to handle relative imports within the func
-        # sys.modules[module_name] = module # Be careful with namespace pollution if many functions
 
-        # Inject our utils module into the module's globals
-        # This makes client_log available to the dynamic function without explicit imports
+        # --- Prepare the context-specific client_log function --- 
         bound_client_log = functools.partial(utils.client_log, request_id=request_id, client_id_for_routing=client_id)
-        logger.debug(f"Bound client_log with request_id: {request_id}, client_id_for_routing: {client_id}")
-        module.__dict__['client_log'] = bound_client_log
+        logger.debug(f"Prepared bound_client_log for context. Request ID: {request_id}, Client ID: {client_id}")
+        
+        # --- REMOVE OLD INJECTION ---
+        # module.__dict__['client_log'] = bound_client_log
 
+        # --- SET CONTEXT before executing module code --- 
+        logger.debug("Setting context variables via atlantis_context")
+        context_tokens = atlantis_context.set_context(
+            client_log_func=bound_client_log, 
+            request_id=request_id, 
+            client_id=client_id
+        )
+
+        # --- Execute module code (imports, etc.) --- 
         spec.loader.exec_module(module)
         logger.info(f"Dynamically loaded module for function '{secure_name}'.")
 
@@ -694,13 +704,17 @@ async def function_call(name: str, client_id: str, request_id: str, **kwargs) ->
         return result
 
     except Exception as e:
-        error_message = f"❌ function_call: Error executing function '{name}': {traceback.format_exc()}"
+        error_message = f"❌ function_call: Error executing function '{name}': {traceback.format_exc()[:1000]}..." # Limit traceback length
         logger.error(error_message)
-        # Cache the runtime error string
         _runtime_errors[name] = str(e)
-        raise # Re-raise the exception so the caller knows it failed
+        raise
     finally:
-        pass
+        # --- RESET CONTEXT after execution (or error) ---
+        if context_tokens:
+            logger.debug("Resetting context variables via atlantis_context")
+            atlantis_context.reset_context(context_tokens)
+        else:
+            logger.debug("No context tokens found to reset.")
 
 async def function_set(args: Dict[str, Any], server: Any) -> Tuple[Optional[str], List[TextContent]]:
     """

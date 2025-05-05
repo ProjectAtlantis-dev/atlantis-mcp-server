@@ -430,69 +430,110 @@ def server_validate(name: str) -> Dict[str, Any]:
 
 # --- 3. Background Task Runner ---
 async def _run_mcp_client_session(name: str, params: StdioServerParameters, shutdown_event: asyncio.Event) -> None:
-    """Runs the MCP client session in the background using stdio_client."""
-    logger.info(f"Starting MCP server '{name}'")
+    """Runs the background MCP client session for a managed server."""
+    logger.info(f"[{name}] Starting MCP client session task...")
+    session = None # Define session here to ensure it's accessible in finally block if needed
     try:
-        # Use stdio_client as an async context manager
+        logger.debug(f"[{name}] Attempting stdio_client connection with params: {params}")
         async with stdio_client(params) as (reader, writer):
-            logger.debug(f"▶️ _run_mcp_client_session: stdio_client context entered for '{name}'. Creating ClientSession.")
-
-            # Use ClientSession as an async context manager AND initialize
+            logger.debug(f"[{name}] Stdio connection established. Attempting ClientSession...")
             async with ClientSession(reader, writer) as session:
-                logger.debug(f"▶️ _run_mcp_client_session: ClientSession context entered for '{name}'. Initializing session...")
+                logger.debug(f"[{name}] ClientSession context entered. Initializing session...")
                 try:
-                    await asyncio.wait_for(session.initialize(), timeout=10.0) # Add timeout to initialization
-                    logger.info(f"✅ Successfully initialized session with MCP server '{name}'.")
+                    await asyncio.wait_for(session.initialize(), timeout=15.0) # Increased timeout slightly
+                    logger.info(f"[{name}] MCP Session initialized successfully.")
 
-                    # Store the *active and initialized* session object
+                    # Update ACTIVE_SERVER_TASKS *after* successful initialization
                     if name in ACTIVE_SERVER_TASKS:
+                        logger.debug(f"[{name}] Updating ACTIVE_SERVER_TASKS with session and timestamp...")
                         ACTIVE_SERVER_TASKS[name]['session'] = session
-                        ACTIVE_SERVER_TASKS[name]['started_at'] = datetime.datetime.now(datetime.timezone.utc) # Record start time
-                        ready_event = ACTIVE_SERVER_TASKS[name]['ready_event']
-                        ready_event.set() # Signal that the session is ready!
-                        logger.debug(f"▶️ _run_mcp_client_session: Initialized session stored for '{name}'.")
-                    else:
-                         logger.warning(f"❓ Task entry for '{name}' disappeared before session could be stored.")
-                         return # Exit if task entry is gone
+                        ACTIVE_SERVER_TASKS[name]['started_at'] = datetime.datetime.now(datetime.timezone.utc)
+                        ACTIVE_SERVER_TASKS[name]['status'] = 'running' # Mark as running
+                        logger.info(f"[{name}] ACTIVE_SERVER_TASKS updated. Current state for '{name}': {{'status': '{ACTIVE_SERVER_TASKS[name].get('status')}', 'started_at': '{ACTIVE_SERVER_TASKS[name].get('started_at')}', 'session_present': {ACTIVE_SERVER_TASKS[name].get('session') is not None}}})")
 
-                    # Keep the task alive by waiting for the shutdown event
-                    logger.debug(f"▶️ _run_mcp_client_session: Entering wait loop for shutdown event for '{name}'.")
-                    await shutdown_event.wait() # Wait until signaled to shut down
-                    logger.info(f"🛑 Shutdown event received for '{name}'. Exiting session context.")
+                        # Signal readiness *after* updating state
+                        if 'ready_event' in ACTIVE_SERVER_TASKS[name]:
+                            ACTIVE_SERVER_TASKS[name]['ready_event'].set()
+                            logger.debug(f"[{name}] Ready event set.")
+                        else:
+                             logger.warning(f"[{name}] 'ready_event' not found in ACTIVE_SERVER_TASKS entry.")
+
+                    else:
+                        logger.error(f"[{name}] Entry mysteriously disappeared from ACTIVE_SERVER_TASKS before session could be stored!")
+                        # If the entry is gone, we probably can't signal readiness either. Shutdown might be needed.
+                        return # Exit if the task entry is gone
 
                 except asyncio.TimeoutError:
-                     logger.error(f"❌ Timeout initializing session with '{name}' after 10s.")
-                     # Ensure session is marked as None or invalid if init fails
-                     if name in ACTIVE_SERVER_TASKS:
-                         ACTIVE_SERVER_TASKS[name]['session'] = None
-                except Exception as init_err:
-                     logger.error(f"❌ Error initializing session with '{name}': {init_err}")
-                     if name in ACTIVE_SERVER_TASKS:
-                         ACTIVE_SERVER_TASKS[name]['session'] = None
+                    logger.error(f"[{name}] Timeout occurred during session.initialize().")
+                    if name in ACTIVE_SERVER_TASKS:
+                        ACTIVE_SERVER_TASKS[name]['status'] = 'init_timeout'
+                        if 'ready_event' in ACTIVE_SERVER_TASKS[name]:
+                           ACTIVE_SERVER_TASKS[name]['ready_event'].set() # Signal completion (failure)
+                    return # Exit if init fails
+                except McpError as e:
+                    logger.error(f"[{name}] McpError during session.initialize(): {e}")
+                    if name in ACTIVE_SERVER_TASKS:
+                        ACTIVE_SERVER_TASKS[name]['status'] = 'init_mcperror'
+                        if 'ready_event' in ACTIVE_SERVER_TASKS[name]:
+                           ACTIVE_SERVER_TASKS[name]['ready_event'].set() # Signal completion (failure)
+                    return # Exit if init fails
+                except Exception as e:
+                    logger.error(f"[{name}] Unexpected error during session.initialize(): {e}", exc_info=True)
+                    if name in ACTIVE_SERVER_TASKS:
+                        ACTIVE_SERVER_TASKS[name]['status'] = 'init_failed'
+                        if 'ready_event' in ACTIVE_SERVER_TASKS[name]:
+                           ACTIVE_SERVER_TASKS[name]['ready_event'].set() # Signal completion (failure)
+                    return # Exit if init fails
 
-            logger.debug(f"▶️ _run_mcp_client_session: Exited ClientSession context for '{name}'.")
+                # --- Session is initialized and running ---
+                logger.debug(f"[{name}] Session active. Waiting for shutdown signal...") # Simplified log
 
-    except asyncio.CancelledError:
-        logger.info(f"🛑 MCP client session task for '{name}' was cancelled.")
-    finally:
-        logger.info(f"MCP server task for '{name}' finished.")
+                # Wait ONLY for the external shutdown signal.
+                # Connection loss will cause the context managers to exit and trigger error handling.
+                await shutdown_event.wait()
+                logger.info(f"[{name}] Shutdown event received. Exiting session context.")
+
+                # No need to explicitly wait for session close or cancel tasks related to it.
+                # The context managers handle cleanup on exit.
+
+            # Exited ClientSession context manager
+            logger.debug(f"[{name}] ClientSession context exited.")
+            session = None # Ensure session object is cleared after context exit
+
+    except ConnectionRefusedError:
+        logger.error(f"[{name}] Connection refused when starting stdio client process.")
         if name in ACTIVE_SERVER_TASKS:
-            ACTIVE_SERVER_TASKS[name]['session'] = None # Ensure session is cleared on any exit
-            # It attempts to cancel the task again, though it might already be done/cancelled
-            try: # Add try-except for cancellation
-                if not ACTIVE_SERVER_TASKS[name]['task'].done():
-                    ACTIVE_SERVER_TASKS[name]['task'].cancel() 
-            except Exception as e: # Catch potential errors if task is invalid
-                 logger.warning(f"⚠️ Error attempting final task cancel for '{name}': {e}")
-            
-            # Remove the entire entry for the server task
-            del ACTIVE_SERVER_TASKS[name] # <--- Removes the task entry
-            logger.debug(f"▶️ Cleaned up ACTIVE_SERVER_TASKS entry for '{name}' in finally block.")
-
-            # --- Remove the start time as well --- 
-            SERVER_START_TIMES.pop(name, None)
-            logger.debug(f"▶️ Cleaned up SERVER_START_TIMES entry for '{name}' in finally block.")
-
+            ACTIVE_SERVER_TASKS[name]['status'] = 'conn_refused'
+            if 'ready_event' in ACTIVE_SERVER_TASKS[name]:
+               ACTIVE_SERVER_TASKS[name]['ready_event'].set() # Signal completion (failure)
+    except FileNotFoundError:
+         logger.error(f"[{name}] Command not found for stdio client: {params.command}")
+         if name in ACTIVE_SERVER_TASKS:
+            ACTIVE_SERVER_TASKS[name]['status'] = 'cmd_not_found'
+            if 'ready_event' in ACTIVE_SERVER_TASKS[name]:
+               ACTIVE_SERVER_TASKS[name]['ready_event'].set() # Signal completion (failure)
+    except Exception as e:
+        logger.error(f"[{name}] Unexpected error in MCP client session task: {e}", exc_info=True)
+        if name in ACTIVE_SERVER_TASKS:
+            ACTIVE_SERVER_TASKS[name]['status'] = 'task_error'
+            if 'ready_event' in ACTIVE_SERVER_TASKS[name]:
+               ACTIVE_SERVER_TASKS[name]['ready_event'].set() # Signal completion (failure)
+    finally:
+        logger.info(f"[{name}] MCP client session task finishing.")
+        # Clean up the task entry state
+        if name in ACTIVE_SERVER_TASKS:
+            ACTIVE_SERVER_TASKS[name]['session'] = None # Ensure session object reference is removed
+            if 'status' not in ACTIVE_SERVER_TASKS[name] or ACTIVE_SERVER_TASKS[name]['status'] == 'running':
+                # If it was running and finishes cleanly (or unexpectedly without specific error status set)
+                ACTIVE_SERVER_TASKS[name]['status'] = 'stopped'
+            logger.debug(f"[{name}] Final status in ACTIVE_SERVER_TASKS: {ACTIVE_SERVER_TASKS[name].get('status')}")
+            # Do NOT remove the entire entry, server_stop should do that.
+            # Ensure ready_event is set if it hasn't been, in case of early exit before signalling.
+            if 'ready_event' in ACTIVE_SERVER_TASKS[name] and not ACTIVE_SERVER_TASKS[name]['ready_event'].is_set():
+                logger.warning(f"[{name}] Task finishing but ready_event was not set. Setting it now.")
+                ACTIVE_SERVER_TASKS[name]['ready_event'].set()
+        else:
+             logger.warning(f"[{name}] Task entry was removed from ACTIVE_SERVER_TASKS before task finished.")
 
 # --- 4. Server Start/Stop Operations ---
 async def server_start(args: Dict[str, Any], server) -> List[TextContent]:

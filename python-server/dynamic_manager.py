@@ -26,6 +26,8 @@ from typing import Any, Callable, Dict, List, Optional, Union
 from werkzeug.utils import secure_filename
 from mcp.types import Tool, TextContent, CallToolResult, ToolListChangedNotification, NotificationParams, Annotations
 import sys # <<< ADDED IMPORT SYS HERE >>>
+import asyncio # Import asyncio for Lock
+from typing import Dict, Any, Optional # Added Optional
 
 # Import shared state
 from state import logger, FUNCTIONS_DIR
@@ -40,7 +42,31 @@ from state import FUNCTIONS_DIR, logger # Assuming logger and FUNCTIONS_DIR are 
 # Runtime error cache (stores last known runtime error string for a function)
 _runtime_errors: Dict[str, str] = {}
 
-# --- 1. File Save/Load ---
+# Cache for validated function info (avoids repeated file reads/parsing)
+_dynamic_functions_cache: Dict[str, Dict[str, Any]] = {}
+
+# --- Module Reloading State --- 
+# Lock to protect access to sys.modules during dynamic function loading
+_dynamic_load_lock = asyncio.Lock()
+# --- End Module Reloading State --- 
+
+# Define the parent package name
+PARENT_PACKAGE_NAME = "dynamic_functions"
+
+async def invalidate_all_dynamic_module_cache():
+    """Safely removes ALL dynamic function modules from sys.modules cache."""
+    prefix_to_clear = f"{PARENT_PACKAGE_NAME}."
+    async with _dynamic_load_lock:
+        modules_to_remove = [
+            mod for mod in sys.modules 
+            if mod.startswith(prefix_to_clear)
+        ]
+        if modules_to_remove:
+            logger.info(f"Invalidating all dynamic modules from cache: {modules_to_remove}")
+            for mod_name in modules_to_remove:
+                # Use pop with default None to avoid KeyError if concurrently removed
+                sys.modules.pop(mod_name, None) 
+
 
 # Ensure FUNCTIONS_DIR exists at startup (or wherever appropriate)
 os.makedirs(FUNCTIONS_DIR, exist_ok=True)
@@ -590,6 +616,132 @@ def _write_error_log(name: str, error_message: str) -> None:
         # Don't let logging errors disrupt the main flow
         logger.error(f"Failed to write error log for '{name}': {e}")
 
+async def function_call(name: str, client_id: str, request_id: str, **kwargs) -> Any:
+    '''
+    Loads and executes a dynamic function by its name, passing kwargs.
+    Flushes ALL dynamic function caches before loading to ensure freshness, protected by a lock.
+    Ensures parent package exists in sys.modules.
+    Returns the function's return value.
+    Raises exceptions if the function doesn't exist, fails to load, or errors during execution.
+    '''
+    secure_name = utils.clean_filename(name)
+    if not secure_name:
+        raise ValueError(f"Invalid function name '{name}' for calling.")
+
+    file_path = os.path.join(FUNCTIONS_DIR, f"{secure_name}.py")
+
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Dynamic function '{secure_name}' not found at {file_path}")
+
+    context_tokens = None
+    module_name = f"{PARENT_PACKAGE_NAME}.{secure_name}"
+    module = None # Define module outside the lock
+
+    # --- Clear ALL dynamic function child modules from cache FIRST --- 
+    # This acquires the lock internally, clears, and releases.
+    await invalidate_all_dynamic_module_cache()
+    # --- End Cache Clear --- 
+
+    # --- Acquire lock *only* for parent check and specific module loading --- 
+    async with _dynamic_load_lock:
+        try:
+            # --- Ensure Parent Package Exists in sys.modules --- 
+            if PARENT_PACKAGE_NAME not in sys.modules:
+                logger.info(f"Creating namespace package entry for '{PARENT_PACKAGE_NAME}' in sys.modules")
+                parent_module = importlib.util.module_from_spec(
+                    importlib.util.spec_from_loader(PARENT_PACKAGE_NAME, loader=None, is_package=True)
+                )
+                parent_module.__path__ = [FUNCTIONS_DIR]
+                sys.modules[PARENT_PACKAGE_NAME] = parent_module
+            # --- End Parent Package Check ---
+
+            # Clear any previous runtime error for this function before attempting load
+            _runtime_errors.pop(name, None) 
+
+            # --- Load the requested module fresh --- 
+            # Check sys.modules again *inside the lock* in case the watcher re-added it
+            # between the invalidate call above and acquiring this lock.
+            # Although invalidate_all should have removed it, this is belt-and-suspenders.
+            if module_name in sys.modules:
+                logger.warning(f"Module {module_name} unexpectedly found in cache before load, removing again.")
+                del sys.modules[module_name]
+
+            logger.info(f"Loading module fresh: {module_name}")
+            spec = importlib.util.spec_from_file_location(module_name, file_path)
+            if spec is None or spec.loader is None:
+                raise ImportError(f"Could not create module spec for {secure_name}")
+            try:
+                module = importlib.util.module_from_spec(spec)
+                sys.modules[module_name] = module # Add to sys.modules before exec
+                spec.loader.exec_module(module)
+            except Exception as load_err:
+                if module_name in sys.modules:
+                     del sys.modules[module_name]
+                error_message = f"Error loading module '{module_name}': {load_err}"
+                logger.error(error_message)
+                logger.debug(traceback.format_exc())
+                _runtime_errors[name] = str(load_err)
+                raise ImportError(error_message) from load_err
+            # --- End Load --- 
+
+        except Exception as lock_section_err:
+            logger.error(f"Unexpected error during locked module handling for {name}: {lock_section_err}")
+            logger.debug(traceback.format_exc())
+            _runtime_errors[name] = str(lock_section_err)
+            raise
+
+    # --- Lock is released here --- 
+
+    # Check if module was loaded successfully inside the lock
+    if module is None:
+        # This indicates a failure during load that should have raised earlier
+        raise RuntimeError(f"Module '{module_name}' failed to load successfully.")
+
+    try:
+        # --- Context Setting --- 
+        bound_client_log = functools.partial(utils.client_log, request_id=request_id, client_id_for_routing=client_id)
+        logger.debug(f"Prepared bound_client_log for context. Request ID: {request_id}, Client ID: {client_id}")
+        logger.debug("Setting context variables via atlantis")
+        context_tokens = atlantis.set_context(
+            client_log_func=bound_client_log,
+            request_id=request_id,
+            client_id=client_id,
+            entry_point_name=secure_name # Pass the entry point name
+        )
+
+        # --- Function Execution --- 
+        logger.info(f"Attempting to get function '{secure_name}' from loaded module.")
+        function_to_call = getattr(module, secure_name, None)
+        if not callable(function_to_call):
+            raise AttributeError(f"Function '{secure_name}' not found or not callable within its module.")
+
+        logger.info(f"Calling dynamic function '{secure_name}' with args: {kwargs}")
+        if inspect.iscoroutinefunction(function_to_call):
+            result = await function_to_call(**kwargs['args'])
+        else:
+            result = function_to_call(**kwargs['args'])
+
+        logger.info(f"Dynamic function '{secure_name}' executed successfully.")
+        return result
+
+    except Exception as exec_err:
+        error_message = f"Error executing dynamic function '{name}': {str(exec_err)}"
+        logger.error(error_message)
+        logger.debug(traceback.format_exc())
+        _runtime_errors[name] = str(exec_err)
+        raise
+
+    finally:
+        # --- RESET CONTEXT --- 
+        if context_tokens:
+            logger.debug("Resetting context variables via atlantis")
+            atlantis.reset_context(context_tokens)
+        else:
+            logger.debug("No context tokens found to reset.")
+
+
+# --- Function Management Functions --- #
+
 def function_validate(name: str) -> Dict[str, Any]:
     '''
     Validates the syntax of a function file without executing it.
@@ -637,92 +789,6 @@ def function_validate(name: str) -> Dict[str, Any]:
 
 import inspect # Add import
 import atlantis
-
-async def function_call(name: str, client_id: str, request_id: str, **kwargs) -> Any:
-    '''
-    Loads and executes a dynamic function by its name, passing kwargs.
-    Ensures the latest version of the function file AND its dynamic dependencies are used
-    by clearing the relevant module cache before loading.
-    Returns the function's return value.
-    Raises exceptions if the function doesn't exist, fails to load, or errors during execution.
-    '''
-    secure_name = utils.clean_filename(name)
-    if not secure_name:
-        raise ValueError(f"Invalid function name '{name}' for calling.")
-
-    file_path = os.path.join(FUNCTIONS_DIR, f"{secure_name}.py")
-
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Dynamic function '{secure_name}' not found at {file_path}")
-
-    context_tokens = None
-    try:
-        _runtime_errors.pop(name, None)
-
-        module_name = f"dynamic_functions.{secure_name}"
-
-        # --- Clear ALL dynamic function modules from cache --- 
-        prefix_to_clear = "dynamic_functions."
-        modules_to_remove = [mod for mod in sys.modules if mod.startswith(prefix_to_clear)]
-        if modules_to_remove:
-            logger.debug(f"Removing dynamic function modules from cache: {modules_to_remove}")
-            for mod_name in modules_to_remove:
-                del sys.modules[mod_name]
-        # --- End Cache Clear --- 
-
-        # Now load the requested module - it's guaranteed to be fresh
-        spec = importlib.util.spec_from_file_location(module_name, file_path)
-        if spec is None or spec.loader is None:
-            raise ImportError(f"Could not create module spec for {secure_name}")
-
-        logger.debug(f"Loading fresh module: {module_name}")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = module # Add to sys.modules *before* exec
-        spec.loader.exec_module(module) # Execute module code 
-
-        bound_client_log = functools.partial(utils.client_log, request_id=request_id, client_id_for_routing=client_id)
-        logger.debug(f"Prepared bound_client_log for context. Request ID: {request_id}, Client ID: {client_id}")
-
-        logger.debug("Setting context variables via atlantis")
-        context_tokens = atlantis.set_context(
-            client_log_func=bound_client_log,
-            request_id=request_id,
-            client_id=client_id,
-            entry_point_name=secure_name # Pass the entry point name
-        )
-
-        # We no longer call exec_module here if reload was used, as reload handles execution.
-        # spec.loader.exec_module(module) 
-        logger.info(f"Module '{secure_name}' ready.")
-
-        function_to_call = getattr(module, secure_name, None)
-        if not callable(function_to_call):
-            # Maybe try to find *any* function if name doesn't match?
-            # For now, strictly enforce matching name.
-            raise AttributeError(f"Function '{secure_name}' not found or not callable within its module.")
-
-        logger.info(f"Calling dynamic function '{secure_name}' with args: {kwargs}")
-        # Check if the function is async and await it if necessary
-        if inspect.iscoroutinefunction(function_to_call):
-            result = await function_to_call(**kwargs['args'])
-        else:
-            result = function_to_call(**kwargs['args']) # Call the function normally
-
-        logger.info(f"Dynamic function '{secure_name}' executed successfully.")
-        return result
-
-    except Exception as e:
-        error_message = f"❌ function_call: Error executing function '{name}': {traceback.format_exc()[:1000]}..." # Limit traceback length
-        logger.error(error_message)
-        _runtime_errors[name] = str(e)
-        raise
-    finally:
-        # --- RESET CONTEXT after execution (or error) ---
-        if context_tokens:
-            logger.debug("Resetting context variables via atlantis")
-            atlantis.reset_context(context_tokens)
-        else:
-            logger.debug("No context tokens found to reset.")
 
 async def function_set(args: Dict[str, Any], server: Any) -> Tuple[Optional[str], List[TextContent]]:
     """

@@ -87,7 +87,8 @@ from dynamic_manager import (
     function_validate,
     function_call,
     _runtime_errors, # Import the runtime error cache
-    _fs_load_code
+    _fs_load_code,
+    invalidate_all_dynamic_module_cache # <--- ADD THIS IMPORT
 )
 
 # Import our utility module for dynamic functions
@@ -156,6 +157,7 @@ class DynamicConfigEventHandler(FileSystemEventHandler):
         self.loop = loop
         self._debounce_timer = None
         self._debounce_interval = 1.0 # seconds
+        self._last_triggered_path = None # Store path for _do_reload
 
     def _trigger_reload(self, event_path):
         # Check if the change is relevant (Python file in functions dir or JSON file in servers dir)
@@ -169,19 +171,45 @@ class DynamicConfigEventHandler(FileSystemEventHandler):
         change_type = "function" if is_function_change else "server configuration"
         logger.info(f"🐍 Change detected in dynamic {change_type}: {os.path.basename(event_path)}. Debouncing...")
 
+        # Store the path that triggered this potential reload
+        self._last_triggered_path = event_path 
+
         # Debounce: Cancel existing timer if a new event comes quickly
         if self._debounce_timer:
             self._debounce_timer.cancel()
 
         # Schedule the actual reload after a short delay
-        self._debounce_timer = threading.Timer(self._debounce_interval, self._do_reload)
+        # Pass the event path to the target function
+        self._debounce_timer = threading.Timer(self._debounce_interval, self._do_reload, args=[event_path]) 
         self._debounce_timer.start()
 
-    def _do_reload(self):
-        logger.info(f"⏰ Debounce finished. Reloading dynamic functions tool list.")
+    def _do_reload(self, event_path: Optional[str] = None):
+        # Use the path passed from the timer, or the last stored one as fallback
+        path_to_process = event_path or self._last_triggered_path
+        if not path_to_process:
+            logger.warning("⚠️ _do_reload called without a valid event path.")
+            return
+            
+        logger.info(f"⏰ Debounce finished for {os.path.basename(path_to_process)}. Processing file change.")
+        
         # Clear the cache - Must run in the main event loop
-        async def clear_cache_and_notify():
-            logger.info(f"🧹 Clearing tool cache on server due to file change.")
+        async def _process_file_change(file_path: str):
+            # --- Invalidate ALL Dynamic Function Runtime Caches --- 
+            # Check if the change was in the functions or servers directory
+            is_function_change = file_path.endswith(".py") and os.path.dirname(file_path) == FUNCTIONS_DIR
+            is_server_change = file_path.endswith(".json") and os.path.dirname(file_path) == SERVERS_DIR
+
+            if is_function_change:
+                logger.info(f"⚡ File watcher triggering flush of all dynamic function runtime caches due to change in {os.path.basename(file_path)}.")
+                try:
+                    await invalidate_all_dynamic_module_cache()
+                except Exception as e:
+                    logger.error(f"❌ Error invalidating all dynamic modules cache from file watcher: {e}")
+            # --- End Runtime Cache Invalidation ---
+
+            # --- Existing Tool List Cache Clearing & Notification --- 
+            # This still runs regardless of whether it was a function or server config change
+            logger.info(f"🧹 Clearing tool list cache on server due to file change in {os.path.basename(file_path)}.")
             self.mcp_server._cached_tools = None
             self.mcp_server._last_functions_dir_mtime = None # Reset functions mtime to force reload
             self.mcp_server._last_servers_dir_mtime = None   # Reset servers mtime to force reload
@@ -195,12 +223,13 @@ class DynamicConfigEventHandler(FileSystemEventHandler):
                     logger.error(f"❌ Failed to notify clients after file change: {e}")
             else:
                 logger.warning("⚠️ Server object lacks _notify_tool_list_changed method.")
+            # --- End Tool List Cache Clearing --- 
 
         # Schedule the coroutine to run in the event loop from this thread
         if self.loop.is_running():
-             asyncio.run_coroutine_threadsafe(clear_cache_and_notify(), self.loop)
+             asyncio.run_coroutine_threadsafe(_process_file_change(path_to_process), self.loop)
         else:
-             logger.warning("⚠️ Event loop not running, cannot reload dynamic functions.")
+             logger.warning("⚠️ Event loop not running, cannot process file change for {os.path.basename(path_to_process)}.")
 
     def on_modified(self, event):
         if not event.is_directory:
@@ -338,33 +367,44 @@ class DynamicAdditionServer(Server):
                 "params": params_dict  # Use the dumped dictionary here
             }
 
-            # No need to dump to JSON string now, send the dict directly
-            # notification_json = json.dumps(notification)
+            # Get the global tracking collections
+            global active_websockets, client_connections, current_request_client_id
 
-            # Send notification dictionary to all clients using send_json
-            logger.info(f"📢 Broadcasting initial tools list notification ({len(tools)} tools).")
-            if hasattr(self, 'service_connections'):
-                for client_id, client in self.service_connections.items():
-                    try:
-                        # Assuming service_connection clients have a send_json method or similar
-                        if hasattr(client, 'send_json'):
-                            await client.send_json(notification)
-                        else: # Fallback or specific method if known
-                             logger.warning(f"Client {client_id} lacks send_json, attempting send_notification (may not work as intended)")
-                             # Previous method might not work correctly with the full structure
-                             await client.send_notification('notifications/tools/list_changed', params_dict)
-                    except Exception as e:
-                        logger.error(f"❌ Error sending tool notification to service client {client_id}: {e}")
+            # If no specific client_id was provided, try to use the one from the current request
+            if client_id is None and 'current_request_client_id' in globals():
+                client_id = current_request_client_id
 
-            if hasattr(self, 'websocket_connections'):
-                for ws in self.websocket_connections:
+            # ONLY send to the specific client that made the request - NO broadcasting
+            if client_id and client_id in client_connections:
+                # Convert to JSON string
+                import json
+                notification_json = json.dumps(notification)
+
+                # Log the notification for debugging (now includes client_id if added)
+                logger.debug(f"Sending client log notification: {notification_json}")
+
+                client_info = client_connections[client_id]
+                client_type = client_info.get("type")
+                connection = client_info.get("connection")
+
+                if client_type == "websocket" and connection:
                     try:
-                        await ws.send_json(notification) # Starlette websockets have send_json
-                    except WebSocketDisconnect:
-                        logger.warning(f"🔌 WebSocket client disconnected during tool notification broadcast.")
-                        # Handle disconnection if needed, e.g., remove from list
+                        await connection.send_text(notification_json)
+                        logger.debug(f"📢 Sent notification to specific client: {client_id}")
                     except Exception as e:
-                        logger.error(f"❌ Error sending tool notification to WebSocket client: {e}")
+                        logger.warning(f"Failed to send to client {client_id}: {e}")
+
+                elif client_type == "cloud" and connection and connection.is_connected:
+                    try:
+                        await connection.send_message('mcp_notification', notification)
+                        logger.debug(f"☁️ Sent notification to cloud client: {client_id}")
+                    except Exception as e:
+                        logger.warning(f"Failed to send to cloud client {client_id}: {e}")
+            else:
+                logger.warning(f"Cannot send client log: no valid client_id provided or client not found: {client_id}")
+                # Log the client connections we know about for debugging
+                logger.debug(f"Known client connections: {list(client_connections.keys())}")
+
         except Exception as e:
             logger.error(f"❌ Error sending tool notification: {str(e)}")
             # Don't re-raise, as this is a notification and shouldn't fail the main operation

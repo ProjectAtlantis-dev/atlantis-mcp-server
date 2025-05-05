@@ -54,18 +54,33 @@ _dynamic_load_lock = asyncio.Lock()
 PARENT_PACKAGE_NAME = "dynamic_functions"
 
 async def invalidate_all_dynamic_module_cache():
-    """Safely removes ALL dynamic function modules from sys.modules cache."""
+    """Safely removes ALL dynamic function modules AND the parent package from sys.modules cache."""
     prefix_to_clear = f"{PARENT_PACKAGE_NAME}."
     async with _dynamic_load_lock:
+        # --- Invalidate importlib finder caches --- 
+        logger.debug("Calling importlib.invalidate_caches()")
+        importlib.invalidate_caches()
+        # --- End importlib cache invalidation --- 
+
         modules_to_remove = [
             mod for mod in sys.modules 
-            if mod.startswith(prefix_to_clear)
+            if mod == PARENT_PACKAGE_NAME or mod.startswith(prefix_to_clear) # Include parent package
         ]
         if modules_to_remove:
-            logger.info(f"Invalidating all dynamic modules from cache: {modules_to_remove}")
+            logger.info(f"Invalidating dynamic modules (and parent) from sys.modules cache: {modules_to_remove}")
             for mod_name in modules_to_remove:
+                logger.debug(f"  Attempting to pop: {mod_name}")
                 # Use pop with default None to avoid KeyError if concurrently removed
-                sys.modules.pop(mod_name, None) 
+                popped_module = sys.modules.pop(mod_name, None) 
+                if popped_module:
+                    logger.debug(f"    Successfully popped {mod_name}")
+                else:
+                    logger.debug(f"    Module {mod_name} not found or already popped.")
+            # Log remaining keys after attempted removal
+            remaining_dynamic_keys = [k for k in sys.modules if k == PARENT_PACKAGE_NAME or k.startswith(prefix_to_clear)]
+            logger.debug(f"  Remaining dynamic keys (incl parent) in sys.modules after pop: {remaining_dynamic_keys}")
+        else:
+            logger.debug("No dynamic modules (or parent) found in sys.modules to invalidate.")
 
 
 # Ensure FUNCTIONS_DIR exists at startup (or wherever appropriate)

@@ -56,14 +56,16 @@ This project folder provides a flexible Model Context Protocol (MCP) implementat
   import atlantis
   atlantis.client_log("This message will appear in the Atlantis cloud console!")
   ```
+-  The MCP spec is in flux and so the protocol between our MCP server and the cloud is a superset (we rely heavily on annotations)
+- A lot of this stuff including below may end up getting lumped under MCP "Resources"
 
 #### Dynamic MCP Servers
 
 - Gives users the ability to install and manage third-party MCP server tools in the `dynamic_servers/` folder
 - This lets you host the growing ecosystem other MCP tools as if they were part of your own server
 - Using the npx client, you host other MCP servers directly or use the Atlantis cloud
-- each server config follows the usual JSON structure that contains an 'mcpServers' element
-- for example, this installs our openweather MCP server:
+- Each server config follows the usual JSON structure that contains an 'mcpServers' element
+- For example, this installs our openweather MCP server:
 
    ```json
    {

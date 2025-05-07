@@ -49,6 +49,13 @@ try:
     server_file_dir = os.path.dirname(os.path.abspath(__file__))
     # Construct the absolute path to the dynamic_functions directory
     dynamic_functions_abs_dir = os.path.abspath(os.path.join(server_file_dir, 'dynamic_functions'))
+    # Get the current timestamp of the dynamic_functions directory
+    current_mtime = 0.0
+    server_mtime = 0.0
+    
+    # Track runtime errors from dynamic functions
+    _runtime_errors = {}
+    
     # Get the parent directory of dynamic_functions
     parent_dir = os.path.dirname(dynamic_functions_abs_dir)
 
@@ -191,7 +198,7 @@ class DynamicConfigEventHandler(FileSystemEventHandler):
             if is_function_change:
                 logger.info(f"⚡ File watcher triggering flush of all dynamic function runtime caches due to change in {os.path.basename(file_path)}.")
                 try:
-                    await invalidate_all_dynamic_module_cache()
+                    await self.mcp_server.function_manager.invalidate_all_dynamic_module_cache()
                 except Exception as e:
                     logger.error(f"❌ Error invalidating all dynamic modules cache from file watcher: {e}")
             # --- End Runtime Cache Invalidation ---
@@ -528,8 +535,8 @@ class DynamicAdditionServer(Server):
                     if tool_name_from_file.startswith('_') or tool_name_from_file == '__init__' or tool_name_from_file == '__pycache__':
                         continue
 
-                    # Validate the function and get info
-                    validation_result = self.function_manager.function_validate(tool_name_from_file)
+                    # Validate function syntax without actually loading it
+                    validation_result = await self.function_manager.function_validate(tool_name_from_file)
                     is_valid = validation_result.get('valid', False)
                     error_message = validation_result.get('error')
                     function_info = validation_result.get('function_info') # Should be a dict if valid

@@ -657,7 +657,7 @@ class DynamicFunctionManager:
         if not secure_name:
             raise ValueError(f"Invalid function name '{name}' for calling.")
 
-        file_path = os.path.join(self.function_dir, f"{secure_name}.py")
+        file_path = os.path.join(self.functions_dir, f"{secure_name}.py")
 
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Dynamic function '{secure_name}' not found at {file_path}")
@@ -783,10 +783,10 @@ class DynamicFunctionManager:
             await self._write_error_log(name, error_msg)
             return {'valid': False, 'error': error_msg, 'function_info': None}
 
-        code = self._fs_load_code(secure_name)
+        code = await self._fs_load_code(secure_name)
         if code is None:
             error_msg = f"Function '{secure_name}' not found or could not be read."
-            self._write_error_log(name, error_msg)
+            await self._write_error_log(name, error_msg)
             return {'valid': False, 'error': error_msg, 'function_info': None}
 
         # _code_validate_syntax now returns: (is_valid, error_message, function_info)
@@ -1195,6 +1195,43 @@ if __name__ == "__main__":
                 print(f"❌ Test 8 FAILED with exception: {e}")
                 all_tests_passed = False
 
+            # Test 9: function_call method
+            total_tests += 1
+            print("\n🧪 TEST 9: Testing function_call method...")
+            try:
+                # Create a test function specifically for function_call testing
+                call_test_function_name = "call_test_function"
+                call_test_function_code = "def call_test_function(x=1, y=2):\n    return x + y\n"
+                
+                # First add the function
+                added = await manager.function_add(call_test_function_name, call_test_function_code)
+                if not added:
+                    print("❌ Test 9 FAILED: Could not create test function for function_call test")
+                    all_tests_passed = False
+                else:
+                    # Call the function with test arguments
+                    result = await manager.function_call(call_test_function_name, "test_client_id", "test_request_id", args={"x": 5, "y": 7})
+                    
+                    # Verify the result
+                    if result == 12:
+                        print("✅ Test 9 PASSED: Function call executed successfully and returned correct result")
+                        passed_tests += 1
+                    else:
+                        print(f"❌ Test 9 FAILED: Function call returned incorrect result: {result}, expected: 12")
+                        all_tests_passed = False
+                        
+                    # Clean up the test function
+                    await manager.function_remove(call_test_function_name)
+            except Exception as e:
+                print(f"❌ Test 9 FAILED with exception: {e}")
+                print(f"Exception traceback: {traceback.format_exc()}")
+                all_tests_passed = False
+                # Make sure to clean up even if test fails
+                try:
+                    await manager.function_remove(call_test_function_name)
+                except:
+                    pass
+                    
             # Print test summary
             print(f"\n🧪 DYNAMICFUNCTIONMANAGER SELF-TEST COMPLETE")
             print(f"Tests passed: {passed_tests}/{total_tests} ({passed_tests/total_tests*100:.1f}%)")

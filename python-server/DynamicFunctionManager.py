@@ -1209,6 +1209,39 @@ if __name__ == "__main__":
             # Restore the original logger
             if original_logger:
                 globals()['logger'] = original_logger
+            else:
+                if 'logger' in globals(): # if mock was set but no original, remove it
+                    del globals()['logger']
+            
+            # Clean up leftover test files
+            print("\n🧹 Cleaning up test files...")
+            leftover_files = [
+                "test_function",            # From Test 1 & 2
+                "set_test_function"         # From Test 8
+            ]
+            
+            for test_file in leftover_files:
+                try:
+                    if os.path.exists(os.path.join(FUNCTIONS_DIR, f"{test_file}.py")):
+                        await manager.function_remove(test_file)
+                        print(f"  Removed {test_file}.py")
+                except Exception as e:
+                    print(f"  ⚠️ Could not remove {test_file}.py: {e}")
+            
+            print("\n🏁 DYNAMICFUNCTIONMANAGER SELF-TEST COMPLETE 🏁")
+            print(f"Passed {passed_tests}/{total_tests} tests.")
+            if all_tests_passed:
+                print("🎉 ALL TESTS PASSED SUCCESSFULLY! 🎉")
+                # Clean up OLD directory if it exists and we're using FUNCTIONS_DIR
+                old_dir_final_cleanup = Path(FUNCTIONS_DIR) / "OLD"
+                if old_dir_final_cleanup.exists():
+                    print(f"🧹 Cleaning up OLD directory: {old_dir_final_cleanup}")
+                    shutil.rmtree(old_dir_final_cleanup) # remove OLD and its contents
+            else:
+                print("💔 SOME TESTS FAILED. Please review logs. 💔")
+                # Advise on manual cleanup if using FUNCTIONS_DIR
+                print(f"👉 NOTE: Tests were run against {temp_dir}. Review and manually clean up test files if necessary.")
+            sys.exit(0 if all_tests_passed else 1)
 
     # Run the tests
     try:

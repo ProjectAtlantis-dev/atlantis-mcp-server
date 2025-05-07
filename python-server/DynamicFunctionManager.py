@@ -85,17 +85,17 @@ class DynamicFunctionManager:
 
     async def _fs_load_code(self, name):
         """
-        Loads code from {name}.py in FUNCTIONS_DIR. Returns code string or None if not found/error.
+        Loads code from {name}.py in self.functions_dir. Returns code string or None if not found/error.
         """
         if not name or not isinstance(name, str):
             logger.error("❌ _fs_load_code: Invalid name provided.")
             return None
 
         safe_name = utils.clean_filename(f"{name}.py")
-        if not safe_name.endswith(".py"):
-            safe_name = f"{name}.py"
+        if not safe_name.endswith(".py"): # Ensure it's still a python file after securing
+            safe_name = f"{name}.py" # Fallback if clean_filename removes extension
 
-        file_path = os.path.join(FUNCTIONS_DIR, safe_name)
+        file_path = os.path.join(self.functions_dir, safe_name) # Use self.functions_dir
 
         if not os.path.exists(file_path):
             logger.warning(f"⚠️ _fs_load_code: File not found for '{name}' at {file_path}")

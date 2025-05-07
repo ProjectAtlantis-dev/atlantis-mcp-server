@@ -330,7 +330,7 @@ class DynamicAdditionServer(Server):
         tools_list = await self._get_tools_list(caller_context="initialize_method")
         try:
             # Pass the already fetched list to the notification function
-            await self.send_tool_notification(tools=tools_list)
+            await self.send_tool_notification(client_id=None, tools=tools_list)
         except Exception as e:
             logger.warning(f"Could not send initial tool notification: {str(e)}")
         logger.info(f"{CYAN}🔧 Server initialize method completed.{RESET}")
@@ -341,14 +341,18 @@ class DynamicAdditionServer(Server):
             "serverInfo": {"name": self.name, "version": SERVER_VERSION}
         }
 
-    async def send_tool_notification(self, tools: Optional[list[Tool]] = None):
+    async def send_tool_notification(self, client_id: Optional[str] = None, tools: Optional[list[Tool]] = None):
         """Send a tool list changed notification to clients
 
         Args:
+            client_id: The ID of the specific client to notify. If None, the notification is effectively suppressed (logged only).
             tools: An optional list of tools. If provided, this list is used directly.
                    If None, the current tool list will be fetched.
         """
         try:
+            if client_id is None:
+                raise ValueError("client_id cannot be None when sending a tool notification.")
+
             # Get the current list of tools only if not provided
             if tools is None:
                 logger.info("📢 Fetching tools list for notification as it was not provided.")
@@ -370,14 +374,10 @@ class DynamicAdditionServer(Server):
                 "params": params_dict  # Use the dumped dictionary here
             }
 
-            # Get the global tracking collections
-            global active_websockets, client_connections, current_request_client_id
+            # Get the global tracking collections for client connections
+            global client_connections
 
-            # If no specific client_id was provided, try to use the one from the current request
-            if client_id is None and 'current_request_client_id' in globals():
-                client_id = current_request_client_id
-
-            # ONLY send to the specific client that made the request - NO broadcasting
+            # If a client_id is provided, attempt to send the notification
             if client_id and client_id in client_connections:
                 # Convert to JSON string
                 import json
@@ -1516,13 +1516,15 @@ class ServiceClient:
                 self.is_connected = False
                 self.sio = None
 
+                hint_for_detailed_error = "Check logs for a 'DETAILED CLOUD CONNECTION FAILURE INFO' message for more specifics."
+
                 if CLOUD_CONNECTION_MAX_RETRIES is not None and self.retry_count >= CLOUD_CONNECTION_MAX_RETRIES:
-                    logger.error(f"❌ FAILED TO CONNECT TO CLOUD SERVER AFTER {self.retry_count} ATTEMPTS: {str(e)}")
+                    logger.error(f"❌ FAILED TO CONNECT TO CLOUD SERVER AFTER {self.retry_count} ATTEMPTS: {str(e)}. {hint_for_detailed_error}")
                     logger.error("❌ GIVING UP ON CLOUD CONNECTION!")
                     break
 
                 self.retry_count += 1
-                logger.warning(f"⚠️ CLOUD SERVER CONNECTION ERROR (attempt {self.retry_count}): {str(e)}")
+                logger.warning(f"⚠️ CLOUD SERVER CONNECTION ERROR (attempt {self.retry_count}): {str(e)}. {hint_for_detailed_error}")
 
                 # Print a more detailed stack trace for debugging
                 import traceback
@@ -1573,7 +1575,7 @@ class ServiceClient:
         # Connection error event
         @self.sio.event(namespace=self.namespace)
         def connect_error(data):
-            logger.error(f"❌ CONNECTION ERROR: {data}")
+            logger.error(f"❌ DETAILED CLOUD CONNECTION FAILURE INFO: {data}") # Made log distinct
 
         # Disconnection event
         @self.sio.event(namespace=self.namespace)

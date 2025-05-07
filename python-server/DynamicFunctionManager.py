@@ -5,10 +5,30 @@ Implements creating, updating, removing, and validating function code.
 """
 
 import os
-import asyncio
-import utils
-from state import logger
-from typing import Optional, Dict, Any
+import importlib.util
+import datetime
+import traceback
+import shutil # Using shutil for potentially more robust file operations
+from typing import Optional, Any, Dict, Union, Tuple
+from werkzeug.utils import secure_filename
+from state import logger, FUNCTIONS_DIR, CYAN, RESET # Import FUNCTIONS_DIR, CYAN, and RESET
+import utils # Import our utility module for dynamic functions
+import logging
+import json
+import inspect
+import importlib
+import importlib.util
+import re
+import ast
+import functools
+import datetime
+from typing import Any, Callable, Dict, List, Optional, Union
+from werkzeug.utils import secure_filename
+from mcp.types import Tool, TextContent, CallToolResult, ToolListChangedNotification, NotificationParams, Annotations
+import sys # <<< ADDED IMPORT SYS HERE >>>
+import asyncio # Import asyncio for Lock
+from typing import Dict, Any, Optional # Added Optional
+
 
 class DynamicFunctionManager:
     def __init__(self, functions_dir):
@@ -395,60 +415,60 @@ class DynamicFunctionManager:
                 Dict with 'name', 'description', 'inputSchema' if valid and a function is found,
                 None otherwise.
         """
-    if not code_buffer or not isinstance(code_buffer, str):
-        return False, "Empty or invalid code buffer", None
+        if not code_buffer or not isinstance(code_buffer, str):
+            return False, "Empty or invalid code buffer", None
 
-    try:
-        tree = ast.parse(code_buffer)
-        logger.debug("⚙️ Code validation successful (AST parse).")
+        try:
+            tree = ast.parse(code_buffer)
+            logger.debug("⚙️ Code validation successful (AST parse).")
 
-        func_def_node = None
-        # Find the first top-level function definition
-        for node in tree.body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                func_def_node = node
-                break
+            func_def_node = None
+            # Find the first top-level function definition
+            for node in tree.body:
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    func_def_node = node
+                    break
 
-        if func_def_node:
-            logger.debug(f"⚙️ Found function definition: {func_def_node.name}")
-            func_name = func_def_node.name
-            docstring = ast.get_docstring(func_def_node)
-            input_schema = {"type": "object"} # Default empty schema
+            if func_def_node:
+                logger.debug(f"⚙️ Found function definition: {func_def_node.name}")
+                func_name = func_def_node.name
+                docstring = ast.get_docstring(func_def_node)
+                input_schema = {"type": "object"} # Default empty schema
 
-            # Generate schema from arguments
-            try:
-                 schema_parts = _ast_arguments_to_json_schema(func_def_node.args, docstring)
-                 input_schema["properties"] = schema_parts.get("properties", {})
-                 input_schema["required"] = schema_parts.get("required", [])
-            except Exception as schema_e:
-                 logger.warning(f"⚠️ Could not generate input schema for {func_name}: {schema_e}")
-                 input_schema["description"] = f"Schema generation error: {schema_e}"
+                # Generate schema from arguments
+                try:
+                     schema_parts = _ast_arguments_to_json_schema(func_def_node.args, docstring)
+                     input_schema["properties"] = schema_parts.get("properties", {})
+                     input_schema["required"] = schema_parts.get("required", [])
+                except Exception as schema_e:
+                     logger.warning(f"⚠️ Could not generate input schema for {func_name}: {schema_e}")
+                     input_schema["description"] = f"Schema generation error: {schema_e}"
 
-            function_info = {
-                "name": func_name,
-                "description": docstring or "(No description provided)", # Provide default
-                "inputSchema": input_schema
-            }
-            return True, None, function_info
-        else:
-            logger.warning("⚠️ Syntax valid, but no top-level function definition found.")
-            return True, "Syntax valid, but no function definition found", None
+                function_info = {
+                    "name": func_name,
+                    "description": docstring or "(No description provided)", # Provide default
+                    "inputSchema": input_schema
+                }
+                return True, None, function_info
+            else:
+                logger.warning("⚠️ Syntax valid, but no top-level function definition found.")
+                return True, "Syntax valid, but no function definition found", None
 
-    except SyntaxError as e:
-        # Get detailed error information
-        error_msg = f"Syntax error at line {e.lineno}, column {e.offset}: {e.msg}"
-        if hasattr(e, 'text') and e.text:
-            # Show the problematic line if available
-            error_msg += f"\nLine content: {e.text.strip()}"
-            if e.offset:
-                # Add a pointer to the exact error position
-                error_msg += f"\n{' ' * (e.offset-1)}^"
-        logger.warning(f"⚠️ Code validation failed (AST parse): {error_msg}")
-        return False, error_msg, None
-    except Exception as e:
-        error_msg = f"Unexpected error during validation or AST processing: {str(e)}"
-        logger.error(f"❌ {error_msg}\n{traceback.format_exc()}") # Log full traceback
-        return False, error_msg, None
+        except SyntaxError as e:
+            # Get detailed error information
+            error_msg = f"Syntax error at line {e.lineno}, column {e.offset}: {e.msg}"
+            if hasattr(e, 'text') and e.text:
+                # Show the problematic line if available
+                error_msg += f"\nLine content: {e.text.strip()}"
+                if e.offset:
+                    # Add a pointer to the exact error position
+                    error_msg += f"\n{' ' * (e.offset-1)}^"
+            logger.warning(f"⚠️ Code validation failed (AST parse): {error_msg}")
+            return False, error_msg, None
+        except Exception as e:
+            error_msg = f"Unexpected error during validation or AST processing: {str(e)}"
+            logger.error(f"❌ {error_msg}\n{traceback.format_exc()}") # Log full traceback
+            return False, error_msg, None
 
 
     def _code_generate_stub(name: str) -> str:

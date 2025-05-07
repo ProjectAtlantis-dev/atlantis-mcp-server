@@ -9,14 +9,16 @@ import sys
 import re
 import ast
 import json
-import shutil
 import asyncio
-import inspect
 import logging
+import pathlib
+import shutil
+import datetime
+import atlantis
+import functools
+import inspect
 import importlib
 import traceback
-import datetime
-import functools
 
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
@@ -209,7 +211,7 @@ class DynamicFunctionManager:
             return "ComplexType"
 
 
-    def _map_ast_type_to_json_schema(annotation_node: Optional[ast.expr]) -> Dict[str, Any]:
+    def _map_ast_type_to_json_schema(self, annotation_node: Optional[ast.expr]) -> Dict[str, Any]:
         """Maps an AST annotation node to a JSON Schema type component."""
         if annotation_node is None:
             # Default to string if no type hint is provided, as it's common for text-based inputs
@@ -744,11 +746,16 @@ class DynamicFunctionManager:
             if not callable(function_to_call):
                 raise AttributeError(f"Function '{secure_name}' not found or not callable within its module.")
 
-            logger.info(f"Calling dynamic function '{secure_name}' with args: {kwargs}")
+            # Log the args we're passing to the function
+            logger.info(f"Calling dynamic function '{secure_name}' with args: {kwargs.get('args', {})}")
+            
+            # Extract args from the kwargs dictionary
+            function_args = kwargs.get('args', {})
+            
             if inspect.iscoroutinefunction(function_to_call):
-                result = await function_to_call(**kwargs['args'])
+                result = await function_to_call(**function_args)
             else:
-                result = function_to_call(**kwargs['args'])
+                result = function_to_call(**function_args)
 
             logger.info(f"Dynamic function '{secure_name}' executed successfully.")
             return result
@@ -1201,7 +1208,19 @@ if __name__ == "__main__":
             try:
                 # Create a test function specifically for function_call testing
                 call_test_function_name = "call_test_function"
-                call_test_function_code = "def call_test_function(x=1, y=2):\n    return x + y\n"
+                call_test_function_code = """import atlantis
+
+def call_test_function(x=1, y=2):
+    # Test that client_log works
+    atlantis.client_log(f"Testing client_log from call_test_function with x={x}, y={y}")
+    
+    # We can't verify context directly, but we can test that client_log works
+    # which indirectly confirms the context is set up properly
+    atlantis.client_log("Client log functionality test successful!")
+    
+    # Return the computed value
+    return x + y
+"""
                 
                 # First add the function
                 added = await manager.function_add(call_test_function_name, call_test_function_code)

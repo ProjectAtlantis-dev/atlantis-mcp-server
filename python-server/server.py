@@ -1160,12 +1160,15 @@ class DynamicAdditionServer(Server):
 
                 # Call the dynamic function
                 try:
+                    # Dynamic functions are directly handled by name matching
+                    logger.info(f"🔧 CALLING LOCAL DYNAMIC FUNCTION: {name}")
                     logger.info(f"🔧 CALLING DYNAMIC FUNCTION: {name}")
+                    # Add detailed logging to show exactly what we're receiving from the cloud
+                    logger.info(f"RECEIVED FROM CLOUD: Tool: '{name}', Raw Args: {args!r}, Type: {type(args)}")
                     logger.debug(f"---> Calling dynamic: function_call for '{name}' with args: {args} and client_id: {client_id} and request_id: {request_id}") # Log args and client_id separately
                     # Pass arguments and client_id distinctly
                     result_raw = await self.function_manager.function_call(name=name, client_id=client_id, request_id=request_id, args=args)
                     logger.debug(f"<--- Dynamic function '{name}' RAW result: {result_raw} (type: {type(result_raw)})")
-
                 except Exception as e:
                     logger.error(f"❌ Error during dynamic function call '{name}': {str(e)}", exc_info=True)
                     raise ValueError(f"Error executing function '{name}': {str(e)}") from e

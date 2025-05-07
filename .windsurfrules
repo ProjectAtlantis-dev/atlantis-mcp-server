@@ -8,6 +8,8 @@
 - ask before installing new packages, try to stick to existing packages
 - use meaningful logging so we can debug (quality over quantity)
 - ignore lint errors unless they are critical
+- avoid over-engineering
+- avoid introducing new variables when existing ones will work fine
 
 # overview
 - this is a simple mcp (model context protocol) npx client and two server implementations: python and node

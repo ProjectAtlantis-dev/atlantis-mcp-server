@@ -1438,15 +1438,28 @@ class ServiceClient:
                 self.is_connected = False
                 self.sio = None
 
-                hint_for_detailed_error = "Check logs for a 'DETAILED CLOUD CONNECTION FAILURE INFO' message for more specifics."
+                detailed_error_info_message = "Check DEBUG logs for a full traceback."
+                error_message = str(e)
 
                 if CLOUD_CONNECTION_MAX_RETRIES is not None and self.retry_count >= CLOUD_CONNECTION_MAX_RETRIES:
-                    logger.error(f"❌ FAILED TO CONNECT TO CLOUD SERVER AFTER {self.retry_count} ATTEMPTS: {str(e)}. {hint_for_detailed_error}")
+                    logger.error(f"❌ FAILED TO CONNECT TO CLOUD SERVER AFTER {self.retry_count} ATTEMPTS: {error_message}. {detailed_error_info_message}")
                     logger.error("❌ GIVING UP ON CLOUD CONNECTION!")
                     break
 
                 self.retry_count += 1
-                logger.warning(f"⚠️ CLOUD SERVER CONNECTION ERROR (attempt {self.retry_count}): {str(e)}. {hint_for_detailed_error}")
+
+                # Enhanced error message logic
+                if error_message == "One or more namespaces failed to connect":
+                    if self.email and self.api_key:
+                        specific_error_log = f"Authentication failed or namespace '{self.namespace}' rejected the connection. Please verify your credentials (email: {self.email}, API key, service name: {self.serviceName}) and ensure the service is correctly configured on the cloud server."
+                    else:
+                        specific_error_log = f"Namespace '{self.namespace}' failed to connect. This could be due to server-side issues, incorrect namespace configuration, or missing authentication details if required by the server."
+                elif isinstance(e, socketio.exceptions.ConnectionError):
+                    specific_error_log = f"{error_message}. This often indicates a network issue, the cloud server at {self.server_url} being down, or a firewall blocking the connection."
+                else:
+                    specific_error_log = f"{error_message}. An unexpected error occurred during connection. {detailed_error_info_message}"
+
+                logger.error(f"❌ ATLANTIS CLOUD SERVER CONNECTION ERROR (attempt {self.retry_count}): {specific_error_log}")
 
                 # Print a more detailed stack trace for debugging
                 import traceback
@@ -1473,7 +1486,9 @@ class ServiceClient:
         async def connect(): # Ensure handler is async
             self.is_connected = True
             self.retry_count = 0  # Reset retry counter on successful connection
-            logger.info("✅ CONNECTED TO CLOUD SERVER!")
+            logger.info(f"{BOLD}{CYAN}=================================================={RESET}")
+            logger.info(f"{BOLD}{BRIGHT_WHITE}🚀✨🎉 CONNECTED TO ATLANTIS CLOUD SERVER! 🎉✨🚀{RESET}")
+            logger.info(f"{BOLD}{CYAN}=================================================={RESET}")
 
             # --- ADDED: Register this connection with the MCP server ---
             cloud_sid = self.sio.sid if self.sio else 'unknown_sid' # Get Socket.IO session ID if available

@@ -4,9 +4,10 @@ as background tasks using the MCP Python SDK's stdio transport.
 Stores each server config as a JSON file under SERVERS_DIR.
 """
 import os
+import asyncio
 import json
 import logging
-import asyncio
+import pathlib
 import shutil
 import datetime
 from typing import Any, Dict, Optional, List, Tuple, Union
@@ -314,15 +315,48 @@ class DynamicServerManager:
 
     async def server_list(self) -> List[str]:
         """
-        Returns a list of all configured server names.
+        Returns a list of all available server names from the servers directory.
         """
-        server_list = []
-        if os.path.exists(self.servers_dir):
-            for filename in os.listdir(self.servers_dir):
-                if filename.endswith('.json'):
-                    server_name = filename[:-5]  # Remove .json extension
-                    server_list.append(server_name)
-        return server_list
+        try:
+            servers_path = pathlib.Path(self.servers_dir)
+            server_files = list(servers_path.glob('*.json'))
+            server_names = [file.stem for file in server_files]
+            return sorted(server_names)
+        except Exception as e:
+            logger.error(f"❌ Error listing servers: {e}")
+            return []
+
+    async def is_server_running(self, name: str) -> bool:
+        """
+        Checks if a specific server is currently running.
+        
+        Args:
+            name: The name of the server to check
+            
+        Returns:
+            bool: True if the server is running, False otherwise
+        """
+        if not name or not isinstance(name, str):
+            return False
+            
+        # Check if the server exists in active_server_tasks with a valid task
+        return (name in self.active_server_tasks and 
+                'task' in self.active_server_tasks[name] and 
+                not self.active_server_tasks[name]['task'].done())
+                
+    async def get_running_servers(self) -> List[str]:
+        """
+        Returns a list of currently running server names.
+        
+        Returns:
+            List[str]: A list of running server names
+        """
+        # Filter the active_server_tasks to only include running servers
+        running_servers = []
+        for name, task_info in self.active_server_tasks.items():
+            if 'task' in task_info and not task_info['task'].done():
+                running_servers.append(name)
+        return running_servers
 
     async def server_set(self, args: Dict[str, Any], server) -> Tuple[Optional[str], List[TextContent]]:
         """

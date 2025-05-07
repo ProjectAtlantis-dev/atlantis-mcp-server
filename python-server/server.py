@@ -80,22 +80,12 @@ from state import (
     SERVER_REQUEST_TIMEOUT # <<< Import the timeout constant
 )
 
-# Import dynamic function management class
+# Import dynamic management classes
 from DynamicFunctionManager import DynamicFunctionManager
+from DynamicServerManager import DynamicServerManager
 
 # Import our utility module for dynamic functions
 import utils
-
-# Import server manager functions and variables
-# Change to module import to ensure single instance of ACTIVE_SERVER_TASKS
-import server_manager
-# Keep specific imports for convenience if needed elsewhere, but access ACTIVE_SERVER_TASKS via module
-from server_manager import (
-    server_add, server_get, server_list, server_remove, server_set,
-    server_validate, server_start, server_stop,
-    get_server_tools,
-    _server_load_errors # Import the server load error cache
-)
 
 # NOTE: This server uses two different socket protocols:
 # 1. Standard WebSockets: When acting as a SERVER to accept connections from node-mcp-client
@@ -265,8 +255,9 @@ class DynamicAdditionServer(Server):
         self._last_active_server_keys: Optional[set] = None # Store active server keys for cache invalidation
         self._server_configs: Dict[str, dict] = {} # Store server configurations
 
-        # Initialize the dynamic function manager
+        # Initialize the dynamic function and server managers
         self.function_manager = DynamicFunctionManager(FUNCTIONS_DIR)
+        self.server_manager = DynamicServerManager(SERVERS_DIR)
 
         # Register tool handlers using SDK decorators
         # These now wrap the actual logic methods defined below
@@ -333,8 +324,9 @@ class DynamicAdditionServer(Server):
                 server_mtime = os.path.getmtime(SERVERS_DIR)
 
             dirs_changed = current_mtime != self._last_functions_dir_mtime or server_mtime != self._last_servers_dir_mtime
-            # Access ACTIVE_SERVER_TASKS via module namespace
-            current_active_keys = set(server_manager.ACTIVE_SERVER_TASKS.keys())
+            # First identify running vs. non-running servers            # Get running servers using proper accessor
+            running_servers = await self.server_manager.get_running_servers()
+            current_active_keys = set(running_servers)
             servers_changed = current_active_keys != self._last_active_server_keys
 
             # Add 'and False' to always invalidate cache for now
@@ -347,8 +339,7 @@ class DynamicAdditionServer(Server):
             if dirs_changed:
                 reason.append(f"Dirs changed (func mtime: {current_mtime} vs {self._last_functions_dir_mtime}, server mtime: {server_mtime} vs {self._last_servers_dir_mtime})")
             if servers_changed:
-                # Use current_active_keys here too
-                reason.append(f"Active servers changed ({current_active_keys} vs {self._last_active_server_keys})")
+                reason.append(f"Active servers changed ({running_servers} vs {self._last_active_server_keys})")
             if self._cached_tools is None:
                  reason.append("Cache empty")
             logger.info(f"🔄 Cache invalid ({', '.join(reason)}). REGENERATING TOOL LIST")
@@ -622,13 +613,14 @@ class DynamicAdditionServer(Server):
         try:
             # server_list now returns List[TextContent]
             # Use server_manager.server_list if it wasn't imported specifically
-            server_list_results = server_manager.server_list() # Assuming server_list is used, ensure correct access
+            server_list_results = await self.server_manager.server_list() # Using server_manager instance
             logger.info(f"📝 FOUND {len(server_list_results)} MCP server configs")
             for server_name_text in server_list_results:
                 server_name = server_name_text.text.split(' ')[0]
                 servers_found.append(server_name)
-                # Access ACTIVE_SERVER_TASKS via module namespace
-                status = "running" if server_name in server_manager.ACTIVE_SERVER_TASKS else "stopped" # Determine initial status
+                # First identify running vs. non-running servers using proper accessor
+                is_running = await self.server_manager.is_server_running(server_name)
+                status = "running" if is_running else "stopped" # Determine initial status
 
                 # --- AUTO-START LOGIC --- #
                 '''
@@ -636,10 +628,11 @@ class DynamicAdditionServer(Server):
                     logger.info(f"⚙️ Server '{server_name}' is stopped. Attempting auto-start during tool list generation...")
                     try:
                         # Call server_start logic internally
-                        start_result = await server_start({'name': server_name}, self)
+                        start_result = await self.server_manager.server_start({'name': server_name}, self)
                         logger.info(f"✅ Auto-start initiated for server '{server_name}'. Result: {start_result}")
                         # Re-check status *after* attempting start
-                        status = "running" if server_name in server_manager.ACTIVE_SERVER_TASKS else "stopped"
+                        is_running = await self.server_manager.is_server_running(server_name)
+                        status = "running" if is_running else "stopped"
                         if status == "stopped":
                              logger.warning(f"⚠️ Auto-start attempt for '{server_name}' did not result in an active task. Status remains 'stopped'.")
                         else:
@@ -654,7 +647,7 @@ class DynamicAdditionServer(Server):
                 # Always try to get config and add server entry (even if stopped)
                 try:
                     # Get server config
-                    config = server_manager.server_get(server_name)
+                    config = await self.server_manager.server_get(server_name)
                     self._server_configs[server_name] = config # Populate instance variable
 
                     # Create annotations object
@@ -758,14 +751,14 @@ class DynamicAdditionServer(Server):
             logger.error(f"❌ Error scanning for dynamic servers: {ee}")
 
         # --- Fetch Tools from RUNNING Servers Concurrently --- #
-        running_servers = [name for name, status in server_statuses.items() if status == "running"]
+        running_servers = await self.server_manager.get_running_servers()
         if running_servers:
             logger.info(f"📡 Fetching tools from {len(running_servers)} running servers: {running_servers}")
             fetch_tasks = []
             task_to_server = {}
             for server_name in running_servers:
                 # Use the imported get_server_tools function
-                task = asyncio.create_task(get_server_tools(server_name))
+                task = asyncio.create_task(self.server_manager.get_server_tools(server_name))
                 fetch_tasks.append(task)
                 task_to_server[task] = server_name
 
@@ -826,8 +819,8 @@ class DynamicAdditionServer(Server):
         self._cached_tools = list(tools_list) # Store a copy
         self._last_functions_dir_mtime = current_mtime
         self._last_servers_dir_mtime = server_mtime
-        # Access ACTIVE_SERVER_TASKS via module namespace
-        self._last_active_server_keys = set(server_manager.ACTIVE_SERVER_TASKS.keys()) # Store active server keys
+        # First identify running vs. non-running servers using proper accessor
+        self._last_active_server_keys = set(await self.server_manager.get_running_servers()) # Store active server keys
         logger.info(f"💾 TOOL LIST (functions ts: {current_mtime}; servers ts: {server_mtime})")
 
         return tools_list
@@ -1023,14 +1016,14 @@ class DynamicAdditionServer(Server):
                 if not svc_name:
                     raise ValueError("Missing required parameter: name")
                 logger.debug(f"---> Calling built-in: server_get for '{svc_name}'")
-                result_raw = server_manager.server_get(svc_name)
+                result_raw = await self.server_manager.server_get(svc_name)
             elif name == "_server_add":
                 svc_name = args.get("name")
                 config = args.get("config")
                 if not svc_name or not isinstance(config, dict):
                     raise ValueError("Missing or invalid parameters: 'name' must be str and 'config' must be dict")
                 logger.debug(f"---> Calling built-in: server_add for '{svc_name}'")
-                success = server_manager.server_add(svc_name, config)
+                success = await self.server_manager.server_add(svc_name, config)
                 if success:
                     result_raw = [TextContent(type="text", text=f"Server '{svc_name}' added successfully.")]
                 else:
@@ -1040,28 +1033,28 @@ class DynamicAdditionServer(Server):
                 if not svc_name:
                     raise ValueError("Missing required parameter: name")
                 logger.debug(f"---> Calling built-in: server_remove for '{svc_name}'")
-                success = server_manager.server_remove(svc_name)
+                success = await self.server_manager.server_remove(svc_name)
                 result_raw = [TextContent(type="text", text=f"Server '{svc_name}' removed successfully.")] if success else [TextContent(type="text", text=f"Failed to remove server '{svc_name}'.")]
             elif name == "_server_set":
                 logger.debug(f"---> Calling built-in: server_set with args: {args!r}")
-                result_raw = await server_manager.server_set(args, self)
+                result_raw = await self.server_manager.server_set(args, self)
             elif name == "_server_validate":
                 svc_name = args.get("name")
                 if not svc_name:
                     raise ValueError("Missing required parameter: name")
                 logger.debug(f"---> Calling built-in: server_validate for '{svc_name}'")
-                result_raw = server_manager.server_validate(svc_name)
+                result_raw = await self.server_manager.server_validate(svc_name)
             elif name == "_server_start":
                 logger.debug(f"---> Calling built-in: server_start with args: {args!r}")
-                result_raw = await server_manager.server_start(args, self)
+                result_raw = await self.server_manager.server_start(args, self)
             elif name == "_server_stop":
                 logger.debug(f"---> Calling built-in: server_stop with args: {args!r}")
-                result_raw = await server_manager.server_stop(args, self)
+                result_raw = await self.server_manager.server_stop(args, self)
             elif name == "_server_get_tools":
                 server_name = args.get('name')
                 if not server_name or not isinstance(server_name, str):
                      raise ValueError("Missing or invalid 'name' argument for _server_get_tools")
-                result_raw = await get_server_tools(server_name) # Pass only the name string
+                result_raw = await self.server_manager.get_server_tools(server_name) # Pass only the name string
             # Handle MCP tool calls
             elif '.' in name or ' ' in name: # <<< UPDATED Condition
 
@@ -1074,8 +1067,8 @@ class DynamicAdditionServer(Server):
 
                 # Check if MCP server config exists and is running
                 if server_alias not in self._server_configs: # Access instance variable
-                    raise ValueError(f"Unknown server alias: '{server_alias}'")
-                if server_alias not in server_manager.ACTIVE_SERVER_TASKS:
+                       raise ValueError(f"Unknown server alias: '{server_alias}')
+                if not await self.server_manager.is_server_running(server_alias):
                     raise ValueError(f"Server '{server_alias}' is not running.")
 
                 # Get the session for the target server

@@ -621,8 +621,9 @@ class DynamicAdditionServer(Server):
             # Use server_manager.server_list if it wasn't imported specifically
             server_list_results = await self.server_manager.server_list() # Using server_manager instance
             logger.info(f"📝 FOUND {len(server_list_results)} MCP server configs")
-            for server_name_text in server_list_results:
-                server_name = server_name_text.text.split(' ')[0]
+            for server_name in server_list_results:
+                # server_list_results is now a list of strings, not TextContent objects
+                # so we can use the server_name directly
                 servers_found.append(server_name)
                 # First identify running vs. non-running servers using proper accessor
                 is_running = await self.server_manager.is_server_running(server_name)
@@ -780,7 +781,7 @@ class DynamicAdditionServer(Server):
                     for tool in tools_list:
                         if tool.name == server_name and tool.annotations.get("type") == "server":
                             tool.annotations["toolFetchError"] = str(result)
-                            tool.description += f" (Error fetching tools: {result})"
+                            #tool.description += f" (Error fetching tools: {result})"
                             break
                 elif isinstance(result, list): # Should be list[dict] now
                     logger.info(f"✅ Fetched {len(result)} tools from server '{server_name}'")

@@ -216,11 +216,22 @@ class DynamicServerManager:
 
     async def server_get(self, name: str) -> Optional[Dict[str, Any]]:
         """
-        Returns the server config dict or None if not found.
+        Returns the server config dict or None if not found or invalid.
+        
+        Args:
+            name: The name of the server to get config for
+        
+        Returns:
+            Dict with server config or None if not found or invalid
         """
         result = await self._fs_load_server(name)
         if isinstance(result, dict):
             return result
+        elif isinstance(result, str):
+            # If we got a string, it means JSON parsing failed
+            logger.warning(f"🚨 server_get: Config for '{name}' is invalid JSON and cannot be parsed")
+            # Adding more context to the server load errors
+            self._server_load_errors[name] = f"Invalid JSON format in config file"
         return None
 
     async def get_server_tools(self, name: str) -> List[Tool]:

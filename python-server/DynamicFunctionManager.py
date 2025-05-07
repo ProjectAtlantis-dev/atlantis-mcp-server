@@ -4,6 +4,7 @@ Class-based manager for dynamic functions lifecycle and validation.
 Implements creating, updating, removing, and validating function code.
 """
 
+
 import os
 import importlib.util
 import datetime
@@ -28,6 +29,17 @@ from mcp.types import Tool, TextContent, CallToolResult, ToolListChangedNotifica
 import sys # <<< ADDED IMPORT SYS HERE >>>
 import asyncio # Import asyncio for Lock
 from typing import Dict, Any, Optional # Added Optional
+
+# Import shared state
+from state import logger, FUNCTIONS_DIR
+
+import re
+import ast
+import logging
+from typing import Optional, Dict
+from werkzeug.utils import secure_filename
+from state import FUNCTIONS_DIR, logger # Assuming logger and FUNCTIONS_DIR are defined/imported earlier
+
 
 
 class DynamicFunctionManager:
@@ -160,10 +172,10 @@ class DynamicFunctionManager:
         elif isinstance(node, ast.Constant):
             return repr(node.value) # e.g., 'None' for NoneType
         elif isinstance(node, ast.Attribute):
-            value_str = _ast_node_to_string(node.value)
+            value_str = self._ast_node_to_string(node.value)
             return f"{value_str}.{node.attr}"
         elif isinstance(node, ast.Subscript):
-            value_str = _ast_node_to_string(node.value)
+            value_str = self._ast_node_to_string(node.value)
             # Handle slice difference between Python versions
             slice_node = node.slice # Corrected variable name
             if hasattr(ast, 'Index') and isinstance(slice_node, ast.Index): # Python < 3.9
@@ -171,10 +183,10 @@ class DynamicFunctionManager:
             else: # Python 3.9+
                 slice_inner_node = slice_node
 
-            slice_str = _ast_node_to_string(slice_inner_node)
+            slice_str = self._ast_node_to_string(slice_inner_node)
             return f"{value_str}[{slice_str}]"
         elif isinstance(node, ast.Tuple): # For Tuple[A, B] or Union[A, B] slices
-            elements = ", ".join([_ast_node_to_string(el) for el in node.elts])
+            elements = ", ".join([self._ast_node_to_string(el) for el in node.elts])
             return f"({elements})" # Representing the structure, not direct type name
         else:
             return "ComplexType"
@@ -224,7 +236,7 @@ class DynamicFunctionManager:
             else: # Python 3.9+
                 slice_inner_node = slice_node
 
-            container_name = _ast_node_to_string(container_node) # e.g., 'List', 'Optional', 'Union', 'Dict'
+            container_name = self._ast_node_to_string(container_node) # e.g., 'List', 'Optional', 'Union', 'Dict'
 
             # Extract inner types from the slice (could be single type or a tuple)
             inner_nodes = []
@@ -236,21 +248,21 @@ class DynamicFunctionManager:
             # Map common container types
             if container_name in ['List', 'list', 'Sequence', 'Iterable', 'Set', 'set']:
                 if inner_nodes and inner_nodes[0] is not None:
-                    items_schema = _map_ast_type_to_json_schema(inner_nodes[0])
+                    items_schema = self._map_ast_type_to_json_schema(inner_nodes[0])
                     return {"type": "array", "items": items_schema}
                 else:
                     return {"type": "array"} # List without specified item type
             elif container_name in ['Dict', 'dict', 'Mapping']:
                 if len(inner_nodes) == 2 and inner_nodes[1] is not None:
                     # JSON Schema typically uses additionalProperties for value type
-                    value_schema = _map_ast_type_to_json_schema(inner_nodes[1])
+                    value_schema = self._map_ast_type_to_json_schema(inner_nodes[1])
                     # Key type (inner_nodes[0]) is usually string in JSON
                     return {"type": "object", "additionalProperties": value_schema}
                 else:
                     return {"type": "object"} # Dict without specified types
             elif container_name == 'Optional':
                 if inner_nodes and inner_nodes[0] is not None:
-                    schema = _map_ast_type_to_json_schema(inner_nodes[0])
+                    schema = self._map_ast_type_to_json_schema(inner_nodes[0])
                     # Make it nullable: allow original type or null
                     existing_types = []
                     if 'type' in schema:
@@ -272,7 +284,7 @@ class DynamicFunctionManager:
                     # Optional without inner type, allow anything or null
                     return {"type": ["any", "null"], "description":"Optional type specified without inner type"}
             elif container_name == 'Union':
-                schemas = [_map_ast_type_to_json_schema(node) for node in inner_nodes if node is not None]
+                schemas = [self._map_ast_type_to_json_schema(node) for node in inner_nodes if node is not None]
                 # Simplify if it reduces to Optional[T] (Union[T, None])
                 non_null_schemas = [s for s in schemas if s.get('type') != 'null']
                 has_null = len(schemas) > len(non_null_schemas)
@@ -307,16 +319,16 @@ class DynamicFunctionManager:
 
             else:
                 # Unhandled subscript type (e.g., Tuple[...], custom generics)
-                type_str = _ast_node_to_string(annotation_node)
+                type_str = self._ast_node_to_string(annotation_node)
                 return {"description": f"Unhandled generic type: {type_str}"}
 
         # Fallback for other node types (e.g., ast.BinOp used in type hints?)
         else:
-            type_str = _ast_node_to_string(annotation_node)
+            type_str = self._ast_node_to_string(annotation_node)
             return {"description": f"Unknown type structure: {type_str}"}
 
 
-    def _ast_arguments_to_json_schema(args_node: ast.arguments, docstring: Optional[str] = None) -> Dict[str, Any]:
+    def _ast_arguments_to_json_schema(self, args_node: ast.arguments, docstring: Optional[str] = None) -> Dict[str, Any]:
         """Builds the JSON Schema 'properties' and 'required' fields from AST arguments."""
         properties = {}
         required = []
@@ -371,7 +383,7 @@ class DynamicFunctionManager:
 
         for i, arg in enumerate(all_args):
             name = arg.arg
-            param_schema = _map_ast_type_to_json_schema(arg.annotation)
+            param_schema = self._map_ast_type_to_json_schema(arg.annotation)
             param_schema["description"] = parsed_doc_params.get(name, param_schema.get("description", "")) # Add docstring desc
 
             properties[name] = param_schema
@@ -384,7 +396,7 @@ class DynamicFunctionManager:
         # Process kwonlyargs
         for i, arg in enumerate(args_node.kwonlyargs):
             name = arg.arg
-            param_schema = _map_ast_type_to_json_schema(arg.annotation)
+            param_schema = self._map_ast_type_to_json_schema(arg.annotation)
             param_schema["description"] = parsed_doc_params.get(name, param_schema.get("description", ""))
 
             properties[name] = param_schema
@@ -437,7 +449,7 @@ class DynamicFunctionManager:
 
                 # Generate schema from arguments
                 try:
-                     schema_parts = _ast_arguments_to_json_schema(func_def_node.args, docstring)
+                     schema_parts = self._ast_arguments_to_json_schema(func_def_node.args, docstring)
                      input_schema["properties"] = schema_parts.get("properties", {})
                      input_schema["required"] = schema_parts.get("required", [])
                 except Exception as schema_e:
@@ -471,7 +483,7 @@ class DynamicFunctionManager:
             return False, error_msg, None
 
 
-    def _code_generate_stub(name: str) -> str:
+    def _code_generate_stub(self, name: str) -> str:
         """
         Generates a string containing a basic Python function stub with the given name.
         """
@@ -493,10 +505,10 @@ class DynamicFunctionManager:
         return stub
 
     # Cache management
-    async def invalidate_all_dynamic_module_cache():
+    async def invalidate_all_dynamic_module_cache(self):
         """Safely removes ALL dynamic function modules AND the parent package from sys.modules cache."""
         prefix_to_clear = f"{PARENT_PACKAGE_NAME}."
-        async with _dynamic_load_lock:
+        async with self._dynamic_load_lock:
             # --- Invalidate importlib finder caches ---
             logger.debug("Calling importlib.invalidate_caches()")
             importlib.invalidate_caches()
@@ -522,7 +534,7 @@ class DynamicFunctionManager:
             else:
                 logger.debug("No dynamic modules (or parent) found in sys.modules to invalidate.")
 
-    def function_add(name: str, code: Optional[str] = None) -> bool:
+    async def function_add(self, name: str, code: Optional[str] = None) -> bool:
         '''
         Creates a new function file.
         If code is provided, it saves it. Otherwise, generates and saves a stub.
@@ -539,8 +551,8 @@ class DynamicFunctionManager:
             return False
 
         try:
-            code_to_save = code if code is not None else _code_generate_stub(secure_name)
-            if _fs_save_code(secure_name, code_to_save):
+            code_to_save = code if code is not None else self._code_generate_stub(secure_name)
+            if await self._fs_save_code(secure_name, code_to_save):
                 logger.info(f"Function '{secure_name}' created successfully.")
                 return True
             else:
@@ -552,7 +564,7 @@ class DynamicFunctionManager:
             return False
 
 
-    def function_remove(name: str) -> bool:
+    async def function_remove(self, name: str) -> bool:
         '''
         Removes a function file by moving it to the OLD subdirectory.
         Returns True on success, False if the function doesn't exist or on error.
@@ -569,7 +581,7 @@ class DynamicFunctionManager:
 
         try:
             # First, clear any potential old runtime error cache for this name
-            _runtime_errors.pop(name, None)
+            self._runtime_errors.pop(name, None)
 
             # Move to OLD directory
             timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S%f")
@@ -591,7 +603,7 @@ class DynamicFunctionManager:
             logger.debug(traceback.format_exc())
             return False
 
-    def _write_error_log(name: str, error_message: str) -> None:
+    def _write_error_log(self, name: str, error_message: str) -> None:
         '''
         Write an error message to a function-specific log file in the dynamic_functions folder.
         Overwrites any existing log to only keep the latest error.
@@ -611,7 +623,7 @@ class DynamicFunctionManager:
             # Don't let logging errors disrupt the main flow
             logger.error(f"Failed to write error log for '{name}': {e}")
 
-    async def function_call(name: str, client_id: str, request_id: str, **kwargs) -> Any:
+    async def function_call(self, name: str, client_id: str, request_id: str, **kwargs) -> Any:
         '''
         Loads and executes a dynamic function by its name, passing kwargs.
         Flushes ALL dynamic function caches before loading to ensure freshness, protected by a lock.
@@ -634,11 +646,11 @@ class DynamicFunctionManager:
 
         # --- Clear ALL dynamic function child modules from cache FIRST ---
         # This acquires the lock internally, clears, and releases.
-        await invalidate_all_dynamic_module_cache()
+        await self.invalidate_all_dynamic_module_cache()
         # --- End Cache Clear ---
 
         # --- Acquire lock *only* for parent check and specific module loading ---
-        async with _dynamic_load_lock:
+        async with self._dynamic_load_lock:
             try:
                 # --- Ensure Parent Package Exists in sys.modules ---
                 if PARENT_PACKAGE_NAME not in sys.modules:
@@ -651,7 +663,7 @@ class DynamicFunctionManager:
                 # --- End Parent Package Check ---
 
                 # Clear any previous runtime error for this function before attempting load
-                _runtime_errors.pop(name, None)
+                self._runtime_errors.pop(name, None)
 
                 # --- Load the requested module fresh ---
                 # Check sys.modules again *inside the lock* in case the watcher re-added it
@@ -675,14 +687,14 @@ class DynamicFunctionManager:
                     error_message = f"Error loading module '{module_name}': {load_err}"
                     logger.error(error_message)
                     logger.debug(traceback.format_exc())
-                    _runtime_errors[name] = str(load_err)
+                    self._runtime_errors[name] = str(load_err)
                     raise ImportError(error_message) from load_err
                 # --- End Load ---
 
             except Exception as lock_section_err:
                 logger.error(f"Unexpected error during locked module handling for {name}: {lock_section_err}")
                 logger.debug(traceback.format_exc())
-                _runtime_errors[name] = str(lock_section_err)
+                self._runtime_errors[name] = str(lock_section_err)
                 raise
 
         # --- Lock is released here ---
@@ -723,7 +735,7 @@ class DynamicFunctionManager:
             error_message = f"Error executing dynamic function '{name}': {str(exec_err)}"
             logger.error(error_message)
             logger.debug(traceback.format_exc())
-            _runtime_errors[name] = str(exec_err)
+            self._runtime_errors[name] = str(exec_err)
             raise
 
         finally:
@@ -737,7 +749,7 @@ class DynamicFunctionManager:
 
     # --- Function Management Functions --- #
 
-    def function_validate(name: str) -> Dict[str, Any]:
+    def function_validate(self, name: str) -> Dict[str, Any]:
         '''
         Validates the syntax of a function file without executing it.
         Returns a dictionary {'valid': bool, 'error': Optional[str], 'function_info': Optional[Dict]}
@@ -746,17 +758,17 @@ class DynamicFunctionManager:
         secure_name = utils.clean_filename(name)
         if not secure_name:
             error_msg = f"Invalid function name '{name}'"
-            _write_error_log(name, error_msg)
+            self._write_error_log(name, error_msg)
             return {'valid': False, 'error': error_msg, 'function_info': None}
 
-        code = _fs_load_code(secure_name)
+        code = self._fs_load_code(secure_name)
         if code is None:
             error_msg = f"Function '{secure_name}' not found or could not be read."
-            _write_error_log(name, error_msg)
+            self._write_error_log(name, error_msg)
             return {'valid': False, 'error': error_msg, 'function_info': None}
 
         # _code_validate_syntax now returns: (is_valid, error_message, function_info)
-        is_valid, error_message, function_info = _code_validate_syntax(code)
+        is_valid, error_message, function_info = self._code_validate_syntax(code)
 
         if is_valid:
             # Successful validation
@@ -777,7 +789,7 @@ class DynamicFunctionManager:
             # Failed validation - write to the error log
             error_msg_full = f"Syntax validation failed: {error_message}"
             logger.warning(f"{error_msg_full} Function: '{secure_name}'")
-            _write_error_log(secure_name, error_msg_full)
+            self._write_error_log(secure_name, error_msg_full)
 
             # Return the detailed error message
             return {'valid': False, 'error': error_message, 'function_info': None}
@@ -785,7 +797,7 @@ class DynamicFunctionManager:
     import inspect # Add import
     import atlantis
 
-    async def function_set(args: Dict[str, Any], server: Any) -> Tuple[Optional[str], List[TextContent]]:
+    async def function_set(self, args: Dict[str, Any], server: Any) -> Tuple[Optional[str], List[TextContent]]:
         """
         Handles the _function_set tool call.
         Extracts the function name using basic regex, saves the provided code.
@@ -802,7 +814,7 @@ class DynamicFunctionManager:
             return None, [TextContent(type="text", text="Error: Missing or invalid 'code' parameter.")]
 
         # 1. Extract function name using basic regex
-        metadata = _code_extract_basic_metadata(code_buffer)
+        metadata = self._code_extract_basic_metadata(code_buffer)
         extracted_function_name = metadata.get('name') # Store extracted name
 
         if not extracted_function_name:
@@ -837,7 +849,7 @@ class DynamicFunctionManager:
         # --- End Backup ---
 
         # 2. Save the code (validation will happen later when tools are listed/called)
-        saved_path = _fs_save_code(extracted_function_name, code_buffer)
+        saved_path = await self._fs_save_code(extracted_function_name, code_buffer)
 
         if not saved_path:
             error_response = f"Error saving function '{extracted_function_name}' to file."
@@ -848,7 +860,7 @@ class DynamicFunctionManager:
         logger.info(f"💾 Function '{extracted_function_name}' code saved successfully to {saved_path}")
 
         # Clear any cached runtime error for this function, as it's been updated
-        _runtime_errors.pop(extracted_function_name, None)
+        self._runtime_errors.pop(extracted_function_name, None)
 
         # 3. Attempt AST parsing for immediate feedback (but save regardless)
         syntax_error = None
@@ -886,7 +898,7 @@ class DynamicFunctionManager:
         return extracted_function_name, [TextContent(type="text", text=response_message, annotations=annotations)]
 
     # Function to get code for a dynamic function
-    async def get_function_code(args, mcp_server) -> list[TextContent]:
+    async def get_function_code(self, args, mcp_server) -> list[TextContent]:
         """
         Get the source code for a dynamic function by name using _fs_load_code.
         Returns the code as a TextContent object.
@@ -899,7 +911,7 @@ class DynamicFunctionManager:
             raise ValueError("Missing required parameter: name")
 
         # Load the code using the existing _fs_load_code utility
-        code = _fs_load_code(name)
+        code = self._fs_load_code(name)
         if code is None:
             raise ValueError(f"Function '{name}' not found or could not be read")
 

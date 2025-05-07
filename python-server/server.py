@@ -80,17 +80,8 @@ from state import (
     SERVER_REQUEST_TIMEOUT # <<< Import the timeout constant
 )
 
-# Import dynamic function management utilities
-from dynamic_function_manager import (
-    function_set,
-    function_add,
-    function_remove,
-    function_validate,
-    function_call,
-    _runtime_errors, # Import the runtime error cache
-    _fs_load_code,
-    invalidate_all_dynamic_module_cache # <--- ADD THIS IMPORT
-)
+# Import dynamic function management class
+from DynamicFunctionManager import DynamicFunctionManager
 
 # Import our utility module for dynamic functions
 import utils
@@ -259,29 +250,6 @@ class DynamicConfigEventHandler(FileSystemEventHandler):
 
 # --- End File Watcher Setup ---
 
-# Function to get code for a dynamic function
-async def get_function_code(args, mcp_server) -> list[TextContent]:
-    """
-    Get the source code for a dynamic function by name using _fs_load_code.
-    Returns the code as a TextContent object.
-    """
-    # Get function name
-    name = args.get("name")
-
-    # Validate parameters
-    if not name:
-        raise ValueError("Missing required parameter: name")
-
-    # Load the code using the existing _fs_load_code utility
-    code = _fs_load_code(name)
-    if code is None:
-        raise ValueError(f"Function '{name}' not found or could not be read")
-
-    logger.info(f"📋 Retrieved code for function: {name}")
-
-    # Return the code as text content
-    return [TextContent(type="text", text=code)]
-
 # Create an MCP server with proper MCP protocol handling
 class DynamicAdditionServer(Server):
     """MCP server that provides an addition tool and supports dynamic function registration"""
@@ -296,6 +264,9 @@ class DynamicAdditionServer(Server):
         self._last_servers_dir_mtime: float = 0.0 # Timestamp for dynamic servers cache invalidation
         self._last_active_server_keys: Optional[set] = None # Store active server keys for cache invalidation
         self._server_configs: Dict[str, dict] = {} # Store server configurations
+
+        # Initialize the dynamic function manager
+        self.function_manager = DynamicFunctionManager(FUNCTIONS_DIR)
 
         # Register tool handlers using SDK decorators
         # These now wrap the actual logic methods defined below
@@ -438,7 +409,7 @@ class DynamicAdditionServer(Server):
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "name": {"type": "string", "description": "Server name to fetch"}
+                        "name": {"type": "string"}
                     },
                     "required": ["name"]
                 }
@@ -567,7 +538,7 @@ class DynamicAdditionServer(Server):
                         continue
 
                     # Validate the function and get info
-                    validation_result = function_validate(tool_name_from_file)
+                    validation_result = self.function_manager.function_validate(tool_name_from_file)
                     is_valid = validation_result.get('valid', False)
                     error_message = validation_result.get('error')
                     function_info = validation_result.get('function_info') # Should be a dict if valid
@@ -973,14 +944,19 @@ class DynamicAdditionServer(Server):
             if name == "_function_set":
                 logger.debug(f"---> Calling built-in: function_set") # <-- ADD THIS LINE
                 # function_set now returns (extracted_name, result_messages)
-                extracted_name, result_messages = await function_set(args, self)
+                extracted_name, result_messages = await self.function_manager.function_set(args, self)
                 result_raw = result_messages # Use the messages returned by function_set
                 if extracted_name:
                     # Notify only if function_set successfully extracted a name
                     await self._notify_tool_list_changed(change_type="updated", tool_name=extracted_name)
             elif name == "_function_get":
                 logger.debug(f"---> Calling built-in: get_function_code") # <-- ADD THIS LINE
-                result_raw = await get_function_code(args, self)
+                function_name = args.get('name')
+                code = await self.function_manager._fs_load_code(function_name)
+                if code is None:
+                    result_raw = [TextContent(type="text", text=f"Error: Function '{function_name}' not found or could not be loaded.")]
+                else:
+                    result_raw = [TextContent(type="text", text=code)]
             elif name == "_function_remove":
                 # Remove function
                 func_name = args.get("name")
@@ -1000,7 +976,7 @@ class DynamicAdditionServer(Server):
                     result_raw = [TextContent(type="text", text=error_message, annotations=error_annotations)]
                 else: # <-- ADD else block
                     # Remove the function using dynamic_function_manager.function_remove (raise error on failure)
-                    removed = function_remove(func_name)
+                    removed = await self.function_manager.function_remove(func_name)
                     if removed:
                         try:
                             await self._notify_tool_list_changed(change_type="removed", tool_name=func_name) # Pass params
@@ -1031,7 +1007,7 @@ class DynamicAdditionServer(Server):
                     result_raw = [TextContent(type="text", text=error_message, annotations=error_annotations)]
                 else: # <-- ADD else block
                     # Create empty function (stub) using dynamic_function_manager.function_add (raise error on failure)
-                    added = function_add(func_name)
+                    added = await self.function_manager.function_add(func_name)
                     if added:
                         try:
                             await self._notify_tool_list_changed(change_type="added", tool_name=func_name) # Pass params
@@ -1187,7 +1163,7 @@ class DynamicAdditionServer(Server):
                     logger.info(f"🔧 CALLING DYNAMIC FUNCTION: {name}")
                     logger.debug(f"---> Calling dynamic: function_call for '{name}' with args: {args} and client_id: {client_id} and request_id: {request_id}") # Log args and client_id separately
                     # Pass arguments and client_id distinctly
-                    result_raw = await function_call(name=name, client_id=client_id, request_id=request_id, args=args)
+                    result_raw = await self.function_manager.function_call(name=name, client_id=client_id, request_id=request_id, args=args)
                     logger.debug(f"<--- Dynamic function '{name}' RAW result: {result_raw} (type: {type(result_raw)})")
 
                 except Exception as e:

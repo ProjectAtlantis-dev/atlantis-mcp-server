@@ -134,18 +134,37 @@ class DynamicFunctionManager:
             logger.debug(f"⚙️ Regex extracted name: {metadata['name']}")
 
             # Regex for the *first* docstring after the function definition line
-            # Look for triple quotes after the function signature's closing parenthesis and colon
-            # This is simplified and might grab comments if docstring isn't immediate
-            docstring_match = re.search(r'def\s+' + re.escape(metadata['name']) + r'\s*\(.*\):\s*"""(.*?) """', code_buffer, re.DOTALL | re.MULTILINE)
-            if docstring_match:
-                metadata['description'] = docstring_match.group(1).strip()
-                logger.debug(f"⚙️ Regex extracted description: {metadata['description'][:50]}...")
-            else:
-                # Fallback: Look for any initial triple-quoted string as a potential docstring
-                fallback_docstring = re.search(r'"""(.*?) """', code_buffer, re.DOTALL)
+            # More robust and simpler approach to find docstrings
+            # First find the function definition
+            fn_def_pattern = r'def\s+' + re.escape(metadata['name']) + r'\s*\(.*?\)\s*:\s*'
+            fn_pos = re.search(fn_def_pattern, code_buffer, re.DOTALL)
+            
+            docstring_match = None
+            if fn_pos:
+                # Get the position right after the function signature
+                start_pos = fn_pos.end()
+                # Look for the first docstring after the function signature
+                docstring_pattern = r'\s*"""(.*?)"""'
+                docstring_match = re.search(docstring_pattern, code_buffer[start_pos:], re.DOTALL)
+                
+                if docstring_match:
+                    metadata['description'] = docstring_match.group(1).strip()
+                    logger.debug(f"⚙️ Regex extracted description: {metadata['description'][:50]}...")
+            
+            # If we couldn't find a docstring after function def, try fallback
+            if not docstring_match or not metadata['description']:
+                # Fallback: Look for any triple-quoted string near the function definition
+                full_func_pattern = f"def\\s+{re.escape(metadata['name'])}.*?\"\"\"(.*?)\"\"\""
+                fallback_docstring = re.search(full_func_pattern, code_buffer, re.DOTALL)
                 if fallback_docstring:
                     metadata['description'] = fallback_docstring.group(1).strip()
                     logger.debug(f"⚙️ Regex extracted fallback description: {metadata['description'][:50]}...")
+                else:
+                    # Last resort fallback: any docstring-like pattern in the function
+                    simple_fallback = re.search(r'"""(.*?)"""', code_buffer, re.DOTALL)
+                    if simple_fallback:
+                        metadata['description'] = simple_fallback.group(1).strip()
+                        logger.debug(f"⚙️ Regex extracted simple fallback description: {metadata['description'][:50]}...")
 
         else:
             logger.warning("⚠️ _code_extract_basic_metadata: Could not find function definition via regex.")
@@ -662,7 +681,7 @@ class DynamicFunctionManager:
                     parent_module = importlib.util.module_from_spec(
                         importlib.util.spec_from_loader(PARENT_PACKAGE_NAME, loader=None, is_package=True)
                     )
-                    parent_module.__path__ = [FUNCTIONS_DIR]
+                    parent_module.__path__ = [self.functions_dir]
                     sys.modules[PARENT_PACKAGE_NAME] = parent_module
                 # --- End Parent Package Check ---
 
@@ -780,7 +799,7 @@ class DynamicFunctionManager:
 
             # If there was a previous error log, remove it since the function is now valid
             try:
-                log_path = os.path.join(FUNCTIONS_DIR, f"{secure_name}.log")
+                log_path = os.path.join(self.functions_dir, f"{secure_name}.log")
                 if os.path.exists(log_path):
                     os.remove(log_path)
                     logger.debug(f"Removed error log for '{secure_name}' as validation now passes")
@@ -832,14 +851,16 @@ class DynamicFunctionManager:
         # --- Backup existing file before saving new one ---
         secure_name = utils.clean_filename(extracted_function_name)
         if secure_name: # Should always be true if extracted_function_name is valid
-            file_path = os.path.join(FUNCTIONS_DIR, f"{secure_name}.py")
+            file_path = os.path.join(self.functions_dir, f"{secure_name}.py")
             if os.path.exists(file_path):
                 logger.info(f"💾 Found existing file for '{secure_name}', attempting backup...")
                 try:
                     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S%f")
                     # Using .py.bak for clarity
                     backup_filename = f"{secure_name}_{timestamp}.py.bak"
-                    backup_path = os.path.join(OLD_DIR, backup_filename)
+                    # Make sure old_dir exists
+                    os.makedirs(self.old_dir, exist_ok=True)
+                    backup_path = os.path.join(self.old_dir, backup_filename)
                     shutil.copy2(file_path, backup_path) # copy2 preserves metadata
                     logger.info(f"🛡️ Successfully backed up '{secure_name}' to '{backup_path}'")
                 except Exception as e:
@@ -1000,18 +1021,17 @@ if __name__ == "__main__":
                 print(f"Got: {loaded_code}")
                 all_tests_passed = False
 
-                # Test 3: _code_extract_basic_metadata method
-                total_tests += 1
-                print("\n🧪 TEST 3: Testing _code_extract_basic_metadata method...")
-                test_code_with_docstring = """def test_function_with_docstring():
-                    \"\"\"
-                    This is a test function with a docstring.
-                    \"\"\"
-                    return 'Hello, docstring!'
-                """
+            # Test 3: _code_extract_basic_metadata method
+            total_tests += 1
+            print("\n🧪 TEST 3: Testing _code_extract_basic_metadata method...")
+            test_code_with_docstring = """def test_function_with_docstring():
+                \"\"\"
+                This is a test function with a docstring.
+                \"\"\"
+                return 'Hello, docstring!'
+            """
 
-                metadata = manager._code_extract_basic_metadata(test_code_with_docstring)
-
+            metadata = manager._code_extract_basic_metadata(test_code_with_docstring)
             if metadata.get('name') == "test_function_with_docstring" and \
                metadata.get('description') and "test function with a docstring" in metadata.get('description'):
                 print("✅ Test 3 PASSED: Metadata extraction works correctly")
@@ -1022,100 +1042,157 @@ if __name__ == "__main__":
                 print(f"Expected description to contain 'test function with a docstring', got: {metadata.get('description')}")
                 all_tests_passed = False
 
-                # Test 4: _code_validate_syntax method (valid code)
-                total_tests += 1
-                print("\n🧪 TEST 4: Testing _code_validate_syntax method with valid code...")
-                is_valid, error_message, function_info = manager._code_validate_syntax(test_code_with_docstring)
+            # Test 3.5: _fs_load_code and _code_extract_basic_metadata with externally edited file
+            total_tests += 1
+            print("\n🧪 TEST 3.5: Testing metadata extraction from externally edited file...")
+            
+            # 1. Create a test function file first
+            external_edit_func_name = "external_edit_test_function"
+            initial_code = """def external_edit_test_function():
+    \"\"\"Initial docstring.\"\"\"
+    return 'Initial version'
+"""
+            
+            # Save the initial version using our manager
+            await manager._fs_save_code(external_edit_func_name, initial_code)
+            initial_file_path = Path(temp_dir) / f"{external_edit_func_name}.py"
+            
+            if not initial_file_path.exists():
+                print("❌ Test 3.5 FAILED: Could not create initial test file")
+                all_tests_passed = False
+            else:
+                # 2. Directly modify the file to simulate external editor
+                updated_code = """def external_edit_test_function():
+    \"\"\"This function was modified by an external editor.\"\"\"
+    # Some comments added by the editor
+    return 'Modified version'
+"""
+                try:
+                    # Write directly to the file, bypassing our manager functions
+                    with open(initial_file_path, 'w', encoding='utf-8') as f:
+                        f.write(updated_code)
+                    
+                    # 3. Load the code using fs_load_code and extract metadata
+                    loaded_code = await manager._fs_load_code(external_edit_func_name)
+                    if loaded_code != updated_code:
+                        print("❌ Test 3.5 FAILED: Loaded code doesn't match the externally edited version")
+                        print(f"Expected: {updated_code}")
+                        print(f"Got: {loaded_code}")
+                        all_tests_passed = False
+                    else:
+                        # Extract metadata from loaded code
+                        ext_metadata = manager._code_extract_basic_metadata(loaded_code)
+                        
+                        if ext_metadata.get('name') == "external_edit_test_function" and \
+                           ext_metadata.get('description') and "modified by an external editor" in ext_metadata.get('description'):
+                            print("✅ Test 3.5 PASSED: Successfully extracted metadata from externally edited file")
+                            passed_tests += 1
+                        else:
+                            print("❌ Test 3.5 FAILED: Could not extract correct metadata from externally edited file")
+                            print(f"Expected name: external_edit_test_function, got: {ext_metadata.get('name')}")
+                            print(f"Expected description to contain 'modified by an external editor', got: {ext_metadata.get('description')}")
+                            all_tests_passed = False
+                except Exception as e:
+                    print(f"❌ Test 3.5 FAILED with exception: {e}")
+                    all_tests_passed = False
+                finally:
+                    # Clean up test file
+                    await manager.function_remove(external_edit_func_name)
 
-                if is_valid and error_message is None and function_info and function_info.get('name') == "test_function_with_docstring":
-                    print("✅ Test 4 PASSED: Valid code validation works correctly")
+            # Test 4: _code_validate_syntax method (valid code)
+            total_tests += 1
+            print("\n🧪 TEST 4: Testing _code_validate_syntax method with valid code...")
+            is_valid, error_message, function_info = manager._code_validate_syntax(test_code_with_docstring)
+
+            if is_valid and error_message is None and function_info and function_info.get('name') == "test_function_with_docstring":
+                print("✅ Test 4 PASSED: Valid code validation works correctly")
+                passed_tests += 1
+            else:
+                print("❌ Test 4 FAILED: Valid code validation failed")
+                print(f"Expected is_valid: True, got: {is_valid}")
+                print(f"Expected error_message: None, got: {error_message}")
+                print(f"Expected function_info.name: test_function_with_docstring, got: {function_info.get('name') if function_info else None}")
+                all_tests_passed = False
+
+            # Test 5: _code_validate_syntax method (invalid code)
+            total_tests += 1
+            print("\n🧪 TEST 5: Testing _code_validate_syntax method with invalid code...")
+            invalid_code = "def invalid_function(:\n    return 'This code has a syntax error'\n"
+
+            try:
+                is_valid, error_message, function_info = manager._code_validate_syntax(invalid_code)
+
+                if not is_valid and error_message is not None and function_info is None:
+                    print("✅ Test 5 PASSED: Invalid code validation works correctly")
                     passed_tests += 1
                 else:
-                    print("❌ Test 4 FAILED: Valid code validation failed")
-                    print(f"Expected is_valid: True, got: {is_valid}")
-                    print(f"Expected error_message: None, got: {error_message}")
-                    print(f"Expected function_info.name: test_function_with_docstring, got: {function_info.get('name') if function_info else None}")
+                    print("❌ Test 5 FAILED: Invalid code validation didn't catch the error")
+                    print(f"Expected is_valid: False, got: {is_valid}")
+                    print(f"Expected error_message: not None, got: {error_message}")
+                    print(f"Expected function_info: None, got: {function_info}")
                     all_tests_passed = False
+            except Exception as e:
+                print(f"❌ Test 5 FAILED with exception: {e}")
+                all_tests_passed = False
 
-                # Test 5: _code_validate_syntax method (invalid code)
-                total_tests += 1
-                print("\n🧪 TEST 5: Testing _code_validate_syntax method with invalid code...")
-                invalid_code = "def invalid_function(:\n    return 'This code has a syntax error'\n"
+            # Test 6: function_add method
+            total_tests += 1
+            print("\n🧪 TEST 6: Testing function_add method...")
+            new_function_name = "new_test_function"
 
-                try:
-                    is_valid, error_message, function_info = manager._code_validate_syntax(invalid_code)
+            try:
+                result = await manager.function_add(new_function_name)
+                new_file = Path(temp_dir) / f"{new_function_name}.py"
 
-                    if not is_valid and error_message is not None and function_info is None:
-                        print("✅ Test 5 PASSED: Invalid code validation works correctly")
-                        passed_tests += 1
-                    else:
-                        print("❌ Test 5 FAILED: Invalid code validation didn't catch the error")
-                        print(f"Expected is_valid: False, got: {is_valid}")
-                        print(f"Expected error_message: not None, got: {error_message}")
-                        print(f"Expected function_info: None, got: {function_info}")
-                        all_tests_passed = False
-                except Exception as e:
-                    print(f"❌ Test 5 FAILED with exception: {e}")
+                if result and new_file.exists():
+                    print("✅ Test 6 PASSED: Function was successfully added")
+                    passed_tests += 1
+                else:
+                    print("❌ Test 6 FAILED: Function was not added")
                     all_tests_passed = False
+            except Exception as e:
+                print(f"❌ Test 6 FAILED with exception: {e}")
+                all_tests_passed = False
 
-                # Test 6: function_add method
-                total_tests += 1
-                print("\n🧪 TEST 6: Testing function_add method...")
-                new_function_name = "new_test_function"
+            # Test 7: function_remove method
+            total_tests += 1
+            print("\n🧪 TEST 7: Testing function_remove method...")
+            try:
+                result = await manager.function_remove(new_function_name)
+                new_file = Path(temp_dir) / f"{new_function_name}.py"
 
-                try:
-                    result = await manager.function_add(new_function_name)
-                    new_file = Path(temp_dir) / f"{new_function_name}.py"
-
-                    if result and new_file.exists():
-                        print("✅ Test 6 PASSED: Function was successfully added")
-                        passed_tests += 1
-                    else:
-                        print("❌ Test 6 FAILED: Function was not added")
-                        all_tests_passed = False
-                except Exception as e:
-                    print(f"❌ Test 6 FAILED with exception: {e}")
+                if result and not new_file.exists():
+                    print("✅ Test 7 PASSED: Function was successfully removed")
+                    passed_tests += 1
+                else:
+                    print("❌ Test 7 FAILED: Function was not removed")
                     all_tests_passed = False
+            except Exception as e:
+                print(f"❌ Test 7 FAILED with exception: {e}")
+                all_tests_passed = False
 
-                # Test 7: function_remove method
-                total_tests += 1
-                print("\n🧪 TEST 7: Testing function_remove method...")
-                try:
-                    result = await manager.function_remove(new_function_name)
-                    new_file = Path(temp_dir) / f"{new_function_name}.py"
+            # Test 8: function_set method
+            total_tests += 1
+            print("\n🧪 TEST 8: Testing function_set method...")
+            try:
+                mock_server = MockServer()
+                test_code = "def set_test_function():\n    return 'Function set via function_set method'\n"
+                args = {"code": test_code}
 
-                    if result and not new_file.exists():
-                        print("✅ Test 7 PASSED: Function was successfully removed")
-                        passed_tests += 1
-                    else:
-                        print("❌ Test 7 FAILED: Function was not removed")
-                        all_tests_passed = False
-                except Exception as e:
-                    print(f"❌ Test 7 FAILED with exception: {e}")
+                name, response = await manager.function_set(args, mock_server)
+                set_file = Path(temp_dir) / "set_test_function.py"
+
+                if name == "set_test_function" and set_file.exists():
+                    print("✅ Test 8 PASSED: Function was successfully set")
+                    passed_tests += 1
+                else:
+                    print("❌ Test 8 FAILED: Function was not set")
+                    print(f"Expected name: set_test_function, got: {name}")
+                    print(f"File exists: {set_file.exists()}")
                     all_tests_passed = False
-
-                # Test 8: function_set method
-                total_tests += 1
-                print("\n🧪 TEST 8: Testing function_set method...")
-                try:
-                    mock_server = MockServer()
-                    test_code = "def set_test_function():\n    return 'Function set via function_set method'\n"
-                    args = {"code": test_code}
-
-                    name, response = await manager.function_set(args, mock_server)
-                    set_file = Path(temp_dir) / "set_test_function.py"
-
-                    if name == "set_test_function" and set_file.exists():
-                        print("✅ Test 8 PASSED: Function was successfully set")
-                        passed_tests += 1
-                    else:
-                        print("❌ Test 8 FAILED: Function was not set")
-                        print(f"Expected name: set_test_function, got: {name}")
-                        print(f"File exists: {set_file.exists()}")
-                        all_tests_passed = False
-                except Exception as e:
-                    print(f"❌ Test 8 FAILED with exception: {e}")
-                    all_tests_passed = False
+            except Exception as e:
+                print(f"❌ Test 8 FAILED with exception: {e}")
+                all_tests_passed = False
 
             # Print test summary
             print(f"\n🧪 DYNAMICFUNCTIONMANAGER SELF-TEST COMPLETE")

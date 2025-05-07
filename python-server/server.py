@@ -418,10 +418,9 @@ class DynamicAdditionServer(Server):
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "name": {"type": "string"},
-                        "config": {"type": "object", "description": "Server config JSON"}
+                        "name": {"type": "string"}
                     },
-                    "required": ["name", "config"]
+                    "required": ["name"]
                 }
             ),
             Tool(
@@ -1029,11 +1028,11 @@ class DynamicAdditionServer(Server):
                 result_raw = await self.server_manager.server_get(svc_name)
             elif name == "_server_add":
                 svc_name = args.get("name")
-                config = args.get("config")
-                if not svc_name or not isinstance(config, dict):
-                    raise ValueError("Missing or invalid parameters: 'name' must be str and 'config' must be dict")
+                if not svc_name:
+                    raise ValueError("Missing required parameter: 'name' must be a string")
                 logger.debug(f"---> Calling built-in: server_add for '{svc_name}'")
-                success = await self.server_manager.server_add(svc_name, config)
+                # Now server_add only requires the name parameter and creates a template
+                success = await self.server_manager.server_add(svc_name)
                 if success:
                     result_raw = [TextContent(type="text", text=f"Server '{svc_name}' added successfully.")]
                 else:

@@ -134,18 +134,41 @@ class DynamicServerManager:
 
     # --- 2. Config CRUD Methods ---
 
-    async def server_add(self, name: str, config: Dict[str, Any]) -> bool:
+    async def server_add(self, name: str) -> bool:
         """
-        Adds a new server config. Returns False if it already exists.
+        Adds a new server config with template settings. Returns False if it already exists.
+        
+        Args:
+            name: The name for the new server configuration
+            
+        Returns:
+            bool: True if server was successfully added, False if it already exists
         """
         # Check if server already exists
         existing = await self._fs_load_server(name)
         if existing is not None:
             logger.warning(f"⚠️ Server '{name}' already exists, not adding.")
             return False
-
-        # Save the new config
-        result = await self._fs_save_server(name, config)
+            
+        # Create a template config based on openweather example
+        template_config = {
+            "mcpServers": {
+                name: {
+                    "command": "uvx",  # Default command, can be edited later
+                    "args": [
+                        "--from",
+                        "atlantis-mcp-template",  # Placeholder package name
+                        f"start-{name}-server",  # Create standard start command based on name
+                        "--api-key",
+                        "<your api key here>"  # Placeholder for API key
+                    ]
+                }
+            }
+        }
+        
+        # Save the new template config
+        logger.info(f"🆕 Creating new server config template for '{name}'")
+        result = await self._fs_save_server(name, template_config)
         return result is not None
 
     async def server_remove(self, name: str) -> bool:
@@ -933,19 +956,14 @@ class DynamicServerManager:
                 print(f"Got: {loaded_config}")
                 all_tests_passed = False
 
-            # Test 3: server_add method
+            # Test 3: server_add method (now creates template config automatically)
             total_tests += 1
             print("\n🧪 TEST 3: Testing server_add method...")
             new_server_name = "new_test_server"
-            new_server_config = {
-                "command": "python -m http.server",
-                "args": ["9999"],
-                "cwd": "/tmp/test",
-                "env": {"DEBUG": "0"}
-            }
-
+            
             try:
-                result = await manager.server_add(new_server_name, new_server_config)
+                # Test that server_add works with just the name parameter now
+                result = await manager.server_add(new_server_name)
                 new_file = Path(servers_dir) / f"{new_server_name}.json"
 
                 if result and new_file.exists():
@@ -1070,6 +1088,24 @@ class DynamicServerManager:
                 # Create mock server for notifications
                 mock_server = MockServer()
 
+                # Test adding a new server
+                new_server_name = "test_server"
+                result = await manager.server_add(new_server_name)
+                
+                # Now let's check if the template was created and override it with our test config
+                if result:
+                    # For testing, we want a simpler config with echo command
+                    test_server_config = {
+                        "mcpServers": {
+                            new_server_name: {
+                                "command": "echo",
+                                "args": ["Hello, MCP World!"]
+                            }
+                        }
+                    }
+                    # Override the template with our test config
+                    await manager._fs_save_server(new_server_name, test_server_config)
+
                 # Test config to set via server_set
                 cat_server_name = "cat_server"
                 cat_config = {
@@ -1082,7 +1118,6 @@ class DynamicServerManager:
                     }
                 }
 
-                # Test server_set
                 set_args = {"config": cat_config}
                 name, response = await manager.server_set(set_args, mock_server)
 

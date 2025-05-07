@@ -137,10 +137,10 @@ class DynamicServerManager:
     async def server_add(self, name: str) -> bool:
         """
         Adds a new server config with template settings. Returns False if it already exists.
-        
+
         Args:
             name: The name for the new server configuration
-            
+
         Returns:
             bool: True if server was successfully added, False if it already exists
         """
@@ -149,7 +149,7 @@ class DynamicServerManager:
         if existing is not None:
             logger.warning(f"⚠️ Server '{name}' already exists, not adding.")
             return False
-            
+
         # Create a template config based on openweather example
         template_config = {
             "mcpServers": {
@@ -165,7 +165,7 @@ class DynamicServerManager:
                 }
             }
         }
-        
+
         # Save the new template config
         logger.info(f"🆕 Creating new server config template for '{name}'")
         result = await self._fs_save_server(name, template_config)
@@ -217,10 +217,10 @@ class DynamicServerManager:
     async def server_get(self, name: str) -> Optional[Dict[str, Any]]:
         """
         Returns the server config dict or None if not found or invalid.
-        
+
         Args:
             name: The name of the server to get config for
-        
+
         Returns:
             Dict with server config or None if not found or invalid
         """
@@ -402,22 +402,22 @@ class DynamicServerManager:
             if 'task' not in task_info or task_info['task'].done():
                 logger.debug(f"Server '{name}' skipped: task missing or done")
                 continue
-                
+
             # Check for active session that's properly connected
             session = task_info.get('session')
             if session is None:
                 logger.debug(f"Server '{name}' skipped: no session available")
                 continue
-                
+
             # If we have a session, make sure it's connected
             if not hasattr(session, 'connected') or not session.connected:
                 logger.debug(f"Server '{name}' skipped: session not connected")
                 continue
-                
+
             # This server passes all checks and is truly running
             logger.debug(f"Server '{name}' IS running: active task and connected session")
             running_servers.append(name)
-            
+
         return running_servers
 
     async def server_set(self, args: Dict[str, Any], server) -> Tuple[Optional[str], List[TextContent]]:
@@ -589,6 +589,10 @@ class DynamicServerManager:
         session = None  # Define session here to ensure it's accessible in finally block if needed
         try:
             logger.debug(f"[{name}] Attempting stdio_client connection with params: {params}")
+            # Simply initialize an empty output buffer
+            if name in self.active_server_tasks:
+                self.active_server_tasks[name]['output_buffer'] = []
+
             async with stdio_client(params) as (reader, writer):
                 logger.debug(f"[{name}] Stdio connection established. Creating ClientSession...")
                 # Create the session object without using context manager so we can keep it alive
@@ -598,7 +602,7 @@ class DynamicServerManager:
                 try:
                     # Initialize the session
                     logger.debug(f"[{name}] ClientSession created. Initializing session...")
-                    await asyncio.wait_for(session.initialize(), timeout=30.0)  # Increased timeout for reliable init
+                    await asyncio.wait_for(session.initialize(), timeout=5.0)  # Increased timeout for reliable init
                     logger.info(f"[{name}] MCP Session initialized successfully.")
 
                     # Update active_server_tasks *after* successful initialization
@@ -666,8 +670,35 @@ class DynamicServerManager:
                             # We'll loop and check again
                             pass
                         except Exception as e:
-                            logger.error(f"[{name}] Error during session monitoring: {e}")
-                            # Break the loop if we encounter unexpected errors
+                            # When we get any error in the session loop, capture it thoroughly
+                            error_message = str(e)
+                            
+                            # Detect package dependency errors in the error message
+                            if "No solution found" in error_message or "not found in the package registry" in error_message:
+                                key_error = f"Package dependency error: {error_message.strip()}"
+                                logger.error(f"[{name}] 📦 PACKAGE ERROR DETECTED: {key_error}")
+                            else:
+                                key_error = f"Startup error: {error_message.strip()}"
+                                logger.error(f"[{name}] 🚫 STARTUP ERROR: {key_error}")
+                            
+                            # Save the error message in BOTH places for display in tools list
+                            # This is the key - we must update both to ensure visibility
+                            if name in self.active_server_tasks:
+                                self.active_server_tasks[name]['status'] = 'failed'
+                                self.active_server_tasks[name]['error'] = key_error
+                            # Always update the persistent error storage
+                            self._server_load_errors[name] = key_error
+                            
+                            # Debug log the full error
+                            if isinstance(e, BaseExceptionGroup):
+                                logger.error(f"[{name}] Error details:", exc_info=True)
+                                
+                            # Close the session if it exists
+                            if session is not None:
+                                try:
+                                    await asyncio.wait_for(session.close(), timeout=5.0)
+                                except Exception as close_err:
+                                    logger.debug(f"[{name}] Error closing session during cleanup: {close_err}")
                             break
 
                     logger.info(f"[{name}] Shutdown event received. Cleaning up session...")
@@ -681,8 +712,27 @@ class DynamicServerManager:
                             logger.warning(f"[{name}] Error closing session: {e}")
 
                 except asyncio.TimeoutError as timeout_err:
-                    error_msg = f"Timeout occurred during session initialization (30s limit exceeded)"
+                    # Directly check for the uvx error - this is a common pattern in our server
+                    common_errors = [
+                        "No solution found when resolving tool dependencies",
+                        "not found in the package registry",
+                        "requirements are unsatisfiable"  
+                    ]
+                    
+                    # Generic error message to start
+                    error_msg = "Timeout occurred during session initialization"
+                    
+                    # Look for common package dependency errors in logs
+                    for line in self.active_server_tasks.get(name, {}).get('output_buffer', []):
+                        for err_pattern in common_errors:
+                            if err_pattern in line:
+                                # Found a more specific error message to use!
+                                error_msg = f"Package dependency error: {line.strip()}"
+                                logger.info(f"📦 [ERROR] Found package dependency error: {line}")
+                                break
+                    
                     logger.error(f"[{name}] {error_msg}")
+
                     if name in self.active_server_tasks:
                         # Mark server as failed
                         self.active_server_tasks[name]['status'] = 'failed'
@@ -694,17 +744,17 @@ class DynamicServerManager:
                         self.active_server_tasks[name]['error'] = error_msg
                         # Add to server load errors so it shows in tools list
                         self._server_load_errors[name] = error_msg
-                        
+
                         # Optional: Remove zombie tasks after a short delay to allow error inspection
                         async def _delayed_cleanup(server_name):
                             await asyncio.sleep(120)  # Keep failed entry for 2 minutes for diagnostics
                             if server_name in self.active_server_tasks and self.active_server_tasks[server_name].get('status') == 'failed':
                                 logger.info(f"[{server_name}] Removing failed server from active_server_tasks after delay")
                                 self.active_server_tasks.pop(server_name, None)
-                        
+
                         # Schedule cleanup
                         asyncio.create_task(_delayed_cleanup(name))
-                    
+
                     # Close session if it exists but failed to initialize
                     if session is not None:
                         try:
@@ -715,27 +765,27 @@ class DynamicServerManager:
                     # Capture any other initialization error
                     error_msg = f"Failed to initialize server: {str(e)}"
                     logger.error(f"[{name}] {error_msg}")
-                    
+
                     if name in self.active_server_tasks:
                         # Mark server as failed and save detailed error
                         self.active_server_tasks[name]['status'] = 'failed'
                         self.active_server_tasks[name]['error'] = error_msg
                         # Add to server load errors so it shows in tools list
                         self._server_load_errors[name] = error_msg
-                        
+
                         # Unblock any waiters
                         if 'ready_event' in self.active_server_tasks[name]:
                             self.active_server_tasks[name]['ready_event'].set()
-                        
+
                         # Schedule delayed cleanup
                         async def _delayed_cleanup(server_name):
-                            await asyncio.sleep(120)  # Keep failed entry for 2 minutes 
+                            await asyncio.sleep(120)  # Keep failed entry for 2 minutes
                             if server_name in self.active_server_tasks and self.active_server_tasks[server_name].get('status') == 'failed':
                                 logger.info(f"[{server_name}] Removing failed server from active_server_tasks after delay")
                                 self.active_server_tasks.pop(server_name, None)
-                        
+
                         asyncio.create_task(_delayed_cleanup(name))
-                    
+
                     # Close session if it exists but failed to initialize
                     if session is not None:
                         try:
@@ -871,28 +921,27 @@ class DynamicServerManager:
         shutdown_event = asyncio.Event()
         ready_event = asyncio.Event()  # Create the ready event
 
-        # Create the task first
+        # Start the MCP client session as an async task
+        logger.debug(f"---> _add_server_task: Starting MCP client session for '{name}'")
         task = asyncio.create_task(self._run_mcp_client_session(name, params, shutdown_event))
-
-        # Now store the complete task info in one step
-        self.active_server_tasks[name] = {
+        task_info = {
             'task': task,
             'config': full_config,
             'shutdown_event': shutdown_event,
-            'session': None,  # Initialize session as None
             'ready_event': ready_event,
-            'status': 'starting'
+            'session': None,  # Will be populated once initialized
+            'status': 'starting',  # Track status: starting -> running or failed
+            'added_at': datetime.datetime.now(datetime.timezone.utc),
+            'output_buffer': [],  # Store stdout/stderr from the process
+            'error_buffer': []    # Store specific error messages
         }
-
-        # Record start time
-        self.server_start_times[name] = datetime.datetime.now()
-
         logger.info(f"MCP server '{name}' started")
         logger.debug(f"▶️ server_start: Task info recorded for '{name}'. Start time will be added upon session init.")
 
         # Return success
         return [TextContent(type='text', text=f"MCP service '{name}' started.")]
 
+# ... (rest of the code remains the same)
     async def server_stop(self, args: Dict[str, Any], server) -> List[TextContent]:
         """
         MCP handler to stop a managed MCP server process task.
@@ -1044,7 +1093,7 @@ class DynamicServerManager:
             total_tests += 1
             print("\n🧪 TEST 3: Testing server_add method...")
             new_server_name = "new_test_server"
-            
+
             try:
                 # Test that server_add works with just the name parameter now
                 result = await manager.server_add(new_server_name)
@@ -1175,7 +1224,7 @@ class DynamicServerManager:
                 # Test adding a new server
                 new_server_name = "test_server"
                 result = await manager.server_add(new_server_name)
-                
+
                 # Now let's check if the template was created and override it with our test config
                 if result:
                     # For testing, we want a simpler config with echo command

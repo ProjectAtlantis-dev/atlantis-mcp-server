@@ -627,7 +627,13 @@ class DynamicAdditionServer(Server):
                 servers_found.append(server_name)
                 # First identify running vs. non-running servers using proper accessor
                 is_running = await self.server_manager.is_server_running(server_name)
-                status = "running" if is_running else "stopped" # Determine initial status
+
+                # Check if server is in failed state in active_server_tasks
+                task_info = self.server_manager.active_server_tasks.get(server_name, {})
+                if task_info and task_info.get('status') == 'failed':
+                    status = "failed"  # Mark explicitly as failed
+                else:
+                    status = "running" if is_running else "stopped" # Normal running/stopped state
 
                 # --- AUTO-START LOGIC --- #
                 '''
@@ -723,17 +729,67 @@ class DynamicAdditionServer(Server):
                             logger.debug(f"📚 Found historical started_at timestamp for '{server_name}': {past_time}")
                             annotations["started_at"] = past_time.isoformat()
 
-                    # Add any load errors
+                        # Always check ALL error sources thoroughly
                     error_msg = None
-                    if server_name in self.server_manager._server_load_errors:
-                        error_msg = self.server_manager._server_load_errors[server_name]
-                        annotations["loadError"] = error_msg
-                        
-                    # Check active_server_tasks for any errors in failed servers
                     task_info = self.server_manager.active_server_tasks.get(server_name, {})
-                    if task_info and task_info.get('status') == 'failed' and 'error' in task_info:
+                    
+                    # STEP 1: Log ALL possible error sources
+                    logger.info(f"🔍 SERVER STATUS CHECK FOR '{server_name}':")
+                    logger.info(f"  - Current status: {status}")
+                    logger.info(f"  - Task info available: {task_info is not None}")
+                    logger.info(f"  - Has error in task_info: {'error' in task_info if task_info else False}")
+                    logger.info(f"  - Error in _server_load_errors: {server_name in self.server_manager._server_load_errors}")
+                    
+                    # STEP 2: Always show the full error contents from both sources
+                    if task_info and 'error' in task_info:
+                        task_error = task_info['error']
+                        logger.info(f"  - TASK ERROR: {task_error}")
+                    
+                    if server_name in self.server_manager._server_load_errors:
+                        load_error = self.server_manager._server_load_errors[server_name]
+                        logger.info(f"  - LOAD ERROR: {load_error}")
+
+                    # STEP 3: Check for failures 
+                    # First from failed task status
+                    if status == 'failed' or (task_info and task_info.get('status') == 'failed'):
+                        logger.info(f"🚨 Server '{server_name}' has FAILED status")
+                        # Update status to reflect the failure
+                        status = "failed"
+                        annotations["runningStatus"] = "failed"
+                        
+                        # Get error from task_info first (most accurate)
+                        if task_info and 'error' in task_info:
+                            error_msg = task_info['error']
+                            logger.info(f"🚨 Using error from task_info: {error_msg}")
+                        # Fall back to _server_load_errors
+                        elif server_name in self.server_manager._server_load_errors:
+                            error_msg = self.server_manager._server_load_errors[server_name]
+                            logger.info(f"🚨 Using error from _server_load_errors: {error_msg}")
+                        # Last resort generic error
+                        else:
+                            error_msg = "Server failed to initialize (unknown error)"
+                            logger.info(f"⚠️ Using generic error: {error_msg}")
+                    
+                    # Even for non-failed servers, check for errors
+                    elif server_name in self.server_manager._server_load_errors:
+                        error_msg = self.server_manager._server_load_errors[server_name] 
+                        logger.info(f"🚨 Found error for '{server_name}' in load errors: {error_msg}")
+                        # If we found an error but status isn't failed, update it
+                        status = "failed"
+                        annotations["runningStatus"] = "failed"
+                    elif task_info and 'error' in task_info:
                         error_msg = task_info['error']
+                        logger.info(f"🚨 Found error for '{server_name}' in task info: {error_msg}")
+                        # If we found an error but status isn't failed, update it
+                        status = "failed" 
+                        annotations["runningStatus"] = "failed"
+
+                    # Add error info to annotations if found
+                    if error_msg:
+                        logger.info(f"📣 Final error for '{server_name}': {error_msg}")
+                        # Add to both error fields for maximum visibility
                         annotations["loadError"] = error_msg
+                        annotations["error"] = error_msg
 
                     # Simplified logging that only uses defined variables
                     if task_info:
@@ -745,7 +801,7 @@ class DynamicAdditionServer(Server):
                     description = f"MCP server: {server_name}"
                     if error_msg:
                         description += f" (ERROR: {error_msg})"
-                        
+
                     server_tool = Tool(
                         name=server_name,
                         description=description,

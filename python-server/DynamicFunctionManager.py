@@ -384,17 +384,17 @@ class DynamicFunctionManager:
 
 
     def _code_validate_syntax(self, code_buffer):
-    """
-    Validates syntax using ast.parse and extracts info about the *first* function definition found.
+        """
+        Validates syntax using ast.parse and extracts info about the *first* function definition found.
 
-    Returns:
-        tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
-        - is_valid (bool): True if syntax is correct.
-        - error_message (Optional[str]): Error details if invalid, None otherwise.
-        - function_info (Optional[Dict[str, Any]]):
-            Dict with 'name', 'description', 'inputSchema' if valid and a function is found,
-            None otherwise.
-    """
+        Returns:
+            tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
+            - is_valid (bool): True if syntax is correct.
+            - error_message (Optional[str]): Error details if invalid, None otherwise.
+            - function_info (Optional[Dict[str, Any]]):
+                Dict with 'name', 'description', 'inputSchema' if valid and a function is found,
+                None otherwise.
+        """
     if not code_buffer or not isinstance(code_buffer, str):
         return False, "Empty or invalid code buffer", None
 
@@ -897,13 +897,13 @@ if __name__ == "__main__":
     import sys
     import time
     from pathlib import Path
-    
+
     class MockServer:
         def __init__(self):
             self._cached_tools = {}
             self._last_functions_dir_mtime = None
             self._last_servers_dir_mtime = None
-            
+
     class MockLogger:
         def debug(self, msg):
             print(f"[DEBUG] {msg}")
@@ -913,11 +913,11 @@ if __name__ == "__main__":
             print(f"[WARNING] {msg}")
         def error(self, msg):
             print(f"[ERROR] {msg}")
-    
+
     # Replace the actual logger with our mock for testing
     # Backup the original values
     original_logger = logger if 'logger' in globals() else None
-    
+
     # Setup utilities for testing
     async def run_tests():
         try:
@@ -925,36 +925,36 @@ if __name__ == "__main__":
             all_tests_passed = True
             total_tests = 0
             passed_tests = 0
-            
+
             # Create a temporary directory for testing
             with tempfile.TemporaryDirectory() as temp_dir:
                 print(f"\n📁 Using temporary directory: {temp_dir}")
-                
+
                 # Set up the manager
                 globals()['logger'] = MockLogger()
                 manager = DynamicFunctionManager(temp_dir)
-                
+
                 # Test 1: _fs_save_code method
                 total_tests += 1
                 test_name = "test_function"
                 test_code = "def test_function():\n    return 'Hello, world!'\n"
-                
+
                 print("\n🧪 TEST 1: Testing _fs_save_code method...")
                 file_path = await manager._fs_save_code(test_name, test_code)
                 saved_file = Path(temp_dir) / f"{test_name}.py"
-                
+
                 if file_path and saved_file.exists():
                     print("✅ Test 1 PASSED: File was successfully saved")
                     passed_tests += 1
                 else:
                     print("❌ Test 1 FAILED: File was not saved")
                     all_tests_passed = False
-                
+
                 # Test 2: _fs_load_code method
                 total_tests += 1
                 print("\n🧪 TEST 2: Testing _fs_load_code method...")
                 loaded_code = await manager._fs_load_code(test_name)
-                
+
                 if loaded_code == test_code:
                     print("✅ Test 2 PASSED: Loaded code matches the saved code")
                     passed_tests += 1
@@ -963,19 +963,19 @@ if __name__ == "__main__":
                     print(f"Expected: {test_code}")
                     print(f"Got: {loaded_code}")
                     all_tests_passed = False
-                
+
                 # Test 3: _code_extract_basic_metadata method
                 total_tests += 1
                 print("\n🧪 TEST 3: Testing _code_extract_basic_metadata method...")
                 test_code_with_docstring = """def test_function_with_docstring():
-                    """
+                    \"\"\"
                     This is a test function with a docstring.
-                    """
+                    \"\"\"
                     return 'Hello, docstring!'
                 """
-                
+
                 metadata = manager._code_extract_basic_metadata(test_code_with_docstring)
-                
+
                 if metadata.get('name') == "test_function_with_docstring" and \
                    metadata.get('description') and "test function with a docstring" in metadata.get('description'):
                     print("✅ Test 3 PASSED: Metadata extraction works correctly")
@@ -985,12 +985,12 @@ if __name__ == "__main__":
                     print(f"Expected name: test_function_with_docstring, got: {metadata.get('name')}")
                     print(f"Expected description to contain 'test function with a docstring', got: {metadata.get('description')}")
                     all_tests_passed = False
-                
+
                 # Test 4: _code_validate_syntax method (valid code)
                 total_tests += 1
                 print("\n🧪 TEST 4: Testing _code_validate_syntax method with valid code...")
                 is_valid, error_message, function_info = manager._code_validate_syntax(test_code_with_docstring)
-                
+
                 if is_valid and error_message is None and function_info and function_info.get('name') == "test_function_with_docstring":
                     print("✅ Test 4 PASSED: Valid code validation works correctly")
                     passed_tests += 1
@@ -1000,15 +1000,15 @@ if __name__ == "__main__":
                     print(f"Expected error_message: None, got: {error_message}")
                     print(f"Expected function_info.name: test_function_with_docstring, got: {function_info.get('name') if function_info else None}")
                     all_tests_passed = False
-                
+
                 # Test 5: _code_validate_syntax method (invalid code)
                 total_tests += 1
                 print("\n🧪 TEST 5: Testing _code_validate_syntax method with invalid code...")
                 invalid_code = "def invalid_function(:\n    return 'This code has a syntax error'\n"
-                
+
                 try:
                     is_valid, error_message, function_info = manager._code_validate_syntax(invalid_code)
-                    
+
                     if not is_valid and error_message is not None and function_info is None:
                         print("✅ Test 5 PASSED: Invalid code validation works correctly")
                         passed_tests += 1
@@ -1021,16 +1021,16 @@ if __name__ == "__main__":
                 except Exception as e:
                     print(f"❌ Test 5 FAILED with exception: {e}")
                     all_tests_passed = False
-                
+
                 # Test 6: function_add method
                 total_tests += 1
                 print("\n🧪 TEST 6: Testing function_add method...")
                 new_function_name = "new_test_function"
-                
+
                 try:
                     result = await manager.function_add(new_function_name)
                     new_file = Path(temp_dir) / f"{new_function_name}.py"
-                    
+
                     if result and new_file.exists():
                         print("✅ Test 6 PASSED: Function was successfully added")
                         passed_tests += 1
@@ -1040,14 +1040,14 @@ if __name__ == "__main__":
                 except Exception as e:
                     print(f"❌ Test 6 FAILED with exception: {e}")
                     all_tests_passed = False
-                
+
                 # Test 7: function_remove method
                 total_tests += 1
                 print("\n🧪 TEST 7: Testing function_remove method...")
                 try:
                     result = await manager.function_remove(new_function_name)
                     new_file = Path(temp_dir) / f"{new_function_name}.py"
-                    
+
                     if result and not new_file.exists():
                         print("✅ Test 7 PASSED: Function was successfully removed")
                         passed_tests += 1
@@ -1057,7 +1057,7 @@ if __name__ == "__main__":
                 except Exception as e:
                     print(f"❌ Test 7 FAILED with exception: {e}")
                     all_tests_passed = False
-                
+
                 # Test 8: function_set method
                 total_tests += 1
                 print("\n🧪 TEST 8: Testing function_set method...")
@@ -1065,10 +1065,10 @@ if __name__ == "__main__":
                     mock_server = MockServer()
                     test_code = "def set_test_function():\n    return 'Function set via function_set method'\n"
                     args = {"code": test_code}
-                    
+
                     name, response = await manager.function_set(args, mock_server)
                     set_file = Path(temp_dir) / "set_test_function.py"
-                    
+
                     if name == "set_test_function" and set_file.exists():
                         print("✅ Test 8 PASSED: Function was successfully set")
                         passed_tests += 1
@@ -1080,23 +1080,23 @@ if __name__ == "__main__":
                 except Exception as e:
                     print(f"❌ Test 8 FAILED with exception: {e}")
                     all_tests_passed = False
-            
+
             # Print test summary
             print(f"\n🧪 DYNAMICFUNCTIONMANAGER SELF-TEST COMPLETE")
             print(f"Tests passed: {passed_tests}/{total_tests} ({passed_tests/total_tests*100:.1f}%)")
-            
+
             if all_tests_passed:
                 print("\n✅ ALL TESTS PASSED! DynamicFunctionManager is working correctly.")
                 return True
             else:
                 print("\n❌ SOME TESTS FAILED. See above for details.")
                 return False
-                
+
         finally:
             # Restore the original logger
             if original_logger:
                 globals()['logger'] = original_logger
-    
+
     # Run the tests
     try:
         # Check if running in async environment

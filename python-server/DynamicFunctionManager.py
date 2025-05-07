@@ -4,48 +4,47 @@ Class-based manager for dynamic functions lifecycle and validation.
 Implements creating, updating, removing, and validating function code.
 """
 
-
 import os
-import importlib.util
-import datetime
-import traceback
-import shutil # Using shutil for potentially more robust file operations
-from typing import Optional, Any, Dict, Union, Tuple
-from werkzeug.utils import secure_filename
-from state import logger, FUNCTIONS_DIR, CYAN, RESET # Import FUNCTIONS_DIR, CYAN, and RESET
-import utils # Import our utility module for dynamic functions
-import logging
+import sys
+import re
+import ast
 import json
+import shutil
+import asyncio
 import inspect
-import importlib
-import importlib.util
-import re
-import ast
-import functools
-import datetime
-from typing import Any, Callable, Dict, List, Optional, Union
-from werkzeug.utils import secure_filename
-from mcp.types import Tool, TextContent, CallToolResult, ToolListChangedNotification, NotificationParams, Annotations
-import sys # <<< ADDED IMPORT SYS HERE >>>
-import asyncio # Import asyncio for Lock
-from typing import Dict, Any, Optional # Added Optional
-
-# Import shared state
-from state import logger, FUNCTIONS_DIR
-
-import re
-import ast
 import logging
-from typing import Optional, Dict
-from werkzeug.utils import secure_filename
-from state import FUNCTIONS_DIR, logger # Assuming logger and FUNCTIONS_DIR are defined/imported earlier
+import importlib
+import traceback
+import datetime
+import functools
 
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+
+from werkzeug.utils import secure_filename
+
+from state import logger, CYAN, RESET
+
+
+from mcp.types import (
+    Tool,
+    TextContent,
+    CallToolResult,
+    ToolListChangedNotification,
+    NotificationParams,
+    Annotations,
+)
+
+import utils  # Utility module for dynamic functions
+
+
+# Directory to store dynamic function files
+FUNCTIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dynamic_functions")
 
 
 class DynamicFunctionManager:
     def __init__(self, functions_dir):
         # State that was previously global
-        self.functions_dir = functions_dir
+        self.functions_dir = FUNCTIONS_DIR
         self._runtime_errors = {}
         self._dynamic_functions_cache = {}
         self._dynamic_load_lock = asyncio.Lock()
@@ -566,62 +565,66 @@ class DynamicFunctionManager:
 
     async def function_remove(self, name: str) -> bool:
         '''
-        Removes a function file by moving it to the OLD subdirectory.
+        Removes a function file by moving it to the OLD subdirectory (relative to self.functions_dir).
         Returns True on success, False if the function doesn't exist or on error.
         '''
         secure_name = utils.clean_filename(name)
         if not secure_name:
             logger.error(f"Remove failed: Invalid function name '{name}'")
             return False
-        file_path = os.path.join(FUNCTIONS_DIR, f"{secure_name}.py")
+
+        file_path = os.path.join(self.functions_dir, f"{secure_name}.py") # Use self.functions_dir
+        # self.old_dir is already correctly initialized in __init__ based on self.functions_dir
+        old_file_path = os.path.join(self.old_dir, f"{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{secure_name}.py")
+
 
         if not os.path.exists(file_path):
-            logger.warning(f"Remove failed: Function '{secure_name}' does not exist.")
+            logger.warning(f"⚠️ function_remove: File not found for '{secure_name}' at {file_path}")
             return False
-
         try:
-            # First, clear any potential old runtime error cache for this name
-            self._runtime_errors.pop(name, None)
+            # Ensure the OLD directory exists (it should be created by __init__)
+            os.makedirs(self.old_dir, exist_ok=True)
 
-            # Move to OLD directory
-            timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S%f")
-            backup_path = os.path.join(OLD_DIR, f"{secure_name}_{timestamp}.py.bak")
-            shutil.move(file_path, backup_path)
-            logger.info(f"Function '{secure_name}' removed (moved to '{backup_path}')")
-            # Remove corresponding log file if it exists
-            log_path = os.path.join(FUNCTIONS_DIR, f"{secure_name}.log")
-            if os.path.exists(log_path):
+            shutil.move(file_path, old_file_path)
+            logger.info(f"🗑️ Function '{secure_name}' removed. Moved from {file_path} to {old_file_path}")
+            await self.invalidate_all_dynamic_module_cache() # Invalidate cache
+
+            log_file_path = os.path.join(self.functions_dir, f"{secure_name}.log") # Use self.functions_dir for log
+            if os.path.exists(log_file_path):
                 try:
-                    os.remove(log_path)
-                    logger.info(f"Removed log file for '{secure_name}' at {log_path}")
-                except Exception as e:
-                    logger.error(f"Failed to remove log file for '{secure_name}': {e}")
-
+                    os.remove(log_file_path)
+                    logger.debug(f"🗑️ Removed log file {log_file_path}")
+                except OSError as e:
+                    logger.warning(f"⚠️ Could not remove log file {log_file_path}: {e}")
             return True
         except Exception as e:
-            logger.error(f"Error during function removal for '{secure_name}': {e}")
+            logger.error(f"❌ function_remove: Failed to remove function '{secure_name}': {e}")
             logger.debug(traceback.format_exc())
+            await self._write_error_log(secure_name, f"Failed to remove: {e}") # Use self._write_error_log
             return False
 
-    def _write_error_log(self, name: str, error_message: str) -> None:
+    async def _write_error_log(self, name: str, error_message: str) -> None: # Made it async to match caller, added self
         '''
         Write an error message to a function-specific log file in the dynamic_functions folder.
         Overwrites any existing log to only keep the latest error.
         Creates a log file named {name}.log with timestamp.
         '''
+        secure_name = utils.clean_filename(name)
+        if not secure_name:
+            logger.error("Cannot write error log: invalid function name provided.")
+            return
+
+        log_file_path = os.path.join(self.functions_dir, f"{secure_name}.log") # Use self.functions_dir
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_content = f"[{timestamp}] ERROR: {error_message}\n"
+
         try:
-            secure_name = utils.clean_filename(name)
-            log_path = os.path.join(FUNCTIONS_DIR, f"{secure_name}.log")
-            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-            # Open in write mode to overwrite previous content
-            with open(log_path, 'w') as log_file:
-                log_file.write(f"{timestamp} [ERROR] {error_message}\n")
-
-            logger.debug(f"Wrote error log for '{secure_name}' at {log_path}")
+            with open(log_file_path, 'w', encoding='utf-8') as f:
+                f.write(log_content)
+            logger.debug(f"Wrote error log to {log_file_path}")
         except Exception as e:
             # Don't let logging errors disrupt the main flow
-            logger.error(f"Failed to write error log for '{name}': {e}")
+            logger.error(f"Failed to write error log for '{secure_name}': {e}")
 
     async def function_call(self, name: str, client_id: str, request_id: str, **kwargs) -> Any:
         '''

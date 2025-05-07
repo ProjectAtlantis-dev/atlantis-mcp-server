@@ -38,13 +38,12 @@ import utils  # Utility module for dynamic functions
 
 
 # Directory to store dynamic function files
-FUNCTIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dynamic_functions")
 PARENT_PACKAGE_NAME = "dynamic_functions"
 
 class DynamicFunctionManager:
     def __init__(self, functions_dir):
         # State that was previously global
-        self.functions_dir = FUNCTIONS_DIR
+        self.functions_dir = functions_dir
         self._runtime_errors = {}
         self._dynamic_functions_cache = {}
         self._dynamic_load_lock = asyncio.Lock()
@@ -138,7 +137,7 @@ class DynamicFunctionManager:
             # First find the function definition
             fn_def_pattern = r'def\s+' + re.escape(metadata['name']) + r'\s*\(.*?\)\s*:\s*'
             fn_pos = re.search(fn_def_pattern, code_buffer, re.DOTALL)
-            
+
             docstring_match = None
             if fn_pos:
                 # Get the position right after the function signature
@@ -146,11 +145,11 @@ class DynamicFunctionManager:
                 # Look for the first docstring after the function signature
                 docstring_pattern = r'\s*"""(.*?)"""'
                 docstring_match = re.search(docstring_pattern, code_buffer[start_pos:], re.DOTALL)
-                
+
                 if docstring_match:
                     metadata['description'] = docstring_match.group(1).strip()
                     logger.debug(f"⚙️ Regex extracted description: {metadata['description'][:50]}...")
-            
+
             # If we couldn't find a docstring after function def, try fallback
             if not docstring_match or not metadata['description']:
                 # Fallback: Look for any triple-quoted string near the function definition
@@ -563,7 +562,7 @@ class DynamicFunctionManager:
         if not secure_name:
             logger.error(f"Create failed: Invalid function name '{name}'")
             return False
-        file_path = os.path.join(FUNCTIONS_DIR, f"{secure_name}.py")
+        file_path = os.path.join(self.functions_dir, f"{secure_name}.py")
 
         if os.path.exists(file_path):
             logger.warning(f"Create failed: Function '{secure_name}' already exists.")
@@ -658,7 +657,7 @@ class DynamicFunctionManager:
         if not secure_name:
             raise ValueError(f"Invalid function name '{name}' for calling.")
 
-        file_path = os.path.join(FUNCTIONS_DIR, f"{secure_name}.py")
+        file_path = os.path.join(self.function_dir, f"{secure_name}.py")
 
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Dynamic function '{secure_name}' not found at {file_path}")
@@ -983,6 +982,8 @@ if __name__ == "__main__":
             total_tests = 0
             passed_tests = 0
 
+            FUNCTIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dynamic_functions")
+
             # Use the actual FUNCTIONS_DIR for testing
             temp_dir = FUNCTIONS_DIR
             print(f"\n📁 Using functions directory: {temp_dir}")
@@ -1045,18 +1046,18 @@ if __name__ == "__main__":
             # Test 3.5: _fs_load_code and _code_extract_basic_metadata with externally edited file
             total_tests += 1
             print("\n🧪 TEST 3.5: Testing metadata extraction from externally edited file...")
-            
+
             # 1. Create a test function file first
             external_edit_func_name = "external_edit_test_function"
             initial_code = """def external_edit_test_function():
     \"\"\"Initial docstring.\"\"\"
     return 'Initial version'
 """
-            
+
             # Save the initial version using our manager
             await manager._fs_save_code(external_edit_func_name, initial_code)
             initial_file_path = Path(temp_dir) / f"{external_edit_func_name}.py"
-            
+
             if not initial_file_path.exists():
                 print("❌ Test 3.5 FAILED: Could not create initial test file")
                 all_tests_passed = False
@@ -1071,7 +1072,7 @@ if __name__ == "__main__":
                     # Write directly to the file, bypassing our manager functions
                     with open(initial_file_path, 'w', encoding='utf-8') as f:
                         f.write(updated_code)
-                    
+
                     # 3. Load the code using fs_load_code and extract metadata
                     loaded_code = await manager._fs_load_code(external_edit_func_name)
                     if loaded_code != updated_code:
@@ -1082,7 +1083,7 @@ if __name__ == "__main__":
                     else:
                         # Extract metadata from loaded code
                         ext_metadata = manager._code_extract_basic_metadata(loaded_code)
-                        
+
                         if ext_metadata.get('name') == "external_edit_test_function" and \
                            ext_metadata.get('description') and "modified by an external editor" in ext_metadata.get('description'):
                             print("✅ Test 3.5 PASSED: Successfully extracted metadata from externally edited file")
@@ -1212,14 +1213,14 @@ if __name__ == "__main__":
             else:
                 if 'logger' in globals(): # if mock was set but no original, remove it
                     del globals()['logger']
-            
+
             # Clean up leftover test files
             print("\n🧹 Cleaning up test files...")
             leftover_files = [
                 "test_function",            # From Test 1 & 2
                 "set_test_function"         # From Test 8
             ]
-            
+
             for test_file in leftover_files:
                 try:
                     if os.path.exists(os.path.join(FUNCTIONS_DIR, f"{test_file}.py")):
@@ -1227,7 +1228,7 @@ if __name__ == "__main__":
                         print(f"  Removed {test_file}.py")
                 except Exception as e:
                     print(f"  ⚠️ Could not remove {test_file}.py: {e}")
-            
+
             print("\n🏁 DYNAMICFUNCTIONMANAGER SELF-TEST COMPLETE 🏁")
             print(f"Passed {passed_tests}/{total_tests} tests.")
             if all_tests_passed:

@@ -1486,9 +1486,11 @@ class ServiceClient:
         async def connect(): # Ensure handler is async
             self.is_connected = True
             self.retry_count = 0  # Reset retry counter on successful connection
+            logger.info("") # Blank line before
             logger.info(f"{BOLD}{CYAN}=================================================={RESET}")
             logger.info(f"{BOLD}{BRIGHT_WHITE}🚀✨🎉 CONNECTED TO ATLANTIS CLOUD SERVER! 🎉✨🚀{RESET}")
             logger.info(f"{BOLD}{CYAN}=================================================={RESET}")
+            logger.info("") # Blank line after
 
             # --- ADDED: Register this connection with the MCP server ---
             cloud_sid = self.sio.sid if self.sio else 'unknown_sid' # Get Socket.IO session ID if available

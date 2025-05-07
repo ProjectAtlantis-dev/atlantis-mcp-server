@@ -80,7 +80,7 @@ from state import (
 )
 
 # Import dynamic function management utilities
-from dynamic_manager import (
+from dynamic_function_manager import (
     function_set,
     function_add,
     function_remove,
@@ -994,7 +994,7 @@ class DynamicAdditionServer(Server):
                     }
                     result_raw = [TextContent(type="text", text=error_message, annotations=error_annotations)]
                 else: # <-- ADD else block
-                    # Remove the function using dynamic_manager.function_remove (raise error on failure)
+                    # Remove the function using dynamic_function_manager.function_remove (raise error on failure)
                     removed = function_remove(func_name)
                     if removed:
                         try:
@@ -1025,7 +1025,7 @@ class DynamicAdditionServer(Server):
                     }
                     result_raw = [TextContent(type="text", text=error_message, annotations=error_annotations)]
                 else: # <-- ADD else block
-                    # Create empty function (stub) using dynamic_manager.function_add (raise error on failure)
+                    # Create empty function (stub) using dynamic_function_manager.function_add (raise error on failure)
                     added = function_add(func_name)
                     if added:
                         try:
@@ -1661,12 +1661,18 @@ class ServiceClient:
             return False
 
         try:
-            # Format data nicely if it's an mcp_response
-            #print_log_data = format_json_log(data)
-            log_data = str(data)
-            #logger.debug(f"☁️ SENDING MESSAGE: {event} - \n{log_data}") # Log formatted data on new line
-            logger.debug(f"☁️ SENDING MESSAGE: {event}") # Log formatted data on new line
-            await self.sio.emit(event, data, namespace=self.namespace)
+            # Special handling for client log notifications
+            if event == 'mcp_notification' and isinstance(data, dict) and data.get('method') == 'notifications/message':
+                # Use a specific event name for client logs that the cloud server expects
+                emit_event = 'client_log'
+                # Log with special marker to make it clear we're using the client_log event
+                logger.debug(f"☁️ SENDING CLIENT LOG: {emit_event}")
+            else:
+                emit_event = event
+                logger.debug(f"☁️ SENDING MESSAGE: {emit_event}")
+            
+            # Emit the event with the appropriate name
+            await self.sio.emit(emit_event, data, namespace=self.namespace)
 
             return True
         except Exception as e:

@@ -29,11 +29,11 @@ def client_log(message: str, level: str = "INFO"):
         entry_point_name = _entry_point_name_var.get() or "unknown_entry_point" # Get entry point from context
 
         try:
-            # --- Get immediate caller function name --- 
+            # --- Get immediate caller function name ---
             frame = inspect.currentframe()
             if frame and frame.f_back:
                 caller_name = frame.f_back.f_code.co_name
-            del frame 
+            del frame
         except Exception as inspect_err:
             print(f"WARNING: Could not inspect caller frame for client_log: {inspect_err}")
 
@@ -46,11 +46,11 @@ def client_log(message: str, level: str = "INFO"):
             # NOTE: log_func (utils.client_log) needs update to accept entry_point_name.
             log_func(
                 message,
-                level=level, 
-                seq_num=current_seq, 
+                level=level,
+                seq_num=current_seq,
                 logger_name=caller_name, # The immediate caller
                 entry_point_name=entry_point_name # The original function called
-            ) 
+            )
         except Exception as e:
             print(f"ERROR: Failed during client_log call (after inspect): {e}")
     else:
@@ -65,7 +65,7 @@ def get_client_id() -> Optional[str]:
     """Returns the client_id for the current context."""
     return _client_id_var.get()
 
-# --- Setter Functions (primarily for internal use by dynamic_manager) ---
+# --- Setter Functions (primarily for internal use by dynamic_function_manager) ---
 
 def set_context(client_log_func: Callable, request_id: str, client_id: str, entry_point_name: str):
     """Sets the context variables for the current execution scope.

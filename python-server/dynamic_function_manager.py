@@ -1,4 +1,4 @@
-# /Users/reinman/work/mcp/atlantis-vm/python-server/dynamic_manager.py
+# /Users/reinman/work/mcp/atlantis-vm/python-server/dynamic_function_manager.py
 """
 Manages the lifecycle and validation of dynamic functions.
 This includes creating, updating, removing, and validating function code.
@@ -45,10 +45,10 @@ _runtime_errors: Dict[str, str] = {}
 # Cache for validated function info (avoids repeated file reads/parsing)
 _dynamic_functions_cache: Dict[str, Dict[str, Any]] = {}
 
-# --- Module Reloading State --- 
+# --- Module Reloading State ---
 # Lock to protect access to sys.modules during dynamic function loading
 _dynamic_load_lock = asyncio.Lock()
-# --- End Module Reloading State --- 
+# --- End Module Reloading State ---
 
 # Define the parent package name
 PARENT_PACKAGE_NAME = "dynamic_functions"
@@ -57,13 +57,13 @@ async def invalidate_all_dynamic_module_cache():
     """Safely removes ALL dynamic function modules AND the parent package from sys.modules cache."""
     prefix_to_clear = f"{PARENT_PACKAGE_NAME}."
     async with _dynamic_load_lock:
-        # --- Invalidate importlib finder caches --- 
+        # --- Invalidate importlib finder caches ---
         logger.debug("Calling importlib.invalidate_caches()")
         importlib.invalidate_caches()
-        # --- End importlib cache invalidation --- 
+        # --- End importlib cache invalidation ---
 
         modules_to_remove = [
-            mod for mod in sys.modules 
+            mod for mod in sys.modules
             if mod == PARENT_PACKAGE_NAME or mod.startswith(prefix_to_clear) # Include parent package
         ]
         if modules_to_remove:
@@ -71,7 +71,7 @@ async def invalidate_all_dynamic_module_cache():
             for mod_name in modules_to_remove:
                 logger.debug(f"  Attempting to pop: {mod_name}")
                 # Use pop with default None to avoid KeyError if concurrently removed
-                popped_module = sys.modules.pop(mod_name, None) 
+                popped_module = sys.modules.pop(mod_name, None)
                 if popped_module:
                     logger.debug(f"    Successfully popped {mod_name}")
                 else:
@@ -652,15 +652,15 @@ async def function_call(name: str, client_id: str, request_id: str, **kwargs) ->
     module_name = f"{PARENT_PACKAGE_NAME}.{secure_name}"
     module = None # Define module outside the lock
 
-    # --- Clear ALL dynamic function child modules from cache FIRST --- 
+    # --- Clear ALL dynamic function child modules from cache FIRST ---
     # This acquires the lock internally, clears, and releases.
     await invalidate_all_dynamic_module_cache()
-    # --- End Cache Clear --- 
+    # --- End Cache Clear ---
 
-    # --- Acquire lock *only* for parent check and specific module loading --- 
+    # --- Acquire lock *only* for parent check and specific module loading ---
     async with _dynamic_load_lock:
         try:
-            # --- Ensure Parent Package Exists in sys.modules --- 
+            # --- Ensure Parent Package Exists in sys.modules ---
             if PARENT_PACKAGE_NAME not in sys.modules:
                 logger.info(f"Creating namespace package entry for '{PARENT_PACKAGE_NAME}' in sys.modules")
                 parent_module = importlib.util.module_from_spec(
@@ -671,9 +671,9 @@ async def function_call(name: str, client_id: str, request_id: str, **kwargs) ->
             # --- End Parent Package Check ---
 
             # Clear any previous runtime error for this function before attempting load
-            _runtime_errors.pop(name, None) 
+            _runtime_errors.pop(name, None)
 
-            # --- Load the requested module fresh --- 
+            # --- Load the requested module fresh ---
             # Check sys.modules again *inside the lock* in case the watcher re-added it
             # between the invalidate call above and acquiring this lock.
             # Although invalidate_all should have removed it, this is belt-and-suspenders.
@@ -697,7 +697,7 @@ async def function_call(name: str, client_id: str, request_id: str, **kwargs) ->
                 logger.debug(traceback.format_exc())
                 _runtime_errors[name] = str(load_err)
                 raise ImportError(error_message) from load_err
-            # --- End Load --- 
+            # --- End Load ---
 
         except Exception as lock_section_err:
             logger.error(f"Unexpected error during locked module handling for {name}: {lock_section_err}")
@@ -705,7 +705,7 @@ async def function_call(name: str, client_id: str, request_id: str, **kwargs) ->
             _runtime_errors[name] = str(lock_section_err)
             raise
 
-    # --- Lock is released here --- 
+    # --- Lock is released here ---
 
     # Check if module was loaded successfully inside the lock
     if module is None:
@@ -713,7 +713,7 @@ async def function_call(name: str, client_id: str, request_id: str, **kwargs) ->
         raise RuntimeError(f"Module '{module_name}' failed to load successfully.")
 
     try:
-        # --- Context Setting --- 
+        # --- Context Setting ---
         bound_client_log = functools.partial(utils.client_log, request_id=request_id, client_id_for_routing=client_id)
         logger.debug(f"Prepared bound_client_log for context. Request ID: {request_id}, Client ID: {client_id}")
         logger.debug("Setting context variables via atlantis")
@@ -724,7 +724,7 @@ async def function_call(name: str, client_id: str, request_id: str, **kwargs) ->
             entry_point_name=secure_name # Pass the entry point name
         )
 
-        # --- Function Execution --- 
+        # --- Function Execution ---
         logger.info(f"Attempting to get function '{secure_name}' from loaded module.")
         function_to_call = getattr(module, secure_name, None)
         if not callable(function_to_call):
@@ -747,7 +747,7 @@ async def function_call(name: str, client_id: str, request_id: str, **kwargs) ->
         raise
 
     finally:
-        # --- RESET CONTEXT --- 
+        # --- RESET CONTEXT ---
         if context_tokens:
             logger.debug("Resetting context variables via atlantis")
             atlantis.reset_context(context_tokens)

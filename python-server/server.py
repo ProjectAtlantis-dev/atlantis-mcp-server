@@ -14,7 +14,8 @@ import socketio
 import argparse
 import uuid
 import secrets
-from utils import check_server_running, create_pid_file, remove_pid_file, clean_filename, format_json_log
+from utils import clean_filename, format_json_log
+from PIDManager import PIDManager
 from typing import Any, Callable, Dict, List, Optional, Union
 import datetime
 
@@ -136,14 +137,18 @@ def handle_sigint(signum, frame):
 signal.signal(signal.SIGINT, handle_sigint)
 signal.signal(signal.SIGTERM, handle_sigint)
 
-# Check if server is already running
-existing_pid = check_server_running()
-if existing_pid:
-    logger.info(f"ℹ️ Server is already running with PID: {existing_pid}. Exiting...")
-    sys.exit(0)
+# Initialize PID Manager
+pid_manager = PIDManager()
 
-# Create PID file
-if not create_pid_file():
+# Check if server is already running
+existing_pid = pid_manager.check_server_running()
+if existing_pid:
+    logger.error(f"❌ MCP SERVER ALREADY RUNNING WITH PID {existing_pid}")
+    logger.error(f"❌ If this is incorrect, delete the PID file and try again")
+    sys.exit(1)
+
+# Create the PID file
+if not pid_manager.create_pid_file():
     logger.error("❌ Failed to create PID file! Exiting...")
     sys.exit(1)
 
@@ -2088,5 +2093,5 @@ if __name__ == "__main__":
         logger.info("🧹 CLEANING UP TASKS")
         loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
         loop.close()
-        remove_pid_file() # Ensure PID file is removed on exit
+        pid_manager.remove_pid_file() # Ensure PID file is removed on exit
         logger.info("👋 SERVER SHUTDOWN COMPLETE")

@@ -79,12 +79,4 @@ SERVER_REQUEST_TIMEOUT = 30.0 # Seconds to wait for proxied server requests
 
 # Flags to track server state
 is_shutting_down = False
-cloud_connection_active = False
 
-# Dictionary to store task information
-tasks = {}
-next_task_id = 1
-
-# --- Tracking for Active Server Tasks (Moved from server_manager) ---
-# Stores {'server_name': {'task': asyncio.Task, 'config': Dict, 'shutdown_event': asyncio.Event, 'session': Optional[ClientSession], 'ready_event': asyncio.Event}}
-ACTIVE_SERVER_TASKS: dict[str, dict] = {}

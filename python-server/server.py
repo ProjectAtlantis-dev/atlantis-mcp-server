@@ -79,11 +79,11 @@ import uvicorn
 from state import (
     logger, # Use the configured logger from state
     HOST, PORT,
-    FUNCTIONS_DIR, SERVERS_DIR, is_shutting_down, cloud_connection_active,
+    FUNCTIONS_DIR, SERVERS_DIR, is_shutting_down,
     CLOUD_SERVER_HOST, CLOUD_SERVER_PORT, CLOUD_SERVER_URL,
     CLOUD_SERVICE_NAMESPACE, CLOUD_CONNECTION_RETRY_SECONDS,
     CLOUD_CONNECTION_MAX_RETRIES, CLOUD_CONNECTION_MAX_BACKOFF_SECONDS,
-    tasks, BOLD, RESET, CYAN, BRIGHT_WHITE,
+    BOLD, RESET, CYAN, BRIGHT_WHITE,
     SERVER_REQUEST_TIMEOUT # <<< Import the timeout constant
 )
 
@@ -1649,7 +1649,7 @@ class ServiceClient:
             # IMPORTANT: Always use the original event name for all messages
             # Cloud server expects 'mcp_notification' for client logs
             emit_event = event
-            
+
             # Special logging for client logs to make debugging easier
             if event == 'mcp_notification' and isinstance(data, dict) and data.get('method') == 'notifications/message':
                 logger.debug(f"☁️ SENDING CLIENT LOG via {emit_event}: {data.get('method')}")

@@ -18,9 +18,13 @@ from mcp.types import TextContent, Tool, ListToolsResult, ListToolsRequest
 from state import (
     SERVERS_DIR,
     logger,
-    ACTIVE_SERVER_TASKS,
     SERVER_REQUEST_TIMEOUT
 )
+
+# --- Tracking for Active Server Tasks (Moved from server_manager) ---
+# Stores {'server_name': {'task': asyncio.Task, 'config': Dict, 'shutdown_event': asyncio.Event, 'session': Optional[ClientSession], 'ready_event': asyncio.Event}}
+ACTIVE_SERVER_TASKS: dict[str, dict] = {}
+
 
 class DynamicServerManager:
     """
@@ -153,9 +157,9 @@ class DynamicServerManager:
         if name in self.active_server_tasks:
             logger.info(f"🛑 Stopping running server '{name}' before removal...")
             try:
-                # Implement server_stop functionality here
-                # await self.server_stop({"name": name}, None)
-                pass  # Placeholder for now
+                # Call server_stop with proper arguments
+                await self.server_stop({"name": name}, None)
+                logger.info(f"🔔 Successfully stopped server '{name}' before removal")
             except Exception as e:
                 logger.error(f"❌ Failed to stop server '{name}' during removal: {e}")
                 # Continue with removal anyway
@@ -329,25 +333,25 @@ class DynamicServerManager:
     async def is_server_running(self, name: str) -> bool:
         """
         Checks if a specific server is currently running.
-        
+
         Args:
             name: The name of the server to check
-            
+
         Returns:
             bool: True if the server is running, False otherwise
         """
         if not name or not isinstance(name, str):
             return False
-            
+
         # Check if the server exists in active_server_tasks with a valid task
-        return (name in self.active_server_tasks and 
-                'task' in self.active_server_tasks[name] and 
+        return (name in self.active_server_tasks and
+                'task' in self.active_server_tasks[name] and
                 not self.active_server_tasks[name]['task'].done())
-                
+
     async def get_running_servers(self) -> List[str]:
         """
         Returns a list of currently running server names.
-        
+
         Returns:
             List[str]: A list of running server names
         """
@@ -1199,7 +1203,7 @@ class DynamicServerManager:
                                             if result and hasattr(result, 'content') and result.content:
                                                 weather_data = result.content
                                                 print(f"  Weather response received: {weather_data}")
-                                                
+
                                                 # Check if the response contains an error
                                                 error_detected = False
                                                 for content_item in weather_data:
@@ -1209,7 +1213,7 @@ class DynamicServerManager:
                                                             print(f"  ❌ API Error detected: {text}")
                                                             error_detected = True
                                                             break
-                                                
+
                                                 if not error_detected:
                                                     print(f"  ☀️ Current weather in Nuuk successfully retrieved!")
                                                     print("✅ Test 10 PASSED: Successfully fetched weather data for Nuuk!")

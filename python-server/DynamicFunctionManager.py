@@ -510,16 +510,20 @@ class DynamicFunctionManager:
             name = "unnamed_function" # Default name if invalid
 
         stub = f"""\
-    def {name}():
-        \"\"\"
-        This is a placeholder function for '{name}'
-        \"\"\"
-        print(f"Executing placeholder function: {name}...")
+import atlantis
 
-        # Replace this return statement with your function's result
-        return f"Placeholder function '{name}' executed successfully."
+def {name}():
+    \"\"\"
+    This is a placeholder function for '{name}'
+    \"\"\"
+    print(f"Executing placeholder function: {name}...")
 
-    """
+    atlantis.client_log("{name} running")
+
+    # Replace this return statement with your function's result
+    return f"Placeholder function '{name}' executed successfully."
+
+"""
         logger.debug(f"⚙️ Generated code stub for function: {name}")
         return stub
 
@@ -748,10 +752,10 @@ class DynamicFunctionManager:
 
             # Log the args we're passing to the function
             logger.info(f"Calling dynamic function '{secure_name}' with args: {kwargs.get('args', {})}")
-            
+
             # Extract args from the kwargs dictionary
             function_args = kwargs.get('args', {})
-            
+
             if inspect.iscoroutinefunction(function_to_call):
                 result = await function_to_call(**function_args)
             else:
@@ -1213,15 +1217,15 @@ if __name__ == "__main__":
 def call_test_function(x=1, y=2):
     # Test that client_log works
     atlantis.client_log(f"Testing client_log from call_test_function with x={x}, y={y}")
-    
+
     # We can't verify context directly, but we can test that client_log works
     # which indirectly confirms the context is set up properly
     atlantis.client_log("Client log functionality test successful!")
-    
+
     # Return the computed value
     return x + y
 """
-                
+
                 # First add the function
                 added = await manager.function_add(call_test_function_name, call_test_function_code)
                 if not added:
@@ -1230,7 +1234,7 @@ def call_test_function(x=1, y=2):
                 else:
                     # Call the function with test arguments
                     result = await manager.function_call(call_test_function_name, "test_client_id", "test_request_id", args={"x": 5, "y": 7})
-                    
+
                     # Verify the result
                     if result == 12:
                         print("✅ Test 9 PASSED: Function call executed successfully and returned correct result")
@@ -1238,7 +1242,7 @@ def call_test_function(x=1, y=2):
                     else:
                         print(f"❌ Test 9 FAILED: Function call returned incorrect result: {result}, expected: 12")
                         all_tests_passed = False
-                        
+
                     # Clean up the test function
                     await manager.function_remove(call_test_function_name)
             except Exception as e:
@@ -1250,7 +1254,7 @@ def call_test_function(x=1, y=2):
                     await manager.function_remove(call_test_function_name)
                 except:
                     pass
-                    
+
             # Print test summary
             print(f"\n🧪 DYNAMICFUNCTIONMANAGER SELF-TEST COMPLETE")
             print(f"Tests passed: {passed_tests}/{total_tests} ({passed_tests/total_tests*100:.1f}%)")

@@ -80,6 +80,10 @@ def client_log(
     # Send to client if server is available
     if _server_instance is not None:
         try:
+            # Enhanced logging for diagnostics
+            logger.info(f"📋 CLIENT LOG DIAGNOSTICS: Routing to client_id={client_id_for_routing}, request_id={request_id}")
+            logger.info(f"📋 SERVER INSTANCE TYPE: {type(_server_instance).__name__}")
+            
             # Create a task to send the log asynchronously
             loop = asyncio.get_event_loop()
             if logger_name is None:
@@ -87,9 +91,15 @@ def client_log(
 
             # Pass request_id, client_id_for_routing, AND seq_num to the server's method
             # NOTE: _server_instance.send_client_log MUST be updated to accept seq_num
-            asyncio.create_task(_server_instance.send_client_log(level, message, logger_name, request_id, client_id_for_routing, seq_num, entry_point_name))
+            task = asyncio.create_task(_server_instance.send_client_log(level, message, logger_name, request_id, client_id_for_routing, seq_num, entry_point_name))
+            
+            # Log task creation
+            logger.info(f"📋 CLIENT LOG TASK CREATED: {task.get_name()}")
         except Exception as e:
-            logger.error(f"Error scheduling client log task: {e}") # Updated error message clarity
+            logger.error(f"❌ Error scheduling client log task: {e}") # Updated error message clarity
+            logger.error(f"❌ Exception details: {type(e).__name__}: {e}")
+            import traceback
+            logger.error(f"❌ Traceback: {traceback.format_exc()}")
     else:
         logger.warning("Cannot send client log: server instance not set")
 

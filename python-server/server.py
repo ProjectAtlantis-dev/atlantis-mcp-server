@@ -52,10 +52,10 @@ try:
     # Get the current timestamp of the dynamic_functions directory
     current_mtime = 0.0
     server_mtime = 0.0
-    
+
     # Track runtime errors from dynamic functions
     _runtime_errors = {}
-    
+
     # Get the parent directory of dynamic_functions
     parent_dir = os.path.dirname(dynamic_functions_abs_dir)
 
@@ -898,6 +898,9 @@ class DynamicAdditionServer(Server):
                 import json
                 notification_json = json.dumps(notification)
 
+                # Enhanced logging for client log routing
+                logger.info(f"📋 CLIENT LOG ROUTING: Sending to client_id={client_id}, request_id={request_id}")
+                logger.info(f"📋 KNOWN CLIENTS: {list(client_connections.keys())}")
                 # Log the notification for debugging (now includes client_id if added)
                 logger.debug(f"Sending client log notification: {notification_json}")
 
@@ -1161,8 +1164,6 @@ class DynamicAdditionServer(Server):
                 # Call the dynamic function
                 try:
                     # Dynamic functions are directly handled by name matching
-                    logger.info(f"🔧 CALLING LOCAL DYNAMIC FUNCTION: {name}")
-                    logger.info(f"🔧 CALLING DYNAMIC FUNCTION: {name}")
                     # Add detailed logging to show exactly what we're receiving from the cloud
                     logger.info(f"RECEIVED FROM CLOUD: Tool: '{name}', Raw Args: {args!r}, Type: {type(args)}")
                     logger.debug(f"---> Calling dynamic: function_call for '{name}' with args: {args} and client_id: {client_id} and request_id: {request_id}") # Log args and client_id separately
@@ -1645,16 +1646,16 @@ class ServiceClient:
             return False
 
         try:
-            # Special handling for client log notifications
-            if event == 'mcp_notification' and isinstance(data, dict) and data.get('method') == 'notifications/message':
-                # Use a specific event name for client logs that the cloud server expects
-                emit_event = 'client_log'
-                # Log with special marker to make it clear we're using the client_log event
-                logger.debug(f"☁️ SENDING CLIENT LOG: {emit_event}")
-            else:
-                emit_event = event
-                logger.debug(f"☁️ SENDING MESSAGE: {emit_event}")
+            # IMPORTANT: Always use the original event name for all messages
+            # Cloud server expects 'mcp_notification' for client logs
+            emit_event = event
             
+            # Special logging for client logs to make debugging easier
+            if event == 'mcp_notification' and isinstance(data, dict) and data.get('method') == 'notifications/message':
+                logger.debug(f"☁️ SENDING CLIENT LOG via {emit_event}: {data.get('method')}")
+            else:
+                logger.debug(f"☁️ SENDING MESSAGE: {emit_event}")
+
             # Emit the event with the appropriate name
             await self.sio.emit(emit_event, data, namespace=self.namespace)
 

@@ -328,11 +328,6 @@ class DynamicAdditionServer(Server):
         logger.info("🔌 Dynamic functions utility module initialized")
 
         tools_list = await self._get_tools_list(caller_context="initialize_method")
-        try:
-            # Pass the already fetched list to the notification function
-            await self.send_tool_notification(client_id=None, tools=tools_list)
-        except Exception as e:
-            logger.warning(f"Could not send initial tool notification: {str(e)}")
         logger.info(f"{CYAN}🔧 Server initialize method completed.{RESET}")
         # Return required InitializeResult fields
         return {
@@ -340,79 +335,6 @@ class DynamicAdditionServer(Server):
             "capabilities": params.get("capabilities"),
             "serverInfo": {"name": self.name, "version": SERVER_VERSION}
         }
-
-    async def send_tool_notification(self, client_id: Optional[str] = None, tools: Optional[list[Tool]] = None):
-        """Send a tool list changed notification to clients
-
-        Args:
-            client_id: The ID of the specific client to notify. If None, the notification is effectively suppressed (logged only).
-            tools: An optional list of tools. If provided, this list is used directly.
-                   If None, the current tool list will be fetched.
-        """
-        try:
-            if client_id is None:
-                raise ValueError("client_id cannot be None when sending a tool notification.")
-
-            # Get the current list of tools only if not provided
-            if tools is None:
-                logger.info("📢 Fetching tools list for notification as it was not provided.")
-                tools = await self._get_tools_list(caller_context="send_tool_notification_fallback")
-            else:
-                logger.info("📢 Using provided tools list for notification.")
-
-            # Create the parameters Pydantic object
-            notification_params = NotificationParams(
-                changed_tools=tools
-            )
-            # Convert the Pydantic object to a plain dictionary
-            params_dict = notification_params.model_dump()
-
-            # Construct the full notification dictionary using the params dict
-            notification = {
-                "jsonrpc": "2.0",
-                "method": "notifications/tools/list_changed", # MCP spec format
-                "params": params_dict  # Use the dumped dictionary here
-            }
-
-            # Get the global tracking collections for client connections
-            global client_connections
-
-            # If a client_id is provided, attempt to send the notification
-            if client_id and client_id in client_connections:
-                # Convert to JSON string
-                import json
-                notification_json = json.dumps(notification)
-
-                # Log the notification for debugging (now includes client_id if added)
-                logger.debug(f"Sending client log notification: {notification_json}")
-
-                client_info = client_connections[client_id]
-                client_type = client_info.get("type")
-                connection = client_info.get("connection")
-
-                if client_type == "websocket" and connection:
-                    try:
-                        await connection.send_text(notification_json)
-                        logger.debug(f"📢 Sent notification to specific client: {client_id}")
-                    except Exception as e:
-                        logger.warning(f"Failed to send to client {client_id}: {e}")
-
-                elif client_type == "cloud" and connection and connection.is_connected:
-                    try:
-                        await connection.send_message('mcp_notification', notification)
-                        logger.debug(f"☁️ Sent notification to cloud client: {client_id}")
-                    except Exception as e:
-                        logger.warning(f"Failed to send to cloud client {client_id}: {e}")
-            else:
-                logger.warning(f"Cannot send client log: no valid client_id provided or client not found: {client_id}")
-                # Log the client connections we know about for debugging
-                logger.debug(f"Known client connections: {list(client_connections.keys())}")
-
-        except Exception as e:
-            logger.error(f"❌ Error sending tool notification: {str(e)}")
-            # Don't re-raise, as this is a notification and shouldn't fail the main operation
-
-    # --- Core Logic Methods (callable directly) ---
 
     async def _get_tools_list(self, caller_context: str = "unknown") -> list[Tool]:
         """Core logic to return a list of available tools"""
@@ -922,7 +844,7 @@ class DynamicAdditionServer(Server):
                 else:
                      logger.warning(f"❓ Unexpected result type from get_server_tools for '{server_name}': {type(result)}")
 
-        logger.info(f"📝 RETURNING {len(tools_list)} TOTAL TOOLS (including from servers)")
+        logger.info(f"📝 FOUND {len(tools_list)} TOTAL TOOLS (including from servers)")
 
         # --- Update Cache --- #
         self._cached_tools = list(tools_list) # Store a copy

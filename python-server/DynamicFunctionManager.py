@@ -39,7 +39,7 @@ import utils  # Utility module for dynamic functions
 
 # Directory to store dynamic function files
 FUNCTIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dynamic_functions")
-
+PARENT_PACKAGE_NAME = "dynamic_functions"
 
 class DynamicFunctionManager:
     def __init__(self, functions_dir):
@@ -506,6 +506,7 @@ class DynamicFunctionManager:
     # Cache management
     async def invalidate_all_dynamic_module_cache(self):
         """Safely removes ALL dynamic function modules AND the parent package from sys.modules cache."""
+
         prefix_to_clear = f"{PARENT_PACKAGE_NAME}."
         async with self._dynamic_load_lock:
             # --- Invalidate importlib finder caches ---
@@ -961,43 +962,43 @@ if __name__ == "__main__":
             total_tests = 0
             passed_tests = 0
 
-            # Create a temporary directory for testing
-            with tempfile.TemporaryDirectory() as temp_dir:
-                print(f"\n📁 Using temporary directory: {temp_dir}")
+            # Use the actual FUNCTIONS_DIR for testing
+            temp_dir = FUNCTIONS_DIR
+            print(f"\n📁 Using functions directory: {temp_dir}")
 
-                # Set up the manager
-                globals()['logger'] = MockLogger()
-                manager = DynamicFunctionManager(temp_dir)
+            # Set up the manager
+            globals()['logger'] = MockLogger()
+            manager = DynamicFunctionManager(temp_dir)
 
-                # Test 1: _fs_save_code method
-                total_tests += 1
-                test_name = "test_function"
-                test_code = "def test_function():\n    return 'Hello, world!'\n"
+            # Test 1: _fs_save_code method
+            total_tests += 1
+            test_name = "test_function"
+            test_code = "def test_function():\n    return 'Hello, world!'\n"
 
-                print("\n🧪 TEST 1: Testing _fs_save_code method...")
-                file_path = await manager._fs_save_code(test_name, test_code)
-                saved_file = Path(temp_dir) / f"{test_name}.py"
+            print("\n🧪 TEST 1: Testing _fs_save_code method...")
+            file_path = await manager._fs_save_code(test_name, test_code)
+            saved_file = Path(temp_dir) / f"{test_name}.py"
 
-                if file_path and saved_file.exists():
-                    print("✅ Test 1 PASSED: File was successfully saved")
-                    passed_tests += 1
-                else:
-                    print("❌ Test 1 FAILED: File was not saved")
-                    all_tests_passed = False
+            if file_path and saved_file.exists():
+                print("✅ Test 1 PASSED: File was successfully saved")
+                passed_tests += 1
+            else:
+                print("❌ Test 1 FAILED: File was not saved")
+                all_tests_passed = False
 
-                # Test 2: _fs_load_code method
-                total_tests += 1
-                print("\n🧪 TEST 2: Testing _fs_load_code method...")
-                loaded_code = await manager._fs_load_code(test_name)
+            # Test 2: _fs_load_code method
+            total_tests += 1
+            print("\n🧪 TEST 2: Testing _fs_load_code method...")
+            loaded_code = await manager._fs_load_code(test_name)
 
-                if loaded_code == test_code:
-                    print("✅ Test 2 PASSED: Loaded code matches the saved code")
-                    passed_tests += 1
-                else:
-                    print("❌ Test 2 FAILED: Loaded code doesn't match the saved code")
-                    print(f"Expected: {test_code}")
-                    print(f"Got: {loaded_code}")
-                    all_tests_passed = False
+            if loaded_code == test_code:
+                print("✅ Test 2 PASSED: Loaded code matches the saved code")
+                passed_tests += 1
+            else:
+                print("❌ Test 2 FAILED: Loaded code doesn't match the saved code")
+                print(f"Expected: {test_code}")
+                print(f"Got: {loaded_code}")
+                all_tests_passed = False
 
                 # Test 3: _code_extract_basic_metadata method
                 total_tests += 1
@@ -1011,15 +1012,15 @@ if __name__ == "__main__":
 
                 metadata = manager._code_extract_basic_metadata(test_code_with_docstring)
 
-                if metadata.get('name') == "test_function_with_docstring" and \
-                   metadata.get('description') and "test function with a docstring" in metadata.get('description'):
-                    print("✅ Test 3 PASSED: Metadata extraction works correctly")
-                    passed_tests += 1
-                else:
-                    print("❌ Test 3 FAILED: Metadata extraction failed")
-                    print(f"Expected name: test_function_with_docstring, got: {metadata.get('name')}")
-                    print(f"Expected description to contain 'test function with a docstring', got: {metadata.get('description')}")
-                    all_tests_passed = False
+            if metadata.get('name') == "test_function_with_docstring" and \
+               metadata.get('description') and "test function with a docstring" in metadata.get('description'):
+                print("✅ Test 3 PASSED: Metadata extraction works correctly")
+                passed_tests += 1
+            else:
+                print("❌ Test 3 FAILED: Metadata extraction failed")
+                print(f"Expected name: test_function_with_docstring, got: {metadata.get('name')}")
+                print(f"Expected description to contain 'test function with a docstring', got: {metadata.get('description')}")
+                all_tests_passed = False
 
                 # Test 4: _code_validate_syntax method (valid code)
                 total_tests += 1

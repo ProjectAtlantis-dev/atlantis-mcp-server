@@ -724,8 +724,16 @@ class DynamicAdditionServer(Server):
                             annotations["started_at"] = past_time.isoformat()
 
                     # Add any load errors
+                    error_msg = None
                     if server_name in self.server_manager._server_load_errors:
-                        annotations["loadError"] = self.server_manager._server_load_errors[server_name]
+                        error_msg = self.server_manager._server_load_errors[server_name]
+                        annotations["loadError"] = error_msg
+                        
+                    # Check active_server_tasks for any errors in failed servers
+                    task_info = self.server_manager.active_server_tasks.get(server_name, {})
+                    if task_info and task_info.get('status') == 'failed' and 'error' in task_info:
+                        error_msg = task_info['error']
+                        annotations["loadError"] = error_msg
 
                     # Simplified logging that only uses defined variables
                     if task_info:
@@ -734,9 +742,13 @@ class DynamicAdditionServer(Server):
                         logger.warning(f"🔧 _get_tools_list: Tool '{server_name}' not running")
 
                     # Create tool with correct parameters
+                    description = f"MCP server: {server_name}"
+                    if error_msg:
+                        description += f" (ERROR: {error_msg})"
+                        
                     server_tool = Tool(
                         name=server_name,
-                        description=f"MCP server: {server_name}",
+                        description=description,
                         inputSchema={"type": "object"}, # Use inputSchema (camelCase), not input_schema
                         annotations=annotations # Use annotations object that contains started_at if applicable
                     )

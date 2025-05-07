@@ -384,16 +384,40 @@ class DynamicServerManager:
 
     async def get_running_servers(self) -> List[str]:
         """
-        Returns a list of currently running server names.
+        Returns a list of currently running server names, filtering out servers
+        that are starting but not yet ready or have failed to start properly.
+
+        A server is considered running only if:
+        1. It has an active task that's not done
+        2. It has an established session
+        3. The session is connected
 
         Returns:
-            List[str]: A list of running server names
+            List[str]: A list of truly running server names
         """
-        # Filter the active_server_tasks to only include running servers
+        # Filter the active_server_tasks to only include properly running servers
         running_servers = []
         for name, task_info in self.active_server_tasks.items():
-            if 'task' in task_info and not task_info['task'].done():
-                running_servers.append(name)
+            # Check for basic task existence and not done
+            if 'task' not in task_info or task_info['task'].done():
+                logger.debug(f"Server '{name}' skipped: task missing or done")
+                continue
+                
+            # Check for active session that's properly connected
+            session = task_info.get('session')
+            if session is None:
+                logger.debug(f"Server '{name}' skipped: no session available")
+                continue
+                
+            # If we have a session, make sure it's connected
+            if not hasattr(session, 'connected') or not session.connected:
+                logger.debug(f"Server '{name}' skipped: session not connected")
+                continue
+                
+            # This server passes all checks and is truly running
+            logger.debug(f"Server '{name}' IS running: active task and connected session")
+            running_servers.append(name)
+            
         return running_servers
 
     async def server_set(self, args: Dict[str, Any], server) -> Tuple[Optional[str], List[TextContent]]:
@@ -656,13 +680,62 @@ class DynamicServerManager:
                         except Exception as e:
                             logger.warning(f"[{name}] Error closing session: {e}")
 
-                except asyncio.TimeoutError:
-                    logger.error(f"[{name}] Timeout occurred during session.initialize().")
+                except asyncio.TimeoutError as timeout_err:
+                    error_msg = f"Timeout occurred during session initialization (30s limit exceeded)"
+                    logger.error(f"[{name}] {error_msg}")
                     if name in self.active_server_tasks:
-                        self.active_server_tasks[name]['status'] = 'init_timeout'
+                        # Mark server as failed
+                        self.active_server_tasks[name]['status'] = 'failed'
+                        # Set ready event to unblock anything waiting for this server
                         if 'ready_event' in self.active_server_tasks[name]:
-                            self.active_server_tasks[name]['ready_event'].set()  # Signal completion (failure)
-
+                            self.active_server_tasks[name]['ready_event'].set()
+                            logger.debug(f"[{name}] Ready event set (to unblock waiters) after initialization failure")
+                        # Store the detailed error message
+                        self.active_server_tasks[name]['error'] = error_msg
+                        # Add to server load errors so it shows in tools list
+                        self._server_load_errors[name] = error_msg
+                        
+                        # Optional: Remove zombie tasks after a short delay to allow error inspection
+                        async def _delayed_cleanup(server_name):
+                            await asyncio.sleep(120)  # Keep failed entry for 2 minutes for diagnostics
+                            if server_name in self.active_server_tasks and self.active_server_tasks[server_name].get('status') == 'failed':
+                                logger.info(f"[{server_name}] Removing failed server from active_server_tasks after delay")
+                                self.active_server_tasks.pop(server_name, None)
+                        
+                        # Schedule cleanup
+                        asyncio.create_task(_delayed_cleanup(name))
+                    
+                    # Close session if it exists but failed to initialize
+                    if session is not None:
+                        try:
+                            await session.close()
+                        except Exception:
+                            pass  # Ignore errors when closing an uninitialized session
+                except Exception as e:
+                    # Capture any other initialization error
+                    error_msg = f"Failed to initialize server: {str(e)}"
+                    logger.error(f"[{name}] {error_msg}")
+                    
+                    if name in self.active_server_tasks:
+                        # Mark server as failed and save detailed error
+                        self.active_server_tasks[name]['status'] = 'failed'
+                        self.active_server_tasks[name]['error'] = error_msg
+                        # Add to server load errors so it shows in tools list
+                        self._server_load_errors[name] = error_msg
+                        
+                        # Unblock any waiters
+                        if 'ready_event' in self.active_server_tasks[name]:
+                            self.active_server_tasks[name]['ready_event'].set()
+                        
+                        # Schedule delayed cleanup
+                        async def _delayed_cleanup(server_name):
+                            await asyncio.sleep(120)  # Keep failed entry for 2 minutes 
+                            if server_name in self.active_server_tasks and self.active_server_tasks[server_name].get('status') == 'failed':
+                                logger.info(f"[{server_name}] Removing failed server from active_server_tasks after delay")
+                                self.active_server_tasks.pop(server_name, None)
+                        
+                        asyncio.create_task(_delayed_cleanup(name))
+                    
                     # Close session if it exists but failed to initialize
                     if session is not None:
                         try:

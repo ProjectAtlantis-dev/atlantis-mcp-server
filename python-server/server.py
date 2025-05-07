@@ -566,8 +566,8 @@ class DynamicAdditionServer(Server):
                         tool_annotations["runtimeError"] = _runtime_errors[tool_name_from_file]
 
                     # Add server config load error if present in cache
-                    if tool_name_from_file in server_manager._server_load_errors:
-                        tool_annotations["loadError"] = server_manager._server_load_errors[tool_name_from_file]
+                    if tool_name_from_file in self.server_manager._server_load_errors:
+                        tool_annotations["loadError"] = self.server_manager._server_load_errors[tool_name_from_file]
 
                     # Add common annotations
                     try:
@@ -604,7 +604,7 @@ class DynamicAdditionServer(Server):
 
         # --- DEBUG: Log current ACTIVE_SERVER_TASKS state before processing servers ---
         # Access ACTIVE_SERVER_TASKS via module namespace
-        logger.debug(f"🔧 _get_tools_list: Current ACTIVE_SERVER_TASKS state: {server_manager.ACTIVE_SERVER_TASKS!r}")
+        logger.debug(f"🔧 _get_tools_list: Current active_server_tasks state: {self.server_manager.active_server_tasks!r}")
 
         # Scan dynamic servers
         servers_found = []
@@ -665,7 +665,7 @@ class DynamicAdditionServer(Server):
                         logger.warning(f"⚠️ Could not get mtime for server '{server_name}': {me}")
 
                     # Define task_info FIRST, outside any status checks
-                    task_info = server_manager.ACTIVE_SERVER_TASKS.get(server_name)
+                    task_info = self.server_manager.active_server_tasks.get(server_name)
 
                     # Better check for running status - don't rely on 'status' field which might not be set
                     # Instead check if task exists, is not done, and session exists
@@ -717,8 +717,8 @@ class DynamicAdditionServer(Server):
                             annotations["started_at"] = past_time.isoformat()
 
                     # Add any load errors
-                    if server_name in server_manager._server_load_errors:
-                        annotations["loadError"] = server_manager._server_load_errors[server_name]
+                    if server_name in self.server_manager._server_load_errors:
+                        annotations["loadError"] = self.server_manager._server_load_errors[server_name]
 
                     # Simplified logging that only uses defined variables
                     if task_info:
@@ -1067,12 +1067,12 @@ class DynamicAdditionServer(Server):
 
                 # Check if MCP server config exists and is running
                 if server_alias not in self._server_configs: # Access instance variable
-                       raise ValueError(f"Unknown server alias: '{server_alias}')
+                       raise ValueError(f"Unknown server alias: '{server_alias}'")
                 if not await self.server_manager.is_server_running(server_alias):
                     raise ValueError(f"Server '{server_alias}' is not running.")
 
                 # Get the session for the target server
-                task_info = server_manager.ACTIVE_SERVER_TASKS.get(server_alias)
+                task_info = self.server_manager.active_server_tasks.get(server_alias)
                 if not task_info:
                      # This shouldn't happen if the check above passed, but safety first
                     raise ValueError(f"Could not find task info for running server '{server_alias}'.")

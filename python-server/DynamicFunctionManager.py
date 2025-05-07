@@ -771,7 +771,7 @@ class DynamicFunctionManager:
 
     # --- Function Management Functions --- #
 
-    def function_validate(self, name: str) -> Dict[str, Any]:
+    async def function_validate(self, name: str) -> Dict[str, Any]:
         '''
         Validates the syntax of a function file without executing it.
         Returns a dictionary {'valid': bool, 'error': Optional[str], 'function_info': Optional[Dict]}
@@ -780,7 +780,7 @@ class DynamicFunctionManager:
         secure_name = utils.clean_filename(name)
         if not secure_name:
             error_msg = f"Invalid function name '{name}'"
-            self._write_error_log(name, error_msg)
+            await self._write_error_log(name, error_msg)
             return {'valid': False, 'error': error_msg, 'function_info': None}
 
         code = self._fs_load_code(secure_name)
@@ -811,7 +811,7 @@ class DynamicFunctionManager:
             # Failed validation - write to the error log
             error_msg_full = f"Syntax validation failed: {error_message}"
             logger.warning(f"{error_msg_full} Function: '{secure_name}'")
-            self._write_error_log(secure_name, error_msg_full)
+            await self._write_error_log(secure_name, error_msg_full)
 
             # Return the detailed error message
             return {'valid': False, 'error': error_message, 'function_info': None}

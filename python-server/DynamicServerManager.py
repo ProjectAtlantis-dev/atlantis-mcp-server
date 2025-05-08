@@ -240,6 +240,8 @@ class DynamicServerManager:
             self._server_load_errors[name] = f"Invalid JSON format in config file"
         return None
 
+    # Note: We're using the existing server_start method instead of a custom helper
+    
     async def get_server_tools(self, name: str) -> List[Tool]:
         """
         Fetches the tool list from a managed MCP server.
@@ -322,40 +324,38 @@ class DynamicServerManager:
         if 'command' not in server_config:
             raise ValueError(f"Missing 'command' in server config for '{name}'")
 
-        # Option: First try starting the server to get a persistent connection
-        # This is the preferred approach for frequent tool use
+        # Auto-start the server if it's not already running
         if name not in self.active_server_tasks:
-            logger.info(f"Server '{name}' is not running. Consider using server_start for persistent connection.")
-            # Note: we don't auto-start here as that should be a deliberate action by the caller
-
-        # Create temporary connection parameters for one-time use
-        try:
-            logger.debug(f"get_server_tools: Creating temporary connection parameters for '{name}'")
-            params = StdioServerParameters(
-                command=server_config['command'],
-                args=server_config.get('args', []),
-                env=server_config.get('env', {}),
-                cwd=server_config.get('cwd', None)
-            )
-        except Exception as e:
-            raise ValueError(f"Invalid server parameters for '{name}': {e}")
-
-        # Create temporary connection
-        logger.info(f"Creating temporary connection to server '{name}'")
-        try:
-            async with stdio_client(params) as (reader, writer):
-                async with ClientSession(reader, writer) as session:
-                    # Wait for initialization with timeout
-                    await asyncio.wait_for(session.initialize(), timeout=SERVER_REQUEST_TIMEOUT)
-
-                    # Get tools list
+            logger.info(f"Server '{name}' is not running. Auto-starting it...")
+            # Start the server and wait for it to be ready
+            try:
+                await self.server_start({'name': name}, None)  # Use the existing pattern with correct parameters
+                logger.info(f"Successfully initiated auto-start for server '{name}'")
+            except Exception as e:
+                logger.error(f"Failed to auto-start server '{name}': {e}")
+                raise RuntimeError(f"Failed to auto-start server '{name}': {e}")
+                
+            # Give it a moment to initialize fully
+            logger.info(f"Waiting for server '{name}' to initialize...")
+            await asyncio.sleep(1)  # Short delay to ensure initialization completes
+            
+            # Now retry getting the tools with the new session
+            if name in self.active_server_tasks and self.active_server_tasks[name].get('session') is not None:
+                session = self.active_server_tasks[name]['session']
+                try:
+                    # Use the new session
                     tools_result = await asyncio.wait_for(session.list_tools(), timeout=SERVER_REQUEST_TIMEOUT)
-                    logger.info(f"Successfully fetched {len(tools_result.tools)} tools from '{name}' via temporary connection")
+                    self.active_server_tasks[name]['last_used'] = datetime.datetime.now(datetime.timezone.utc)
+                    logger.info(f"Successfully fetched {len(tools_result.tools)} tools from newly started server '{name}'")
                     return tools_result.tools
-        except asyncio.TimeoutError:
-            raise TimeoutError(f"Timeout while connecting to server '{name}'")
-        except Exception as e:
-            raise RuntimeError(f"Error fetching tools from server '{name}': {e}")
+                except Exception as e:
+                    logger.error(f"Failed to get tools from newly started server '{name}': {e}")
+                    raise RuntimeError(f"Error fetching tools from newly started server '{name}': {e}")
+            else:
+                raise RuntimeError(f"Server '{name}' was started but session is not available")
+                
+        # If we got here, something unexpected happened
+        raise RuntimeError(f"Unexpected error: Unable to get tools from server '{name}'")
 
     async def server_list(self) -> List[str]:
         """

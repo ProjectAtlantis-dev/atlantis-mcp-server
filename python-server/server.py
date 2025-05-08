@@ -732,31 +732,31 @@ class DynamicAdditionServer(Server):
                         # Always check ALL error sources thoroughly
                     error_msg = None
                     task_info = self.server_manager.active_server_tasks.get(server_name, {})
-                    
+
                     # STEP 1: Log ALL possible error sources
                     logger.info(f"🔍 SERVER STATUS CHECK FOR '{server_name}':")
                     logger.info(f"  - Current status: {status}")
                     logger.info(f"  - Task info available: {task_info is not None}")
                     logger.info(f"  - Has error in task_info: {'error' in task_info if task_info else False}")
                     logger.info(f"  - Error in _server_load_errors: {server_name in self.server_manager._server_load_errors}")
-                    
+
                     # STEP 2: Always show the full error contents from both sources
                     if task_info and 'error' in task_info:
                         task_error = task_info['error']
                         logger.info(f"  - TASK ERROR: {task_error}")
-                    
+
                     if server_name in self.server_manager._server_load_errors:
                         load_error = self.server_manager._server_load_errors[server_name]
                         logger.info(f"  - LOAD ERROR: {load_error}")
 
-                    # STEP 3: Check for failures 
+                    # STEP 3: Check for failures
                     # First from failed task status
                     if status == 'failed' or (task_info and task_info.get('status') == 'failed'):
                         logger.info(f"🚨 Server '{server_name}' has FAILED status")
                         # Update status to reflect the failure
                         status = "failed"
                         annotations["runningStatus"] = "failed"
-                        
+
                         # Get error from task_info first (most accurate)
                         if task_info and 'error' in task_info:
                             error_msg = task_info['error']
@@ -769,10 +769,10 @@ class DynamicAdditionServer(Server):
                         else:
                             error_msg = "Server failed to initialize (unknown error)"
                             logger.info(f"⚠️ Using generic error: {error_msg}")
-                    
+
                     # Even for non-failed servers, check for errors
                     elif server_name in self.server_manager._server_load_errors:
-                        error_msg = self.server_manager._server_load_errors[server_name] 
+                        error_msg = self.server_manager._server_load_errors[server_name]
                         logger.info(f"🚨 Found error for '{server_name}' in load errors: {error_msg}")
                         # If we found an error but status isn't failed, update it
                         status = "failed"
@@ -781,7 +781,7 @@ class DynamicAdditionServer(Server):
                         error_msg = task_info['error']
                         logger.info(f"🚨 Found error for '{server_name}' in task info: {error_msg}")
                         # If we found an error but status isn't failed, update it
-                        status = "failed" 
+                        status = "failed"
                         annotations["runningStatus"] = "failed"
 
                     # Add error info to annotations if found
@@ -799,8 +799,7 @@ class DynamicAdditionServer(Server):
 
                     # Create tool with correct parameters
                     description = f"MCP server: {server_name}"
-                    if error_msg:
-                        description += f" (ERROR: {error_msg})"
+                    # do not append error to the description
 
                     server_tool = Tool(
                         name=server_name,
@@ -851,21 +850,30 @@ class DynamicAdditionServer(Server):
                             tool.annotations["toolFetchError"] = str(result)
                             #tool.description += f" (Error fetching tools: {result})"
                             break
-                elif isinstance(result, list): # Should be list[dict] now
+                elif isinstance(result, list): # Could be list[dict] or list[Tool]
                     logger.info(f"✅ Fetched {len(result)} tools from server '{server_name}'")
-                    for tool_dict in result: # Iterate through dictionaries
-                        if not isinstance(tool_dict, dict):
-                            logger.warning(f"⚠️ Received non-dictionary item from {server_name}: {tool_dict}")
+                    for tool_item in result:
+                        # Handle both Tool objects and dictionaries
+                        if hasattr(tool_item, 'name') and hasattr(tool_item, 'description') and hasattr(tool_item, 'inputSchema'):
+                            # It's a Tool object
+                            original_name = tool_item.name
+                            original_description = tool_item.description
+                            original_schema = tool_item.inputSchema
+                            original_annotations = getattr(tool_item, 'annotations', {})
+                        elif isinstance(tool_item, dict):
+                            # It's a dictionary
+                            original_name = tool_item.get('name')
+                            if not original_name:
+                                logger.warning(f"⚠️ Received tool dictionary from {server_name} with missing name: {tool_item}")
+                                continue
+                            original_description = tool_item.get('description', original_name)
+                            original_schema = tool_item.get('inputSchema', {"type": "object"})
+                            original_annotations = tool_item.get('annotations', {})
+                        else:
+                            logger.warning(f"⚠️ Received unsupported item type from {server_name}: {type(tool_item)} - {tool_item}")
                             continue
 
-                        # Safely extract data from the dictionary
-                        original_name = tool_dict.get('name')
-                        if not original_name:
-                            logger.warning(f"⚠️ Received tool dictionary from {server_name} with missing name: {tool_dict}")
-                            continue
-                        original_description = tool_dict.get('description', original_name) # Default desc to name
-                        original_schema = tool_dict.get('inputSchema', {"type": "object"}) # Default schema
-                        original_annotations = tool_dict.get('annotations', {}) # Default annotations
+                        # We've already extracted the data in the previous block
 
                         new_tool_name = f"{server_name}.{original_name}"
                         #new_description = f"[From {server_name}] {original_description}"

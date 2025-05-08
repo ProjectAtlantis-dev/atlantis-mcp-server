@@ -15,6 +15,8 @@ from typing import Any, Dict, Optional, List, Tuple, Union
 from mcp import ClientSession, StdioServerParameters, stdio_client
 from mcp.types import TextContent, Tool, ListToolsResult, ListToolsRequest
 
+from EmCeePee import EmCeePee
+
 from state import (
     SERVERS_DIR,
     logger,
@@ -47,6 +49,10 @@ class DynamicServerManager:
         os.makedirs(self.old_dir, exist_ok=True)
 
         # Server state tracking
+        self.servers:Dict[str, EmCeePee] = {}
+
+
+
         self.active_server_tasks = ACTIVE_SERVER_TASKS
         self.server_start_times = {}
         self._server_load_errors = {}
@@ -491,8 +497,8 @@ class DynamicServerManager:
         if is_running:
             # Check if the config has changed in a way that requires restart
             current_config = await self._fs_load_server(server_name)
-            if current_config and 'mcpServers' in current_config and server_name in current_config['mcpServers']:
-                current_server_config = current_config['mcpServers'][server_name]
+            if current_config and 'mcpServers' in current_config and server_name in current_config['mcpServers']: # type: ignore
+                current_server_config = current_config['mcpServers'][server_name] # type: ignore
 
                 # Check if fundamental parameters changed
                 restart_params = ['command', 'args', 'cwd']
@@ -672,7 +678,7 @@ class DynamicServerManager:
                         except Exception as e:
                             # When we get any error in the session loop, capture it thoroughly
                             error_message = str(e)
-                            
+
                             # Detect package dependency errors in the error message
                             if "No solution found" in error_message or "not found in the package registry" in error_message:
                                 key_error = f"Package dependency error: {error_message.strip()}"
@@ -680,7 +686,7 @@ class DynamicServerManager:
                             else:
                                 key_error = f"Startup error: {error_message.strip()}"
                                 logger.error(f"[{name}] 🚫 STARTUP ERROR: {key_error}")
-                            
+
                             # Save the error message in BOTH places for display in tools list
                             # This is the key - we must update both to ensure visibility
                             if name in self.active_server_tasks:
@@ -688,11 +694,11 @@ class DynamicServerManager:
                                 self.active_server_tasks[name]['error'] = key_error
                             # Always update the persistent error storage
                             self._server_load_errors[name] = key_error
-                            
+
                             # Debug log the full error
                             if isinstance(e, BaseExceptionGroup):
                                 logger.error(f"[{name}] Error details:", exc_info=True)
-                                
+
                             # Close the session if it exists
                             if session is not None:
                                 try:
@@ -716,12 +722,12 @@ class DynamicServerManager:
                     common_errors = [
                         "No solution found when resolving tool dependencies",
                         "not found in the package registry",
-                        "requirements are unsatisfiable"  
+                        "requirements are unsatisfiable"
                     ]
-                    
+
                     # Generic error message to start
                     error_msg = "Timeout occurred during session initialization"
-                    
+
                     # Look for common package dependency errors in logs
                     for line in self.active_server_tasks.get(name, {}).get('output_buffer', []):
                         for err_pattern in common_errors:
@@ -730,7 +736,7 @@ class DynamicServerManager:
                                 error_msg = f"Package dependency error: {line.strip()}"
                                 logger.info(f"📦 [ERROR] Found package dependency error: {line}")
                                 break
-                    
+
                     logger.error(f"[{name}] {error_msg}")
 
                     if name in self.active_server_tasks:

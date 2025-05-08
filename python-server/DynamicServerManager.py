@@ -608,7 +608,7 @@ class DynamicServerManager:
                     try:
                         # Initialize the session
                         logger.debug(f"[{name}] ClientSession created. Initializing session...")
-                        await asyncio.wait_for(session.initialize(), timeout=5.0)  # Increased timeout for reliable init
+                        await asyncio.wait_for(session.initialize(), timeout=15.0)  # Increased timeout for reliable init
                         logger.info(f"[{name}] MCP Session initialized successfully.")
 
                         # Update active_server_tasks *after* successful initialization
@@ -623,6 +623,7 @@ class DynamicServerManager:
                             try:
                                 tools_result = await session.list_tools()
                                 logger.info(f"[{name}] Successfully fetched {len(tools_result.tools)} tools from running server")
+                                logger.info(f"[{name}] Tools: {tools_result.tools}")
                                 self.active_server_tasks[name]['tools_count'] = len(tools_result.tools)
                             except Exception as e:
                                 logger.warning(f"[{name}] Failed to fetch tools list: {e}")

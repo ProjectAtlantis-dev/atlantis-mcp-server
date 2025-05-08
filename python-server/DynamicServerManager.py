@@ -415,13 +415,16 @@ class DynamicServerManager:
                 logger.debug(f"Server '{name}' skipped: no session available")
                 continue
 
-            # If we have a session, make sure it's connected
-            if not hasattr(session, 'connected') or not session.connected:
-                logger.debug(f"Server '{name}' skipped: session not connected")
-                continue
+            # For Python SDK ClientSession objects, we can't check 'connected' attribute
+            # (as mentioned in your memory about mcp.ClientSession)
+            # Instead, we'll assume if we have a session object, it's likely still usable
+            # The actual tool fetching will validate this later and handle exceptions
+            # This approach aligns with the recommendation to attempt a low-impact operation
+            # instead of checking specific attributes
+            logger.debug(f"Server '{name}' has a session - assuming it's valid")
 
             # This server passes all checks and is truly running
-            logger.debug(f"Server '{name}' IS running: active task and connected session")
+            logger.debug(f"Server '{name}' IS running: active task and session")
             running_servers.append(name)
 
         return running_servers

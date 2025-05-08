@@ -311,15 +311,15 @@ class DynamicServerManager:
 
         # Get the server config (for temporary connection or for starting the server)
         logger.debug(f"get_server_tools: Loading config for '{name}'")
-        server_config = await self.server_get(name)
-        if not server_config:
+        full_config = await self.server_get(name)
+        if not full_config:
             raise ValueError(f"Server config not found for '{name}'")
 
-        if 'mcpServers' not in server_config or name not in server_config['mcpServers']:
+        if 'mcpServers' not in full_config or name not in full_config['mcpServers']:
             raise ValueError(f"Invalid server config structure for '{name}'")
 
-        specific_config = server_config['mcpServers'][name]
-        if 'command' not in specific_config:
+        server_config = full_config['mcpServers'][name]
+        if 'command' not in server_config:
             raise ValueError(f"Missing 'command' in server config for '{name}'")
 
         # Option: First try starting the server to get a persistent connection
@@ -603,215 +603,183 @@ class DynamicServerManager:
                 logger.debug(f"[{name}] Stdio connection established. Creating ClientSession...")
                 # Create the session object without using context manager so we can keep it alive
                 # This is crucial for connection reuse
-                session = ClientSession(reader, writer)
+                async with ClientSession(reader, writer) as session:
 
-                try:
-                    # Initialize the session
-                    logger.debug(f"[{name}] ClientSession created. Initializing session...")
-                    await asyncio.wait_for(session.initialize(), timeout=5.0)  # Increased timeout for reliable init
-                    logger.info(f"[{name}] MCP Session initialized successfully.")
+                    try:
+                        # Initialize the session
+                        logger.debug(f"[{name}] ClientSession created. Initializing session...")
+                        await asyncio.wait_for(session.initialize(), timeout=5.0)  # Increased timeout for reliable init
+                        logger.info(f"[{name}] MCP Session initialized successfully.")
 
-                    # Update active_server_tasks *after* successful initialization
-                    if name in self.active_server_tasks:
-                        logger.debug(f"[{name}] Updating active_server_tasks with session and timestamp...")
-                        self.active_server_tasks[name]['session'] = session
-                        self.active_server_tasks[name]['started_at'] = datetime.datetime.now(datetime.timezone.utc)
-                        self.active_server_tasks[name]['status'] = 'running'  # Mark as running
-                        logger.info(f"[{name}] active_server_tasks updated. Current state for '{name}': {{'status': '{self.active_server_tasks[name].get('status')}', 'started_at': '{self.active_server_tasks[name].get('started_at')}', 'session_present': {self.active_server_tasks[name].get('session') is not None}}}")
+                        # Update active_server_tasks *after* successful initialization
+                        if name in self.active_server_tasks:
+                            logger.debug(f"[{name}] Updating active_server_tasks with session and timestamp...")
+                            self.active_server_tasks[name]['session'] = session
+                            self.active_server_tasks[name]['started_at'] = datetime.datetime.now(datetime.timezone.utc)
+                            self.active_server_tasks[name]['status'] = 'running'  # Mark as running
+                            logger.info(f"[{name}] active_server_tasks updated. Current state for '{name}': {{'status': '{self.active_server_tasks[name].get('status')}', 'started_at': '{self.active_server_tasks[name].get('started_at')}', 'session_present': {self.active_server_tasks[name].get('session') is not None}}}")
 
-                        # Pre-fetch tools list to validate the connection works
-                        try:
-                            tools_result = await session.list_tools()
-                            logger.info(f"[{name}] Successfully fetched {len(tools_result.tools)} tools from running server")
-                            self.active_server_tasks[name]['tools_count'] = len(tools_result.tools)
-                        except Exception as e:
-                            logger.warning(f"[{name}] Failed to fetch tools list: {e}")
+                            # Pre-fetch tools list to validate the connection works
+                            try:
+                                tools_result = await session.list_tools()
+                                logger.info(f"[{name}] Successfully fetched {len(tools_result.tools)} tools from running server")
+                                self.active_server_tasks[name]['tools_count'] = len(tools_result.tools)
+                            except Exception as e:
+                                logger.warning(f"[{name}] Failed to fetch tools list: {e}")
 
-                        # Signal readiness *after* updating state
-                        if 'ready_event' in self.active_server_tasks[name]:
-                            self.active_server_tasks[name]['ready_event'].set()
-                            logger.debug(f"[{name}] Ready event set.")
-                        else:
-                            logger.warning(f"[{name}] 'ready_event' not found in active_server_tasks entry.")
-                    else:
-                        logger.error(f"[{name}] Entry disappeared from active_server_tasks before session could be stored!")
-                        # If the entry is gone, we probably can't signal readiness either. Shutdown might be needed.
-                        return  # Exit if the task entry is gone
-
-                    # --- Session is initialized and running ---
-                    logger.debug(f"[{name}] Session active. Waiting for shutdown signal...")
-
-                    # Keep the session alive until shutdown is requested
-                    # Periodically check session is still responsive by calling a lightweight operation
-                    while not shutdown_event.is_set():
-                        try:
-                            # Wait for shutdown event with timeout
-                            # This allows us to periodically check if session is still responsive
-                            shutdown_requested = await asyncio.wait_for(
-                                shutdown_event.wait(),
-                                timeout=30.0  # Check every 30 seconds
-                            )
-                            if shutdown_requested:
-                                break
-
-                            # Optional: Check session is still responsive with lightweight ping
-                            # Only do this for servers that have been running a while
-                            if name in self.active_server_tasks and self.active_server_tasks[name].get('status') == 'running':
-                                started_at = self.active_server_tasks[name].get('started_at')
-                                now = datetime.datetime.now(datetime.timezone.utc)
-
-                                # Only ping if server has been running more than 2 minutes
-                                if started_at and (now - started_at).total_seconds() > 120:
-                                    try:
-                                        # Just list_tools as a lightweight ping
-                                        await asyncio.wait_for(session.list_tools(), timeout=5.0)
-                                        # No need to process the result, we're just checking if it responds
-                                    except Exception as e:
-                                        logger.warning(f"[{name}] Session health check failed: {e}")
-                                        # Break the loop if session is no longer responsive
-                                        # This will trigger cleanup in finally block
-                                        break
-                        except asyncio.TimeoutError:
-                            # This is expected - it just means the shutdown_event.wait timed out
-                            # We'll loop and check again
-                            pass
-                        except Exception as e:
-                            # When we get any error in the session loop, capture it thoroughly
-                            error_message = str(e)
-
-                            # Detect package dependency errors in the error message
-                            if "No solution found" in error_message or "not found in the package registry" in error_message:
-                                key_error = f"Package dependency error: {error_message.strip()}"
-                                logger.error(f"[{name}] 📦 PACKAGE ERROR DETECTED: {key_error}")
+                            # Signal readiness *after* updating state
+                            if 'ready_event' in self.active_server_tasks[name]:
+                                self.active_server_tasks[name]['ready_event'].set()
+                                logger.debug(f"[{name}] Ready event set.")
                             else:
-                                key_error = f"Startup error: {error_message.strip()}"
-                                logger.error(f"[{name}] 🚫 STARTUP ERROR: {key_error}")
+                                logger.warning(f"[{name}] 'ready_event' not found in active_server_tasks entry.")
+                        else:
+                            logger.error(f"[{name}] Entry disappeared from active_server_tasks before session could be stored!")
+                            # If the entry is gone, we probably can't signal readiness either. Shutdown might be needed.
+                            return  # Exit if the task entry is gone
 
-                            # Save the error message in BOTH places for display in tools list
-                            # This is the key - we must update both to ensure visibility
-                            if name in self.active_server_tasks:
-                                self.active_server_tasks[name]['status'] = 'failed'
-                                self.active_server_tasks[name]['error'] = key_error
-                            # Always update the persistent error storage
-                            self._server_load_errors[name] = key_error
+                        # --- Session is initialized and running ---
+                        logger.debug(f"[{name}] Session active. Waiting for shutdown signal...")
 
-                            # Debug log the full error
-                            if isinstance(e, BaseExceptionGroup):
-                                logger.error(f"[{name}] Error details:", exc_info=True)
+                        # Keep the session alive until shutdown is requested
+                        # Periodically check session is still responsive by calling a lightweight operation
+                        while not shutdown_event.is_set():
+                            try:
+                                # Wait for shutdown event with timeout
+                                # This allows us to periodically check if session is still responsive
+                                shutdown_requested = await asyncio.wait_for(
+                                    shutdown_event.wait(),
+                                    timeout=30.0  # Check every 30 seconds
+                                )
+                                if shutdown_requested:
+                                    break
 
-                            # Close the session if it exists
-                            if session is not None:
-                                try:
-                                    await asyncio.wait_for(session.close(), timeout=5.0)
-                                except Exception as close_err:
-                                    logger.debug(f"[{name}] Error closing session during cleanup: {close_err}")
-                            break
+                                # Optional: Check session is still responsive with lightweight ping
+                                # Only do this for servers that have been running a while
+                                if name in self.active_server_tasks and self.active_server_tasks[name].get('status') == 'running':
+                                    started_at = self.active_server_tasks[name].get('started_at')
+                                    now = datetime.datetime.now(datetime.timezone.utc)
 
-                    logger.info(f"[{name}] Shutdown event received. Cleaning up session...")
+                                    # Only ping if server has been running more than 2 minutes
+                                    if started_at and (now - started_at).total_seconds() > 120:
+                                        try:
+                                            # Just list_tools as a lightweight ping
+                                            await asyncio.wait_for(session.list_tools(), timeout=5.0)
+                                            # No need to process the result, we're just checking if it responds
+                                        except Exception as e:
+                                            logger.warning(f"[{name}] Session health check failed: {e}")
+                                            # Break the loop if session is no longer responsive
+                                            # This will trigger cleanup in finally block
+                                            break
+                            except asyncio.TimeoutError:
+                                # This is expected - it just means the shutdown_event.wait timed out
+                                # We'll loop and check again
+                                pass
+                            except Exception as e:
+                                # When we get any error in the session loop, capture it thoroughly
+                                error_message = str(e)
 
-                    # Close the session cleanly if we still have it
-                    if session is not None:
-                        try:
-                            await asyncio.wait_for(session.close(), timeout=5.0)
-                            logger.debug(f"[{name}] Session closed cleanly")
-                        except Exception as e:
-                            logger.warning(f"[{name}] Error closing session: {e}")
+                                # Detect package dependency errors in the error message
+                                if "No solution found" in error_message or "not found in the package registry" in error_message:
+                                    key_error = f"Package dependency error: {error_message.strip()}"
+                                    logger.error(f"[{name}] 📦 PACKAGE ERROR DETECTED: {key_error}")
+                                else:
+                                    key_error = f"Startup error: {error_message.strip()}"
+                                    logger.error(f"[{name}] 🚫 STARTUP ERROR: {key_error}")
 
-                except asyncio.TimeoutError as timeout_err:
-                    # Directly check for the uvx error - this is a common pattern in our server
-                    common_errors = [
-                        "No solution found when resolving tool dependencies",
-                        "not found in the package registry",
-                        "requirements are unsatisfiable"
-                    ]
+                                # Save the error message in BOTH places for display in tools list
+                                # This is the key - we must update both to ensure visibility
+                                if name in self.active_server_tasks:
+                                    self.active_server_tasks[name]['status'] = 'failed'
+                                    self.active_server_tasks[name]['error'] = key_error
+                                # Always update the persistent error storage
+                                self._server_load_errors[name] = key_error
 
-                    # Generic error message to start
-                    error_msg = "Timeout occurred during session initialization"
+                                # Debug log the full error
+                                if isinstance(e, BaseExceptionGroup):
+                                    logger.error(f"[{name}] Error details:", exc_info=True)
 
-                    # Look for common package dependency errors in logs
-                    for line in self.active_server_tasks.get(name, {}).get('output_buffer', []):
-                        for err_pattern in common_errors:
-                            if err_pattern in line:
-                                # Found a more specific error message to use!
-                                error_msg = f"Package dependency error: {line.strip()}"
-                                logger.info(f"📦 [ERROR] Found package dependency error: {line}")
+                                # Close the session if it exists
+                                if session is not None:
+                                    try:
+                                        await asyncio.wait_for(session.close(), timeout=5.0)
+                                    except Exception as close_err:
+                                        logger.debug(f"[{name}] Error closing session during cleanup: {close_err}")
                                 break
 
-                    logger.error(f"[{name}] {error_msg}")
+                        logger.info(f"[{name}] Shutdown event received. Cleaning up session...")
 
-                    if name in self.active_server_tasks:
-                        # Mark server as failed
-                        self.active_server_tasks[name]['status'] = 'failed'
-                        # Set ready event to unblock anything waiting for this server
-                        if 'ready_event' in self.active_server_tasks[name]:
-                            self.active_server_tasks[name]['ready_event'].set()
-                            logger.debug(f"[{name}] Ready event set (to unblock waiters) after initialization failure")
-                        # Store the detailed error message
-                        self.active_server_tasks[name]['error'] = error_msg
-                        # Add to server load errors so it shows in tools list
-                        self._server_load_errors[name] = error_msg
+                        # Close the session cleanly if we still have it
+                        if session is not None:
+                            try:
+                                await asyncio.wait_for(session.close(), timeout=5.0)
+                                logger.debug(f"[{name}] Session closed cleanly")
+                            except Exception as e:
+                                logger.warning(f"[{name}] Error closing session: {e}")
 
-                        # Optional: Remove zombie tasks after a short delay to allow error inspection
-                        async def _delayed_cleanup(server_name):
-                            await asyncio.sleep(120)  # Keep failed entry for 2 minutes for diagnostics
-                            if server_name in self.active_server_tasks and self.active_server_tasks[server_name].get('status') == 'failed':
-                                logger.info(f"[{server_name}] Removing failed server from active_server_tasks after delay")
-                                self.active_server_tasks.pop(server_name, None)
+                    except asyncio.TimeoutError as timeout_err:
+                        # Directly check for the uvx error - this is a common pattern in our server
+                        common_errors = [
+                            "No solution found when resolving tool dependencies",
+                            "not found in the package registry",
+                            "requirements are unsatisfiable"
+                        ]
 
-                        # Schedule cleanup
-                        asyncio.create_task(_delayed_cleanup(name))
+                        # Generic error message to start
+                        error_msg = "Timeout occurred during session initialization"
 
-                    # Close session if it exists but failed to initialize
-                    if session is not None:
-                        try:
-                            await session.close()
-                        except Exception:
-                            pass  # Ignore errors when closing an uninitialized session
-                except Exception as e:
-                    # Capture any other initialization error
-                    error_msg = f"Failed to initialize server: {str(e)}"
-                    logger.error(f"[{name}] {error_msg}")
+                        # Look for common package dependency errors in logs
+                        for line in self.active_server_tasks.get(name, {}).get('output_buffer', []):
+                            for err_pattern in common_errors:
+                                if err_pattern in line:
+                                    # Found a more specific error message to use!
+                                    error_msg = f"Package dependency error: {line.strip()}"
+                                    logger.info(f"📦 [ERROR] Found package dependency error: {line}")
+                                    break
 
-                    if name in self.active_server_tasks:
-                        # Mark server as failed and save detailed error
-                        self.active_server_tasks[name]['status'] = 'failed'
-                        self.active_server_tasks[name]['error'] = error_msg
-                        # Add to server load errors so it shows in tools list
-                        self._server_load_errors[name] = error_msg
+                        logger.error(f"[{name}] {error_msg}")
 
-                        # Unblock any waiters
-                        if 'ready_event' in self.active_server_tasks[name]:
-                            self.active_server_tasks[name]['ready_event'].set()
+                        if name in self.active_server_tasks:
+                            # Mark server as failed
+                            self.active_server_tasks[name]['status'] = 'failed'
+                            # Set ready event to unblock anything waiting for this server
+                            if 'ready_event' in self.active_server_tasks[name]:
+                                self.active_server_tasks[name]['ready_event'].set()
+                                logger.debug(f"[{name}] Ready event set (to unblock waiters) after initialization failure")
+                            # Store the detailed error message
+                            self.active_server_tasks[name]['error'] = error_msg
+                            # Add to server load errors so it shows in tools list
+                            self._server_load_errors[name] = error_msg
 
-                        # Schedule delayed cleanup
-                        async def _delayed_cleanup(server_name):
-                            await asyncio.sleep(120)  # Keep failed entry for 2 minutes
-                            if server_name in self.active_server_tasks and self.active_server_tasks[server_name].get('status') == 'failed':
-                                logger.info(f"[{server_name}] Removing failed server from active_server_tasks after delay")
-                                self.active_server_tasks.pop(server_name, None)
+                            # Optional: Remove zombie tasks after a short delay to allow error inspection
+                            async def _delayed_cleanup(server_name):
+                                await asyncio.sleep(120)  # Keep failed entry for 2 minutes for diagnostics
+                                if server_name in self.active_server_tasks and self.active_server_tasks[server_name].get('status') == 'failed':
+                                    logger.info(f"[{server_name}] Removing failed server from active_server_tasks after delay")
+                                    self.active_server_tasks.pop(server_name, None)
 
-                        asyncio.create_task(_delayed_cleanup(name))
+                            # Schedule cleanup
+                            asyncio.create_task(_delayed_cleanup(name))
 
-                    # Close session if it exists but failed to initialize
-                    if session is not None:
-                        try:
-                            await session.close()
-                        except Exception:
-                            pass  # Ignore errors when closing an uninitialized session
+                        # Close session if it exists but failed to initialize
+                        if session is not None:
+                            try:
+                                await session.close()
+                            except Exception:
+                                pass  # Ignore errors when closing an uninitialized session
+                    except Exception as e:
+                        logger.error(f"[{name}] Error during session.initialize() or operation: {e}")
+                        if name in self.active_server_tasks:
+                            self.active_server_tasks[name]['status'] = 'init_failed'
+                            if 'ready_event' in self.active_server_tasks[name]:
+                                self.active_server_tasks[name]['ready_event'].set()  # Signal completion (failure)
 
-                except Exception as e:
-                    logger.error(f"[{name}] Error during session.initialize() or operation: {e}")
-                    if name in self.active_server_tasks:
-                        self.active_server_tasks[name]['status'] = 'init_failed'
-                        if 'ready_event' in self.active_server_tasks[name]:
-                            self.active_server_tasks[name]['ready_event'].set()  # Signal completion (failure)
-
-                    # Close session if it exists but failed
-                    if session is not None:
-                        try:
-                            await session.close()
-                        except Exception:
-                            pass  # Ignore errors when closing a failed session
+                        # Close session if it exists but failed
+                        if session is not None:
+                            try:
+                                await session.close()
+                            except Exception:
+                                pass  # Ignore errors when closing a failed session
 
         except ConnectionRefusedError:
             logger.error(f"[{name}] Connection refused when starting stdio client process.")
@@ -860,8 +828,8 @@ class DynamicServerManager:
             logger.error(f"❌ server_start: {msg}")
             raise ValueError(msg)
 
-        # Load the config from file
-        full_config = await self._fs_load_server(name)
+        # Load the config using server_get (as in self_test)
+        full_config = await self.server_get(name)
         if not full_config:
             msg = f"Config file not found for server '{name}'."
             logger.error(f"❌ server_start: {msg}")
@@ -912,7 +880,7 @@ class DynamicServerManager:
             params = StdioServerParameters(
                 command=server_config['command'],
                 args=server_config.get('args', []),
-                env=server_config.get('env', None),
+                env=server_config.get('env', {}),
                 cwd=server_config.get('cwd', None)
             )
             logger.debug(f"▶️ server_start: Prepared StdioServerParameters for '{name}': {params}")
@@ -941,6 +909,7 @@ class DynamicServerManager:
             'output_buffer': [],  # Store stdout/stderr from the process
             'error_buffer': []    # Store specific error messages
         }
+        self.active_server_tasks[name] = task_info
         logger.info(f"MCP server '{name}' started")
         logger.debug(f"▶️ server_start: Task info recorded for '{name}'. Start time will be added upon session init.")
 
@@ -1313,7 +1282,7 @@ class DynamicServerManager:
                                 "atlantis-open-weather-mcp",
                                 "start-weather-server",
                                 "--api-key",
-                                "1234" # replace with real API key for testing
+                                "1234"
                             ]
                         }
                     }

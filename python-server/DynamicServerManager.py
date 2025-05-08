@@ -332,10 +332,10 @@ class DynamicServerManager:
         try:
             logger.debug(f"get_server_tools: Creating temporary connection parameters for '{name}'")
             params = StdioServerParameters(
-                command=specific_config['command'],
-                args=specific_config.get('args', []),
-                env=specific_config.get('env', {}),
-                cwd=specific_config.get('cwd', None)
+                command=server_config['command'],
+                args=server_config.get('args', []),
+                env=server_config.get('env', {}),
+                cwd=server_config.get('cwd', None)
             )
         except Exception as e:
             raise ValueError(f"Invalid server parameters for '{name}': {e}")

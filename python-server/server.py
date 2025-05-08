@@ -1133,6 +1133,16 @@ class DynamicAdditionServer(Server):
                 if not server_name or not isinstance(server_name, str):
                      raise ValueError("Missing or invalid 'name' argument for _server_get_tools")
                 result_raw = await self.server_manager.get_server_tools(server_name) # Pass only the name string
+                # Convert Tool objects to dictionaries for JSON serialization
+                if result_raw and isinstance(result_raw, list):
+                    result_raw = [
+                        {
+                            "name": tool.name,
+                            "description": tool.description,
+                            "inputSchema": tool.inputSchema
+                        }
+                        for tool in result_raw
+                    ]
             # Handle MCP tool calls
             elif '.' in name or ' ' in name: # <<< UPDATED Condition
 

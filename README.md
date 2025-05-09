@@ -2,54 +2,95 @@
 
 # Project Atlantis
 
-The somewhat hand-wavey goal of Project Atlantis is simulating a future buildout of rugged, remote Greenland using emerging autonomous technologies. However, new technologies require testing so Project Atlantis is a giant sandbox of sorts
+The somewhat hand-wavey goal of Project Atlantis is simulating a future buildout of rugged, remote Greenland using emerging autonomous technologies. However, new technologies require testing so Project Atlantis is a giant bot sandbox of sorts
 
-## MCP Remote Server
+## MCP Python Remote Server
 
-This project folder provides a flexible and generic Model Context Protocol (MCP) server written in Python (which we call a 'remote') to play with and collaborate
+I wrote this trying to get past the hype and learn what an MCP (Model Context Protocol) server was, as well as explore potential future MCP directions (keep in mind that Silicon Valley has its own plans)
+
+I think most confusion with MCP is because the BYOC architecture is inverted to traditional cloud, but this gives the user much more control over compute and AI privacy
+
+The main piece of this project is just a hotloadable Python server (which I call a 'remote') for curious people to play with and collaborate. I was building a Node counterpart but shelved it for now because the Node VM hotloader is not nearly as easy to work with
+
+### Architecture
+
+Caveat: MCP terminology is already terrible and I just made it worse. I'm not an MCP expert and so naively I called everything a 'server' and it quickly became a mess. I've tried to rename things retroactively but you may still see some inconsistencies
+
+Pieces of the system:
+
+- **Cloud**: the Atlantis cloud server (free since most compute runs on your local box anyway); mostly a chat UX and backend database
+- **Remote**: a Python p2p MCP server running on each box (you can have >1 just specify different service name)
+- **Dynamic Function**: a custom Python function that can act as a tool, can be reloaded on the fly, see below
+- **Dynamic MCP Server**: any 3rd party MCP, what gets stored is just a JSON config file, see below
+#### Terminology Notes
+The MCP spec seems to suggest that MCP stuff connects from an MCP 'host' (think Claude Desktop or Cursor or Windsurf) but since I usually access these hosts remotely from the cloud, I ended up calling them "remotes" instead. While a remote can host 3rd party MCP tools (which have tools ofc), it can also host Python functions
+
+![design](/design.png)
+
+Why a cloud server? Well MCP auth and security are still being worked out it's easier to have a trusted central server for now. Our intention for Greenland is for each town, settlement work site etc. to have at least one 'remote'
 
 ### Key Components
 
-1. **Python MCP Server** (`python-server/`)
+1. **Python Remote (MCP P2P server)** (`python-server/`)
    - Our 'remote'. Runs locally but can be controlled remotely via the Atlantis cloud, which may be handy if trying to control servers across multiple machines
 
 2. **MCP Client** (`client/`)
-   - Useful for AI that wants to control the remote as another ordinary MCP tool
+   - Useful if you want to treat your local remote as an ordinary MCP tool
    - Written using npx
    - No cloud needed although it might produce annoying errors
-   - Can only see tools on the local MCP server (at least right now), although tools can call back to the cloud
+   - Capabilities limited to tools/list
+   - Can only see tools on the local box (at least right now), although tools can call back to the cloud
 
 ## Quick Start
 
-1. Edit the runServer script in the `python-server` folder
+1. Prerequisites - need to install Python for the server and Node for the MCP client; you should also install uvx and npx
 
-`python server.py --email=your@gmail.com --api-key=foobar --host=localhost --port=8000 --cloud-host=https://www.projectatlantis.ai --cloud-port=3010 --service-name=home`
+2. All this may need to be run in a fairly modern 3.13 Python venv to ensure everything works or it will fallback to whatever basic Python you have which could be quite old (claude windsurf have the same issue btw so if it seems like no MCP stuff is working, it's almost certainly the Python environment)
 
-2. Sign up at https://www.projectatlantis.ai. Your default API key will let the remot connect
+3. Edit the runServer script in the `python-server` folder and set the email and service name:
 
-## Python MCP Server Features
+```bash
+python server.py
+  --email=your@gmail.com
+  --api-key=foobar   // you should change this
+  --host=localhost
+  --port=8000
+  --cloud-host=https://www.projectatlantis.ai --cloud-port=3010
+  --service-name=home
+```
+
+4. Sign up at https://www.projectatlantis.ai under the same email
+
+5. Your server(s) should autoconnect using email and default api key = 'foobar' (which you should change via '\user api_key' command). The first server to connect will be assigned your 'default'
+
+6. Initially the functions and servers folders will be empty
+
+## Features
 
 #### Dynamic Functions
 
-- Gives users the ability to create and maintain custom functions-as-tools in the `dynamic_functions/` folder
-- Functions are loaded dynamically and automatically reloaded when modified
-- You can either edit functions locally and the server will automatically detect changes, or edit remotely in the Atlantis cloud
-- Dynamic functions can import each other and the server should correctly handle hot-loaded dependency changes, within the constraints of the Python VM
-- Every dynamic function has access to a generic `atlantis` utility module:
+- gives users the ability to create and maintain custom functions-as-tools, which are kept in the `dynamic_functions/` folder
+- functions are loaded on start and should be automatically reloaded when modified
+- you can either edit functions locally and the server will automatically detect changes, or edit remotely in the Atlantis cloud
+- the first comment found in the function is used as the tool description
+- dynamic functions can import each other and the server should correctly handle hot-loaded dependency changes, within the constraints of the Python VM
+- every dynamic function has access to a generic `atlantis` utility module:
+
   ```python
   import atlantis
+
+  ...
+
   atlantis.client_log("This message will appear in the Atlantis cloud console!")
   ```
--  The MCP spec is in flux and so the protocol between our MCP server and the cloud is a superset (we rely heavily on annotations)
-- A lot of this stuff including below may end up getting lumped under MCP "Resources"
+-  the MCP spec is in flux and so the protocol between our MCP server and the cloud is a superset (we rely heavily on annotations)
+- a lot of this stuff here may end up getting lumped under MCP "Resources" or something
 
 #### Dynamic MCP Servers
 
-- Gives users the ability to install and manage third-party MCP server tools in the `dynamic_servers/` folder
-- This lets you host the growing ecosystem other MCP tools as if they were part of your own server
-- Using the npx client, you host other MCP servers directly or use the Atlantis cloud
-- Each server config follows the usual JSON structure that contains an 'mcpServers' element
-- For example, this installs our openweather MCP server:
+- gives users the ability to install and manage third-party MCP server tools; JSON config files are kept in the `dynamic_servers/` folder
+- each MCP server will need to be 'started' first to fetch the list of tools
+- each server config follows the usual JSON structure that contains an 'mcpServers' element; for example, this installs an openweather MCP server:
 
    ```json
    {
@@ -68,4 +109,8 @@ This project folder provides a flexible and generic Model Context Protocol (MCP)
    }
    ```
 
-See [here](https://github.com/ProjectAtlantis-dev/atlantis-open-weather-mcp)
+The weather MCP service is just an existing one I ported to uvx. See [here](https://github.com/ProjectAtlantis-dev/atlantis-open-weather-mcp)
+
+
+## Cloud
+

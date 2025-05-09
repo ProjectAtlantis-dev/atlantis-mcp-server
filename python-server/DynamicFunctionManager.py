@@ -24,8 +24,9 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from werkzeug.utils import secure_filename
 
-from state import logger, CYAN, RESET
+from state import logger
 
+from ColoredFormatter import CYAN, RESET
 
 from mcp.types import (
     Tool,

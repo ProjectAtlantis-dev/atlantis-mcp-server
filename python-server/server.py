@@ -83,9 +83,11 @@ from state import (
     CLOUD_SERVER_HOST, CLOUD_SERVER_PORT, CLOUD_SERVER_URL,
     CLOUD_SERVICE_NAMESPACE, CLOUD_CONNECTION_RETRY_SECONDS,
     CLOUD_CONNECTION_MAX_RETRIES, CLOUD_CONNECTION_MAX_BACKOFF_SECONDS,
-    BOLD, RESET, CYAN, BRIGHT_WHITE,
     SERVER_REQUEST_TIMEOUT # <<< Import the timeout constant
 )
+
+# Import color constants directly from ColoredFormatter
+from ColoredFormatter import BOLD, RESET, CYAN, BRIGHT_WHITE
 
 # Import dynamic management classes
 from DynamicFunctionManager import DynamicFunctionManager

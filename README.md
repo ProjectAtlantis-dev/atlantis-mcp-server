@@ -17,6 +17,7 @@ This project folder provides a flexible and generic Model Context Protocol (MCP)
    - Useful for AI that wants to control the remote as another ordinary MCP tool
    - Written using npx
    - No cloud needed although it might produce annoying errors
+   - Can only see tools on the local MCP server (at least right now), although tools can call back to the cloud
 
 ## Quick Start
 

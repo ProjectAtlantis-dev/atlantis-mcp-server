@@ -1522,7 +1522,7 @@ class ServiceClient:
                 # Enhanced error message logic
                 if error_message == "One or more namespaces failed to connect":
                     if self.email and self.api_key:
-                        specific_error_log = f"Authentication failed or namespace '{self.namespace}' rejected the connection. Please verify your credentials (email: {self.email}, API key, service name: {self.serviceName}) and ensure the service is correctly configured on the cloud server."
+                        specific_error_log = f"Authentication failed. Please make sure credentials are valid (email: {self.email}, API key, service name: {self.serviceName})"
                     else:
                         specific_error_log = f"Namespace '{self.namespace}' failed to connect. This could be due to server-side issues, incorrect namespace configuration, or missing authentication details if required by the server."
                 elif isinstance(e, socketio.exceptions.ConnectionError):
@@ -1530,7 +1530,7 @@ class ServiceClient:
                 else:
                     specific_error_log = f"{error_message}. An unexpected error occurred during connection. {detailed_error_info_message}"
 
-                logger.error(f"❌ ATLANTIS CLOUD SERVER CONNECTION ERROR (attempt {self.retry_count}): {specific_error_log}")
+                logger.error(f"❌ EGAD!! ATLANTIS CLOUD SERVER CONNECTION ERROR (attempt {self.retry_count}): {specific_error_log}")
 
                 # Print a more detailed stack trace for debugging
                 import traceback
@@ -1542,10 +1542,28 @@ class ServiceClient:
                 actual_delay = min(backoff_delay + jitter, CLOUD_CONNECTION_MAX_BACKOFF_SECONDS)
 
                 # Wait before retrying
-                logger.info(f"☁️ RETRYING CONNECTION IN {actual_delay:.2f} SECONDS...")
+                logger.info(f"☁️ RETRYING CLOUD CONNECTION IN {actual_delay:.2f} SECONDS...")
                 await asyncio.sleep(actual_delay)
 
-        logger.info("☁️ Cloud connection maintenance loop ended")
+        logger.info("☁️ Cloud connection giving up")
+
+
+
+    def print_ascii_art(self, filepath):
+        """
+        Reads an ASCII art file and prints its content to the console.
+
+        Args:
+            filepath (str): The path to the ASCII art file.
+        """
+        try:
+            with open(filepath, 'r') as file:
+                ascii_art = file.read()
+                print(ascii_art)
+        except FileNotFoundError:
+            print(f"Error: The file '{filepath}' was not found.")
+        except Exception as e:
+            print(f"An error occurred: {e}")
 
     def _register_event_handlers(self):
         """Register Socket.IO event handlers"""
@@ -1557,6 +1575,9 @@ class ServiceClient:
         async def connect(): # Ensure handler is async
             self.is_connected = True
             self.retry_count = 0  # Reset retry counter on successful connection
+
+            self.print_ascii_art("../kitty.txt")
+
             logger.info("") # Blank line before
             logger.info(f"{BOLD}{CYAN}=================================================={RESET}")
             logger.info(f"{BOLD}{BRIGHT_WHITE}🚀✨🎉 CONNECTED TO ATLANTIS CLOUD SERVER! 🎉✨🚀{RESET}")

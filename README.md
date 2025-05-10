@@ -27,7 +27,7 @@ The MCP spec seems to suggest that MCP stuff connects from an MCP 'host' (think 
 
 ![design](/design.png)
 
-Why a cloud server? Well MCP auth and security are still being worked out it's easier to have a trusted central server for now. Our intention for Greenland is for each town, settlement work site etc. to have at least one 'remote'
+Why the cloud? MCP auth and security are still being worked out it's easier to have a trusted host for now. Our intention for Greenland is for each town, settlement work site etc. to have at least one remote
 
 ### Key Components
 
@@ -61,9 +61,11 @@ python server.py
 
 4. Sign up at https://www.projectatlantis.ai under the same email
 
-5. Your server(s) should autoconnect using email and default api key = 'foobar' (which you should change via '\user api_key' command). The first server to connect will be assigned your 'default'
+5. Your remote(s) should autoconnect using email and default api key = 'foobar' (which you should change via '\user api_key' command). The first server to connect will be assigned your 'default'
 
-6. Initially the functions and servers folders will be empty
+6. If you run more than once remote, names must be unique
+
+7. Initially the functions and servers folders will be empty
 
 ## Features
 

@@ -1,1 +1,8 @@
-python server.py --email=rein.dapp@gmail.com --api-key=foobar --host=localhost --port=8000 --cloud-host=100.78.118.74 --cloud-port=3010 --service-name=new_macbook
+python server.py  \
+  --email=youremail@gmail.com  \
+  --api-key=foobar \
+  --host=localhost \
+  --port=8000  \
+  --cloud-host=www.projectatlantis.ai/service  \
+  --cloud-port=443  \
+  --service-name=nuuk

@@ -2106,7 +2106,7 @@ if __name__ == "__main__":
     if args.cloud_host != CLOUD_SERVER_HOST or args.cloud_port != CLOUD_SERVER_PORT:
         CLOUD_SERVER_HOST = args.cloud_host
         CLOUD_SERVER_PORT = args.cloud_port
-        CLOUD_SERVER_URL = f"http://{CLOUD_SERVER_HOST}:{CLOUD_SERVER_PORT}"
+        CLOUD_SERVER_URL = f"wss://{CLOUD_SERVER_HOST}:{CLOUD_SERVER_PORT}"
 
     # Set up the event loop
     loop = asyncio.new_event_loop()

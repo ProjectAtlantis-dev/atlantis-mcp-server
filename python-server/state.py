@@ -42,9 +42,9 @@ HOST = "0.0.0.0"  # Listen on all interfaces by default
 PORT = 8000
 
 # Cloud server configuration
-CLOUD_SERVER_HOST = "localhost"
+CLOUD_SERVER_HOST = "ws.projectatlantis.ai"
 CLOUD_SERVER_PORT = 3010
-CLOUD_SERVER_URL = f"http://{CLOUD_SERVER_HOST}:{CLOUD_SERVER_PORT}"
+CLOUD_SERVER_URL = f"wss://{CLOUD_SERVER_HOST}:{CLOUD_SERVER_PORT}"
 CLOUD_SERVICE_NAMESPACE = "/service"  # Socket.IO namespace for service-to-service communication
 CLOUD_CONNECTION_RETRY_SECONDS = 5  # Initial delay in seconds
 CLOUD_CONNECTION_MAX_RETRIES = 10  # Maximum number of retries before giving up (None for infinite)

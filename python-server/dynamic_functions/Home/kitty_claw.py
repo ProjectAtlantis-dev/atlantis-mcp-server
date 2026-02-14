@@ -4,6 +4,7 @@ import asyncio
 from anthropic import Anthropic
 from anthropic.types import (
     MessageParam,
+    TextBlockParam,
     ToolParam,
     ToolUseBlock,
 )
@@ -318,6 +319,71 @@ logger = logging.getLogger("mcp_client")
 from utils import format_json_log, parse_search_term
 
 
+async def fetch_skill_contents(dir_command: str) -> List[str]:
+    """Invoke /dir command and fetch content for each returned skill."""
+    result = await atlantis.client_command(dir_command)
+    logger.info(f"Received {len(result) if result else 0} entries from {dir_command}")
+    logger.info(format_json_log(result))
+    contents: List[str] = []
+    if result:
+        for entry in result:
+            search_term = entry.get('searchTerm', '')
+            if not search_term:
+                continue
+            logger.info(f"Fetching skill content: {search_term}")
+            try:
+                content = await atlantis.client_command(f"%{search_term}")
+                if content and str(content).strip():
+                    contents.append(str(content))
+                    logger.info(f"  Got {len(str(content))} chars from {search_term}")
+            except Exception as e:
+                logger.warning(f"  Failed to fetch skill {search_term}: {e}")
+    return contents
+
+
+async def fetch_skills() -> Tuple[List[str], List[str]]:
+    """Fetch static and dynamic skill contents from server. Can be called directly for testing."""
+    logger.info("Fetching static skills...")
+    static_skill_texts = await fetch_skill_contents("/dir *STATIC_SKILL")
+    logger.info("Fetching dynamic skills...")
+    dynamic_skill_texts = await fetch_skill_contents("/dir *DYN_SKILL")
+    logger.info(f"Skills loaded: {len(static_skill_texts)} static, {len(dynamic_skill_texts)} dynamic")
+    return static_skill_texts, dynamic_skill_texts
+
+
+def build_system_prompt(
+    base_prompt: str,
+    static_skills: List[str],
+    dynamic_skills: List[str]
+) -> List[TextBlockParam]:
+    """
+    Build the system prompt as an array of TextBlockParam blocks.
+    cache_control goes on the last static block so everything before it gets cached.
+    Dynamic skills go after and change freely without busting the cache.
+    """
+    blocks: List[TextBlockParam] = []
+
+    # Base prompt is always first static block
+    blocks.append({"type": "text", "text": base_prompt})
+
+    # Each static skill gets its own block
+    for text in static_skills:
+        blocks.append({"type": "text", "text": text})
+
+    # Mark the last static block with cache_control
+    blocks[-1]["cache_control"] = {"type": "ephemeral"}
+
+    # Dynamic skills go after the cache breakpoint
+    for text in dynamic_skills:
+        blocks.append({"type": "text", "text": text})
+
+    # Fallback: if no dynamic skills, add date so there's always something after cache
+    if not dynamic_skills:
+        blocks.append({"type": "text", "text": f"Current date: {datetime.now().strftime('%Y-%m-%d')}"})
+
+    return blocks
+
+
 def find_last_chat_entry(transcript):
     """Find the last entry in transcript where type is 'chat'"""
     for entry in reversed(transcript):
@@ -444,7 +510,7 @@ You like to purr when happy or do 'kitty paws'.
                 # - kitty messages = assistant
                 # - everyone else = user
                 role_for_llm = 'assistant' if msg_sid == 'kitty' else 'user'
-                transcript.append({'role': role_for_llm, 'content': msg_content_full})
+                transcript.append({'role': role_for_llm, 'content': [{'type': 'text', 'text': msg_content_full}]})
                 logger.info(f"       -> INCLUDED as role={role_for_llm} (sid={msg_sid})")
             else:
                 logger.info(f"       -> SKIPPED (type != 'chat')")
@@ -462,6 +528,9 @@ You like to purr when happy or do 'kitty paws'.
         logger.info("=== RAW TOOLS FROM /dir ===")
         logger.info(format_json_log(tools))
         logger.info("=== END RAW TOOLS ===")
+
+        # Fetch static and dynamic skills for system prompt
+        static_skill_texts, dynamic_skill_texts = await fetch_skills()
 
         await atlantis.client_command("/silent off")
 
@@ -544,9 +613,9 @@ You like to purr when happy or do 'kitty paws'.
                 # Use Anthropic's streaming context manager
                 with client.messages.stream(
                     model=model,
-                    system=CATGIRL_SYSTEM_PROMPT,
-                    messages=typed_transcript,
+                    system=build_system_prompt(CATGIRL_SYSTEM_PROMPT, static_skill_texts, dynamic_skill_texts),
                     tools=cast(List[ToolParam], typed_tools),
+                    messages=typed_transcript,
                     max_tokens=512,
                     temperature=0.9
                 ) as stream:

@@ -66,5 +66,6 @@ log/
 server.log
 
 python-server/set_OPENROUTER.bat
+python-server/set_ANTHROPIC.bat
 
 runServer.log

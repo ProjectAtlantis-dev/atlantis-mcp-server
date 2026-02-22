@@ -1,0 +1,12 @@
+{
+    "mcpServers": {
+        "atlantis": {
+           "command": "npx",
+           "args": [
+              "atlantis-mcp",
+              "--port",
+              "8000"
+              ]
+        }
+     }
+}

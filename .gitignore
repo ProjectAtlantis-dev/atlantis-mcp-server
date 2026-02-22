@@ -41,11 +41,33 @@ yarn-error.log
 *.swp
 *.swo
 .DS_Store
-mcp_server.pid
+*.pid
 
 
+*.OLD
 python-server/dynamic_functions/OLD/
+python-server/dynamic_functions/*
+!python-server/dynamic_functions/Home
+python-server/dynamic_servers/*
+python-server/dynamic_functions/.gitignore
 python-server/dynamic_servers/OLD/
+!python-server/dynamic_servers/weather.json
+python-server/runServerProd
+python-server/runServerFoo*
+python-server/runServerBar*
+python-server/runServer*Local
+python-server/runServer*Prod
 
 
 python-server2/
+
+log/
+
+*.db
+
+server.log
+
+python-server/set_OPENROUTER.bat
+python-server/set_ANTHROPIC.bat
+
+runServer.log

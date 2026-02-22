@@ -1,0 +1,40 @@
+{
+  "include": [
+    "python-server"
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/venv",
+    "**/.venv",
+    "**/dynamic_functions/**"
+  ],
+  "pythonVersion": "3.13",
+  "pythonPlatform": "Darwin",
+  "venvPath": "python-server",
+  "venv": "venv",
+
+  "typeCheckingMode": "basic",
+
+  "reportMissingImports": "warning",
+  "reportUndefinedVariable": "error",
+
+  "reportOptionalMemberAccess": "none",
+  "reportOptionalCall": "none",
+  "reportOptionalSubscript": "none",
+  "reportOptionalIterable": "none",
+  "reportOptionalContextManager": "none",
+  "reportOptionalOperand": "none",
+
+  "reportGeneralTypeIssues": "error",
+  "reportArgumentType": "error",
+  "reportAttributeAccessIssue": "none",
+  "reportIndexIssue": "warning",
+  "reportCallIssue": "error",
+  "reportReturnType": "error",
+  "reportAssignmentType": "error",
+
+  "reportUnusedImport": "none",
+  "reportUnusedVariable": "none",
+  "reportDuplicateImport": "warning"
+}

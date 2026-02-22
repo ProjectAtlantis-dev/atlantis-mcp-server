@@ -10,15 +10,27 @@ class PIDManager:
     Handles creation, removal, and validation of PID files.
     """
     
-    def __init__(self, pid_file_path=None):
+    def __init__(self, pid_file_path=None, service_name=None):
         """
         Initialize the PID Manager.
         
         Args:
             pid_file_path: Optional custom path for the PID file. If None, uses default location.
+            service_name: Optional service name to include in the PID filename for identification.
         """
-        self.pid_file = pid_file_path or os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp_server.pid")
+        # Store the service name for later use
+        self.service_name = service_name
+        
+        if pid_file_path:
+            self.pid_file = pid_file_path
+        else:
+            # Include service name in the PID filename if provided
+            filename = f"{service_name}_server.pid" if service_name else "mcp_server.pid"
+            self.pid_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
+        
         logger.debug(f"PID Manager initialized with file path: {self.pid_file}")
+        if service_name:
+            logger.debug(f"PID Manager initialized for service: {service_name}")
     
     def check_server_running(self):
         """
@@ -100,10 +112,25 @@ class PIDManager:
             test_pid_path = os.path.join(temp_dir, "test_mcp_server.pid")
             logger.debug(f"Using test PID file path: {test_pid_path}")
             
-            # Test 1: Initialization
+            # Test 1: Basic Initialization
             try:
                 pid_manager = PIDManager(test_pid_path)
-                logger.debug(f"✅ Test 1: PIDManager initialized with custom path")
+                logger.debug(f"✅ Test 1a: PIDManager initialized with custom path")
+                
+                # Test service_name parameter
+                test_service_pid_path = os.path.join(temp_dir, "test_custom_server.pid")
+                test_service_name = "custom"
+                service_pid_manager = PIDManager(test_service_pid_path, service_name=test_service_name)
+                logger.debug(f"✅ Test 1b: PIDManager initialized with service name: {test_service_name}")
+                
+                # Test automatic service name in filename
+                auto_service_pid_manager = PIDManager(service_name="auto_test")
+                expected_filename = "auto_test_server.pid"
+                if expected_filename in auto_service_pid_manager.pid_file:
+                    logger.debug(f"✅ Test 1c: Service name correctly included in auto-generated filename")
+                else:
+                    logger.error(f"❌ Test 1c: Service name not included in filename: {auto_service_pid_manager.pid_file}")
+                    test_passed = False
                 
                 # Test 2: Creating a PID file
                 if pid_manager.create_pid_file():

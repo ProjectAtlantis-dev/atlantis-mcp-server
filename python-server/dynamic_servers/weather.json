@@ -1,13 +1,13 @@
 {
     "mcpServers": {
-        "test5": {
+        "weather": {
             "command": "uvx",
             "args": [
                 "--from",
-                "atlantis-mcp-template",
-                "start-test5-server",
+                "atlantis-open-weather-mcp",
+                "start-weather-server",
                 "--api-key",
-                "<your api key here>"
+                "<your api key>"
             ]
         }
     }

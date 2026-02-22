@@ -12,6 +12,7 @@ const DEFAULT_PORT = 8000;
 const DEFAULT_PATH = '/mcp';
 
 // Helper function to output JSON messages to stdout
+/*
 function jsonLog(message, level = 'info') {
   const jsonOutput = {
     type: 'text',
@@ -28,6 +29,14 @@ function jsonLog(message, level = 'info') {
 console.log = (message) => jsonLog(message, 'info');
 console.warn = (message) => jsonLog(message, 'warning');
 console.error = (message) => jsonLog(message, 'error');
+*/
+
+// Helper function to log status messages to stderr
+function logStatus(message, level = 'info') {
+  const timestamp = new Date().toISOString();
+  const logMessage = `[${timestamp}] [${level.toUpperCase()}] ${message}\n`;
+  process.stderr.write(logMessage);
+}
 
 // Parse command line arguments
 const argv = yargs(hideBin(process.argv))
@@ -55,7 +64,7 @@ const argv = yargs(hideBin(process.argv))
 function checkServerRunning() {
   // Only perform PID check when connecting to localhost
   if (argv.host !== '127.0.0.1') {
-    console.log(`PID file checking skipped (not connecting to localhost)`);
+    logStatus(`PID file checking skipped (not connecting to localhost)`);
     return true;
   }
 
@@ -65,15 +74,15 @@ function checkServerRunning() {
   if (fs.existsSync(pidFilePath)) {
     try {
       const pid = parseInt(fs.readFileSync(pidFilePath, 'utf8').trim());
-      console.log(`Found PID file with server process ID: ${pid}`);
+      logStatus(`Found PID file with server process ID: ${pid}`);
       return true;
     } catch (error) {
-      console.warn(`Found PID file but couldn't read it: ${error.message}`);
+      logStatus(`Found PID file but couldn't read it: ${error.message}`, 'warn');
       return false;
     }
   } else {
-    console.warn(`No PID file found at ${pidFilePath}`);
-    console.warn(`Make sure the Python server is running before starting this bridge!`);
+    logStatus(`No PID file found at ${pidFilePath}`, 'warn');
+    logStatus(`Make sure the Python server is running before starting this bridge!`, 'warn');
     return true;
   }
 }
@@ -82,31 +91,34 @@ function checkServerRunning() {
 async function startMcpBridge() {
   // Check if server appears to be running first
   if (!checkServerRunning()) {
-    console.warn(`Server may not be running. Will attempt to connect anyway...`);
+    logStatus(`Server may not be running. Will attempt to connect anyway...`, 'warn');
   }
 
   // Construct server URL
   const serverUrl = `ws://${argv.host}:${argv.port}${argv.path}`;
 
-  console.log(`MCP Python Bridge starting...`);
-  console.log(`Connecting to Python MCP server at: ${serverUrl}`);
+  logStatus(`MCP Python Bridge starting...`);
+  logStatus(`Connecting to Python MCP server at: ${serverUrl}`);
 
   // Set up standard input/output for passthrough
   process.stdin.setEncoding('utf8');
 
-  // Create WebSocket client instance
-  const client = new WebSocketClient();
+  // Create WebSocket client instance with increased frame size limits for large scan images
+  const client = new WebSocketClient({
+    maxReceivedFrameSize: 10 * 1024 * 1024, // 10MB (much larger than the ~1.69MB scan)
+    maxReceivedMessageSize: 10 * 1024 * 1024 // 10MB for aggregate message size
+  });
 
   // Handle connection failures
   client.on('connectFailed', (error) => {
-    console.error(`Connection error: ${error.toString()}`);
+    logStatus(`Connection error: ${error.toString()}`, 'error');
     process.exit(1);
   });
 
   // Handle successful connections
   client.on('connect', (connection) => {
-    console.log(`Connected to Python MCP server!`);
-    console.log(`Bridge ready! Passing messages between process and Python server...`);
+    logStatus(`Connected to Python MCP server!`);
+    logStatus(`Bridge ready! Passing messages between process and Python server...`);
 
     // Handle messages from the WebSocket
     connection.on('message', (message) => {
@@ -130,20 +142,20 @@ async function startMcpBridge() {
             process.stdout.write(JSON.stringify(jsonWrapper) + '\n');
           }
         }
-      } catch (error) {
-        console.error(`Error processing server message: ${error.message}`);
-      }
+              } catch (error) {
+          logStatus(`Error processing server message: ${error.message}`, 'error');
+        }
     });
 
     // Handle connection closure
     connection.on('close', () => {
-      console.log(`Connection to Python MCP server closed`);
+      logStatus(`Connection to Python MCP server closed`);
       process.exit(0);
     });
 
     // Handle connection errors
     connection.on('error', (error) => {
-      console.error(`Connection error: ${error.toString()}`);
+      logStatus(`Connection error: ${error.toString()}`, 'error');
     });
 
     // Buffer for collecting incoming data chunks
@@ -187,20 +199,20 @@ async function startMcpBridge() {
             }
           }
         }
-      } catch (error) {
-        console.error(`Error forwarding input to server: ${error.message}`);
-      }
+              } catch (error) {
+          logStatus(`Error forwarding input to server: ${error.message}`, 'error');
+        }
     });
   });
 
   // Handle process termination
   process.on('SIGINT', () => {
-    console.log(`Received SIGINT, shutting down MCP bridge...`);
+    logStatus(`Received SIGINT, shutting down MCP bridge...`);
     process.exit(0);
   });
 
   process.on('SIGTERM', () => {
-    console.log(`Received SIGTERM, shutting down MCP bridge...`);
+    logStatus(`Received SIGTERM, shutting down MCP bridge...`);
     process.exit(0);
   });
 
@@ -210,6 +222,7 @@ async function startMcpBridge() {
 
 // Start the bridge
 startMcpBridge().catch(error => {
-  console.error(`Fatal error: ${error.message}`);
+  logStatus(`Fatal error: ${error.message}`, 'error');
   process.exit(1);
 });
+

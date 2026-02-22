@@ -1,8 +1,0 @@
-python server.py  \
-  --email=projectatlantisai@gmail.com  \
-  --api-key=foobar \
-  --host=localhost \
-  --port=8000  \
-  --cloud-host=ws://projectatlantis.test  \
-  --cloud-port=3010  \
-  --service-name=home

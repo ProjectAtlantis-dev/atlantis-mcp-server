@@ -1,3 +1,8 @@
+---
+description:
+globs:
+alwaysApply: false
+---
 
 # rules
 - plan work first

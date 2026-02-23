@@ -7,9 +7,7 @@ logger = logging.getLogger("mcp_server")
 
 @game
 async def game():
-    """
-    Main game function
-    """
+    """Initializes a new chat session with Kitty Claw as the default chat bot"""
 
     await atlantis.client_command("/silent on")
 

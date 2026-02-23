@@ -300,7 +300,7 @@ def find_last_chat_entry(transcript):
 
 @chat
 async def chat():
-    """Main chat function"""
+    """Generic chat bot using OpenRouter/OpenAI SDK"""
     logger.info("=== CHAT FUNCTION STARTING ===")
     sessionId = atlantis.get_session_id()
     logger.info(f"Session ID: {sessionId}")

@@ -965,7 +965,7 @@ class DynamicFunctionManager:
             return False, error_msg, None
 
 
-    def _code_generate_stub(self, name: str, location: Optional[str] = None) -> str:
+    def _code_generate_stub(self, name: str, location: Optional[str] = None, description: Optional[str] = None) -> str:
         """
         Generates a string containing a basic Python function stub with the given name.
         """
@@ -974,6 +974,9 @@ class DynamicFunctionManager:
 
         # Add location decorator if provided
         location_decorator = f"@location('{location}')\n" if location else ""
+
+        # Use provided description or default placeholder
+        docstring = description if description else f"This is a placeholder function for '{name}'"
 
         stub = f"""\
 import atlantis
@@ -985,7 +988,7 @@ logger = logging.getLogger("mcp_server")
 {location_decorator}@visible
 async def {name}():
     \"\"\"
-    This is a placeholder function for '{name}'
+    {docstring}
     \"\"\"
     logger.info(f"Executing placeholder function: {name}...")
 
@@ -1345,7 +1348,7 @@ async def {name}():
         except Exception as e:
             raise IOError(f"Failed to write file {file_path}: {e}")
 
-    async def function_add(self, name: str, code: Optional[str] = None, app: Optional[str] = None, location: Optional[str] = None) -> bool:
+    async def function_add(self, name: str, code: Optional[str] = None, app: Optional[str] = None, location: Optional[str] = None, description: Optional[str] = None) -> bool:
         '''
         Creates a new function or re-enables a hidden one.
         If the function exists but has no decorators (was "removed"), adds @visible to re-enable it.
@@ -1390,7 +1393,7 @@ async def {name}():
 
         # Function doesn't exist anywhere - create new
         try:
-            code_to_save = code if code is not None else self._code_generate_stub(secure_name, location)
+            code_to_save = code if code is not None else self._code_generate_stub(secure_name, location, description)
             if await self._fs_add_code(secure_name, code_to_save, app):
                 logger.info(f"Function '{secure_name}' created successfully.")
                 return True

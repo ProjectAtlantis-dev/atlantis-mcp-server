@@ -1121,7 +1121,8 @@ class DynamicAdditionServer(Server):
                     "properties": {
                         "app": {"type": "string", "description": "Optional: The app name to create the function in a specific app directory"},
                         "name": {"type": "string", "description": "The name to register the new placeholder function under."},
-                        "location": {"type": "string", "description": "Optional: Adds @location() decorator with the specified location value to the generated function."}
+                        "location": {"type": "string", "description": "Optional: Adds @location() decorator with the specified location value to the generated function."},
+                        "comment": {"type": "string", "description": "Optional: Custom comment for the function's docstring. Defaults to a placeholder message if not provided."}
                     },
                     "required": ["name"]
                 },
@@ -2277,6 +2278,7 @@ class DynamicAdditionServer(Server):
                 func_name = args.get("name")
                 app_name = args.get("app")  # Optional app name for disambiguation
                 location_value = args.get("location")  # Optional location decorator value
+                comment_value = args.get("comment")  # Optional custom docstring
                 if not func_name:
                     raise ValueError("Missing required parameter: name")
 
@@ -2313,7 +2315,7 @@ class DynamicAdditionServer(Server):
                     result_raw = error_message
                 else:
                     # Function doesn't exist, create it
-                    await self.function_manager.function_add(func_name, None, app_name, location_value)
+                    await self.function_manager.function_add(func_name, None, app_name, location_value, comment_value)
                     try:
                         await self._notify_tool_list_changed(change_type="added", tool_name=func_name) # Pass params
                     except Exception as e:

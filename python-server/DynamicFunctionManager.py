@@ -1210,10 +1210,18 @@ async def {name}():
         # Convert app_name to app_path (None stays None for top-level)
         app_path = self._app_name_to_path(app_name) if app_name else None
 
-        # Always check app-specific mapping first
+        # Always check app-specific mapping first (exact match)
         app_mapping = self._function_file_mapping_by_app.get(app_path, {})
         if function_name in app_mapping:
             return app_mapping[function_name]
+
+        # Case-insensitive fallback for app path (e.g., "Terrain/catgirls" -> "Terrain/Catgirls")
+        if app_path is not None:
+            app_path_lower = app_path.lower()
+            for mapped_app_path, mapped_functions in self._function_file_mapping_by_app.items():
+                if mapped_app_path is not None and mapped_app_path.lower() == app_path_lower:
+                    if function_name in mapped_functions:
+                        return mapped_functions[function_name]
 
         # Only fall back to main mapping if no app was specified
         # When app_name is specified, we only check that specific app to allow
@@ -1422,6 +1430,9 @@ async def {name}():
                 raise ValueError(f"Function '{secure_name}' not found in app '{app}'")
             else:
                 raise ValueError(f"Function '{secure_name}' not found")
+
+        # Convert relative path to absolute path
+        function_file = os.path.join(self.functions_dir, function_file)
 
         source, lines, func_node = self._get_function_ast_info(secure_name, function_file)
 

@@ -2258,10 +2258,9 @@ class DynamicAdditionServer(Server):
 
                 if not function_file:
                     if app_name:
-                        error_message = f"Function '{func_name}' does not exist in app '{app_name}'."
+                        raise ValueError(f"Function '{func_name}' does not exist in app '{app_name}'.")
                     else:
-                        error_message = f"Function '{func_name}' does not exist."
-                    result_raw = error_message
+                        raise ValueError(f"Function '{func_name}' does not exist.")
                 else:
                     # Function exists, continue with removing it
                     await self.function_manager.function_remove(func_name, app_name)
@@ -4276,8 +4275,8 @@ class ServiceClient:
                 logger.info(f"{YELLOW}{'='*60}{RESET}")
                 logger.info(f"{YELLOW}📤 SENDING MCP_RESPONSE TO CLOUD (request_id: {resp_request_id}){RESET}")
                 logger.info(f"{YELLOW}{'='*60}{RESET}")
-                logger.info(f"{YELLOW}{format_json_log(data, colored=True)}{RESET}")
-                logger.info(f"{YELLOW}{'='*60}{RESET}")
+                #logger.debug(f"{YELLOW}{format_json_log(data, colored=True)}{RESET}")
+                #logger.info(f"{YELLOW}{'='*60}{RESET}")
             else:
                 #logger.debug(f"☁️ SENDING MCP MESSAGE via {event}:\n{format_json_log(data) if isinstance(data, dict) else data}")
                 pass

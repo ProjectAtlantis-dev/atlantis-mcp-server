@@ -575,14 +575,12 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
 # no location since this is catch-all chat
 # no app since this is catch-all chat
 @chat
-async def kitty_claw():
+async def chat():
     """Main chat function"""
     logger.info("=== CHAT FUNCTION STARTING ===")
     sessionId = atlantis.get_session_id()
     logger.info(f"Session ID: {sessionId}")
     caller: str = atlantis.get_caller()  # type: ignore[assignment]
-    visit_count, last_visit = record_visit(caller)
-    logger.info(f"Visitor: {caller}, visit #{visit_count}, last visit: {last_visit or 'first time'}")
 
     # The rest of the function body is indented due to the removed try/finally block
     # Keeping the indentation to avoid reformatting the entire file
@@ -606,6 +604,10 @@ async def kitty_claw():
             logger.warning("\x1b[38;5;204mLast chat entry was from kitty (bot), skipping response\x1b[0m")
             await atlantis.owner_log(f"Skipping response - last chat was from kitty (sid={last_chat_entry.get('sid')})")
             return
+
+        # Record visit only if we're actually going to chat
+        visit_count, last_visit = record_visit(caller)
+        logger.info(f"Visitor: {caller}, visit #{visit_count}, last visit: {last_visit or 'first time'}")
 
         await atlantis.client_command("/silent on")
 
@@ -649,11 +651,9 @@ async def kitty_claw():
         turn_count = 0
 
         try:
-            # Start streaming response ONCE for entire conversation
-            logger.info("Starting stream output...")
-            streamTalkId = await atlantis.stream_start("kitty","Kitty")
+            # Streams created lazily based on what shows up first
+            streamTalkId = None
             streamThinkId = None
-            logger.info(f"Stream started with ID: {streamTalkId}")
 
             # Convert tools from cloud format to Anthropic-compatible format (once, before loop)
             # tool_lookup maps Anthropic's tool name -> {searchTerm, filename, functionName}
@@ -749,6 +749,10 @@ async def kitty_claw():
                                     if streamThinkId:
                                         await atlantis.stream_end(streamThinkId)
                                         streamThinkId = None
+                                    # Lazily create talk stream on first text
+                                    if not streamTalkId:
+                                        streamTalkId = await atlantis.stream_start("kitty", "Kitty")
+                                        logger.info(f"Talk stream started with ID: {streamTalkId}")
                                     # Stream text content
                                     text = delta.text
                                     content_to_send = text.lstrip() if streamed_count == 0 else text

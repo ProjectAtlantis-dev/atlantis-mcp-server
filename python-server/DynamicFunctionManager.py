@@ -43,7 +43,7 @@ import utils  # Utility module for dynamic functions
 PARENT_PACKAGE_NAME = "dynamic_functions"
 
 # Visibility decorators that allow remote function calls
-VISIBILITY_DECORATORS = ['visible', 'public', 'protected', 'tick', 'chat', 'text', 'session', 'index', 'price', 'location', 'app', 'copy']
+VISIBILITY_DECORATORS = ['visible', 'public', 'protected', 'tick', 'chat', 'text', 'session', 'game', 'index', 'price', 'location', 'app', 'copy']
 
 # --- Identity Decorator Definition ---
 def _mcp_identity_decorator(f):
@@ -945,7 +945,7 @@ class DynamicFunctionManager:
                 #logger.debug(f"⚙️ Found {len(functions_info)} function(s) in file")
                 return True, None, functions_info
             else:
-                logger.error("❌ Syntax valid, but no top-level function definition found.")
+                # Don't log here - caller has the filename context
                 return True, "Syntax valid, but no function definition found", None
 
         except SyntaxError as e:
@@ -1050,12 +1050,44 @@ async def {name}():
                     #logger.info(f"🎯 EXPLORING SUBFOLDER: {CYAN}{subdir_name}{RESET}")
 
                 for filename in files:
-                    if not filename.endswith('.py'):
+                    if not filename.endswith('.py') and not filename.endswith('.txt'):
                         continue
 
                     file_path = os.path.join(root, filename)
                     # Calculate relative path from functions_dir
                     rel_path = os.path.relpath(file_path, self.functions_dir)
+
+                    # Handle .txt files as static text tools
+                    if filename.endswith('.txt'):
+                        try:
+                            with open(file_path, 'r', encoding='utf-8') as f:
+                                content = f.read()
+
+                            # Description is first line of file, or a default
+                            first_line = content.split('\n', 1)[0].strip() if content.strip() else None
+                            description = first_line if first_line else f"Text file: {filename}"
+
+                            func_info = {
+                                'name': filename,  # e.g. "foo.txt"
+                                'description': description,
+                                'inputSchema': {"type": "object", "properties": {}},
+                                'decorators': ["text"],
+                                'text_content_type': "txt",
+                                'is_text_file': True,
+                            }
+
+                            # Determine app_path from directory
+                            app_path = os.path.dirname(rel_path) if '/' in rel_path else None
+
+                            # Feed into duplicate detection flow
+                            key = (app_path, filename)
+                            if key not in all_occurrences:
+                                all_occurrences[key] = []
+                            all_occurrences[key].append((rel_path, func_info))
+
+                        except Exception as e:
+                            logger.warning(f"⚠️ Error processing text file {rel_path}: {e}")
+                        continue
 
                     try:
                         with open(file_path, 'r', encoding='utf-8') as f:
@@ -1102,7 +1134,7 @@ async def {name}():
                                     if has_invalid_protected:
                                         skip_reason = "invalid @protected (missing required protection name)"
                                     else:
-                                        skip_reason = "missing @visible decorator"
+                                        skip_reason = "missing visibility decorator (e.g. @visible, @public, @chat, @text, ...)"
 
                                     # Use error level for invalid @protected, info level for others
                                     log_level = logger.error if has_invalid_protected else logger.info
@@ -1142,9 +1174,9 @@ async def {name}():
                                 all_occurrences[key].append((rel_path, func_info))
                         else:
                             if root != self.functions_dir:
-                                logger.warning(f"⚠️ NO FUNCTIONS FOUND in {rel_path} (subfolder: {os.path.basename(root)})")
+                                logger.warning(f"⚠️ NO FUNCTIONS FOUND in {rel_path} - syntax valid but no top-level function definitions")
                             else:
-                                logger.debug(f"  📍 No functions found in {rel_path}")
+                                logger.debug(f"  📍 No functions found in {rel_path} - no top-level function definitions")
 
                     except Exception as e:
                         logger.warning(f"⚠️ Error processing {rel_path} for function mapping: {e}")
@@ -1819,6 +1851,11 @@ async def {name}():
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Dynamic function '{name}' not found at {file_path}")
 
+        # Text file short-circuit: just read and return content, no module loading
+        if target_file.endswith('.txt'):
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return f.read()
+
         context_tokens = None
         # Use the relative path (without .py) for module name, replacing slashes with dots
         module_path = os.path.splitext(target_file)[0].replace(os.sep, '.')
@@ -2085,11 +2122,28 @@ async def {name}():
         logger.info("⚙️ Handling _function_set call (using AST parsing for all functions)")
         code_buffer = args.get("code")
         app_name = args.get("app")  # Optional app name for disambiguation
+        name = args.get("name")  # Optional explicit name (used for text files)
 
         if not code_buffer or not isinstance(code_buffer, str):
             logger.warning("⚠️ function_set: Missing or invalid 'code' parameter.")
             # Return None for name, and the error message (plain string, MCP formatting in _format_mcp_response)
             return None, "Error: Missing or invalid 'code' parameter."
+
+        # Text file short-circuit: if name ends with .txt, skip Python validation entirely
+        if name and name.endswith('.txt'):
+            existing_file = await self._find_file_containing_function(name, app_name)
+            if not existing_file:
+                return None, f"Cannot update text file - '{name}' not found in mapping."
+
+            saved_path = await self._fs_update_code(name, code_buffer, app_name)
+            if not saved_path:
+                return name, f"Error saving text file '{existing_file}'."
+
+            rel_path = os.path.relpath(saved_path, self.functions_dir)
+            logger.info(f"✅ Text file saved to {rel_path}")
+            server._last_functions_dir_mtime = None
+            server._last_servers_dir_mtime = None
+            return name, f"Text file saved to {rel_path}"
 
         # 1. Extract ALL function names using AST parsing
         is_valid, error_message, functions_info = self._code_validate_syntax(code_buffer)

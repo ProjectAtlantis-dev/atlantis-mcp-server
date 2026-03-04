@@ -260,7 +260,7 @@ class DynamicConfigEventHandler(FileSystemEventHandler):
         # Check if the change is relevant (Python file in any watched function dir or JSON file in any watched server dir)
         # Also handle directory changes (for directory deletions/additions)
         is_function_change = any(
-            (event_path.endswith(".py") or event_path.startswith(watched_dir + os.sep)) and
+            (event_path.endswith(".py") or event_path.endswith(".txt") or event_path.startswith(watched_dir + os.sep)) and
             (event_path.startswith(watched_dir + os.sep) or os.path.dirname(event_path) == watched_dir)
             for watched_dir in self.watched_function_dirs
         )
@@ -836,6 +836,17 @@ class DynamicAdditionServer(Server):
                     if file_path in processed_files:
                         # Already processed this file, skip to avoid duplicates
                         continue
+
+                    # Text files: use metadata from DynamicFunctionManager directly
+                    if file_path.endswith('.txt'):
+                        func_metadata = self.function_manager._function_metadata_by_app.get(app_name, {}).get(func_name)
+                        if func_metadata:
+                            processed_files[file_path] = [func_metadata]
+                            is_valid = True
+                            functions_info = [func_metadata]
+                        else:
+                            processed_files[file_path] = None
+                            continue
                     else:
                         # Load and validate the function code directly from the file
                         full_file_path = os.path.join(FUNCTIONS_DIR, file_path)
@@ -878,7 +889,7 @@ class DynamicAdditionServer(Server):
                             tool_input_schema = func_info.get('inputSchema', {"type": "object", "properties": {}})
                             tool_annotations = {}
 
-                            tool_annotations["type"] = "function"
+                            tool_annotations["type"] = "text_file" if func_info.get('is_text_file') else "function"
                             tool_annotations["validationStatus"] = "VALID"
                             tool_annotations["sourceFile"] = file_path
 
@@ -1076,12 +1087,13 @@ class DynamicAdditionServer(Server):
         tools_list = [
             Tool(
                 name="_function_set",
-                description="Sets the content of a dynamic Python function. Use 'app' parameter to target specific functions when multiple exist with the same name.", # Updated description
+                description="Sets the content of a dynamic function or text file. Use 'app' parameter to target specific functions when multiple exist with the same name. For .txt files, provide the 'name' parameter.",
                 inputSchema={
                     "type": "object",
                     "properties": {
+                        "name": {"type": "string", "description": "Optional: The function/file name. Required for .txt files (e.g. 'foo.txt')."},
                         "app": {"type": "string", "description": "Optional: The app name to target a specific function when multiple exist with the same name"},
-                        "code": {"type": "string", "description": "The Python source code containing a single function definition."}
+                        "code": {"type": "string", "description": "The source code (Python) or text content (.txt files)."}
                     },
                     "required": ["code"] # Only code is required now
                 },

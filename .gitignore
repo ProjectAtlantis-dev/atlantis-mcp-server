@@ -48,6 +48,7 @@ yarn-error.log
 python-server/dynamic_functions/OLD/
 python-server/dynamic_functions/*
 !python-server/dynamic_functions/Home
+!python-server/dynamic_functions/Bot
 python-server/dynamic_servers/*
 python-server/dynamic_functions/.gitignore
 python-server/dynamic_servers/OLD/

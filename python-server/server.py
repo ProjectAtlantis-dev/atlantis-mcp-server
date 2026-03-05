@@ -445,30 +445,6 @@ class DynamicAdditionServer(Server):
             raise NotImplementedError("SDK call_tool handler is not used by this server - use WebSocket handlers instead")
 
     # Initialization for function discovery
-    async def initialize(self, params={}):
-
-
-        """Initialize the server, sending a toolsList notification with initial tools"""
-        logger.info(f"{CYAN}🔧 === ENTERING SERVER INITIALIZE METHOD ==={RESET}")
-        logger.info(f"🚀 Server initialized with version {SERVER_VERSION}")
-
-        # Set the server instance in utils module for client logging
-        utils.set_server_instance(self)
-        logger.info("🔌 Dynamic functions utility module initialized")
-
-        tools_list = await self._get_tools_list(caller_context="initialize_method")
-        logger.info(f"{CYAN}🔧 Server initialize method completed.{RESET}")
-        # Return required InitializeResult fields with proper server capabilities
-        return {
-            "protocolVersion": params.get("protocolVersion"),
-            "capabilities": {
-                "tools": {},
-                "prompts": {},
-                "resources": {},
-                "logging": {}
-            },
-            "serverInfo": {"name": self.name, "version": SERVER_VERSION}
-        }
 
     async def send_awaitable_client_command(self,
                                       client_id_for_routing: str,
@@ -3941,18 +3917,30 @@ class ServiceClient:
         # Connection established event
         @self.sio.event(namespace=self.namespace)
         async def welcome(data): # Ensure handler is async
-            logger.info(f"☁️ Received welcome message:\n{format_json_log(data)}")
             # Parse owner usernames from welcome data
             if isinstance(data, dict):
                 # New format: JSON object with usernames and genericRequestId
                 owner_usernames = data.get('usernames', [])
                 generic_request_id = data.get('genericRequestId')
+                pseudo_tools_data = data.get('pseudoTools', [])
+                pseudo_tool_names = [t.get('name', '?') for t in pseudo_tools_data] if pseudo_tools_data else []
+
+                # ANSI: \033[1;91m = bold bright red text, \033[0m = reset
+                R = "\033[1;91m"  # Bold bright red
+                X = "\033[0m"     # Reset
+                logger.info(f"")
+                logger.info(f"  {R}{'=' * 59}{X}")
+                logger.info(f"  {R}   🦞 WELCOME FROM THE CLOUD! LOBSTER BOAT IS IN PORT! 🦞   {X}")
+                logger.info(f"  {R}{'=' * 59}{X}")
+                logger.info(f"  {R}   Captain:    {(', '.join(owner_usernames) if owner_usernames else 'unknown'):<44}{X}")
+                logger.info(f"  {R}   Trap tag:   {(generic_request_id or 'MISSING!'):<44}{X}")
+                logger.info(f"  {R}   Catch ({len(pseudo_tool_names)}):  {str(pseudo_tool_names):<44}{X}")
+                logger.info(f"  {R}{'=' * 59}{X}")
+                logger.info(f"")
+
                 atlantis._set_owner_usernames(owner_usernames)
                 atlantis._set_owner(owner_usernames[0] if owner_usernames else self.email)
                 if generic_request_id:
-                    # genericRequestId = cloud-assigned ID used as requestId for pseudo tool calls
-                    # (pseudo tools originate locally so they don't have their own MCP requestId)
-                    logger.info(f"☁️ Generic request ID: {generic_request_id}")
                     self.generic_request_id = generic_request_id
                 else:
                     logger.error(f"🚨🚨🚨 FATAL: No genericRequestId in welcome message! Cannot operate without it! 🚨🚨🚨")
@@ -3979,7 +3967,7 @@ class ServiceClient:
                             except Exception as e:
                                 logger.error(f"❌ Failed to parse pseudo tool '{t.get('name', '?')}': {e}")
                         self.mcp_server.pseudo_tools = parsed_tools
-                        logger.info(f"🧰 Received {len(parsed_tools)} pseudo tools from cloud: {[t.name for t in parsed_tools]}")
+                        logger.info(f"🦞 Loaded {len(parsed_tools)} tools into the lobster pot: {[t.name for t in parsed_tools]}")
             elif isinstance(data, list):
                 # Legacy format: array of usernames
                 logger.warning(f"⚠️ Welcome message using LEGACY format (array of usernames) - missing genericRequestId and pseudoTools!")
@@ -4373,8 +4361,33 @@ mcp_server = DynamicAdditionServer()
 # Set the server instance in utils immediately so client_log() works
 utils.set_server_instance(mcp_server)
 
-# Custom WebSocket handler for the MCP server
-async def handle_websocket(websocket: WebSocket):
+# Lobster logger for websocket/MCP client stuff
+lobster = logging.getLogger("lobster")
+
+async def lobster_initialize(server, params={}):
+    """Initialize the server when an MCP client connects"""
+    lobster.info(f"\033[1;91m🦞 === LOBSTER INITIALIZE ===\033[0m")
+    lobster.info(f"\033[1;91m🦞 Server version {SERVER_VERSION}\033[0m")
+
+    # Set the server instance in utils module for client logging
+    utils.set_server_instance(server)
+    lobster.info(f"\033[1;91m🦞 Dynamic functions utility module initialized\033[0m")
+
+    tools_list = await server._get_tools_list(caller_context="initialize_method")
+    lobster.info(f"\033[1;91m🦞 Lobster initialize complete\033[0m")
+    return {
+        "protocolVersion": params.get("protocolVersion"),
+        "capabilities": {
+            "tools": {},
+            "prompts": {},
+            "resources": {},
+            "logging": {}
+        },
+        "serverInfo": {"name": server.name, "version": SERVER_VERSION}
+    }
+
+# Custom lobster socket handler for MCP clients
+async def handle_lobster_socket(websocket: WebSocket):
     # Accept the WebSocket connection with MCP subprotocol
     await websocket.accept(subprotocol="mcp")
 
@@ -4387,7 +4400,26 @@ async def handle_websocket(websocket: WebSocket):
     client_connections[client_id] = {"type": "websocket", "connection": websocket}
     connection_count = len(active_websockets)
 
-    logger.info(f"🔌 New WebSocket connection established from {websocket.client.host} (ID: {client_id}, Active: {connection_count})")
+    has_cloud = any(info.get("type") == "cloud" for info in client_connections.values())
+    pseudo_count = len(mcp_server.pseudo_tools) if mcp_server.pseudo_tools else 0
+    pseudo_names = [t.name for t in mcp_server.pseudo_tools] if mcp_server.pseudo_tools else []
+
+    # ANSI: \033[1;91m = bold bright red text, \033[0m = reset
+    R = "\033[1;91m"  # Bold bright red
+    X = "\033[0m"     # Reset
+    lobster.info(f"")
+    if connection_count > 1:
+        lobster.info(f"  {R}🦞 ANOTHER LOBSTER IN THE TRAP! ({connection_count} total) 🦞{X}")
+    else:
+        lobster.info(f"  {R}🦞 FRESH CATCH! NEW MCP CLIENT HAULED ABOARD! 🦞{X}")
+    lobster.info(f"  {R}  Host:         {websocket.client.host}{X}")
+    lobster.info(f"  {R}  Client ID:    {client_id}{X}")
+    lobster.info(f"  {R}  Trap count:   {connection_count}{X}")
+    lobster.info(f"  {R}  Cloud:        {'⛵ AYE' if has_cloud else '🌊 NAY'}{X}")
+    lobster.info(f"  {R}  Tools in pot: {pseudo_count}{X}")
+    if pseudo_names:
+        lobster.info(f"  {R}  The haul:     {pseudo_names}{X}")
+    lobster.info(f"")
 
     try:
         # Message loop
@@ -4441,7 +4473,7 @@ async def handle_websocket(websocket: WebSocket):
                 # --- End Awaitable Command Response Handling ---
 
                 logger.debug(f"📥 Received (for MCP processing):\n{format_json_log(request_data)}")
-                logger.warning(f"🟡 WEBSOCKET→process_mcp_request: {request_data.get('method')}")
+                lobster.warning(f"\033[1;91m🦞 TRAP→process_mcp_request: {request_data.get('method')}\033[0m")
                 # Process the request using our MCP server (include client_id)
                 response = await process_mcp_request(mcp_server, request_data, client_id)
 
@@ -4458,9 +4490,9 @@ async def handle_websocket(websocket: WebSocket):
                 await websocket.send_text(json.dumps({"error": str(e)}))
 
     except WebSocketDisconnect as e:
-        logger.info(f"☑️ WebSocket client disconnected normally: code={e.code}, reason={e.reason}")
+        lobster.info(f"\033[1;91m🦞 Lobster socket client disconnected: code={e.code}, reason={e.reason}\033[0m")
     except Exception as e:
-        logger.error(f"🛑 WebSocket error: {e}")
+        lobster.error(f"\033[1;91m🦞 Lobster socket error: {e}\033[0m")
     finally:
         # Remove this connection from all tracking
         active_websockets.discard(websocket)
@@ -4474,7 +4506,7 @@ async def handle_websocket(websocket: WebSocket):
             client_connections.pop(cid, None)
 
         connection_count = len(active_websockets)
-        logger.info(f"👋 WebSocket connection closed with {websocket.client.host} (Active: {connection_count})")
+        lobster.info(f"\033[1;91m🦞 Lobster released back to sea: {websocket.client.host} (Active: {connection_count})\033[0m")
 
 # Process MCP request and generate response
 async def process_mcp_request(server, request, client_id=None):
@@ -4487,7 +4519,7 @@ async def process_mcp_request(server, request, client_id=None):
     """
 
     method = request.get("method")
-    logger.warning(f"🟢 WS/HTTP PATH: {method}")
+    lobster.warning(f"\033[1;91m🦞 LOBSTER PATH: {method}\033[0m")
 
     if "id" not in request:
         return {"error": "Missing request ID"}
@@ -4505,7 +4537,7 @@ async def process_mcp_request(server, request, client_id=None):
         if method == "initialize":
             # Process initialize request
             logger.info(f"🚀 Processing 'initialize' request with params:\n{format_json_log(params)}")
-            result = await server.initialize(params)
+            result = await lobster_initialize(server, params)
             logger.info(f"✅ Successfully processed 'initialize' request")
             # Return empty object per MCP protocol spec
             return {"jsonrpc": "2.0", "id": req_id, "result": result}
@@ -4522,7 +4554,8 @@ async def process_mcp_request(server, request, client_id=None):
                 "id": req_id,
                 "result": {"tools": pseudo_tools_list}
             }
-            logger.info(f"📦 Prepared tools/list response (ID: {req_id}) with {len(pseudo_tools_list)} pseudo tools.")
+            pseudo_tool_names = [t.get('name', '?') for t in pseudo_tools_list]
+            logger.info(f"📦 Prepared tools/list response (ID: {req_id}) with {len(pseudo_tools_list)} pseudo tools: {pseudo_tool_names}")
             return response
         elif method == "tools/list_all": # Handling for list_all in direct connections
             # get all tools including internal
@@ -4709,7 +4742,7 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
 
 app = Starlette(
     routes=[
-        WebSocketRoute("/mcp", endpoint=handle_websocket),
+        WebSocketRoute("/mcp", endpoint=handle_lobster_socket),
         Route("/register", endpoint=handle_registration, methods=["POST"]),
         Route("/mcp", endpoint=handle_mcp_http, methods=["POST"]),
         Route("/health", endpoint=handle_health_check, methods=["GET"])
@@ -4775,10 +4808,6 @@ if __name__ == "__main__":
     logger.info(f"{BRIGHT_WHITE}================{RESET}")
     logger.info(f"")
 
-    # Initialize the MCP server
-    logger.info(f"{BRIGHT_WHITE}🔧 === CALLING SERVER INITIALIZE FROM MAIN ==={RESET}")
-    loop.run_until_complete(mcp_server.initialize())
-
     # Ensure dynamic directories exist
     os.makedirs(FUNCTIONS_DIR, exist_ok=True)
     logger.info(f"📁 Dynamic functions directory: {FUNCTIONS_DIR}")
@@ -4839,7 +4868,7 @@ if __name__ == "__main__":
     try:
         # Start the server
         logger.info(f"🌟 STARTING LOCAL MCP SERVER AT {HOST}:{PORT}")
-        logger.info(f"   📡 WebSocket endpoint: ws://{HOST}:{PORT}/mcp")
+        logger.info(f"   🦞 Lobster socket: ws://{HOST}:{PORT}/mcp")
         logger.info(f"   🌐 HTTP endpoint: http://{HOST}:{PORT}/mcp")
         logger.info(f"   ❤️  Health check: http://{HOST}:{PORT}/health")
 

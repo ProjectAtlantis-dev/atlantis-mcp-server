@@ -3092,15 +3092,15 @@ async def index():
                     }
 
                 # Send awaitable command to cloud client
-                # For lobster tools, use the generic request_id from cloud
+                # For lobster tools, use the lobster request_id from cloud
                 try:
-                    # Get the generic request_id from the cloud client
-                    generic_req_id = self.cloud_client.generic_request_id if hasattr(self, 'cloud_client') and self.cloud_client else None
+                    # Get the lobster request_id from the cloud client
+                    lobster_req_id = self.cloud_client.lobster_request_id if hasattr(self, 'cloud_client') and self.cloud_client else None
                     logger.info(f"☁️ Sending '{tool_name}' command to cloud client {cloud_client_id}")
-                    logger.info(f"🔄 Lobster tool detected - using generic request_id ({generic_req_id}) instead of MCP request_id ({request_id})")
+                    logger.info(f"🔄 Lobster tool detected - using lobster request_id ({lobster_req_id}) instead of MCP request_id ({request_id})")
                     response = await self.send_awaitable_client_command(
                         client_id_for_routing=cloud_client_id,
-                        request_id=generic_req_id,  # Use generic request_id for lobster tools
+                        request_id=lobster_req_id,  # Use lobster request_id for lobster tools
                         command=tool_name,
                         command_data=params.get("arguments", {}),
                         seq_num=1,
@@ -3499,8 +3499,8 @@ class ServiceClient:
         self.connection_active = True
         # Store creation time for stable client ID
         self._creation_time = int(time.time())
-        # Store the generic request_id received from cloud for unsolicited requests
-        self.generic_request_id = None
+        # Store the lobster request_id received from cloud for unsolicited requests
+        self.lobster_request_id = None
         logger.info(f"🎯 ServiceClient initialized with appName: '{self.appName}', serviceName: '{self.serviceName}'")
 
     # THIS IS THE BIG REPORT
@@ -3896,9 +3896,9 @@ class ServiceClient:
         async def welcome(data): # Ensure handler is async
             # Parse owner usernames from welcome data
             if isinstance(data, dict):
-                # New format: JSON object with usernames and genericRequestId
+                # New format: JSON object with usernames and lobsterRequestId
                 owner_usernames = data.get('usernames', [])
-                generic_request_id = data.get('genericRequestId')
+                lobster_request_id = data.get('lobsterRequestId')
                 lobster_tools_data = data.get('lobsterTools', [])
                 lobster_tool_names = [t.get('name', '?') for t in lobster_tools_data] if lobster_tools_data else []
 
@@ -3910,19 +3910,19 @@ class ServiceClient:
                 logger.info(f"  {R}   🦞 WELCOME FROM THE CLOUD! LOBSTER BOAT IS IN PORT! 🦞   {X}")
                 logger.info(f"  {R}{'=' * 59}{X}")
                 logger.info(f"  {R}   Captain:    {(', '.join(owner_usernames) if owner_usernames else 'unknown'):<44}{X}")
-                logger.info(f"  {R}   Trap tag:   {(generic_request_id or 'MISSING!'):<44}{X}")
+                logger.info(f"  {R}   Trap tag:   {(lobster_request_id or 'MISSING!'):<44}{X}")
                 logger.info(f"  {R}   Catch ({len(lobster_tool_names)}):  {str(lobster_tool_names):<44}{X}")
                 logger.info(f"  {R}{'=' * 59}{X}")
                 logger.info(f"")
 
                 atlantis._set_owner_usernames(owner_usernames)
                 atlantis._set_owner(owner_usernames[0] if owner_usernames else self.email)
-                if generic_request_id:
-                    self.generic_request_id = generic_request_id
+                if lobster_request_id:
+                    self.lobster_request_id = lobster_request_id
                 else:
-                    logger.error(f"🚨🚨🚨 FATAL: No genericRequestId in welcome message! Cannot operate without it! 🚨🚨🚨")
+                    logger.error(f"🚨🚨🚨 FATAL: No lobsterRequestId in welcome message! Cannot operate without it! 🚨🚨🚨")
                     logger.error(f"🚨 Welcome data received: {format_json_log(data)}")
-                    raise RuntimeError("Cloud welcome message missing required 'genericRequestId' - cannot continue")
+                    raise RuntimeError("Cloud welcome message missing required 'lobsterRequestId' - cannot continue")
 
                 # Pull lobster tools from welcome payload (dynamically defined by cloud)
                 if 'lobsterTools' not in data:
@@ -3966,13 +3966,13 @@ class ServiceClient:
                         logger.info(f"🦞 Loaded {len(parsed_tools)} tools into the lobster pot: {[t.name for t in parsed_tools]}")
             elif isinstance(data, list):
                 # Legacy format: array of usernames
-                logger.warning(f"⚠️ Welcome message using LEGACY format (array of usernames) - missing genericRequestId and lobsterTools!")
+                logger.warning(f"⚠️ Welcome message using LEGACY format (array of usernames) - missing lobsterRequestId and lobsterTools!")
                 owner_usernames = data
                 atlantis._set_owner_usernames(owner_usernames)
                 atlantis._set_owner(owner_usernames[0] if owner_usernames else self.email)
             else:
                 # Legacy format: single string (email or username)
-                logger.warning(f"⚠️ Welcome message using LEGACY format (single string) - missing genericRequestId and lobsterTools!")
+                logger.warning(f"⚠️ Welcome message using LEGACY format (single string) - missing lobsterRequestId and lobsterTools!")
                 atlantis._set_owner(data)
                 atlantis._set_owner_usernames([data] if data else [])
 

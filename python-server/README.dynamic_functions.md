@@ -486,7 +486,7 @@ Local WebSocket clients see **pseudo tools** that act as a routing layer to clou
 // Welcome message payload from cloud
 interface WelcomeMessage {
   usernames: string[];
-  genericRequestId: string;   // required - fatal error if missing
+  lobsterRequestId: string;   // required - fatal error if missing
   pseudoTools: PseudoTool[];  // tool definitions for local clients
 }
 ```

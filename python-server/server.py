@@ -405,8 +405,8 @@ class DynamicAdditionServer(Server):
         # Store cloud client reference for tool reporting
         self.cloud_client: Optional['ServiceClient'] = None
 
-        # Pseudo tools for local MCP clients (populated dynamically from cloud welcome event)
-        self.pseudo_tools: List[Tool] = []
+        # Lobster tools for local MCP clients (populated dynamically from cloud welcome event)
+        self.lobster_tools: List[Tool] = []
 
         # Initialize the dynamic function and server managers
         self.function_manager = DynamicFunctionManager(FUNCTIONS_DIR)
@@ -453,7 +453,7 @@ class DynamicAdditionServer(Server):
                                       command_data: Optional[Any] = None, # Optional data for the command
                                       seq_num: Optional[int] = None, # Sequence number for client-side ordering
                                       entry_point_name: Optional[str] = None, # Entry point name for logging
-                                      local_pseudo_call: bool = False, # True if this is a pseudo tool call from local client
+                                      local_lobster_call: bool = False, # True if this is a lobster tool call from local client
                                       user: Optional[str] = None, # User who initiated the request
                                       session_id: Optional[str] = None, # Session ID for request isolation
                                       shell_path: Optional[str] = None, # Shell path in command tree for request isolation
@@ -468,17 +468,17 @@ class DynamicAdditionServer(Server):
             command_data → data
             seq_num → seqNum
             entry_point_name → entryPoint
-            local_pseudo_call → localPseudoCall
+            local_lobster_call → localLobsterCall
             shell_path → shellPath
 
         Args:
             client_id_for_routing: The ID of the client to send the command to.
-            request_id: The original MCP request ID, for client-side context (None for pseudo tools).
+            request_id: The original MCP request ID, for client-side context (None for lobster tools).
             command: The command identifier string.
             command_data: Optional data payload for the command.
             seq_num: Optional sequence number for client-side ordering.
             entry_point_name: Optional name of the entry point function for logging.
-            local_pseudo_call: True if this is a pseudo tool call from local client (readme/command).
+            local_lobster_call: True if this is a lobster tool call from local client (readme/command).
             user: Optional user who initiated the request (for request isolation).
             session_id: Optional session ID (for request isolation).
             shell_path: Optional shell path in the command tree (for request isolation).
@@ -576,9 +576,9 @@ class DynamicAdditionServer(Server):
                 if entry_point_name is not None:
                     cloud_notification_params["entryPoint"] = entry_point_name
 
-                # Add localPseudoCall flag if true
-                if local_pseudo_call:
-                    cloud_notification_params["localPseudoCall"] = True
+                # Add localLobsterCall flag if true
+                if local_lobster_call:
+                    cloud_notification_params["localLobsterCall"] = True
 
                 # Add user, sessionId, and shellPath for request context
                 if user is not None:
@@ -971,7 +971,7 @@ class DynamicAdditionServer(Server):
         Three scenarios:
         1. Cloud requests tool list (for_local_client=False) → return FULL local tool list
         2. Local requests, NO cloud connection exists → return FULL local tool list
-        3. Local requests, cloud connection EXISTS → return ONLY 'readme' and 'command' proxy tools
+        3. Local requests, cloud connection EXISTS → return welcome tools
         """
         logger.info(f"{BRIGHT_WHITE}📋 === GETTING TOOL LIST (Called by: {caller_context}, for_local_client={for_local_client}) ==={RESET}")
 
@@ -981,38 +981,13 @@ class DynamicAdditionServer(Server):
             has_cloud_connection = any(info.get("type") == "cloud" for info in client_connections.values())
 
             if has_cloud_connection:
-                # Scenario 3: Local client + cloud exists → pseudo tools now come from cloud via welcome event
-                # (cloud already knows about these tools, no need to inject them here)
-                logger.info("☁️ Local client request with cloud connection - pseudo tools handled by cloud welcome event")
-                pass
-                # # OLD: hardcoded pseudo tools (now pulled dynamically from welcome event)
-                # return [
-                #     Tool(
-                #         name="readme",
-                #         description="Get information about how to use Atlantis commands",
-                #         inputSchema={"type": "object", "properties": {}},
-                #         annotations=ToolAnnotations(title="readme")
-                #     ),
-                #     Tool(
-                #         name="command",
-                #         description="Execute an Atlantis command on the connected cloud",
-                #         inputSchema={
-                #             "type": "object",
-                #             "properties": {
-                #                 "content": {
-                #                     "type": "string",
-                #                     "description": "The Atlantis command to execute"
-                #                 },
-                #                 "params": {
-                #                     "type": "object",
-                #                     "description": "Additional params for the Atlantis command as needed"
-                #                 }
-                #             },
-                #             "required": ["content"]
-                #         },
-                #         annotations=ToolAnnotations(title="command")
-                #     )
-                # ]
+                # Scenario 3: Local client + cloud exists → return lobster tools from cloud welcome event
+                if self.lobster_tools:
+                    logger.info(f"☁️ Local client request with cloud connection - returning {len(self.lobster_tools)} lobster tools from welcome event")
+                    return list(self.lobster_tools)
+                else:
+                    logger.warning("☁️ Local client request with cloud connection but no lobster tools received from welcome event yet")
+                    return []
 
         # Scenarios 1 & 2: Return full local tool list
         # - Cloud requesting tools (for_local_client=False)
@@ -3084,16 +3059,17 @@ async def index():
             connection_info = client_connections[client_id]
             logger.debug(f"✅ Found client {client_id} with type: {connection_info.get('type')}")
 
-        # Intercept local (non-cloud) tool calls to handle pseudo tools
+        # Intercept local (non-cloud) tool calls to handle lobster tools
         # CLAUDE etc come thru here
         if not for_cloud:
             logger.info(f"🏠 Local MCP tool call intercepted: {tool_name}")
 
-            # Check if cloud connection exists (same logic as pseudo tool list generation)
+            # Check if cloud connection exists (same logic as lobster tool list generation)
             has_cloud_connection = any(info.get("type") == "cloud" for info in client_connections.values())
 
-            # If local client + cloud exists, this must be a pseudo tool (readme or command)
-            if has_cloud_connection and (tool_name == "readme" or tool_name == "command"):
+            # If local client + cloud exists, check if this is a lobster tool
+            lobster_tool_names = {t.name for t in self.lobster_tools} if self.lobster_tools else set()
+            if has_cloud_connection and tool_name in lobster_tool_names:
                 # Find first cloud connection (client_connections already declared global above)
                 cloud_client_id = None
 
@@ -3116,20 +3092,20 @@ async def index():
                     }
 
                 # Send awaitable command to cloud client
-                # For pseudo tools, use the generic request_id from cloud
+                # For lobster tools, use the generic request_id from cloud
                 try:
                     # Get the generic request_id from the cloud client
                     generic_req_id = self.cloud_client.generic_request_id if hasattr(self, 'cloud_client') and self.cloud_client else None
                     logger.info(f"☁️ Sending '{tool_name}' command to cloud client {cloud_client_id}")
-                    logger.info(f"🔄 Pseudo tool detected - using generic request_id ({generic_req_id}) instead of MCP request_id ({request_id})")
+                    logger.info(f"🔄 Lobster tool detected - using generic request_id ({generic_req_id}) instead of MCP request_id ({request_id})")
                     response = await self.send_awaitable_client_command(
                         client_id_for_routing=cloud_client_id,
-                        request_id=generic_req_id,  # Use generic request_id for pseudo tools
+                        request_id=generic_req_id,  # Use generic request_id for lobster tools
                         command=tool_name,
                         command_data=params.get("arguments", {}),
                         seq_num=1,
                         entry_point_name=tool_name,
-                        local_pseudo_call=True,  # Flag this as a pseudo tool call from local client
+                        local_lobster_call=True,  # Flag this as a lobster tool call from local client
                         user=atlantis._owner  # Use the owner username from the welcome message
                     )
 
@@ -3424,18 +3400,19 @@ async def get_all_tools_for_response(server: 'DynamicAdditionServer', caller_con
     logger.debug(f"Helper: Prepared {len(tools_dict_list)} tool dictionaries.")
     return tools_dict_list
 
-def get_pseudo_tools_for_response(server: 'DynamicAdditionServer') -> List[Dict[str, Any]]:
+def get_lobster_tools_for_response(server: 'DynamicAdditionServer') -> List[Dict[str, Any]]:
     """
-    Returns pseudo tools for local WebSocket connections as serialized dicts.
+    Returns lobster tools for local WebSocket connections as serialized dicts.
     Tool definitions are pulled dynamically from the cloud welcome event.
     """
-    # Use dynamically-loaded pseudo tools from cloud welcome event
-    if server.pseudo_tools:
-        logger.info(f"🏠 Returning {len(server.pseudo_tools)} pseudo tools from cloud welcome event")
-        return [t.model_dump(mode='json') for t in server.pseudo_tools]
+    # Use dynamically-loaded lobster tools from cloud welcome event
+    if server.lobster_tools:
+        logger.info(f"🏠 Returning {len(server.lobster_tools)} lobster tools from cloud welcome event")
+        # Claude will choke here if you don't exclude nulls
+        return [t.model_dump(mode='json', exclude_none=True) for t in server.lobster_tools]
 
-    # No pseudo tools received from cloud
-    logger.error(f"🚨 No pseudo tools available - cloud has not sent pseudoTools in welcome event")
+    # No lobster tools received from cloud
+    logger.error(f"🚨 No lobster tools available - cloud has not sent lobsterTools in welcome event")
     return []
 
     # # OLD: hardcoded fallback defaults (now pulled dynamically from welcome event)
@@ -3922,8 +3899,8 @@ class ServiceClient:
                 # New format: JSON object with usernames and genericRequestId
                 owner_usernames = data.get('usernames', [])
                 generic_request_id = data.get('genericRequestId')
-                pseudo_tools_data = data.get('pseudoTools', [])
-                pseudo_tool_names = [t.get('name', '?') for t in pseudo_tools_data] if pseudo_tools_data else []
+                lobster_tools_data = data.get('lobsterTools', [])
+                lobster_tool_names = [t.get('name', '?') for t in lobster_tools_data] if lobster_tools_data else []
 
                 # ANSI: \033[1;91m = bold bright red text, \033[0m = reset
                 R = "\033[1;91m"  # Bold bright red
@@ -3934,7 +3911,7 @@ class ServiceClient:
                 logger.info(f"  {R}{'=' * 59}{X}")
                 logger.info(f"  {R}   Captain:    {(', '.join(owner_usernames) if owner_usernames else 'unknown'):<44}{X}")
                 logger.info(f"  {R}   Trap tag:   {(generic_request_id or 'MISSING!'):<44}{X}")
-                logger.info(f"  {R}   Catch ({len(pseudo_tool_names)}):  {str(pseudo_tool_names):<44}{X}")
+                logger.info(f"  {R}   Catch ({len(lobster_tool_names)}):  {str(lobster_tool_names):<44}{X}")
                 logger.info(f"  {R}{'=' * 59}{X}")
                 logger.info(f"")
 
@@ -3947,17 +3924,17 @@ class ServiceClient:
                     logger.error(f"🚨 Welcome data received: {format_json_log(data)}")
                     raise RuntimeError("Cloud welcome message missing required 'genericRequestId' - cannot continue")
 
-                # Pull pseudo tools from welcome payload (dynamically defined by cloud)
-                if 'pseudoTools' not in data:
-                    logger.error(f"🚨🚨🚨 CRITICAL: No pseudoTools field in welcome message! Local proxy tools will not be available! 🚨🚨🚨")
+                # Pull lobster tools from welcome payload (dynamically defined by cloud)
+                if 'lobsterTools' not in data:
+                    logger.error(f"🚨🚨🚨 CRITICAL: No lobsterTools field in welcome message! Local proxy tools will not be available! 🚨🚨🚨")
                     logger.error(f"🚨 Welcome data received: {format_json_log(data)}")
                 else:
-                    pseudo_tools_data = data['pseudoTools']
-                    if not pseudo_tools_data:
-                        logger.error(f"🚨 pseudoTools array is empty in welcome message - no local proxy tools will be exposed")
+                    lobster_tools_data = data['lobsterTools']
+                    if not lobster_tools_data:
+                        logger.error(f"🚨 lobsterTools array is empty in welcome message - no local proxy tools will be exposed")
                     else:
                         parsed_tools = []
-                        for t in pseudo_tools_data:
+                        for t in lobster_tools_data:
                             try:
                                 parsed_tools.append(Tool(
                                     name=t['name'],
@@ -3965,18 +3942,37 @@ class ServiceClient:
                                     inputSchema=t.get('inputSchema', {"type": "object", "properties": {}}),
                                 ))
                             except Exception as e:
-                                logger.error(f"❌ Failed to parse pseudo tool '{t.get('name', '?')}': {e}")
-                        self.mcp_server.pseudo_tools = parsed_tools
+                                logger.error(f"❌ Failed to parse lobster tool '{t.get('name', '?')}': {e}")
+                        # Inject the 'command' tool for local clients to send commands to the cloud
+                        parsed_tools.append(Tool(
+                            name="command",
+                            description="Execute an Atlantis command on the connected cloud",
+                            inputSchema={
+                                "type": "object",
+                                "properties": {
+                                    "content": {
+                                        "type": "string",
+                                        "description": "The Atlantis command to execute"
+                                    },
+                                    "params": {
+                                        "type": "object",
+                                        "description": "Additional params for the Atlantis command as needed"
+                                    }
+                                },
+                                "required": ["content"]
+                            },
+                        ))
+                        self.mcp_server.lobster_tools = parsed_tools
                         logger.info(f"🦞 Loaded {len(parsed_tools)} tools into the lobster pot: {[t.name for t in parsed_tools]}")
             elif isinstance(data, list):
                 # Legacy format: array of usernames
-                logger.warning(f"⚠️ Welcome message using LEGACY format (array of usernames) - missing genericRequestId and pseudoTools!")
+                logger.warning(f"⚠️ Welcome message using LEGACY format (array of usernames) - missing genericRequestId and lobsterTools!")
                 owner_usernames = data
                 atlantis._set_owner_usernames(owner_usernames)
                 atlantis._set_owner(owner_usernames[0] if owner_usernames else self.email)
             else:
                 # Legacy format: single string (email or username)
-                logger.warning(f"⚠️ Welcome message using LEGACY format (single string) - missing genericRequestId and pseudoTools!")
+                logger.warning(f"⚠️ Welcome message using LEGACY format (single string) - missing genericRequestId and lobsterTools!")
                 atlantis._set_owner(data)
                 atlantis._set_owner_usernames([data] if data else [])
 
@@ -4401,8 +4397,8 @@ async def handle_lobster_socket(websocket: WebSocket):
     connection_count = len(active_websockets)
 
     has_cloud = any(info.get("type") == "cloud" for info in client_connections.values())
-    pseudo_count = len(mcp_server.pseudo_tools) if mcp_server.pseudo_tools else 0
-    pseudo_names = [t.name for t in mcp_server.pseudo_tools] if mcp_server.pseudo_tools else []
+    lobster_count = len(mcp_server.lobster_tools) if mcp_server.lobster_tools else 0
+    lobster_names = [t.name for t in mcp_server.lobster_tools] if mcp_server.lobster_tools else []
 
     # ANSI: \033[1;91m = bold bright red text, \033[0m = reset
     R = "\033[1;91m"  # Bold bright red
@@ -4416,9 +4412,9 @@ async def handle_lobster_socket(websocket: WebSocket):
     lobster.info(f"  {R}  Client ID:    {client_id}{X}")
     lobster.info(f"  {R}  Trap count:   {connection_count}{X}")
     lobster.info(f"  {R}  Cloud:        {'⛵ AYE' if has_cloud else '🌊 NAY'}{X}")
-    lobster.info(f"  {R}  Tools in pot: {pseudo_count}{X}")
-    if pseudo_names:
-        lobster.info(f"  {R}  The haul:     {pseudo_names}{X}")
+    lobster.info(f"  {R}  Tools in pot: {lobster_count}{X}")
+    if lobster_names:
+        lobster.info(f"  {R}  The haul:     {lobster_names}{X}")
     lobster.info(f"")
 
     try:
@@ -4478,8 +4474,7 @@ async def handle_lobster_socket(websocket: WebSocket):
                 response = await process_mcp_request(mcp_server, request_data, client_id)
 
                 # Send the response back to the client
-                #logger.debug(f"📤 Sending: {response}")
-                logger.debug(f"📤 Sending response")
+                lobster.info(f"\033[1;91m🦞 TRAP→sending response:\n{format_json_log(response)}\033[0m")
                 await websocket.send_text(json.dumps(response))
 
             except json.JSONDecodeError:
@@ -4543,19 +4538,19 @@ async def process_mcp_request(server, request, client_id=None):
             return {"jsonrpc": "2.0", "id": req_id, "result": result}
         elif method == "tools/list":
             logger.info(f"🧰 Processing 'tools/list' request via helper for local WebSocket connection")
-            # Local WebSocket connections only see pseudo tools (readme, command)
-            pseudo_tools_list = get_pseudo_tools_for_response(server)
-            if not pseudo_tools_list:
+            # Local WebSocket connections only see lobster tools (readme, command)
+            lobster_tools_list = get_lobster_tools_for_response(server)
+            if not lobster_tools_list:
                 logger.error(f"🚨🚨🚨 EMPTY TOOL LIST being returned for tools/list request (ID: {req_id})! "
-                             f"Cloud has not sent pseudoTools in welcome event. "
+                             f"Cloud has not sent lobsterTools in welcome event. "
                              f"The MCP client will see zero tools available.")
             response = {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "result": {"tools": pseudo_tools_list}
+                "result": {"tools": lobster_tools_list}
             }
-            pseudo_tool_names = [t.get('name', '?') for t in pseudo_tools_list]
-            logger.info(f"📦 Prepared tools/list response (ID: {req_id}) with {len(pseudo_tools_list)} pseudo tools: {pseudo_tool_names}")
+            lobster_tool_names = [t.get('name', '?') for t in lobster_tools_list]
+            logger.info(f"📦 Prepared tools/list response (ID: {req_id}) with {len(lobster_tools_list)} lobster tools: {lobster_tool_names}")
             return response
         elif method == "tools/list_all": # Handling for list_all in direct connections
             # get all tools including internal

@@ -1075,11 +1075,11 @@ class DynamicAdditionServer(Server):
         tools_list = [
             Tool(
                 name="_function_set",
-                description="Sets the content of a dynamic function or text file. Use 'app' parameter to target specific functions when multiple exist with the same name. For .txt files, provide the 'name' parameter.",
+                description="Sets the content of a dynamic function or text file. Use 'name' to explicitly target the existing function/file to update, and use 'app' to disambiguate functions with the same name in different apps.",
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "name": {"type": "string", "description": "Optional: The function/file name. Required for .txt files (e.g. 'foo.txt')."},
+                        "name": {"type": "string", "description": "Optional but recommended: The existing function/file name to update. Required for .txt files (e.g. 'foo.txt')."},
                         "app": {"type": "string", "description": "Optional: The app name to target a specific function when multiple exist with the same name"},
                         "code": {"type": "string", "description": "The source code (Python) or text content (.txt files)."}
                     },

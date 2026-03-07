@@ -2117,6 +2117,7 @@ async def {name}():
         Extracts all function names using AST parsing, uses the first one to find the file.
         Supports optional app parameter for app-specific function targeting.
         Returns the function name (if successful) and a status message (string or dict).
+        Raises exceptions for invalid requests so the server can surface proper tool errors.
         Does *not* perform full syntax validation before saving.
         """
         logger.info("⚙️ Handling _function_set call (using AST parsing for all functions)")
@@ -2126,18 +2127,17 @@ async def {name}():
 
         if not code_buffer or not isinstance(code_buffer, str):
             logger.warning("⚠️ function_set: Missing or invalid 'code' parameter.")
-            # Return None for name, and the error message (plain string, MCP formatting in _format_mcp_response)
-            return None, "Error: Missing or invalid 'code' parameter."
+            raise ValueError("Missing or invalid 'code' parameter.")
 
         # Text file short-circuit: if name ends with .txt, skip Python validation entirely
         if name and name.endswith('.txt'):
             existing_file = await self._find_file_containing_function(name, app_name)
             if not existing_file:
-                return None, f"Cannot update text file - '{name}' not found in mapping."
+                raise ValueError(f"Cannot update text file - '{name}' not found in mapping.")
 
             saved_path = await self._fs_update_code(name, code_buffer, app_name)
             if not saved_path:
-                return name, f"Error saving text file '{existing_file}'."
+                raise IOError(f"Error saving text file '{existing_file}'.")
 
             rel_path = os.path.relpath(saved_path, self.functions_dir)
             logger.info(f"✅ Text file saved to {rel_path}")
@@ -2151,12 +2151,12 @@ async def {name}():
         if not is_valid:
             error_response = f"Error: Could not parse function code: {error_message}"
             logger.warning(f"⚠️ function_set: Failed to parse code via AST.")
-            return None, error_response
+            raise ValueError(error_response)
 
         if not functions_info:
             error_response = "Error: Could not extract any function names from the provided code. Ensure it contains at least one function definition."
             logger.warning(f"⚠️ function_set: No functions found in code.")
-            return None, error_response
+            raise ValueError(error_response)
 
         # Extract function names
         function_names = [func_info['name'] for func_info in functions_info]
@@ -2177,7 +2177,7 @@ async def {name}():
         if not existing_file or not matched_func_name:
             error_response = f"Cannot update functions - none of the functions ({', '.join(function_names)}) found in mapping. Use function_add to create new functions."
             logger.error(f"❌ function_set: {error_response}")
-            return None, error_response
+            raise ValueError(error_response)
 
         logger.info(f"⚙️ Updating existing file: {existing_file}")
 
@@ -2187,8 +2187,7 @@ async def {name}():
         if not saved_path:
             error_response = f"Error saving functions to file '{existing_file}'."
             logger.error(f"❌ function_set: {error_response}")
-            # Return matched function name, but with error message
-            return matched_func_name, error_response
+            raise IOError(error_response)
 
         logger.info(f"💾 Functions saved successfully to {saved_path}")
 

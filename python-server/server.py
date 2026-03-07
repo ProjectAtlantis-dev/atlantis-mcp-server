@@ -2506,15 +2506,17 @@ class DynamicAdditionServer(Server):
                 if result.stdout:
                     error_msg += f"\n\nStdout:\n{result.stdout}"
                 logger.error(f"📦 Failed to install package '{package}': {result.stderr}")
-                return error_msg
+                raise RuntimeError(error_msg)
             except subprocess.TimeoutExpired:
                 timeout_msg = f"⏰ Pip install timed out after 5 minutes for package: {package}"
                 logger.error(f"📦 Pip install timeout for package '{package}'")
-                return timeout_msg
+                raise TimeoutError(timeout_msg)
             except Exception as e:
+                if isinstance(e, (RuntimeError, TimeoutError)):
+                    raise
                 error_msg = f"💥 Error during pip install for package '{package}': {str(e)}"
                 logger.error(f"📦 Pip install error for package '{package}': {str(e)}")
-                return error_msg
+                raise RuntimeError(error_msg) from e
         elif actual_function_name == "_public_click":
             key = args.get("key")
             if not key:
@@ -2647,7 +2649,7 @@ async def index():
                 if fetch_result.returncode != 0:
                     error_msg = f"❌ Git fetch failed: {fetch_result.stderr.strip()}"
                     logger.error(f"🔄 Git fetch error: {error_msg}")
-                    return error_msg
+                    raise RuntimeError(error_msg)
 
                 merge_result = subprocess.run(
                     ["git", "merge", f"{remote}/{branch}"],
@@ -2659,7 +2661,7 @@ async def index():
                 if merge_result.returncode != 0:
                     error_msg = f"❌ Git merge failed: {merge_result.stderr.strip()}"
                     logger.error(f"🔄 Git merge error: {error_msg}")
-                    return error_msg
+                    raise RuntimeError(error_msg)
 
                 success_msg = f"✅ Successfully updated from {remote}/{branch}"
                 if merge_result.stdout.strip():
@@ -2667,9 +2669,11 @@ async def index():
                 logger.info(f"🔄 Git update successful: {success_msg}")
                 return success_msg
             except Exception as e:
+                if isinstance(e, RuntimeError):
+                    raise
                 error_msg = f"❌ Git update failed with exception: {str(e)}"
                 logger.error(f"🔄 Git update exception: {error_msg}")
-                return error_msg
+                raise RuntimeError(error_msg) from e
         elif (
             actual_function_name.startswith('_function')
             or actual_function_name.startswith('_server')

@@ -405,8 +405,42 @@ class DynamicAdditionServer(Server):
         # Store cloud client reference for tool reporting
         self.cloud_client: Optional['ServiceClient'] = None
 
-        # Lobster tools for local MCP clients (populated dynamically from cloud welcome event)
-        self.lobster_tools: List[Tool] = []
+        # Lobster tools for local MCP clients (hardcoded pseudo tools)
+        self.lobster_tools: List[Tool] = [
+            Tool(
+                name="readme",
+                description="Get information about how to use Atlantis commands",
+                inputSchema={"type": "object", "properties": {}},
+            ),
+            Tool(
+                name="command",
+                description="Execute an Atlantis command on the connected cloud",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "commandText": {
+                            "type": "string",
+                            "description": "The Atlantis command to execute"
+                        }
+                    },
+                    "required": ["commandText"]
+                },
+            ),
+            Tool(
+                name="tool",
+                description="Invoke a specific tool by name on the connected cloud",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "toolName": {
+                            "type": "string",
+                            "description": "The name of the tool to invoke"
+                        }
+                    },
+                    "required": ["toolName"]
+                },
+            ),
+        ]
 
         # Initialize the dynamic function and server managers
         self.function_manager = DynamicFunctionManager(FUNCTIONS_DIR)
@@ -3091,6 +3125,7 @@ async def index():
                         }
                     }
 
+
                 # Send awaitable command to cloud client
                 # For lobster tools, use the lobster request_id from cloud
                 try:
@@ -3098,10 +3133,21 @@ async def index():
                     lobster_req_id = self.cloud_client.lobster_request_id if hasattr(self, 'cloud_client') and self.cloud_client else None
                     logger.info(f"☁️ Sending '{tool_name}' command to cloud client {cloud_client_id}")
                     logger.info(f"🔄 Lobster tool detected - using lobster request_id ({lobster_req_id}) instead of MCP request_id ({request_id})")
+
+                    if tool_name == "readme":
+                        command="@*Claw*README"
+                    elif tool_name == "command":
+                        command="/" + (params.get("content") or "")
+                    elif tool_name == "run_tool":
+                        command="@" + (params.get("content") or "")
+                    else:
+                        pass
+                        # throw error
+
                     response = await self.send_awaitable_client_command(
                         client_id_for_routing=cloud_client_id,
                         request_id=lobster_req_id,  # Use lobster request_id for lobster tools
-                        command=tool_name,
+                        command=command,
                         command_data=params.get("arguments", {}),
                         seq_num=1,
                         entry_point_name=tool_name,
@@ -3924,46 +3970,29 @@ class ServiceClient:
                     logger.error(f"🚨 Welcome data received: {format_json_log(data)}")
                     raise RuntimeError("Cloud welcome message missing required 'lobsterRequestId' - cannot continue")
 
-                # Pull lobster tools from welcome payload (dynamically defined by cloud)
-                if 'lobsterTools' not in data:
-                    logger.error(f"🚨🚨🚨 CRITICAL: No lobsterTools field in welcome message! Local proxy tools will not be available! 🚨🚨🚨")
-                    logger.error(f"🚨 Welcome data received: {format_json_log(data)}")
-                else:
-                    lobster_tools_data = data['lobsterTools']
-                    if not lobster_tools_data:
-                        logger.error(f"🚨 lobsterTools array is empty in welcome message - no local proxy tools will be exposed")
-                    else:
-                        parsed_tools = []
-                        for t in lobster_tools_data:
-                            try:
-                                parsed_tools.append(Tool(
-                                    name=t['name'],
-                                    description=t.get('description', ''),
-                                    inputSchema=t.get('inputSchema', {"type": "object", "properties": {}}),
-                                ))
-                            except Exception as e:
-                                logger.error(f"❌ Failed to parse lobster tool '{t.get('name', '?')}': {e}")
-                        # Inject the 'command' tool for local clients to send commands to the cloud
-                        parsed_tools.append(Tool(
-                            name="command",
-                            description="Execute an Atlantis command on the connected cloud",
-                            inputSchema={
-                                "type": "object",
-                                "properties": {
-                                    "content": {
-                                        "type": "string",
-                                        "description": "The Atlantis command to execute"
-                                    },
-                                    "params": {
-                                        "type": "object",
-                                        "description": "Additional params for the Atlantis command as needed"
-                                    }
-                                },
-                                "required": ["content"]
-                            },
-                        ))
-                        self.mcp_server.lobster_tools = parsed_tools
-                        logger.info(f"🦞 Loaded {len(parsed_tools)} tools into the lobster pot: {[t.name for t in parsed_tools]}")
+                # TODO: Dynamic lobster tools from cloud welcome - will be needed later
+                # if 'lobsterTools' not in data:
+                #     logger.error(f"🚨🚨🚨 CRITICAL: No lobsterTools field in welcome message! Local proxy tools will not be available! 🚨🚨🚨")
+                #     logger.error(f"🚨 Welcome data received: {format_json_log(data)}")
+                # else:
+                #     lobster_tools_data = data['lobsterTools']
+                #     if not lobster_tools_data:
+                #         logger.error(f"🚨 lobsterTools array is empty in welcome message - no local proxy tools will be exposed")
+                #     else:
+                #         parsed_tools = []
+                #         for t in lobster_tools_data:
+                #             try:
+                #                 parsed_tools.append(Tool(
+                #                     name=t['name'],
+                #                     description=t.get('description', ''),
+                #                     inputSchema=t.get('inputSchema', {"type": "object", "properties": {}}),
+                #                 ))
+                #             except Exception as e:
+                #                 logger.error(f"❌ Failed to parse lobster tool '{t.get('name', '?')}': {e}")
+                #         self.mcp_server.lobster_tools = parsed_tools
+                #         logger.info(f"🦞 Loaded {len(parsed_tools)} tools into the lobster pot: {[t.name for t in parsed_tools]}")
+
+                logger.info(f"🦞 Using {len(self.mcp_server.lobster_tools)} hardcoded lobster tools: {[t.name for t in self.mcp_server.lobster_tools]}")
             elif isinstance(data, list):
                 # Legacy format: array of usernames
                 logger.warning(f"⚠️ Welcome message using LEGACY format (array of usernames) - missing lobsterRequestId and lobsterTools!")

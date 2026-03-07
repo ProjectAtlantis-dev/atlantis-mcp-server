@@ -1010,7 +1010,7 @@ async def {name}():
         self._function_file_mapping_mtime = 0.0
         logger.debug("🧹 Function-to-file mapping cache invalidated")
 
-    async def _build_function_file_mapping(self):
+    async def _build_function_file_mapping(self) -> None:
         """Build the function-to-file mapping by scanning all files recursively."""
         try:
             # Check if we need to rebuild the mapping
@@ -1712,7 +1712,7 @@ async def {name}():
 
             return self._function_queues[function_key]
 
-    async def function_call(self, name: str, client_id: str, request_id: str, user: Optional[str] = None, **kwargs) -> Any:
+    async def function_call(self, name: str, client_id: Optional[str], request_id: Optional[str], user: Optional[str] = None, **kwargs) -> Any:
         """
         Public API for calling a dynamic function.
         Directly executes the function (bypassing queue for now).
@@ -1721,7 +1721,7 @@ async def {name}():
         """
         return await self._execute_function(name, client_id, request_id, user, **kwargs)
 
-    async def function_call_queued(self, name: str, client_id: str, request_id: str, user: Optional[str] = None, **kwargs) -> Any:
+    async def function_call_queued(self, name: str, client_id: Optional[str], request_id: Optional[str], user: Optional[str] = None, **kwargs) -> Any:
         """
         Queued version of function_call. Automatically queues the call
         so that each function's invocations run sequentially (one at a time).
@@ -1765,7 +1765,7 @@ async def {name}():
         logger.debug(f"Received result from queue processor for {function_key} - request_id: {request_id}, type: {type(result)}")
         return result
 
-    async def _execute_function(self, name: str, client_id: str, request_id: str, user: Optional[str] = None, **kwargs) -> Any:
+    async def _execute_function(self, name: str, client_id: Optional[str], request_id: Optional[str], user: Optional[str] = None, **kwargs) -> Any:
         """
         Internal method that actually executes a dynamic function.
         This is called by the queue processor to run functions sequentially.
@@ -2257,4 +2257,3 @@ async def {name}():
 
         # Return the code as plain string
         return code
-

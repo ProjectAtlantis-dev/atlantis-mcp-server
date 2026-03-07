@@ -290,8 +290,8 @@ def _set_owner_usernames(usernames: List[str]):
 
 def set_context(
         client_log_func: Callable,
-        request_id: str,
-        client_id: str,
+        request_id: Optional[str],
+        client_id: Optional[str],
         entry_point_name: str,
         user: Optional[str] = None,
         session_id: Optional[str] = None,

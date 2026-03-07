@@ -417,7 +417,7 @@ class DynamicAdditionServer(Server):
             ),
             Tool(
                 name="command",
-                description="Execute an Atlantis command on the connected cloud",
+                description="Execute an Atlantis command",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -430,17 +430,17 @@ class DynamicAdditionServer(Server):
                 },
             ),
             Tool(
-                name="tool",
-                description="Invoke a specific tool by name on the connected cloud",
+                name="function",
+                description="Invoke a specific Atlantis function by name",
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "toolName": {
+                        "functionName": {
                             "type": "string",
-                            "description": "The name of the tool to invoke"
+                            "description": "The name of the function invoke plus any params e.g. foo(30,\"chicago\")"
                         }
                     },
-                    "required": ["toolName"]
+                    "required": ["functionName"]
                 },
             ),
         ]
@@ -2987,7 +2987,7 @@ async def index():
 
         # Extract required parameters
         tool_name = params.get("name")
-        tool_args = params.get("arguments") # MCP spec uses 'arguments'
+        tool_args = params.get("arguments", {}) # MCP spec uses 'arguments'
 
         # Extract optional context fields
         user = params.get("user", None)
@@ -2996,11 +2996,11 @@ async def index():
         shell_path = params.get("shell_path", None)
 
         # Validate required parameters
-        if tool_name is None or tool_args is None:
+        if tool_name is None:
             return {
                 "jsonrpc": "2.0",
                 "id": request_id,
-                "error": {"code": -32602, "message": "Invalid params: missing tool name or arguments"}
+                "error": {"code": -32602, "message": "Invalid params: missing tool name"}
             }
 
         # Log the call
@@ -3068,21 +3068,31 @@ async def index():
                     logger.info(f"☁️ Sending '{tool_name}' command to cloud client {cloud_client_id}")
                     logger.info(f"🔄 Lobster tool detected - using lobster request_id ({lobster_req_id}) instead of MCP request_id ({request_id})")
 
+                    tool_args = params.get("arguments", {}) or {}
+                    command_data = {}
+
                     if tool_name == "readme":
                         command="@*Claw*README"
                     elif tool_name == "command":
-                        command="/" + (params.get("content") or "")
-                    elif tool_name == "run_tool":
-                        command="@" + (params.get("content") or "")
+                        command_text = tool_args.get("commandText")
+                        if not command_text:
+                            raise ValueError("Missing required argument 'commandText' for lobster tool 'command'")
+                        command="/" + command_text
+                        command_data = {}
+                    elif tool_name == "function":
+                        function_target = tool_args.get("functionName")
+                        if not function_target:
+                            raise ValueError("Missing required argument 'functionName' for lobster tool 'function'")
+                        command="@" + function_target
+                        command_data = {}
                     else:
-                        pass
-                        # throw error
+                        raise ValueError(f"Unknown lobster tool '{tool_name}'")
 
                     response = await self.send_awaitable_client_command(
                         client_id_for_routing=cloud_client_id,
                         request_id=lobster_req_id,  # Use lobster request_id for lobster tools
                         command=command,
-                        command_data=params.get("arguments", {}),
+                        command_data=command_data,
                         seq_num=1,
                         entry_point_name=tool_name,
                         local_lobster_call=True,  # Flag this as a lobster tool call from local client

@@ -141,6 +141,7 @@ from state import (
     FUNCTIONS_DIR, SERVERS_DIR, is_shutting_down,
     SERVER_REQUEST_TIMEOUT
 )
+from lobster import handle_local_lobster_tool_call
 
 # --- Path Configuration ---
 LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "log")
@@ -3067,62 +3068,16 @@ async def index():
                 # Send awaitable command to cloud client
                 # For lobster tools, use the lobster request_id from cloud
                 try:
-                    # Get the lobster request_id from the cloud client
                     lobster_req_id = self.cloud_client.lobster_request_id if hasattr(self, 'cloud_client') and self.cloud_client else None
-                    logger.info(f"☁️ Sending '{tool_name}' command to cloud client {cloud_client_id}")
-                    logger.info(f"🔄 Lobster tool detected - using lobster request_id ({lobster_req_id}) instead of MCP request_id ({request_id})")
-
-                    tool_args = params.get("arguments", {}) or {}
-                    command_data = {}
-
-                    if tool_name == "readme":
-                        command="@*Claw*README"
-                    elif tool_name == "command":
-                        command_text = tool_args.get("commandText")
-                        if not command_text:
-                            raise ValueError("Missing required argument 'commandText' for lobster tool 'command'")
-                        command="/" + command_text
-                        command_data = {}
-                    elif tool_name == "function":
-                        function_target = tool_args.get("functionName")
-                        if not function_target:
-                            raise ValueError("Missing required argument 'functionName' for lobster tool 'function'")
-                        command="@" + function_target
-                        command_data = {}
-                    else:
-                        raise ValueError(f"Unknown lobster tool '{tool_name}'")
-
-                    response = await self.send_awaitable_client_command(
-                        client_id_for_routing=cloud_client_id,
-                        request_id=lobster_req_id,  # Use lobster request_id for lobster tools
-                        command=command,
-                        command_data=command_data,
-                        seq_num=1,
-                        entry_point_name=tool_name,
-                        local_lobster_call=True,  # Flag this as a lobster tool call from local client
-                        user=atlantis._owner  # Use the owner username from the welcome message
+                    return await handle_local_lobster_tool_call(
+                        self,
+                        tool_name=tool_name,
+                        params=params,
+                        request_id=request_id,
+                        cloud_client_id=cloud_client_id,
+                        lobster_request_id=lobster_req_id,
+                        user=atlantis._owner
                     )
-
-                    logger.info(f"☁️ Got response from cloud client")
-                    logger.info(f"☁️ Response structure: {format_json_log(response) if isinstance(response, (dict, list)) else repr(response)}")
-
-                    # Return the response wrapped in MCP format
-                    # Format JSON nicely so Claude can read it
-                    response_text = format_json_log(response, colored=False) if isinstance(response, (dict, list)) else str(response)
-                    result = {
-                        "content": [{"type": "text", "text": response_text}]
-                    }
-
-                    # Don't add structuredContent here - cloud already sends it properly formatted
-                    # and we unwrapped it. Just pass through as text.
-
-                    mcp_response = {
-                        "jsonrpc": "2.0",
-                        "id": request_id,
-                        "result": result
-                    }
-                    logger.info(f"📤 Returning MCP response: {format_json_log(mcp_response)}")
-                    return mcp_response
                 except Exception as e:
                     logger.error(f"❌ Error sending {tool_name} to cloud: {e}")
                     return {

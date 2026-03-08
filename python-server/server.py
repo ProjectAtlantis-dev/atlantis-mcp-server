@@ -61,7 +61,7 @@ from pydantic import ConfigDict
 from typing import Any, Dict
 from starlette.applications import Starlette
 from starlette.routing import WebSocketRoute, Route
-from starlette.websockets import WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocket
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.middleware import Middleware
@@ -141,7 +141,14 @@ from state import (
     FUNCTIONS_DIR, SERVERS_DIR, is_shutting_down,
     SERVER_REQUEST_TIMEOUT
 )
-from lobster import handle_local_lobster_tool_call
+from lobster import (
+    apply_cloud_welcome,
+    get_default_lobster_tools,
+    get_local_tools_if_lobster_mode,
+    handle_local_lobster_tool_call,
+    handle_lobster_socket as lobster_socket_handler,
+    process_mcp_request as lobster_process_mcp_request,
+)
 
 # --- Path Configuration ---
 LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "log")
@@ -409,42 +416,7 @@ class DynamicAdditionServer(Server):
         # Store cloud client reference for tool reporting
         self.cloud_client: Optional['ServiceClient'] = None
 
-        # Lobster tools for local MCP clients (hardcoded pseudo tools)
-        self.lobster_tools: List[Tool] = [
-            Tool(
-                name="readme",
-                description="Get information about how to use Atlantis commands",
-                inputSchema={"type": "object", "properties": {}},
-            ),
-            Tool(
-                name="command",
-                description="Execute an Atlantis command",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "commandText": {
-                            "type": "string",
-                            "description": "The Atlantis command to execute"
-                        }
-                    },
-                    "required": ["commandText"]
-                },
-            ),
-            Tool(
-                name="function",
-                description="Invoke a specific Atlantis function by name",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "functionName": {
-                            "type": "string",
-                            "description": "The name of the function invoke plus any params e.g. foo(30,\"chicago\")"
-                        }
-                    },
-                    "required": ["functionName"]
-                },
-            ),
-        ]
+        self.lobster_tools: List[Tool] = get_default_lobster_tools()
 
         # Initialize the dynamic function and server managers
         self.function_manager = DynamicFunctionManager(FUNCTIONS_DIR)
@@ -1018,14 +990,9 @@ class DynamicAdditionServer(Server):
             global client_connections
             has_cloud_connection = any(info.get("type") == "cloud" for info in client_connections.values())
 
-            if has_cloud_connection:
-                # Scenario 3: Local client + cloud exists → return lobster tools from cloud welcome event
-                if self.lobster_tools:
-                    logger.info(f"☁️ Local client request with cloud connection - returning {len(self.lobster_tools)} lobster tools from welcome event")
-                    return list(self.lobster_tools)
-                else:
-                    logger.warning("☁️ Local client request with cloud connection but no lobster tools received from welcome event yet")
-                    return []
+            lobster_tools = get_local_tools_if_lobster_mode(self, has_cloud_connection)
+            if lobster_tools is not None:
+                return lobster_tools
 
         # Scenarios 1 & 2: Return full local tool list
         # - Cloud requesting tools (for_local_client=False)
@@ -3349,43 +3316,6 @@ async def get_all_tools_for_response(server: 'DynamicAdditionServer', caller_con
     logger.debug(f"Helper: Prepared {len(tools_dict_list)} tool dictionaries.")
     return tools_dict_list
 
-def get_lobster_tools_for_response(server: 'DynamicAdditionServer') -> List[Dict[str, Any]]:
-    """
-    Returns lobster tools for local WebSocket connections as serialized dicts.
-    Tool definitions are pulled dynamically from the cloud welcome event.
-    """
-    # Use dynamically-loaded lobster tools from cloud welcome event
-    if server.lobster_tools:
-        logger.info(f"🏠 Returning {len(server.lobster_tools)} lobster tools from cloud welcome event")
-        # Claude will choke here if you don't exclude nulls
-        return [t.model_dump(mode='json', exclude_none=True) for t in server.lobster_tools]
-
-    # No lobster tools received from cloud
-    logger.error(f"🚨 No lobster tools available - cloud has not sent lobsterTools in welcome event")
-    return []
-
-    # # OLD: hardcoded fallback defaults (now pulled dynamically from welcome event)
-    # fallback_tools = [
-    #     Tool(
-    #         name="readme",
-    #         description="Returns information about this MCP server",
-    #         inputSchema={"type": "object", "properties": {}, "required": []},
-    #     ),
-    #     Tool(
-    #         name="command",
-    #         description="Execute a command (placeholder - does nothing for now)",
-    #         inputSchema={
-    #             "type": "object",
-    #             "properties": {
-    #                 "cmd": {"type": "string", "description": "The command to execute"}
-    #             },
-    #             "required": ["cmd"]
-    #         },
-    #     )
-    # ]
-    # return [t.model_dump(mode='json') for t in fallback_tools]
-
-
 async def get_filtered_tools_for_response(server: 'DynamicAdditionServer', caller_context: str) -> List[Dict[str, Any]]:
     """
     Fetches tools, filters out server-type tools, and prepares them for a JSON response.
@@ -3843,70 +3773,7 @@ class ServiceClient:
         # Connection established event
         @self.sio.event(namespace=self.namespace)
         async def welcome(data): # Ensure handler is async
-            # Parse owner usernames from welcome data
-            if isinstance(data, dict):
-                # New format: JSON object with usernames and lobsterRequestId
-                owner_usernames = data.get('usernames', [])
-                lobster_request_id = data.get('lobsterRequestId')
-                lobster_tools_data = data.get('lobsterTools', [])
-                lobster_tool_names = [t.get('name', '?') for t in lobster_tools_data] if lobster_tools_data else []
-
-                # ANSI: \033[1;91m = bold bright red text, \033[0m = reset
-                R = "\033[1;91m"  # Bold bright red
-                X = "\033[0m"     # Reset
-                logger.info(f"")
-                logger.info(f"  {R}{'=' * 59}{X}")
-                logger.info(f"  {R}   🦞 WELCOME FROM THE CLOUD! LOBSTER BOAT IS IN PORT! 🦞   {X}")
-                logger.info(f"  {R}{'=' * 59}{X}")
-                logger.info(f"  {R}   Captain:    {(', '.join(owner_usernames) if owner_usernames else 'unknown'):<44}{X}")
-                logger.info(f"  {R}   Trap tag:   {(lobster_request_id or 'MISSING!'):<44}{X}")
-                logger.info(f"  {R}   Catch ({len(lobster_tool_names)}):  {str(lobster_tool_names):<44}{X}")
-                logger.info(f"  {R}{'=' * 59}{X}")
-                logger.info(f"")
-
-                atlantis._set_owner_usernames(owner_usernames)
-                atlantis._set_owner(owner_usernames[0] if owner_usernames else self.email)
-                if lobster_request_id:
-                    self.lobster_request_id = lobster_request_id
-                else:
-                    logger.error(f"🚨🚨🚨 FATAL: No lobsterRequestId in welcome message! Cannot operate without it! 🚨🚨🚨")
-                    logger.error(f"🚨 Welcome data received: {format_json_log(data)}")
-                    raise RuntimeError("Cloud welcome message missing required 'lobsterRequestId' - cannot continue")
-
-                # TODO: Dynamic lobster tools from cloud welcome - will be needed later
-                # if 'lobsterTools' not in data:
-                #     logger.error(f"🚨🚨🚨 CRITICAL: No lobsterTools field in welcome message! Local proxy tools will not be available! 🚨🚨🚨")
-                #     logger.error(f"🚨 Welcome data received: {format_json_log(data)}")
-                # else:
-                #     lobster_tools_data = data['lobsterTools']
-                #     if not lobster_tools_data:
-                #         logger.error(f"🚨 lobsterTools array is empty in welcome message - no local proxy tools will be exposed")
-                #     else:
-                #         parsed_tools = []
-                #         for t in lobster_tools_data:
-                #             try:
-                #                 parsed_tools.append(Tool(
-                #                     name=t['name'],
-                #                     description=t.get('description', ''),
-                #                     inputSchema=t.get('inputSchema', {"type": "object", "properties": {}}),
-                #                 ))
-                #             except Exception as e:
-                #                 logger.error(f"❌ Failed to parse lobster tool '{t.get('name', '?')}': {e}")
-                #         self.mcp_server.lobster_tools = parsed_tools
-                #         logger.info(f"🦞 Loaded {len(parsed_tools)} tools into the lobster pot: {[t.name for t in parsed_tools]}")
-
-                logger.info(f"🦞 Using {len(self.mcp_server.lobster_tools)} hardcoded lobster tools: {[t.name for t in self.mcp_server.lobster_tools]}")
-            elif isinstance(data, list):
-                # Legacy format: array of usernames
-                logger.warning(f"⚠️ Welcome message using LEGACY format (array of usernames) - missing lobsterRequestId and lobsterTools!")
-                owner_usernames = data
-                atlantis._set_owner_usernames(owner_usernames)
-                atlantis._set_owner(owner_usernames[0] if owner_usernames else self.email)
-            else:
-                # Legacy format: single string (email or username)
-                logger.warning(f"⚠️ Welcome message using LEGACY format (single string) - missing lobsterRequestId and lobsterTools!")
-                atlantis._set_owner(data)
-                atlantis._set_owner_usernames([data] if data else [])
+            apply_cloud_welcome(self, data)
 
             self.retry_count = 0  # Reset retry counter on successful connection
 
@@ -3941,6 +3808,7 @@ class ServiceClient:
 
             # Report tools to console
             await self._report_tools_to_console()
+
 
 
         # Connection error event
@@ -4289,236 +4157,27 @@ mcp_server = DynamicAdditionServer()
 # Set the server instance in utils immediately so client_log() works
 utils.set_server_instance(mcp_server)
 
-# Lobster logger for websocket/MCP client stuff
-lobster = logging.getLogger("lobster")
-
-async def lobster_initialize(server, params={}):
-    """Initialize the server when an MCP client connects"""
-    lobster.info(f"\033[1;91m🦞 === LOBSTER INITIALIZE ===\033[0m")
-    lobster.info(f"\033[1;91m🦞 Server version {SERVER_VERSION}\033[0m")
-
-    # Set the server instance in utils module for client logging
-    utils.set_server_instance(server)
-    lobster.info(f"\033[1;91m🦞 Dynamic functions utility module initialized\033[0m")
-
-    tools_list = await server._get_tools_list(caller_context="initialize_method")
-    lobster.info(f"\033[1;91m🦞 Lobster initialize complete\033[0m")
-    return {
-        "protocolVersion": params.get("protocolVersion"),
-        "capabilities": {
-            "tools": {},
-            "prompts": {},
-            "resources": {},
-            "logging": {}
-        },
-        "serverInfo": {"name": server.name, "version": SERVER_VERSION}
-    }
-
-# Custom lobster socket handler for MCP clients
 async def handle_lobster_socket(websocket: WebSocket):
-    # Accept the WebSocket connection with MCP subprotocol
-    await websocket.accept(subprotocol="mcp")
-
-    # Generate a unique client ID based on address
-    client_id = f"ws_{websocket.client.host}_{id(websocket)}"
-
-    # Track this websocket connection both globally and by ID
-    global active_websockets, client_connections
-    active_websockets.add(websocket)
-    client_connections[client_id] = {"type": "websocket", "connection": websocket}
-    connection_count = len(active_websockets)
-
-    has_cloud = any(info.get("type") == "cloud" for info in client_connections.values())
-    lobster_count = len(mcp_server.lobster_tools) if mcp_server.lobster_tools else 0
-    lobster_names = [t.name for t in mcp_server.lobster_tools] if mcp_server.lobster_tools else []
-
-    # ANSI: \033[1;91m = bold bright red text, \033[0m = reset
-    R = "\033[1;91m"  # Bold bright red
-    X = "\033[0m"     # Reset
-    lobster.info(f"")
-    if connection_count > 1:
-        lobster.info(f"  {R}🦞 ANOTHER LOBSTER IN THE TRAP! ({connection_count} total) 🦞{X}")
-    else:
-        lobster.info(f"  {R}🦞 FRESH CATCH! NEW MCP CLIENT HAULED ABOARD! 🦞{X}")
-    lobster.info(f"  {R}  Host:         {websocket.client.host}{X}")
-    lobster.info(f"  {R}  Client ID:    {client_id}{X}")
-    lobster.info(f"  {R}  Trap count:   {connection_count}{X}")
-    lobster.info(f"  {R}  Cloud:        {'⛵ AYE' if has_cloud else '🌊 NAY'}{X}")
-    lobster.info(f"  {R}  Tools in pot: {lobster_count}{X}")
-    if lobster_names:
-        lobster.info(f"  {R}  The haul:     {lobster_names}{X}")
-    lobster.info(f"")
-
-    try:
-        # Message loop
-        while True:
-            # Wait for a message from the client
-            message = await websocket.receive_text()
-
-            try:
-                # Parse the message as JSON
-                request_data = json.loads(message)
-
-                # --- Handle Awaitable Command Responses ---
-                if isinstance(request_data, dict) and \
-                   request_data.get("method") == "notifications/commandResult" and \
-                   "params" in request_data:
-
-                    params = request_data["params"]
-                    correlation_id = params.get("correlationId")
-
-                    # Ensure self.mcp_server and awaitable_requests exist
-                    if hasattr(mcp_server, 'awaitable_requests') and \
-                       correlation_id and correlation_id in mcp_server.awaitable_requests:
-
-                        future = mcp_server.awaitable_requests.pop(correlation_id, None)
-                        if future and not future.done():
-                            if "result" in params:
-                                logger.info(f"✅ Received result for awaitable command (correlationId: {correlation_id})")
-                                future.set_result(params["result"])
-                            elif "error" in params:
-                                client_error_details = params["error"]
-                                logger.error(f"❌ Received error from client for awaitable command (correlationId: {correlation_id}): {client_error_details}")
-                                error_data = ErrorData(code=INTERNAL_ERROR, message=f"Client error for command (correlationId: {correlation_id}): {client_error_details}")
-                                future.set_exception(McpError(error_data))
-                            else:
-                                # treat as result
-                                future.set_result(None)
-                            # This message is handled, continue to next message in the loop
-                            logger.debug(f"📥 Handled notifications/commandResult for {correlation_id}, continuing WebSocket loop.")
-                            continue
-                        elif future and future.done():
-                            # Future was already done (e.g., timed out and handled by send_awaitable_client_command)
-                            logger.warning(f"⚠️ Received commandResult for {correlation_id}, but future was already done. Ignoring.")
-                            continue
-                        else:
-                            # Future not found in pop, might have timed out and been removed by send_awaitable_client_command's timeout logic
-                            logger.warning(f"⚠️ Received commandResult for {correlation_id}, but no active future found (pop returned None). Might have timed out. Ignoring.")
-                            continue
-                    else:
-                        # No correlationId or not in awaitable_requests, could be a stray message or an issue.
-                        logger.warning(f"⚠️ Received notifications/commandResult without a valid/pending correlationId: '{correlation_id}'. Passing to standard processing just in case, but this is unusual.")
-                # --- End Awaitable Command Response Handling ---
-
-                logger.debug(f"📥 Received (for MCP processing):\n{format_json_log(request_data)}")
-                lobster.warning(f"\033[1;91m🦞 TRAP→process_mcp_request: {request_data.get('method')}\033[0m")
-                # Process the request using our MCP server (include client_id)
-                response = await process_mcp_request(mcp_server, request_data, client_id)
-
-                # Send the response back to the client
-                lobster.info(f"\033[1;91m🦞 TRAP→sending response:\n{format_json_log(response)}\033[0m")
-                await websocket.send_text(json.dumps(response))
-
-            except json.JSONDecodeError:
-                logger.error(f"🚫 Invalid JSON received: {message}")
-                await websocket.send_text(json.dumps({"error": "Invalid JSON"}))
-            except Exception as e:
-                logger.error(f"🚫 Error processing request: {e}")
-                await websocket.send_text(json.dumps({"error": str(e)}))
-
-    except WebSocketDisconnect as e:
-        lobster.info(f"\033[1;91m🦞 Lobster socket client disconnected: code={e.code}, reason={e.reason}\033[0m")
-    except Exception as e:
-        lobster.error(f"\033[1;91m🦞 Lobster socket error: {e}\033[0m")
-    finally:
-        # Remove this connection from all tracking
-        active_websockets.discard(websocket)
-
-        # Find and remove from client_connections
-        to_remove = []
-        for cid, info in client_connections.items():
-            if info.get("type") == "websocket" and info.get("connection") is websocket:
-                to_remove.append(cid)
-        for cid in to_remove:
-            client_connections.pop(cid, None)
-
-        connection_count = len(active_websockets)
-        lobster.info(f"\033[1;91m🦞 Lobster released back to sea: {websocket.client.host} (Active: {connection_count})\033[0m")
+    await lobster_socket_handler(
+        websocket,
+        mcp_server=mcp_server,
+        active_websockets=active_websockets,
+        client_connections=client_connections,
+        get_all_tools_for_response=get_all_tools_for_response,
+        server_version=SERVER_VERSION,
+    )
 
 # Process MCP request and generate response
 async def process_mcp_request(server, request, client_id=None):
-    """Process an MCP request and return a response
-
-    Args:
-        server: The MCP server instance
-        request: The request to process
-        client_id: Optional ID of the requesting client for tracking
-    """
-
-    method = request.get("method")
-    lobster.warning(f"\033[1;91m🦞 LOBSTER PATH: {method}\033[0m")
-
-    if "id" not in request:
-        return {"error": "Missing request ID"}
-
-    req_id = request.get("id")
-    params = request.get("params", {})
-
-    # Store client_id in thread-local storage or other request context
-    # This allows tools called during this request to know who's calling
     global current_request_client_id
     current_request_client_id = client_id
-
-    # Route the request to the appropriate handler
-    try:
-        if method == "initialize":
-            # Process initialize request
-            logger.info(f"🚀 Processing 'initialize' request with params:\n{format_json_log(params)}")
-            result = await lobster_initialize(server, params)
-            logger.info(f"✅ Successfully processed 'initialize' request")
-            # Return empty object per MCP protocol spec
-            return {"jsonrpc": "2.0", "id": req_id, "result": result}
-        elif method == "tools/list":
-            logger.info(f"🧰 Processing 'tools/list' request via helper for local WebSocket connection")
-            # Local WebSocket connections only see lobster tools (readme, command)
-            lobster_tools_list = get_lobster_tools_for_response(server)
-            if not lobster_tools_list:
-                logger.error(f"🚨🚨🚨 EMPTY TOOL LIST being returned for tools/list request (ID: {req_id})! "
-                             f"Cloud has not sent lobsterTools in welcome event. "
-                             f"The MCP client will see zero tools available.")
-            response = {
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "result": {"tools": lobster_tools_list}
-            }
-            lobster_tool_names = [t.get('name', '?') for t in lobster_tools_list]
-            logger.info(f"📦 Prepared tools/list response (ID: {req_id}) with {len(lobster_tools_list)} lobster tools: {lobster_tool_names}")
-            return response
-        elif method == "tools/list_all": # Handling for list_all in direct connections
-            # get all tools including internal
-            # get servers including those not running
-            # Call the core logic method directly (pass client_id)
-            logger.info(f"🧰 Processing 'tools/list_all' request via helper")
-            all_tools_dict_list = await get_all_tools_for_response(server, caller_context="process_mcp_request_websocket")
-            response = {
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "result": {"tools": all_tools_dict_list}
-            }
-            return response
-
-        elif method == "prompts/list":
-            result = await server._get_prompts_list()
-            return {"jsonrpc": "2.0", "id": req_id, "result": {"prompts": result}}
-        elif method == "resources/list":
-            result = await server._get_resources_list()
-            return {"jsonrpc": "2.0", "id": req_id, "result": {"resources": result}}
-        elif method == "tools/call":
-            # Use consolidated handler for standard MCP clients
-            return await server._handle_tools_call(
-                params=params,
-                client_id=client_id,
-                request_id=req_id,
-                for_cloud=False
-            )
-        else:
-            logger.warning(f"⚠️ Unknown method requested: {method}")
-            return {"jsonrpc": "2.0", "id": req_id, "error": f"Unknown method: {method}"}
-    except Exception as e:
-
-        logger.error(f"🚫 Error processing request '{method}': {e}")
-        logger.debug(f"Traceback: {traceback.format_exc()}")
-        return {"jsonrpc": "2.0", "id": req_id, "error": f"Error processing request: {e}"}
+    return await lobster_process_mcp_request(
+        server,
+        request,
+        client_id,
+        get_all_tools_for_response=get_all_tools_for_response,
+        server_version=SERVER_VERSION,
+    )
 
 # Set up the Starlette application with routes
 async def handle_registration(request: Request) -> JSONResponse:

@@ -2219,15 +2219,42 @@ async def {name}():
         #save_status = f"Function saved"
         # Calculate relative path for display
         rel_path = os.path.relpath(saved_path, self.functions_dir)
+        missing_description_names = [
+            func_info["name"]
+            for func_info in functions_info
+            if not (func_info.get("description") or "").strip()
+        ]
+        missing_description_warning = None
+        if missing_description_names:
+            if len(missing_description_names) == 1:
+                missing_description_warning = (
+                    f"Warning: function '{missing_description_names[0]}' has no description docstring."
+                )
+            else:
+                missing_description_warning = (
+                    f"Warning: functions {', '.join(missing_description_names)} have no description docstrings."
+                )
+            logger.warning(f"⚠️ function_set: {missing_description_warning}")
 
         if syntax_error:
             # If validation failed, return dict with message and validation info
             response_message = f"Function saved to {rel_path}"
             logger.warning(f"⚠️ {response_message}")
+            validation_message = syntax_error
+            if missing_description_warning:
+                validation_message = f"{validation_message} {missing_description_warning}"
             return matched_func_name, {
                 "message": response_message,
                 "validationStatus": "ERROR",
-                "validationMessage": syntax_error
+                "validationMessage": validation_message
+            }
+        elif missing_description_warning:
+            response_message = f"Function saved to {rel_path}"
+            logger.warning(f"⚠️ {response_message}")
+            return matched_func_name, {
+                "message": response_message,
+                "validationStatus": "WARNING",
+                "validationMessage": missing_description_warning
             }
         else:
             # If validation succeeded, return plain string

@@ -191,7 +191,7 @@ async def handle_local_lobster_tool_call(
     command_data: Dict[str, Any] = {}
 
     if tool_name == "readme":
-        command = "@*Claw*README"
+        command = "@*Home*README"
     elif tool_name == "command":
         command_text = tool_args.get("commandText")
         if not command_text:

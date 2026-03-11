@@ -370,7 +370,8 @@ Small talk and conversation style:
 async def fetch_tools() -> List[Dict[str, Any]]:
     """Fetch available tools via /search. Can be called directly for testing."""
     logger.info("Fetching available tools...")
-    tools = await atlantis.client_command("/search system")
+    # this is tbd i think
+    tools = await atlantis.client_command("/search foobar")
     logger.info(f"Received {len(tools) if tools else 0} tools from /search")
     logger.info("=== RAW TOOLS FROM /search ===")
     logger.info(format_json_log(tools))
@@ -380,10 +381,13 @@ async def fetch_tools() -> List[Dict[str, Any]]:
 @visible
 async def fetch_skills() -> Tuple[List[str], List[str]]:
     """Fetch static and dynamic skill contents from server. Can be called directly for testing."""
+
+    # tbd
     logger.info("Fetching static skills...")
-    static_skill_texts = await fetch_skill_contents("/dir *STATIC_SKILL")
+    static_skill_texts = await fetch_skill_contents("@ *SKILL")
+
     logger.info("Fetching dynamic skills...")
-    dynamic_skill_texts = await fetch_skill_contents("/dir *DYN_SKILL")
+    dynamic_skill_texts = [] #await fetch_skill_contents("/dir *DYN_SKILL")
     logger.info(f"Skills loaded: {len(static_skill_texts)} static, {len(dynamic_skill_texts)} dynamic")
     return static_skill_texts, dynamic_skill_texts
 
@@ -587,7 +591,7 @@ async def chat():
     if True:
         # Fetch base prompt from server
         await atlantis.client_command("/silent on")
-        base_prompt = await atlantis.client_command("%*SYSTEM_PROMPT")
+        base_prompt = await atlantis.client_command("@*SYSTEM_PROMPT")
         await atlantis.client_command("/silent off")
         if not base_prompt or not str(base_prompt).strip():
             logger.error("Failed to fetch SYSTEM_PROMPT, using fallback")

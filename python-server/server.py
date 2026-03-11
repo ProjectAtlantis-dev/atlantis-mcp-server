@@ -3380,7 +3380,62 @@ class ServiceClient:
         self._creation_time = int(time.time())
         # Store the lobster request_id received from cloud for unsolicited requests
         self.lobster_request_id = None
+        # Throttle repeated identical connect_error logs while the cloud is down.
+        self._connect_error_signature = None
+        self._connect_error_last_logged_at = None
+        self._suppressed_connect_error_count = 0
+        self._connect_error_log_interval_seconds = 60
         logger.info(f"🎯 ServiceClient initialized with appName: '{self.appName}', serviceName: '{self.serviceName}'")
+
+    def _flush_suppressed_connect_errors(self, context: str):
+        """Emit one summary line for repeated connect_error events, if any were suppressed."""
+        if self._suppressed_connect_error_count <= 0 or not self._connect_error_signature:
+            return
+
+        logger.warning(
+            f"☁️ {context}: suppressed {self._suppressed_connect_error_count} repeated "
+            f"cloud connection errors ({self._connect_error_signature})"
+        )
+        self._suppressed_connect_error_count = 0
+
+    def _reset_connect_error_throttle(self):
+        """Reset connect_error throttling state after recovery."""
+        self._connect_error_signature = None
+        self._connect_error_last_logged_at = None
+        self._suppressed_connect_error_count = 0
+
+    def _log_connect_error(self, data):
+        """Log connect_error with throttling so an offline cloud does not spam the logs."""
+        error_text = str(data)
+        now = time.monotonic()
+        same_error = error_text == self._connect_error_signature
+        interval_elapsed = (
+            self._connect_error_last_logged_at is None
+            or (now - self._connect_error_last_logged_at) >= self._connect_error_log_interval_seconds
+        )
+
+        if not same_error:
+            self._flush_suppressed_connect_errors("Previous cloud failure pattern ended")
+            logger.error(f"❌ DETAILED CLOUD CONNECTION FAILURE INFO: {error_text}")
+            self._connect_error_signature = error_text
+            self._connect_error_last_logged_at = now
+            self._suppressed_connect_error_count = 0
+            return
+
+        if interval_elapsed:
+            if self._suppressed_connect_error_count > 0:
+                logger.warning(
+                    f"☁️ Cloud connection still failing; suppressed "
+                    f"{self._suppressed_connect_error_count} repeated errors "
+                    f"({error_text})"
+                )
+                self._suppressed_connect_error_count = 0
+            else:
+                logger.error(f"❌ DETAILED CLOUD CONNECTION FAILURE INFO: {error_text}")
+            self._connect_error_last_logged_at = now
+            return
+
+        self._suppressed_connect_error_count += 1
 
     # THIS IS THE BIG REPORT
     async def _report_tools_to_console(self, tools_list=None):
@@ -3775,6 +3830,8 @@ class ServiceClient:
         async def welcome(data): # Ensure handler is async
             apply_cloud_welcome(self, data)
 
+            self._flush_suppressed_connect_errors("Cloud connection recovered")
+            self._reset_connect_error_throttle()
             self.retry_count = 0  # Reset retry counter on successful connection
 
             self.print_ascii_art("../kitty.txt")
@@ -3814,7 +3871,7 @@ class ServiceClient:
         # Connection error event
         @self.sio.event(namespace=self.namespace)
         def connect_error(data):
-            logger.error(f"❌ DETAILED CLOUD CONNECTION FAILURE INFO: {data}") # Made log distinct
+            self._log_connect_error(data)
 
         # Disconnection event
         @self.sio.event(namespace=self.namespace)

@@ -3728,6 +3728,7 @@ class ServiceClient:
                     "apiKey": self.api_key,
                     "serviceName": self.serviceName,
                     "appName": self.appName,
+                    "remoteType": "python",
                     "hostname": hostname,
                     "port": self.server_port, # Send the stored port
                     "serverVersion": SERVER_VERSION,

@@ -72,3 +72,5 @@ python-server/set_OPENROUTER.bat
 python-server/set_ANTHROPIC.bat
 
 runServer.log
+python-server/tools_response_debug.json
+python-server/dynamic_functions/Bot/Kitty/Ant/visitor_log.json

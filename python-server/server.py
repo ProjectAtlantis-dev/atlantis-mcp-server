@@ -16,7 +16,7 @@ import socketio
 import argparse
 import uuid
 import secrets
-from utils import clean_filename, format_json_log, parse_search_term
+from utils import clean_filename, format_json_log, parse_search_term, write_tools_debug_file
 from PIDManager import PIDManager
 from typing import Any, Callable, Dict, List, Optional, Union
 from dataclasses import dataclass
@@ -4061,6 +4061,7 @@ class ServiceClient:
                     "id": request_id,
                     "result": {"tools": filtered_tools_dict_list}
                 }
+                write_tools_debug_file(response)
                 logger.debug(f"📦 Prepared tools/list response (ID: {request_id}) with {len(filtered_tools_dict_list)} tools.")
                 return response
             elif method == "tools/list_all": # Handling for list_all in direct connections
@@ -4074,6 +4075,7 @@ class ServiceClient:
                     "id": request_id,
                     "result": {"tools": all_tools_dict_list}
                 }
+                write_tools_debug_file(response)
                 return response
 
             elif method == "tools/call":

@@ -9,7 +9,7 @@ from mcp.shared.exceptions import McpError
 from mcp.types import INTERNAL_ERROR, ErrorData, Tool
 from state import logger
 from starlette.websockets import WebSocket, WebSocketDisconnect
-from utils import format_json_log
+from utils import format_json_log, write_tools_debug_file
 
 if TYPE_CHECKING:
     from server import DynamicAdditionServer
@@ -360,6 +360,7 @@ async def process_mcp_request(
                 "id": req_id,
                 "result": {"tools": lobster_tools_list},
             }
+            write_tools_debug_file(response)
             lobster_tool_names = [t.get("name", "?") for t in lobster_tools_list]
             logger.info(
                 f"Prepared tools/list response (ID: {req_id}) with {len(lobster_tools_list)} lobster tools: {lobster_tool_names}"
@@ -368,11 +369,13 @@ async def process_mcp_request(
         if method == "tools/list_all":
             logger.info("Processing 'tools/list_all' request via helper")
             all_tools_dict_list = await get_all_tools_for_response(server, "process_mcp_request_websocket")
-            return {
+            response = {
                 "jsonrpc": "2.0",
                 "id": req_id,
                 "result": {"tools": all_tools_dict_list},
             }
+            write_tools_debug_file(response)
+            return response
         if method == "prompts/list":
             result = await server._get_prompts_list()
             return {"jsonrpc": "2.0", "id": req_id, "result": {"prompts": result}}

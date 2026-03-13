@@ -128,6 +128,20 @@ def parse_search_term(search_term: str) -> ParsedSearchTerm:
     }
 
 
+def write_tools_debug_file(payload: dict | list, filename: str = "tools_response_debug.json") -> str:
+    """
+    Write the latest tools/list-style JSON payload to a formatted debug file.
+
+    The file is overwritten on each call.
+    """
+    debug_path = os.path.join(os.path.dirname(__file__), filename)
+    with open(debug_path, "w", encoding="utf-8") as debug_file:
+        json.dump(payload, debug_file, indent=2, ensure_ascii=False, sort_keys=True)
+        debug_file.write("\n")
+    logger.info(f"Wrote tools debug payload to {debug_path}")
+    return debug_path
+
+
 # Global server reference to be set at startup
 _server_instance = None
 

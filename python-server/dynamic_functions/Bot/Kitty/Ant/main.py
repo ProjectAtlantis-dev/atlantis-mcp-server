@@ -554,6 +554,17 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
                 logger.info(f"       -> SKIPPED (blank content)")
                 continue
 
+            # Skip entries with HTML table content (leaked UI data)
+            if 'data-metacol=' in msg_content_full or 'bot-table-cell' in msg_content_full:
+                logger.warning(f"       -> SKIPPED (contains HTML table data, {len(msg_content_full)} chars)")
+                continue
+
+            # Skip oversized entries (likely escaped HTML blobs)
+            MAX_ENTRY_SIZE = 4000
+            if len(msg_content_full) > MAX_ENTRY_SIZE:
+                logger.warning(f"       -> SKIPPED (oversized: {len(msg_content_full)} chars > {MAX_ENTRY_SIZE})")
+                continue
+
             # Convert sid to proper role for LLM:
             # - kitty messages = assistant
             # - everyone else = user
@@ -576,19 +587,32 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
 
 
 
+# Session busy locks - prevents concurrent chat invocations for the same session
+_session_locks: Dict[str, asyncio.Lock] = {}
+
 # no location since this is catch-all chat
 # no app since this is catch-all chat
 @chat
 async def chat():
-    """Main chat function"""
+    """Anthropic opus 4.6 chat"""
     logger.info("=== CHAT FUNCTION STARTING ===")
     sessionId = atlantis.get_session_id()
     logger.info(f"Session ID: {sessionId}")
     caller: str = atlantis.get_caller()  # type: ignore[assignment]
 
-    # The rest of the function body is indented due to the removed try/finally block
-    # Keeping the indentation to avoid reformatting the entire file
-    if True:
+    # Per-session busy lock - if already processing, bail out
+    lock_key = f"{sessionId}"
+    if lock_key not in _session_locks:
+        _session_locks[lock_key] = asyncio.Lock()
+    lock = _session_locks[lock_key]
+
+    if lock.locked():
+        logger.warning(f"⚠️ Session {lock_key} is already busy - skipping chat invocation")
+        await atlantis.owner_log(f"Skipping chat - session {lock_key} already busy")
+        return
+
+    async with lock:
+     if True:
         # Fetch base prompt from server
         await atlantis.client_command("/silent on")
         base_prompt = await atlantis.client_command("@*SYSTEM_PROMPT")

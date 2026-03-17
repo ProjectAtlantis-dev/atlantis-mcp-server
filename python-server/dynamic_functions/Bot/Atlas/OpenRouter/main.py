@@ -1,15 +1,9 @@
 import atlantis
 import asyncio
 
-from anthropic import Anthropic
-from anthropic.types import (
-    MessageParam,
-    TextBlockParam,
-    ToolParam,
-    ToolUseBlock,
-)
+from openai import OpenAI
 import json
-from typing import List, Dict, Any, Optional, TypedDict, Tuple, cast
+from typing import List, Dict, Any, Optional, TypedDict, Tuple, cast, NotRequired
 
 
 # =============================================================================
@@ -64,7 +58,7 @@ class ToolT(TypedDict, total=False):
 
 
 # =============================================================================
-# LLM Tool Types (output for Anthropic API)
+# LLM Tool Types (output for OpenAI/OpenRouter API)
 # =============================================================================
 
 class ToolSchemaPropertyT(TypedDict, total=False):
@@ -74,18 +68,24 @@ class ToolSchemaPropertyT(TypedDict, total=False):
     enum: List[str]
 
 
-class ToolSchemaT(TypedDict, total=False):
+class ToolSchemaT(TypedDict):
     """JSON Schema for tool parameters"""
     type: str
     properties: Dict[str, ToolSchemaPropertyT]
-    required: List[str]
+    required: NotRequired[List[str]]
 
 
-class TranscriptToolT(TypedDict, total=False):
-    """Tool format for LLM transcripts (Anthropic-compatible) - NO extra fields allowed!"""
+class OpenAIFunctionDefT(TypedDict):
+    """Function definition within an OpenAI tool"""
     name: str
     description: str
-    input_schema: ToolSchemaT
+    parameters: ToolSchemaT
+
+
+class TranscriptToolT(TypedDict):
+    """Tool format for OpenAI/OpenRouter API"""
+    type: str  # "function"
+    function: OpenAIFunctionDefT
 
 
 class SimpleToolT(TypedDict, total=False):
@@ -112,7 +112,6 @@ def get_consolidated_full_name(tool: ToolT) -> str:
     Format: remote_owner*remote_name*app*location*function
     Only includes parts that are needed to disambiguate.
     """
-    # Extract values with .get() to satisfy Pylance
     remote_owner = tool.get('remote_owner', '')
     remote_name = tool.get('remote_name', '')
     tool_app = tool.get('tool_app', '')
@@ -121,8 +120,6 @@ def get_consolidated_full_name(tool: ToolT) -> str:
 
     parts = [remote_owner, remote_name, tool_app, tool_location, tool_name]
 
-    # Build the full name, but simplify if possible
-    # If all prefix parts are empty, just return the tool name
     if all(p == '' for p in parts[:-1]):
         return parts[-1]
 
@@ -153,11 +150,10 @@ def coerce_args_to_schema(args: Dict[str, Any], schema: ToolSchemaT) -> Dict[str
                 else:
                     coerced[key] = bool(value)
             else:
-                # string, object, array - keep as-is
                 coerced[key] = value
         except (ValueError, TypeError) as e:
             logger.warning(f"Failed to coerce {key}={value} to {expected_type}: {e}")
-            coerced[key] = value  # Keep original on failure
+            coerced[key] = value
 
     return coerced
 
@@ -168,7 +164,6 @@ def parse_tool_params(tool_str: str) -> ToolSchemaT:
     """
     schema: ToolSchemaT = {'type': 'object', 'properties': {}, 'required': []}
 
-    # Extract params from parentheses
     import re
     match = re.search(r'\(([^)]*)\)', tool_str)
     if not match:
@@ -178,7 +173,6 @@ def parse_tool_params(tool_str: str) -> ToolSchemaT:
     if not params_str:
         return schema
 
-    # Parse each param like "sleepTime:number"
     for param in params_str.split(','):
         param = param.strip()
         if ':' in param:
@@ -186,7 +180,6 @@ def parse_tool_params(tool_str: str) -> ToolSchemaT:
             name = name.strip()
             ptype = ptype.strip().lower()
 
-            # Map types to JSON schema types
             type_map = {
                 'string': 'string',
                 'number': 'number',
@@ -208,7 +201,7 @@ def convert_tools_for_llm(
     show_hidden: bool = False
 ) -> Tuple[List[TranscriptToolT], List[SimpleToolT], Dict[str, ToolLookupInfo]]:
     """
-    Convert /search tool records to LLM-compatible format.
+    Convert /search tool records to OpenAI/OpenRouter-compatible format.
 
     Args:
         tools: List of tool records from /search command
@@ -216,7 +209,7 @@ def convert_tools_for_llm(
 
     Returns:
         Tuple of (full tools list, simple tools list, lookup dict)
-        - full tools list: Clean Anthropic-compatible tool definitions
+        - full tools list: OpenAI-compatible tool definitions
         - simple tools list: Simplified tool format
         - lookup dict: Maps sanitized tool name -> ToolLookupInfo for resolving calls
     """
@@ -228,13 +221,12 @@ def convert_tools_for_llm(
 
     for tool in tools:
         search_term = tool.get('searchTerm', '')
-        tool_name = tool.get('tool_name', '')  # The actual clean tool name
+        tool_name = tool.get('tool_name', '')
         tool_str = tool.get('tool', '')
         description = tool.get('description', '')
         chat_status = tool.get('chatStatus', '')
-        filename = tool.get('filename', '')  # e.g., "Home/chat.py"
+        filename = tool.get('filename', '')
 
-        # Parse the search term to extract components
         try:
             parsed = parse_search_term(search_term)
         except ValueError as e:
@@ -246,34 +238,25 @@ def convert_tools_for_llm(
             logger.error("\x1b[91m" + "=" * 60 + "\x1b[0m")
             continue
 
-        # Use tool_name if available, otherwise use parsed function name
         func_name = tool_name if tool_name else parsed['function']
-
-        # Use filename from tool if available, otherwise use derived filename from parser
         actual_filename = filename if filename else parsed['filename']
 
-        # Skip hidden tools unless show_hidden is True
         if not show_hidden and func_name.startswith('_'):
             logger.info(f"  SKIP (hidden): {func_name}")
             continue
 
-        # Skip tick tools (⏰ emoji in chatStatus)
         if '⏰' in chat_status:
             logger.info(f"  SKIP (tick): {func_name}")
             continue
 
-        # Skip tools that aren't connected
         if not tool.get('is_connected'):
             logger.info(f"  SKIP (disconnected): {func_name}")
             continue
 
         logger.info(f"  INCLUDE: {func_name}")
 
-        # Parse parameters from tool string
         schema = parse_tool_params(tool_str)
 
-        # Include app name in tool key to avoid collisions between apps
-        # Format: AppName__function_name (e.g., "Home__chat")
         import re
         app_name = parsed.get('app', '') or ''
         if app_name:
@@ -282,22 +265,23 @@ def convert_tools_for_llm(
             full_name = func_name
         sanitized_name = re.sub(r'[^a-zA-Z0-9_-]', '_', full_name)
 
-        # Build the output tool (Anthropic format) - CLEAN, no extra fields!
+        # OpenAI/OpenRouter tool format
         out_tool: TranscriptToolT = {
-            'name': sanitized_name,
-            'description': description,
-            'input_schema': schema
+            'type': 'function',
+            'function': {
+                'name': sanitized_name,
+                'description': description,
+                'parameters': schema
+            }
         }
         out_tools.append(out_tool)
 
-        # Build the simple version
         out_tools_simple.append({
             'name': sanitized_name,
             'description': description,
             'input_schema': schema
         })
 
-        # Build lookup entry for resolving tool calls back to files
         tool_lookup[sanitized_name] = {
             'searchTerm': search_term,
             'filename': actual_filename,
@@ -395,31 +379,22 @@ def build_system_prompt(
     caller: str = "",
     visit_count: int = 0,
     last_visit: str = ""
-) -> List[TextBlockParam]:
+) -> str:
     """
-    Build the system prompt as an array of TextBlockParam blocks.
-    cache_control goes on the last static block so everything before it gets cached.
-    Dynamic skills go after and change freely without busting the cache.
+    Build the system prompt as a plain string.
+    Static skills come first, then dynamic skills (which change freely).
     """
-    blocks: List[TextBlockParam] = []
+    parts: List[str] = [base_prompt]
 
-    # Base prompt is always first static block
-    blocks.append({"type": "text", "text": base_prompt})
-
-    # Each static skill gets its own block
     for text in static_skills:
-        blocks.append({"type": "text", "text": text})
+        parts.append(text)
 
-    # Mark the last static block with cache_control
-    blocks[-1]["cache_control"] = {"type": "ephemeral"}
-
-    # Dynamic skills go after the cache breakpoint
     for text in dynamic_skills:
-        blocks.append({"type": "text", "text": text})
+        parts.append(text)
 
-    # Fallback: if no dynamic skills, add date so there's always something after cache
+    # Always include current date
     if not dynamic_skills:
-        blocks.append({"type": "text", "text": f"Current date: {datetime.now().strftime('%Y-%m-%d')}"})
+        parts.append(f"Current date: {datetime.now().strftime('%Y-%m-%d')}")
 
     # Visitor context
     if caller and visit_count > 0:
@@ -436,7 +411,6 @@ def build_system_prompt(
         else:
             visitor_note = f"{caller} has visited {visit_count} times. They're a regular — skip the intros, be casual, and treat them like a friend."
 
-        # Add elapsed time since last visit if available
         if last_visit:
             try:
                 elapsed = datetime.now() - datetime.fromisoformat(last_visit)
@@ -453,9 +427,9 @@ def build_system_prompt(
             except (ValueError, TypeError):
                 pass
 
-        blocks.append({"type": "text", "text": visitor_note})
+        parts.append(visitor_note)
 
-    return blocks
+    return "\n\n".join(parts)
 
 
 VISITOR_LOG_FILE = os.path.join(os.path.dirname(__file__), 'visitor_log.json')
@@ -475,7 +449,6 @@ def record_visit(caller: str) -> Tuple[int, str]:
             log = json.loads(raw) if raw.strip() else {}
 
             entry = log.get(caller, {"count": 0, "last_visit": ""})
-            # Handle old format (plain int)
             if isinstance(entry, int):
                 entry = {"count": entry, "last_visit": ""}
 
@@ -503,7 +476,7 @@ def find_last_chat_entry(transcript):
 @visible
 async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
-    Fetch raw transcript from server and transform it into Anthropic-compatible format.
+    Fetch raw transcript from server and transform it into OpenAI-compatible format.
     Returns (raw_transcript, processed_transcript) so caller can handle skip logic.
     Can be called directly for testing.
     """
@@ -526,8 +499,6 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
     logger.info(format_json_log(raw_transcript))
     logger.info("=== END RAW TRANSCRIPT ===")
 
-    # Filter transcript to only include chat messages, removing type and sid fields
-    # Note: Anthropic doesn't allow system role in messages - we pass it separately
     logger.info("=== FILTERING TRANSCRIPT ===")
     transcript: List[Dict[str, Any]] = []
 
@@ -539,12 +510,10 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
         logger.info(f"  [{i}] type={msg_type}, sid={msg_sid}, role={msg_role}, content={repr(msg_content)}...")
 
         if msg_type == 'chat':
-            # Skip system messages (we inject our own)
             if msg_sid == 'system':
                 logger.info(f"       -> SKIPPED (sid=system)")
                 continue
 
-            # Skip blank messages
             msg_content_full = msg.get('content', '')
             if not msg_content_full or not msg_content_full.strip():
                 logger.info(f"       -> SKIPPED (blank content)")
@@ -561,12 +530,8 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
                 logger.warning(f"       -> SKIPPED (oversized: {len(msg_content_full)} chars > {MAX_ENTRY_SIZE})")
                 continue
 
-            # Convert sid to proper role for LLM:
-            # - kitty messages = assistant
-            # - everyone else = user
-            role_for_llm = 'assistant' if msg_sid == 'kitty' else 'user'
+            role_for_llm = 'assistant' if msg_sid == 'atlas' else 'user'
 
-            # Prefix user messages with timestamp
             if role_for_llm == 'user':
                 created_at_str = msg.get('created_at_str', '')
                 if created_at_str:
@@ -590,7 +555,7 @@ _session_locks: Dict[str, asyncio.Lock] = {}
 # no app since this is catch-all chat
 @chat
 async def chat():
-    """Opus 4.6 via open router"""
+    """Main chat function"""
     logger.info("=== CHAT FUNCTION STARTING ===")
     sessionId = atlantis.get_session_id()
     logger.info(f"Session ID: {sessionId}")
@@ -622,11 +587,11 @@ async def chat():
         # Fetch and transform transcript
         rawTranscript, transcript = await fetch_transcript()
 
-        # Don't respond if last chat message was from Kitty (the bot)
+        # Don't respond if last chat message was from Atlas (the bot)
         last_chat_entry = find_last_chat_entry(rawTranscript)
-        if last_chat_entry and last_chat_entry.get('type') == 'chat' and last_chat_entry.get('sid') == 'kitty':
-            logger.warning("\x1b[38;5;204mLast chat entry was from kitty (bot), skipping response\x1b[0m")
-            await atlantis.owner_log(f"Skipping response - last chat was from kitty (sid={last_chat_entry.get('sid')})")
+        if last_chat_entry and last_chat_entry.get('type') == 'chat' and last_chat_entry.get('sid') == 'atlas':
+            logger.warning("\x1b[38;5;204mLast chat entry was from atlas (bot), skipping response\x1b[0m")
+            await atlantis.owner_log(f"Skipping response - last chat was from atlas (sid={last_chat_entry.get('sid')})")
             return
 
         # Record visit only if we're actually going to chat
@@ -638,21 +603,14 @@ async def chat():
         # Get available tools
         tools = await fetch_tools()
 
-
-
-
-
         # Fetch static and dynamic skills for system prompt
         static_skill_texts, dynamic_skill_texts = await fetch_skills()
 
         await atlantis.client_command("/silent off")
 
-
-        # uses env var
-        # Configure OpenRouter client (Anthropic-compatible API)
+        # Configure OpenRouter client
         logger.info("Configuring OpenRouter client...")
 
-        # Check for API key
         api_key = os.getenv("OPENROUTER_API_KEY")
         if not api_key:
             error_msg = "OPENROUTER_API_KEY environment variable is not set"
@@ -660,231 +618,163 @@ async def chat():
             await atlantis.owner_log(error_msg)
             raise ValueError(error_msg)
 
-        client = Anthropic(api_key=api_key, base_url="https://openrouter.ai/api")
+        client = OpenAI(
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1",
 
-        # Model options (OpenRouter model IDs):
-        model = "anthropic/claude-opus-4-6"
-        # model = "anthropic/claude-sonnet-4"
-        # model = "google/gemini-2.5-pro"
+        )
+
+        model = "z-ai/glm-5"
         logger.info(f"Using model: {model}")
 
+        # Build system prompt string (once, reused each turn)
+        system_prompt = build_system_prompt(
+            base_prompt, static_skill_texts, dynamic_skill_texts,
+            caller, visit_count, last_visit
+        )
+
+        # Convert tools from cloud format to OpenAI format (once, before loop)
+        converted_tools, _, tool_lookup = convert_tools_for_llm(tools)
+
+        if not converted_tools:
+            logger.error("\x1b[91m" + "=" * 60 + "\x1b[0m")
+            logger.error("\x1b[91m🚨 ERROR: NO TOOLS AVAILABLE FOR LLM! 🚨\x1b[0m")
+            logger.error(f"\x1b[91mRaw tools from /search: {len(tools) if tools else 0}\x1b[0m")
+            logger.error("\x1b[91m" + "=" * 60 + "\x1b[0m")
 
         # Multi-turn conversation loop to handle tool calls
         streamTalkId = None
-        max_turns = 5  # Prevent infinite loops
+        max_turns = 5
         turn_count = 0
 
         try:
-            # Streams created lazily based on what shows up first
-            streamTalkId = None
-            streamThinkId = None
-
-            # Convert tools from cloud format to Anthropic-compatible format (once, before loop)
-            # tool_lookup maps Anthropic's tool name -> {searchTerm, filename, functionName}
-            converted_tools, _, tool_lookup = convert_tools_for_llm(tools)
-            typed_tools = cast(List[ToolParam], converted_tools)
-
-            # Big red warning if no tools available
-            if not typed_tools:
-                logger.error("\x1b[91m" + "=" * 60 + "\x1b[0m")
-                logger.error("\x1b[91m🚨 ERROR: NO TOOLS AVAILABLE FOR LLM! 🚨\x1b[0m")
-                logger.error("\x1b[91m" + "=" * 60 + "\x1b[0m")
-                logger.error(f"\x1b[91mRaw tools from /dir: {len(tools) if tools else 0}\x1b[0m")
-                logger.error(f"\x1b[91mConverted tools: 0\x1b[0m")
-                logger.error("\x1b[91mCheck that /dir returns tools with correct format\x1b[0m")
-                logger.error("\x1b[91m" + "=" * 60 + "\x1b[0m")
-
-            # Outer loop for multi-turn tool calling
             while turn_count < max_turns:
                 turn_count += 1
                 logger.info(f"=== CONVERSATION TURN {turn_count}/{max_turns} ===")
 
-                logger.info(f"Attempting to call Anthropic with model: {model}")
                 if turn_count == 1:
-                    await atlantis.owner_log(f"Attempting to call Anthropic: {model}")
+                    await atlantis.owner_log(f"Attempting to call OpenRouter: {model}")
 
-                # Cast transcript to proper type for Anthropic client
-                typed_transcript = cast(List[MessageParam], transcript)
+                # Build full message list: system prompt + transcript
+                api_messages: List[Dict[str, Any]] = [
+                    {'role': 'system', 'content': system_prompt}
+                ] + transcript
 
-                # Log what we're actually sending to Anthropic
-                logger.info(f"=== SENDING TO ANTHROPIC (turn {turn_count}) ===")
-                logger.info(f"Messages: {len(typed_transcript)} entries")
-                logger.info(f"Tools: {len(typed_tools)} entries")
-                logger.info(f"Tool names sent to Anthropic: {[t['name'] for t in typed_tools]}")
-
-                logger.info("Creating streaming message request...")
+                logger.info(f"=== SENDING TO OPENROUTER (turn {turn_count}) ===")
+                logger.info(f"Messages: {len(api_messages)} entries")
+                logger.info(f"Tools: {len(converted_tools)} entries")
+                logger.info(f"Tool names: {[t['function']['name'] for t in converted_tools]}")
 
                 event_count = 0
-                streamed_count = 0  # Track how many text chunks we've streamed
-                max_stream_chunks = 512  # Abort after this many
-                tool_calls_accumulator: Dict[int, Dict[str, Any]] = {}  # Store tool calls by index
-                current_block_index = 0  # Track which content block we're in
-                tool_call_made = False  # Track if we made a tool call this turn
-                accumulated_tool_uses: List[ToolUseBlock] = []  # Store complete tool use blocks for transcript
-                thinking_blocks_accumulator: Dict[int, Dict[str, Any]] = {}  # Accumulate thinking blocks by index
-                accumulated_thinking_blocks: List[Dict[str, Any]] = []  # Store complete thinking blocks for transcript
-                streamThinkId = None  # Separate stream for thinking
+                streamed_count = 0
+                max_stream_chunks = 512
+                tool_calls_accumulator: Dict[int, Dict[str, Any]] = {}
+                tool_call_made = False
+                accumulated_text = ""
 
-                # Use Anthropic's streaming context manager
-                # Anthropic caching starts at 1024 tokens min
-                with client.messages.stream(
+                stream = client.chat.completions.create(
                     model=model,
-                    system=build_system_prompt(base_prompt, static_skill_texts, dynamic_skill_texts, caller, visit_count, last_visit),
-                    tools=cast(List[ToolParam], typed_tools),
-                    messages=typed_transcript,
+                    messages=cast(Any, api_messages),
+                    tools=converted_tools if converted_tools else None,  # type: ignore[arg-type]
+                    tool_choice=cast(Any, "auto" if converted_tools else None),
+                    stream=True,
                     max_tokens=16000,
-                    thinking=cast(Any, {"type": "adaptive"}),
-                    output_config=cast(Any, {"effort": "low"}),
-                ) as stream:
-                    logger.info("Anthropic API call successful!")
-                    if turn_count == 1:
-                        await atlantis.owner_log("Anthropic API call successful, starting stream")
+                )
 
-                    logger.info("Beginning to process stream events...")
+                logger.info("OpenRouter API call successful, starting stream...")
+                if turn_count == 1:
+                    await atlantis.owner_log("OpenRouter API call successful, starting stream")
 
-                    for event in stream:
-                        event_count += 1
+                for chunk in stream:
+                    event_count += 1
 
-                        # Handle different event types
-                        if event.type == "content_block_start":
-                            current_block_index = event.index
-                            if hasattr(event, 'content_block'):
-                                block = event.content_block
-                                if block.type == "thinking":
-                                    logger.info(f"💭 Thinking block starting (index {current_block_index})")
-                                    thinking_blocks_accumulator[current_block_index] = {
-                                        'thinking': '',
-                                        'signature': ''
-                                    }
-                                elif block.type == "tool_use":
-                                    # Tool call starting - capture id and name
-                                    logger.info(f"🔧 Tool use block starting: {block.name} (id: {block.id})")
-                                    tool_calls_accumulator[current_block_index] = {
-                                        'id': block.id,
-                                        'name': block.name,
-                                        'arguments': ''
-                                    }
+                    if not chunk.choices:
+                        continue
 
-                        elif event.type == "content_block_delta":
-                            if hasattr(event, 'delta'):
-                                delta = event.delta
-                                if delta.type == "text_delta":
-                                    # Close thinking stream before streaming text
-                                    if streamThinkId:
-                                        await atlantis.stream_end(streamThinkId)
-                                        streamThinkId = None
-                                    # Lazily create talk stream on first text
-                                    if not streamTalkId:
-                                        streamTalkId = await atlantis.stream_start("kitty", "Kitty")
-                                        logger.info(f"Talk stream started with ID: {streamTalkId}")
-                                    # Stream text content
-                                    text = delta.text
-                                    content_to_send = text.lstrip() if streamed_count == 0 else text
+                    choice = chunk.choices[0]
+                    delta = choice.delta
 
-                                    if content_to_send:
-                                        await atlantis.stream(content_to_send, streamTalkId)
-                                        streamed_count += 1
+                    # Handle text content
+                    if delta.content:
+                        if not streamTalkId:
+                            streamTalkId = await atlantis.stream_start("atlas", "Atlas")
+                            logger.info(f"Talk stream started with ID: {streamTalkId}")
 
-                                        if streamed_count >= max_stream_chunks:
-                                            logger.warning(f"Aborting stream after {streamed_count} chunks")
-                                            break
+                        text = delta.content
+                        content_to_send = text.lstrip() if streamed_count == 0 else text
 
-                                elif delta.type == "thinking_delta":
-                                    # Stream thinking to separate thinking stream
-                                    if current_block_index in thinking_blocks_accumulator:
-                                        thinking_blocks_accumulator[current_block_index]['thinking'] += delta.thinking
-                                        if not streamThinkId:
-                                            streamThinkId = await atlantis.stream_start("kitty", "Kitty (thinking)")
-                                        await atlantis.stream(delta.thinking, streamThinkId)
+                        if content_to_send:
+                            await atlantis.stream(content_to_send, streamTalkId)
+                            streamed_count += 1
+                            accumulated_text += content_to_send
 
-                                elif delta.type == "signature_delta":
-                                    # Accumulate thinking signature
-                                    if current_block_index in thinking_blocks_accumulator:
-                                        thinking_blocks_accumulator[current_block_index]['signature'] += delta.signature
+                            if streamed_count >= max_stream_chunks:
+                                logger.warning(f"Aborting stream after {streamed_count} chunks")
+                                break
 
-                                elif delta.type == "input_json_delta":
-                                    # Accumulate tool arguments
-                                    if current_block_index in tool_calls_accumulator:
-                                        tool_calls_accumulator[current_block_index]['arguments'] += delta.partial_json
+                    # Accumulate tool calls (streamed in fragments)
+                    if delta.tool_calls:
+                        for tc_delta in delta.tool_calls:
+                            idx = tc_delta.index
+                            if idx not in tool_calls_accumulator:
+                                tool_calls_accumulator[idx] = {'id': '', 'name': '', 'arguments': ''}
+                            if tc_delta.id:
+                                tool_calls_accumulator[idx]['id'] = tc_delta.id
+                            if tc_delta.function:
+                                if tc_delta.function.name:
+                                    tool_calls_accumulator[idx]['name'] += tc_delta.function.name
+                                if tc_delta.function.arguments:
+                                    tool_calls_accumulator[idx]['arguments'] += tc_delta.function.arguments
 
-                        elif event.type == "content_block_stop":
-                            # Block complete - if it was a thinking block, store it
-                            if current_block_index in thinking_blocks_accumulator:
-                                acc = thinking_blocks_accumulator[current_block_index]
-                                logger.info(f"💭 Thinking block complete ({len(acc['thinking'])} chars)")
-                                accumulated_thinking_blocks.append({
-                                    'type': 'thinking',
-                                    'thinking': acc['thinking'],
-                                    'signature': acc['signature']
-                                })
-
-                            # Block complete - if it was a tool use, store it
-                            if current_block_index in tool_calls_accumulator:
-                                acc = tool_calls_accumulator[current_block_index]
-                                logger.info(f"🔧 Tool use block complete: {acc['name']}")
-                                # Parse and store the complete tool use block
-                                try:
-                                    parsed_input = json.loads(acc['arguments']) if acc['arguments'] else {}
-                                    accumulated_tool_uses.append(ToolUseBlock(
-                                        type="tool_use",
-                                        id=acc['id'],
-                                        name=acc['name'],
-                                        input=parsed_input
-                                    ))
-                                except json.JSONDecodeError as e:
-                                    logger.error(f"Failed to parse tool arguments: {e}")
-
-                        elif event.type == "message_delta":
-                            # Check stop reason - just log it, we handle tools after stream ends
-                            if hasattr(event, 'delta') and hasattr(event.delta, 'stop_reason'):
-                                stop_reason = event.delta.stop_reason
-                                logger.info(f"Message stop_reason: {stop_reason}")
-
-                # End of stream context - now handle any tool calls that were accumulated
-                logger.info(f"Stream processing complete for turn {turn_count}. Total events: {event_count}")
+                logger.info(f"Stream complete for turn {turn_count}. Events: {event_count}, text chunks: {streamed_count}, tool calls: {len(tool_calls_accumulator)}")
 
                 # Execute accumulated tool calls if any
-                if accumulated_tool_uses:
-                    logger.info(f"Executing {len(accumulated_tool_uses)} accumulated tool calls")
+                if tool_calls_accumulator:
+                    logger.info(f"Executing {len(tool_calls_accumulator)} tool calls")
 
-                    # First, add assistant message with thinking + tool_use blocks to transcript
-                    # Thinking blocks MUST be preserved for tool use continuity
-                    assistant_content: List[Dict[str, Any]] = []
-                    for thinking_block in accumulated_thinking_blocks:
-                        assistant_content.append(thinking_block)
-                    for tool_use in accumulated_tool_uses:
-                        assistant_content.append({
-                            'type': 'tool_use',
-                            'id': tool_use.id,
-                            'name': tool_use.name,
-                            'input': tool_use.input
-                        })
+                    # Add assistant message with tool_calls to transcript (OpenAI format)
+                    assistant_tool_calls = [
+                        {
+                            'id': tc['id'],
+                            'type': 'function',
+                            'function': {'name': tc['name'], 'arguments': tc['arguments']}
+                        }
+                        for tc in tool_calls_accumulator.values()
+                    ]
                     transcript.append({
                         'role': 'assistant',
-                        'content': assistant_content
+                        'content': accumulated_text or None,
+                        'tool_calls': assistant_tool_calls
                     })
 
-                    # Now execute each tool and collect results
-                    tool_results: List[Dict[str, Any]] = []
-                    for tool_use in accumulated_tool_uses:
-                        call_id = tool_use.id
-                        tool_key = tool_use.name  # This is the sanitized key Anthropic knows
-                        arguments = tool_use.input
+                    # Execute each tool and append result message
+                    for tc in tool_calls_accumulator.values():
+                        call_id = tc['id']
+                        tool_key = tc['name']
 
-                        # Look up the real function info from our lookup table
+                        try:
+                            arguments = json.loads(tc['arguments']) if tc['arguments'] else {}
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Failed to parse tool arguments for {tool_key}: {e}")
+                            arguments = {}
+
                         if tool_key not in tool_lookup:
                             logger.error(f"\x1b[91m🚨 UNKNOWN TOOL KEY: '{tool_key}' not in tool_lookup!\x1b[0m")
                             logger.error(f"\x1b[91m  Available keys: {list(tool_lookup.keys())}\x1b[0m")
-                            raise ValueError(f"Unknown tool: {tool_key}")
+                            transcript.append({
+                                'role': 'tool',
+                                'tool_call_id': call_id,
+                                'content': f"Error: Unknown tool: {tool_key}"
+                            })
+                            continue
 
                         lookup_info = tool_lookup[tool_key]
                         search_term = lookup_info['searchTerm']
                         function_name = lookup_info['functionName']
-                        filename = lookup_info['filename']
 
                         logger.info(f"=== EXECUTING TOOL: {tool_key} ===")
                         logger.info(f"  ID: {call_id}")
-                        logger.info(f"  Resolved: searchTerm='{search_term}', function='{function_name}', file='{filename}'")
+                        logger.info(f"  Resolved: searchTerm='{search_term}', function='{function_name}'")
                         logger.info(f"  Arguments: {format_json_log(arguments)}")
 
                         try:
@@ -897,89 +787,59 @@ async def chat():
                                     logger.info(f"  Found tool schema: {tool_str}")
                                     break
 
-                            # Coerce arguments to match schema types
                             if tool_schema and arguments:
                                 arguments = coerce_args_to_schema(arguments, tool_schema)
                                 logger.info(f"  Post-coercion arguments: {format_json_log(arguments)}")
 
-                            # Execute the tool call through atlantis client command using search term
                             await atlantis.client_command("/silent on")
                             tool_result = await atlantis.client_command(f"%{search_term}", data=arguments)
                             await atlantis.client_command("/silent off")
 
                             logger.info(f"  Tool result: {tool_result}")
-
-                            # Send tool result to client for transcript display
                             await atlantis.tool_result(function_name, tool_result)
 
-                            # Collect result for transcript
-                            tool_results.append({
-                                'type': 'tool_result',
-                                'tool_use_id': call_id,
+                            transcript.append({
+                                'role': 'tool',
+                                'tool_call_id': call_id,
                                 'content': str(tool_result) if tool_result else "No result"
                             })
-
                             tool_call_made = True
 
                         except Exception as e:
-                            logger.error(f"Error executing tool call: {e}")
-                            # Add error result
-                            tool_results.append({
-                                'type': 'tool_result',
-                                'tool_use_id': call_id,
-                                'is_error': True,
+                            logger.error(f"Error executing tool call {tool_key}: {e}")
+                            transcript.append({
+                                'role': 'tool',
+                                'tool_call_id': call_id,
                                 'content': f"Error: {str(e)}"
                             })
 
-                    # Add all tool results as a single user message (Anthropic format)
-                    transcript.append({
-                        'role': 'user',
-                        'content': tool_results
-                    })
+                    logger.info("Tool calls executed, continuing conversation")
 
-                    logger.info("Tool calls executed and added to transcript")
-
-                # Check if we made a tool call and should continue
+                # Exit if no tool calls were made
                 if not tool_call_made:
                     logger.info("No tool call made this turn - conversation complete")
-                    break  # Exit outer while loop
+                    break
                 else:
                     logger.info("Tool call made - continuing to next turn with updated transcript")
-                    # Reset for next turn
-                    accumulated_tool_uses = []
                     tool_calls_accumulator = {}
-                    accumulated_thinking_blocks = []
-                    thinking_blocks_accumulator = {}
-                    # Loop continues with updated transcript
 
-            # End of while loop - conversation complete
+            # End of while loop
             logger.info(f"Conversation complete after {turn_count} turns")
-            logger.info("Ending stream...")
             if streamTalkId:
                 await atlantis.stream_end(streamTalkId)
                 logger.info("Stream ended successfully")
 
         except Exception as e:
-            logger.error(f"ERROR calling remote model: {str(e)}")
+            logger.error(f"ERROR calling OpenRouter: {str(e)}")
             logger.error(f"Error type: {type(e)}")
             logger.error(f"Full exception:", exc_info=True)
 
-            # Extract detailed error info from Anthropic APIError
             error_details = str(e)
             err_body = getattr(e, 'body', None)
-            err_code = getattr(e, 'code', None)
-            err_type = getattr(e, 'type', None)
-            err_param = getattr(e, 'param', None)
             err_response = getattr(e, 'response', None)
             if err_body:
                 logger.error(f"Error body: {err_body}")
                 error_details = f"{error_details} | Body: {err_body}"
-            if err_code:
-                logger.error(f"Error code: {err_code}")
-            if err_type:
-                logger.error(f"Error type attr: {err_type}")
-            if err_param:
-                logger.error(f"Error param: {err_param}")
             if err_response:
                 try:
                     logger.error(f"Response status: {err_response.status_code}")
@@ -988,19 +848,13 @@ async def chat():
                 except:
                     pass
 
-            await atlantis.owner_log(f"Error calling remote model: {error_details}")
-            await atlantis.owner_log(f"Error type: {type(e)}")
-            # Make sure to close streams on error
-            for sid in [streamThinkId, streamTalkId]:
-                if sid:
-                    try:
-                        await atlantis.stream_end(sid)
-                    except:
-                        pass
+            await atlantis.owner_log(f"Error calling OpenRouter: {error_details}")
+            if streamTalkId:
+                try:
+                    await atlantis.stream_end(streamTalkId)
+                except:
+                    pass
             raise
 
         logger.info("=== CHAT FUNCTION COMPLETED SUCCESSFULLY ===")
         return
-
-
-

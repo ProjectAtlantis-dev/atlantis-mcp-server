@@ -3968,12 +3968,11 @@ class ServiceClient:
                                 #logger.info(f"☁️ Using raw result field (legacy format)")
                                 #logger.info(f"☁️ Final result type: {type(extracted_result)}")
                                 future.set_result(extracted_result)
-                            # Last resort: parse content[0].text (stringified JSON)
+                            # Standard MCP text content - parse as JSON if possible, otherwise use as-is
                             elif isinstance(raw_result, dict) and "content" in raw_result:
                                 try:
-                                    logger.warning(f"⚠️ LAST RESORT BRANCH - raw_result:\n{format_json_log(raw_result)}")
                                     text_content = raw_result["content"][0]["text"]
-                                    logger.warning(f"⚠️ text_content type: {type(text_content)}, value: {text_content}")
+                                    logger.debug(f"☁️ Extracting text from content[0].text: {text_content}")
                                     extracted_result = json.loads(text_content)
                                     #logger.info(f"☁️ Parsed content[0].text as JSON (fallback)")
                                 except (json.JSONDecodeError, KeyError, IndexError):

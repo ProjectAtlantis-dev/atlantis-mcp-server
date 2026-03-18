@@ -3972,7 +3972,7 @@ class ServiceClient:
                             elif isinstance(raw_result, dict) and "content" in raw_result:
                                 try:
                                     text_content = raw_result["content"][0]["text"]
-                                    logger.debug(f"☁️ Extracting text from content[0].text: {text_content}")
+                                    #logger.debug(f"☁️ Extracting text from content[0].text: {text_content}")
                                     extracted_result = json.loads(text_content)
                                     #logger.info(f"☁️ Parsed content[0].text as JSON (fallback)")
                                 except (json.JSONDecodeError, KeyError, IndexError):

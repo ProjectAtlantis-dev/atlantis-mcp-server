@@ -369,7 +369,7 @@ async def fetch_tools() -> List[Dict[str, Any]]:
 async def fetch_skills() -> List[str]:
     """Fetch skill contents from server. Can be called directly for testing."""
     logger.info("Fetching skills...")
-    skill_texts = await fetch_skill_contents("@ *SKILL")
+    skill_texts = await fetch_skill_contents("/dir *SKILL")
     logger.info(f"Skills loaded: {len(skill_texts)}")
     return skill_texts
 

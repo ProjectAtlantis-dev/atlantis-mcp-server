@@ -644,6 +644,7 @@ async def chat():
 
         # Multi-turn conversation loop to handle tool calls
         streamTalkId = None
+        streamThinkId = None
         max_turns = 5
         turn_count = 0
 
@@ -679,6 +680,7 @@ async def chat():
                     tool_choice=cast(Any, "auto" if converted_tools else None),
                     stream=True,
                     max_tokens=16000,
+                    extra_body={"reasoning": True},
                 )
 
                 logger.info("OpenRouter API call successful, starting stream...")
@@ -694,8 +696,21 @@ async def chat():
                     choice = chunk.choices[0]
                     delta = choice.delta
 
+                    # Handle reasoning/thinking content
+                    reasoning_content = getattr(delta, 'reasoning_content', None) or getattr(delta, 'reasoning', None)
+                    if reasoning_content:
+                        if not streamThinkId:
+                            streamThinkId = await atlantis.stream_start("kitty", "Kitty (thinking)")
+                            logger.info(f"Think stream started with ID: {streamThinkId}")
+                        await atlantis.stream(reasoning_content, streamThinkId)
+
                     # Handle text content
                     if delta.content:
+                        # Close thinking stream before streaming text
+                        if streamThinkId:
+                            await atlantis.stream_end(streamThinkId)
+                            streamThinkId = None
+
                         if not streamTalkId:
                             streamTalkId = await atlantis.stream_start("kitty", "Kitty")
                             logger.info(f"Talk stream started with ID: {streamTalkId}")
@@ -825,9 +840,12 @@ async def chat():
 
             # End of while loop
             logger.info(f"Conversation complete after {turn_count} turns")
+            if streamThinkId:
+                await atlantis.stream_end(streamThinkId)
+                logger.info("Think stream ended successfully")
             if streamTalkId:
                 await atlantis.stream_end(streamTalkId)
-                logger.info("Stream ended successfully")
+                logger.info("Talk stream ended successfully")
 
         except Exception as e:
             logger.error(f"ERROR calling OpenRouter: {str(e)}")
@@ -849,11 +867,12 @@ async def chat():
                     pass
 
             await atlantis.owner_log(f"Error calling OpenRouter: {error_details}")
-            if streamTalkId:
-                try:
-                    await atlantis.stream_end(streamTalkId)
-                except:
-                    pass
+            for sid in [streamThinkId, streamTalkId]:
+                if sid:
+                    try:
+                        await atlantis.stream_end(sid)
+                    except:
+                        pass
             raise
 
         logger.info("=== CHAT FUNCTION COMPLETED SUCCESSFULLY ===")

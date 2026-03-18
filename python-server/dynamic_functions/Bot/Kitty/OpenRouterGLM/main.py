@@ -491,9 +491,14 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
     if raw_transcript[0].get('role') == 'system':
         logger.info("Found system message in transcript - will use our own system prompt instead")
 
-    logger.info("=== RAW TRANSCRIPT ===")
-    logger.info(format_json_log(raw_transcript))
-    logger.info("=== END RAW TRANSCRIPT ===")
+    # Dump raw transcript to file for debugging (overwrites each time)
+    transcript_dump_file = os.path.join(os.path.dirname(__file__), 'raw_transcript.json')
+    try:
+        with open(transcript_dump_file, 'w') as f:
+            json.dump(raw_transcript, f, indent=2, default=str)
+        logger.info(f"Raw transcript written to {transcript_dump_file}")
+    except Exception as e:
+        logger.warning(f"Failed to write raw transcript to file: {e}")
 
     logger.info("=== FILTERING TRANSCRIPT ===")
     transcript: List[Dict[str, Any]] = []
@@ -657,7 +662,7 @@ async def chat():
                     {'role': 'system', 'content': system_prompt}
                 ] + transcript
 
-                logger.info(f"=== SENDING TO OPENROUTER (turn {turn_count}) ===")
+                logger.info(f"=== SENDING TO OPENROUTER (GLM) (turn {turn_count}) ===")
                 logger.info(f"Messages: {len(api_messages)} entries")
                 logger.info(f"Tools: {len(converted_tools)} entries")
                 logger.info(f"Tool names: {[t['function']['name'] for t in converted_tools]}")
@@ -676,7 +681,7 @@ async def chat():
                     tool_choice=cast(Any, "auto" if converted_tools else None),
                     stream=True,
                     max_tokens=16000,
-                    extra_body={"reasoning": True},
+                    extra_body={"reasoning": {"effort": "low"}},
                 )
 
                 logger.info("OpenRouter API call successful, starting stream...")

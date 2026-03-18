@@ -710,8 +710,8 @@ async def chat():
                 # Cast transcript to proper type for Anthropic client
                 typed_transcript = cast(List[MessageParam], transcript)
 
-                # Log what we're actually sending to Anthropic
-                logger.info(f"=== SENDING TO ANTHROPIC (turn {turn_count}) ===")
+                # Log what we're actually sending
+                logger.info(f"=== SENDING TO OPENROUTER (OPUS) (turn {turn_count}) ===")
                 logger.info(f"Messages: {len(typed_transcript)} entries")
                 logger.info(f"Tools: {len(typed_tools)} entries")
                 logger.info(f"Tool names sent to Anthropic: {[t['name'] for t in typed_tools]}")

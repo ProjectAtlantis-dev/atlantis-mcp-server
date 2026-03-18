@@ -530,7 +530,7 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
                 logger.warning(f"       -> SKIPPED (oversized: {len(msg_content_full)} chars > {MAX_ENTRY_SIZE})")
                 continue
 
-            role_for_llm = 'assistant' if msg_sid == 'atlas' else 'user'
+            role_for_llm = 'assistant' if msg_sid == 'kitty' else 'user'
 
             if role_for_llm == 'user':
                 created_at_str = msg.get('created_at_str', '')
@@ -576,7 +576,7 @@ async def chat():
      if True:
         # Fetch base prompt from server
         await atlantis.client_command("/silent on")
-        base_prompt = await atlantis.client_command("%*SYSTEM_PROMPT")
+        base_prompt = await atlantis.client_command("@*SYSTEM_PROMPT")
         await atlantis.client_command("/silent off")
         if not base_prompt or not str(base_prompt).strip():
             logger.error("Failed to fetch SYSTEM_PROMPT, using fallback")
@@ -589,9 +589,9 @@ async def chat():
 
         # Don't respond if last chat message was from Atlas (the bot)
         last_chat_entry = find_last_chat_entry(rawTranscript)
-        if last_chat_entry and last_chat_entry.get('type') == 'chat' and last_chat_entry.get('sid') == 'atlas':
-            logger.warning("\x1b[38;5;204mLast chat entry was from atlas (bot), skipping response\x1b[0m")
-            await atlantis.owner_log(f"Skipping response - last chat was from atlas (sid={last_chat_entry.get('sid')})")
+        if last_chat_entry and last_chat_entry.get('type') == 'chat' and last_chat_entry.get('sid') == 'kitty':
+            logger.warning("\x1b[38;5;204mLast chat entry was from kitty (bot), skipping response\x1b[0m")
+            await atlantis.owner_log(f"Skipping response - last chat was from kitty (sid={last_chat_entry.get('sid')})")
             return
 
         # Record visit only if we're actually going to chat
@@ -697,7 +697,7 @@ async def chat():
                     # Handle text content
                     if delta.content:
                         if not streamTalkId:
-                            streamTalkId = await atlantis.stream_start("atlas", "Atlas")
+                            streamTalkId = await atlantis.stream_start("kitty", "Kitty")
                             logger.info(f"Talk stream started with ID: {streamTalkId}")
 
                         text = delta.content

@@ -611,7 +611,7 @@ async def chat():
      if True:
         # Fetch base prompt from server
         await atlantis.client_command("/silent on")
-        base_prompt = await atlantis.client_command("%*SYSTEM_PROMPT")
+        base_prompt = await atlantis.client_command("@*SYSTEM_PROMPT")
         await atlantis.client_command("/silent off")
         if not base_prompt or not str(base_prompt).strip():
             logger.error("Failed to fetch SYSTEM_PROMPT, using fallback")

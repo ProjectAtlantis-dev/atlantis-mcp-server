@@ -321,7 +321,11 @@ from utils import format_json_log, parse_search_term
 
 async def fetch_skill_contents(dir_command: str) -> List[str]:
     """Invoke /dir command and fetch content for each returned skill."""
-    result = await atlantis.client_command(dir_command)
+    try:
+        result = await atlantis.client_command(dir_command)
+    except Exception as e:
+        logger.warning(f"Failed to fetch skill list from {dir_command}: {e}")
+        return []
     logger.info(f"Received {len(result) if result else 0} entries from {dir_command}")
     logger.info(format_json_log(result))
     contents: List[str] = []

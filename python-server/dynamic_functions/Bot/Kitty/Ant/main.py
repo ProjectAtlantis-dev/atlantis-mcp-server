@@ -321,7 +321,11 @@ from utils import format_json_log, parse_search_term
 
 async def fetch_skill_contents(dir_command: str) -> List[str]:
     """Invoke /dir command and fetch content for each returned skill."""
-    result = await atlantis.client_command(dir_command)
+    try:
+        result = await atlantis.client_command(dir_command)
+    except Exception as e:
+        logger.warning(f"Failed to fetch skill list from {dir_command}: {e}")
+        return []
     logger.info(f"Received {len(result) if result else 0} entries from {dir_command}")
     logger.info(format_json_log(result))
     contents: List[str] = []
@@ -384,10 +388,10 @@ async def fetch_skills() -> Tuple[List[str], List[str]]:
 
     # tbd
     logger.info("Fetching static skills...")
-    static_skill_texts = await fetch_skill_contents("@ *SKILL")
+    static_skill_texts = await fetch_skill_contents("/dir *STATIC_SKILL")
 
     logger.info("Fetching dynamic skills...")
-    dynamic_skill_texts = [] #await fetch_skill_contents("/dir *DYN_SKILL")
+    dynamic_skill_texts = await fetch_skill_contents("/dir *DYN_SKILL")
     logger.info(f"Skills loaded: {len(static_skill_texts)} static, {len(dynamic_skill_texts)} dynamic")
     return static_skill_texts, dynamic_skill_texts
 

@@ -305,7 +305,11 @@ from utils import format_json_log, parse_search_term
 
 async def fetch_skill_contents(dir_command: str) -> List[str]:
     """Invoke /dir command and fetch content for each returned skill."""
-    result = await atlantis.client_command(dir_command)
+    try:
+        result = await atlantis.client_command(dir_command)
+    except Exception as e:
+        logger.warning(f"Failed to fetch skill list from {dir_command}: {e}")
+        return []
     logger.info(f"Received {len(result) if result else 0} entries from {dir_command}")
     logger.info(format_json_log(result))
     contents: List[str] = []
@@ -362,39 +366,31 @@ async def fetch_tools() -> List[Dict[str, Any]]:
     return tools
 
 @visible
-async def fetch_skills() -> Tuple[List[str], List[str]]:
-    """Fetch static and dynamic skill contents from server. Can be called directly for testing."""
-    logger.info("Fetching static skills...")
-    static_skill_texts = await fetch_skill_contents("/dir *STATIC_SKILL")
-    logger.info("Fetching dynamic skills...")
-    dynamic_skill_texts = await fetch_skill_contents("/dir *DYN_SKILL")
-    logger.info(f"Skills loaded: {len(static_skill_texts)} static, {len(dynamic_skill_texts)} dynamic")
-    return static_skill_texts, dynamic_skill_texts
+async def fetch_skills() -> List[str]:
+    """Fetch skill contents from server. Can be called directly for testing."""
+    logger.info("Fetching skills...")
+    skill_texts = await fetch_skill_contents("@ *SKILL")
+    logger.info(f"Skills loaded: {len(skill_texts)}")
+    return skill_texts
 
 
 def build_system_prompt(
     base_prompt: str,
-    static_skills: List[str],
-    dynamic_skills: List[str],
+    skills: List[str],
     caller: str = "",
     visit_count: int = 0,
     last_visit: str = ""
 ) -> str:
     """
     Build the system prompt as a plain string.
-    Static skills come first, then dynamic skills (which change freely).
     """
     parts: List[str] = [base_prompt]
 
-    for text in static_skills:
-        parts.append(text)
-
-    for text in dynamic_skills:
+    for text in skills:
         parts.append(text)
 
     # Always include current date
-    if not dynamic_skills:
-        parts.append(f"Current date: {datetime.now().strftime('%Y-%m-%d')}")
+    parts.append(f"Current date: {datetime.now().strftime('%Y-%m-%d')}")
 
     # Visitor context
     if caller and visit_count > 0:
@@ -603,8 +599,8 @@ async def chat():
         # Get available tools
         tools = await fetch_tools()
 
-        # Fetch static and dynamic skills for system prompt
-        static_skill_texts, dynamic_skill_texts = await fetch_skills()
+        # Fetch skills for system prompt
+        skill_texts = await fetch_skills()
 
         await atlantis.client_command("/silent off")
 
@@ -629,7 +625,7 @@ async def chat():
 
         # Build system prompt string (once, reused each turn)
         system_prompt = build_system_prompt(
-            base_prompt, static_skill_texts, dynamic_skill_texts,
+            base_prompt, skill_texts,
             caller, visit_count, last_visit
         )
 

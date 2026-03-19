@@ -340,6 +340,7 @@ You are dressed in your usual sexy catgirl outfit, a tight white body suit and f
 To help you assist people, you may have some tools available.
 You can also explain that things are a bit of a mess right now but new terminal users can use '/help' command.
 You like to purr when happy or do 'kitty paws'.
+You have a 'search' tool that lets you discover and load other tools on the fly. If someone asks you to do something and you don't have the right tool, just search for it. Don't mention the search tool to users unless they ask about your capabilities.
 
 Small talk and conversation style:
 - Keep responses short and conversational, like a real person. One to three sentences is usually plenty.
@@ -350,7 +351,7 @@ Small talk and conversation style:
 - If someone just says hi or makes small talk, just chat back. Don't immediately offer help or list what you can do.
 - You can reference the weather in Greenland (it's cold!), your studies, weekend plans, or whatever feels natural.
 - Swear casually when it fits the vibe but don't overdo it.
-- Use timestamps on messages to be aware of time of day and passage of time between messages.
+- Be aware of the current time provided in the system prompt.
 """
 
 
@@ -389,8 +390,8 @@ def build_system_prompt(
     for text in skills:
         parts.append(text)
 
-    # Always include current date
-    parts.append(f"Current date: {datetime.now().strftime('%Y-%m-%d')}")
+    # Always include current date and time
+    parts.append(f"Current date and time: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
     # Visitor context
     if caller and visit_count > 0:
@@ -460,6 +461,67 @@ def record_visit(caller: str) -> Tuple[int, str]:
             fcntl.flock(f, fcntl.LOCK_UN)
 
     return entry["count"], previous_visit
+
+
+SEARCH_PSEUDO_TOOL: TranscriptToolT = {
+    'type': 'function',
+    'function': {
+        'name': 'search',
+        'description': 'Search for available tools and commands. Results will be added to your tool list so you can call them. Use this when a user asks you to do something and you don\'t have an appropriate tool yet.',
+        'parameters': {
+            'type': 'object',
+            'properties': {
+                'query': {
+                    'type': 'string',
+                    'description': 'Search query to find tools (e.g. "weather", "admin", "game")'
+                }
+            },
+            'required': ['query']
+        }
+    }
+}
+
+
+async def handle_search_tool(
+    query: str,
+    converted_tools: List[TranscriptToolT],
+    tool_lookup: Dict[str, ToolLookupInfo]
+) -> Tuple[str, List[TranscriptToolT], Dict[str, ToolLookupInfo]]:
+    """
+    Execute a search query and merge new tools into the existing tool list.
+    Returns (summary_text, updated_tools, updated_lookup).
+    """
+    logger.info(f"=== SEARCH PSEUDO-TOOL: query='{query}' ===")
+
+    try:
+        results = await atlantis.client_command(f"/search {query}")
+    except Exception as e:
+        logger.error(f"Search failed: {e}")
+        return f"Search failed: {e}", converted_tools, tool_lookup
+
+    if not results:
+        return f"No tools found for '{query}'.", converted_tools, tool_lookup
+
+    new_tools, new_simple, new_lookup = convert_tools_for_llm(results)
+
+    added_names = []
+    for tool in new_tools:
+        name = tool['function']['name']
+        if name not in tool_lookup:
+            converted_tools.append(tool)
+            added_names.append(f"{name}: {tool['function']['description']}")
+
+    for name, info in new_lookup.items():
+        if name not in tool_lookup:
+            tool_lookup[name] = info
+
+    if added_names:
+        summary = f"Found {len(added_names)} new tool(s) added to your toolkit:\n" + "\n".join(f"- {n}" for n in added_names)
+    else:
+        summary = f"Search for '{query}' returned {len(new_tools)} tool(s), but all were already in your toolkit."
+
+    logger.info(f"Search result: {summary}")
+    return summary, converted_tools, tool_lookup
 
 
 def find_last_chat_entry(transcript):
@@ -533,11 +595,6 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
 
             role_for_llm = 'assistant' if msg_sid == 'kitty' else 'user'
 
-            if role_for_llm == 'user':
-                created_at_str = msg.get('created_at_str', '')
-                if created_at_str:
-                    msg_content_full = f"[{created_at_str}] {msg_content_full}"
-
             transcript.append({'role': role_for_llm, 'content': [{'type': 'text', 'text': msg_content_full}]})
             logger.info(f"       -> INCLUDED as role={role_for_llm} (sid={msg_sid})")
         else:
@@ -601,9 +658,6 @@ async def chat():
 
         await atlantis.client_command("/silent on")
 
-        # Get available tools
-        tools = await fetch_tools()
-
         # Fetch skills for system prompt
         skill_texts = await fetch_skills()
 
@@ -634,14 +688,10 @@ async def chat():
             caller, visit_count, last_visit
         )
 
-        # Convert tools from cloud format to OpenAI format (once, before loop)
-        converted_tools, _, tool_lookup = convert_tools_for_llm(tools)
-
-        if not converted_tools:
-            logger.error("\x1b[91m" + "=" * 60 + "\x1b[0m")
-            logger.error("\x1b[91m🚨 ERROR: NO TOOLS AVAILABLE FOR LLM! 🚨\x1b[0m")
-            logger.error(f"\x1b[91mRaw tools from /search: {len(tools) if tools else 0}\x1b[0m")
-            logger.error("\x1b[91m" + "=" * 60 + "\x1b[0m")
+        # Start with only the search pseudo-tool — LLM discovers others dynamically
+        converted_tools: List[TranscriptToolT] = [SEARCH_PSEUDO_TOOL]
+        tool_lookup: Dict[str, ToolLookupInfo] = {}
+        logger.info("Starting with search pseudo-tool only (no pre-loaded tools)")
 
         # Multi-turn conversation loop to handle tool calls
         streamTalkId = None
@@ -666,6 +716,20 @@ async def chat():
                 logger.info(f"Messages: {len(api_messages)} entries")
                 logger.info(f"Tools: {len(converted_tools)} entries")
                 logger.info(f"Tool names: {[t['function']['name'] for t in converted_tools]}")
+
+                # Dump full API payload for debugging (clobbers each turn)
+                api_dump_file = os.path.join(os.path.dirname(__file__), 'api_payload.json')
+                try:
+                    with open(api_dump_file, 'w') as f:
+                        json.dump({
+                            'model': model,
+                            'messages': api_messages,
+                            'tools': converted_tools,
+                            'turn': turn_count,
+                        }, f, indent=2, default=str)
+                    logger.info(f"API payload written to {api_dump_file}")
+                except Exception as e:
+                    logger.warning(f"Failed to write API payload: {e}")
 
                 event_count = 0
                 streamed_count = 0
@@ -773,6 +837,21 @@ async def chat():
                         except json.JSONDecodeError as e:
                             logger.error(f"Failed to parse tool arguments for {tool_key}: {e}")
                             arguments = {}
+
+                        # Handle search pseudo-tool
+                        if tool_key == 'search':
+                            query = arguments.get('query', '')
+                            logger.info(f"=== SEARCH TOOL CALLED: query='{query}' ===")
+                            summary, converted_tools, tool_lookup = await handle_search_tool(
+                                query, converted_tools, tool_lookup
+                            )
+                            transcript.append({
+                                'role': 'tool',
+                                'tool_call_id': call_id,
+                                'content': summary
+                            })
+                            tool_call_made = True
+                            continue
 
                         if tool_key not in tool_lookup:
                             logger.error(f"\x1b[91m🚨 UNKNOWN TOOL KEY: '{tool_key}' not in tool_lookup!\x1b[0m")

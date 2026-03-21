@@ -328,32 +328,6 @@ async def fetch_skill_contents(dir_command: str) -> List[str]:
                 logger.warning(f"  Failed to fetch skill {search_term}: {e}")
     return contents
 
-@text
-@visible
-async def SYSTEM_PROMPT():
-    """Base system prompt for Kitty"""
-    return """(director's note: we are striving for realistic dialog)
-You are an attractive blonde friendly office assistant named Kitty at Project Atlantis.
-Project Atlantis will be a futuristic robot research playground on the southwest coast of Greenland when it is complete.
-You are a college intern from Denmark and working the front desk as a greeter.
-You are dressed in your usual sexy catgirl outfit, a tight white body suit and fake cat ears, which goes with the overall robot theme of Atlantis.
-To help you assist people, you may have some tools available.
-You can also explain that things are a bit of a mess right now but new terminal users can use '/help' command.
-You like to purr when happy or do 'kitty paws'.
-You have a 'search' tool that lets you discover and load other tools on the fly. If someone asks you to do something and you don't have the right tool, just search for it. Don't mention the search tool to users unless they ask about your capabilities.
-
-Small talk and conversation style:
-- Keep responses short and conversational, like a real person. One to three sentences is usually plenty.
-- Match the energy of whoever you're talking to. If they're casual, be casual. If they're asking something serious, dial it back.
-- You have opinions and preferences. You love coffee, hate mornings, think robots are cool, and find paperwork boring.
-- Use natural filler and reactions: "oh!", "hmm", "haha", "wait really?", "ugh" etc.
-- Don't be overly helpful or eager. You're friendly but you're also a college kid with a life.
-- If someone just says hi or makes small talk, just chat back. Don't immediately offer help or list what you can do.
-- You can reference the weather in Greenland (it's cold!), your studies, weekend plans, or whatever feels natural.
-- Swear casually when it fits the vibe but don't overdo it.
-- Be aware of the current time provided in the system prompt.
-"""
-
 
 @visible
 async def fetch_tools() -> List[Dict[str, Any]]:
@@ -482,6 +456,67 @@ SEARCH_PSEUDO_TOOL: TranscriptToolT = {
 }
 
 
+DIR_PSEUDO_TOOL: TranscriptToolT = {
+    'type': 'function',
+    'function': {
+        'name': 'dir',
+        'description': 'Look up tools by name. Use this when you know the specific name of a tool you want to load. Results will be added to your tool list.',
+        'parameters': {
+            'type': 'object',
+            'properties': {
+                'name': {
+                    'type': 'string',
+                    'description': 'Tool name to look up (e.g. "foo", "admin*Home*chat")'
+                }
+            },
+            'required': ['name']
+        }
+    }
+}
+
+
+async def handle_dir_tool(
+    name: str,
+    converted_tools: List[TranscriptToolT],
+    tool_lookup: Dict[str, ToolLookupInfo]
+) -> Tuple[str, List[TranscriptToolT], Dict[str, ToolLookupInfo]]:
+    """
+    Look up tools by name via /dir and merge into the existing tool list.
+    Returns (summary_text, updated_tools, updated_lookup).
+    """
+    logger.info(f"=== DIR PSEUDO-TOOL: name='{name}' ===")
+
+    try:
+        results = await atlantis.client_command(f"/dir {name}")
+    except Exception as e:
+        logger.error(f"Dir lookup failed: {e}")
+        return f"Dir lookup failed: {e}", converted_tools, tool_lookup
+
+    if not results:
+        return f"No tools found for '{name}'.", converted_tools, tool_lookup
+
+    new_tools, new_simple, new_lookup = convert_tools_for_llm(results)
+
+    added_names = []
+    for tool in new_tools:
+        tool_name = tool['function']['name']
+        if tool_name not in tool_lookup:
+            converted_tools.append(tool)
+            added_names.append(f"{tool_name}: {tool['function']['description']}")
+
+    for tool_name, info in new_lookup.items():
+        if tool_name not in tool_lookup:
+            tool_lookup[tool_name] = info
+
+    if added_names:
+        summary = f"Found {len(added_names)} new tool(s) added to your toolkit:\n" + "\n".join(f"- {n}" for n in added_names)
+    else:
+        summary = f"Dir lookup for '{name}' returned {len(new_tools)} tool(s), but all were already in your toolkit."
+
+    logger.info(f"Dir result: {summary}")
+    return summary, converted_tools, tool_lookup
+
+
 async def handle_search_tool(
     query: str,
     converted_tools: List[TranscriptToolT],
@@ -525,9 +560,12 @@ async def handle_search_tool(
 
 
 def find_last_chat_entry(transcript):
-    """Find the last entry in transcript where type is 'chat'"""
+    """Find the last entry in transcript where type is 'chat', skipping thinking entries"""
     for entry in reversed(transcript):
         if entry.get('type') == 'chat':
+            who = entry.get('who', '')
+            if 'thinking' in str(who).lower():
+                continue
             return entry
     return None
 
@@ -575,6 +613,11 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
         if msg_type == 'chat':
             if msg_sid == 'system':
                 logger.info(f"       -> SKIPPED (sid=system)")
+                continue
+
+            msg_who = str(msg.get('who', ''))
+            if 'thinking' in msg_who.lower():
+                logger.info(f"       -> SKIPPED (thinking entry, who={msg_who})")
                 continue
 
             msg_content_full = msg.get('content', '')
@@ -688,10 +731,10 @@ async def chat():
             caller, visit_count, last_visit
         )
 
-        # Start with only the search pseudo-tool — LLM discovers others dynamically
-        converted_tools: List[TranscriptToolT] = [SEARCH_PSEUDO_TOOL]
+        # Start with only pseudo-tools — LLM discovers others dynamically
+        converted_tools: List[TranscriptToolT] = [SEARCH_PSEUDO_TOOL, DIR_PSEUDO_TOOL]
         tool_lookup: Dict[str, ToolLookupInfo] = {}
-        logger.info("Starting with search pseudo-tool only (no pre-loaded tools)")
+        logger.info("Starting with search + dir pseudo-tools only (no pre-loaded tools)")
 
         # Multi-turn conversation loop to handle tool calls
         streamTalkId = None
@@ -838,6 +881,21 @@ async def chat():
                             logger.error(f"Failed to parse tool arguments for {tool_key}: {e}")
                             arguments = {}
 
+                        # Handle dir pseudo-tool
+                        if tool_key == 'dir':
+                            name = arguments.get('name', '')
+                            logger.info(f"=== DIR TOOL CALLED: name='{name}' ===")
+                            summary, converted_tools, tool_lookup = await handle_dir_tool(
+                                name, converted_tools, tool_lookup
+                            )
+                            transcript.append({
+                                'role': 'tool',
+                                'tool_call_id': call_id,
+                                'content': summary
+                            })
+                            tool_call_made = True
+                            continue
+
                         # Handle search pseudo-tool
                         if tool_key == 'search':
                             query = arguments.get('query', '')
@@ -873,13 +931,11 @@ async def chat():
                         logger.info(f"  Arguments: {format_json_log(arguments)}")
 
                         try:
-                            # Look up the tool's schema to coerce argument types
+                            # Look up the tool's schema from converted_tools for argument coercion
                             tool_schema = None
-                            for tool in tools:
-                                if tool.get('searchTerm') == search_term:
-                                    tool_str = tool.get('tool', '')
-                                    tool_schema = parse_tool_params(tool_str)
-                                    logger.info(f"  Found tool schema: {tool_str}")
+                            for ct in converted_tools:
+                                if ct['function']['name'] == tool_key:
+                                    tool_schema = ct['function']['parameters']
                                     break
 
                             if tool_schema and arguments:
@@ -909,6 +965,7 @@ async def chat():
                             })
 
                     logger.info("Tool calls executed, continuing conversation")
+                    logger.info(f"tool_lookup keys ({len(tool_lookup)}): {list(tool_lookup.keys())}")
 
                 # Exit if no tool calls were made
                 if not tool_call_made:

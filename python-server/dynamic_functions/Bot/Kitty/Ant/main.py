@@ -466,7 +466,7 @@ def build_system_prompt(
     return blocks
 
 
-VISITOR_LOG_FILE = os.path.join(os.path.dirname(__file__), 'visitor_log.json')
+VISITOR_LOG_FILE = os.path.join(os.path.dirname(__file__), '..', 'visitor_log.json')
 
 import fcntl
 

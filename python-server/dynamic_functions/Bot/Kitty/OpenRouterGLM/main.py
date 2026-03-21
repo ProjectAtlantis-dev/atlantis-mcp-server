@@ -403,7 +403,7 @@ def build_system_prompt(
     return "\n\n".join(parts)
 
 
-VISITOR_LOG_FILE = os.path.join(os.path.dirname(__file__), 'visitor_log.json')
+VISITOR_LOG_FILE = os.path.join(os.path.dirname(__file__), '..', 'visitor_log.json')
 
 import fcntl
 

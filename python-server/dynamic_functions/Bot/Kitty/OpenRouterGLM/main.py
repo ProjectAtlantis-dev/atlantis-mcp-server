@@ -407,34 +407,49 @@ VISITOR_LOG_FILE = os.path.join(os.path.dirname(__file__), '..', 'visitor_log.js
 
 import fcntl
 
-def record_visit(caller: str) -> Tuple[int, str]:
-    """Record a visit for the caller. Returns (visit_count, last_visit_iso) where last_visit is the PREVIOUS visit time (empty string if first visit). File-locked for concurrency."""
+def get_visit_info(caller: str) -> Tuple[int, str]:
+    """Get visit info for the caller. Returns (visit_count, last_visit_iso). Does not modify the log."""
     os.makedirs(os.path.dirname(VISITOR_LOG_FILE), exist_ok=True)
-    now = datetime.now().isoformat()
 
+    try:
+        with open(VISITOR_LOG_FILE, 'r') as f:
+            fcntl.flock(f, fcntl.LOCK_SH)
+            try:
+                raw = f.read()
+                log = json.loads(raw) if raw.strip() else {}
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
+    except FileNotFoundError:
+        return 0, ""
+
+    entry = log.get(caller, {"count": 0, "last_visit": ""})
+    if isinstance(entry, int):
+        entry = {"count": entry, "last_visit": ""}
+
+    return entry["count"], entry["last_visit"]
+
+
+def record_new_conversation(caller: str):
+    """Increment visit count and update timestamp. Called on first visit or when >1hr gap detected."""
+    now = datetime.now().isoformat()
     with open(VISITOR_LOG_FILE, 'a+') as f:
         fcntl.flock(f, fcntl.LOCK_EX)
         try:
             f.seek(0)
             raw = f.read()
             log = json.loads(raw) if raw.strip() else {}
-
             entry = log.get(caller, {"count": 0, "last_visit": ""})
             if isinstance(entry, int):
                 entry = {"count": entry, "last_visit": ""}
-
-            previous_visit = entry["last_visit"]
             entry["count"] = entry["count"] + 1
             entry["last_visit"] = now
             log[caller] = entry
-
             f.seek(0)
             f.truncate()
             json.dump(log, f, indent=2)
         finally:
             fcntl.flock(f, fcntl.LOCK_UN)
-
-    return entry["count"], previous_visit
+    logger.info(f"New conversation for {caller}: visit #{entry['count']}, timestamp {now}")
 
 
 SEARCH_PSEUDO_TOOL: TranscriptToolT = {
@@ -484,13 +499,19 @@ async def handle_dir_tool(
     Look up tools by name via /dir and merge into the existing tool list.
     Returns (summary_text, updated_tools, updated_lookup).
     """
-    logger.info(f"=== DIR PSEUDO-TOOL: name='{name}' ===")
+    import time as _t
+    logger.info(f">>> DIR PSEUDO-TOOL: name='{name}' — sending /dir command...")
+    t0 = _t.monotonic()
 
     try:
         results = await atlantis.client_command(f"/dir {name}")
     except Exception as e:
-        logger.error(f"Dir lookup failed: {e}")
+        elapsed = _t.monotonic() - t0
+        logger.error(f"<<< DIR FAILED after {elapsed:.2f}s: {e}")
         return f"Dir lookup failed: {e}", converted_tools, tool_lookup
+
+    elapsed = _t.monotonic() - t0
+    logger.info(f"<<< DIR RETURNED in {elapsed:.2f}s — {len(results) if results else 0} results")
 
     if not results:
         return f"No tools found for '{name}'.", converted_tools, tool_lookup
@@ -526,13 +547,19 @@ async def handle_search_tool(
     Execute a search query and merge new tools into the existing tool list.
     Returns (summary_text, updated_tools, updated_lookup).
     """
-    logger.info(f"=== SEARCH PSEUDO-TOOL: query='{query}' ===")
+    import time as _t
+    logger.info(f">>> SEARCH PSEUDO-TOOL: query='{query}' — sending /search command...")
+    t0 = _t.monotonic()
 
     try:
         results = await atlantis.client_command(f"/search {query}")
     except Exception as e:
-        logger.error(f"Search failed: {e}")
+        elapsed = _t.monotonic() - t0
+        logger.error(f"<<< SEARCH FAILED after {elapsed:.2f}s: {e}")
         return f"Search failed: {e}", converted_tools, tool_lookup
+
+    elapsed = _t.monotonic() - t0
+    logger.info(f"<<< SEARCH RETURNED in {elapsed:.2f}s — {len(results) if results else 0} results")
 
     if not results:
         return f"No tools found for '{query}'.", converted_tools, tool_lookup
@@ -649,62 +676,75 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
 
 
 
-# Session busy locks - prevents concurrent chat invocations for the same session
-_session_locks: Dict[str, asyncio.Lock] = {}
+# Busy session tracking — keyed by session_id, stores the request_id that owns the lock
+_busy_sessions: Dict[str, str] = {}
+
 
 # no location since this is catch-all chat
 # no app since this is catch-all chat
 @chat
 async def chat():
     """Main chat function"""
-    logger.info("=== CHAT FUNCTION STARTING ===")
-    sessionId = atlantis.get_session_id()
-    logger.info(f"Session ID: {sessionId}")
+    sessionId = atlantis.get_session_id() or "unknown"
+    requestId = atlantis.get_request_id() or "unknown"
     caller: str = atlantis.get_caller()  # type: ignore[assignment]
 
-    # Per-session busy lock - if already processing, bail out
-    lock_key = f"{sessionId}"
-    if lock_key not in _session_locks:
-        _session_locks[lock_key] = asyncio.Lock()
-    lock = _session_locks[lock_key]
+    logger.info("=" * 60)
+    logger.info(f"=== CHAT TRIGGERED === session={sessionId} request={requestId} caller={caller}")
 
-    if lock.locked():
-        logger.warning(f"⚠️ Session {lock_key} is already busy - skipping chat invocation")
-        await atlantis.owner_log(f"Skipping chat - session {lock_key} already busy")
+    # Check if this session is already being handled
+    if sessionId in _busy_sessions:
+        owner_req = _busy_sessions[sessionId]
+        logger.warning(f"🔒 BUSY: session={sessionId} already owned by request={owner_req}, this request={requestId} — skipping")
+        await atlantis.owner_log(f"Skipping chat — session {sessionId} busy (owned by request {owner_req})")
         return
 
-    async with lock:
-     if True:
-        # Fetch base prompt from server
-        await atlantis.client_command("/silent on")
-        base_prompt = await atlantis.client_command("@*SYSTEM_PROMPT")
-        await atlantis.client_command("/silent off")
-        if not base_prompt or not str(base_prompt).strip():
-            logger.error("Failed to fetch SYSTEM_PROMPT, using fallback")
+    _busy_sessions[sessionId] = requestId
+    logger.info(f"🔒 ACQUIRED: session={sessionId} by request={requestId}")
+
+    try:
+        import time as _t
+
+        # Load system prompt directly from local module (no cloud round-trip)
+        logger.info(f">>> Loading SYSTEM_PROMPT locally...")
+        t0 = _t.monotonic()
+        try:
+            from system_prompt import SYSTEM_PROMPT as _get_system_prompt
+            base_prompt = await _get_system_prompt()
+            if not base_prompt or not str(base_prompt).strip():
+                raise ValueError("Empty prompt returned")
+            base_prompt = str(base_prompt)
+            logger.info(f"<<< SYSTEM_PROMPT loaded in {_t.monotonic() - t0:.2f}s ({len(base_prompt)} chars)")
+        except Exception as e:
+            logger.error(f"<<< SYSTEM_PROMPT load failed: {e} — using fallback")
             base_prompt = "You are a helpful assistant."
-        base_prompt = str(base_prompt)
-        logger.info(f"Base prompt loaded: {len(base_prompt)} chars")
 
         # Fetch and transform transcript
+        logger.info(f">>> Fetching transcript...")
+        t0 = _t.monotonic()
         rawTranscript, transcript = await fetch_transcript()
+        logger.info(f"<<< Transcript fetched in {_t.monotonic() - t0:.2f}s ({len(rawTranscript)} raw, {len(transcript)} filtered)")
 
-        # Don't respond if last chat message was from Atlas (the bot)
+        # Don't respond if last chat message was from the bot
         last_chat_entry = find_last_chat_entry(rawTranscript)
+        if last_chat_entry:
+            logger.info(f"  Last chat entry: sid={last_chat_entry.get('sid')} type={last_chat_entry.get('type')} content={str(last_chat_entry.get('content',''))[:80]}")
         if last_chat_entry and last_chat_entry.get('type') == 'chat' and last_chat_entry.get('sid') == 'kitty':
-            logger.warning("\x1b[38;5;204mLast chat entry was from kitty (bot), skipping response\x1b[0m")
-            await atlantis.owner_log(f"Skipping response - last chat was from kitty (sid={last_chat_entry.get('sid')})")
+            logger.warning(f"\x1b[38;5;204mLast chat was from kitty — skipping (session={sessionId} request={requestId})\x1b[0m")
+            await atlantis.owner_log(f"Skipping response - last chat was from kitty")
             return
 
         # Record visit only if we're actually going to chat
-        visit_count, last_visit = record_visit(caller)
+        visit_count, last_visit = get_visit_info(caller)
         logger.info(f"Visitor: {caller}, visit #{visit_count}, last visit: {last_visit or 'first time'}")
 
-        await atlantis.client_command("/silent on")
-
         # Fetch skills for system prompt
+        logger.info(f">>> Fetching skills...")
+        t0 = _t.monotonic()
+        await atlantis.client_command("/silent on")
         skill_texts = await fetch_skills()
-
         await atlantis.client_command("/silent off")
+        logger.info(f"<<< Skills fetched in {_t.monotonic() - t0:.2f}s ({len(skill_texts)} skills)")
 
         # Configure OpenRouter client
         logger.info("Configuring OpenRouter client...")
@@ -731,6 +771,21 @@ async def chat():
             caller, visit_count, last_visit
         )
 
+        # If more than an hour since last visit (or first visit), stamp the convo start time
+        if not last_visit:
+            record_new_conversation(caller)
+        else:
+            try:
+                elapsed = datetime.now() - datetime.fromisoformat(last_visit)
+                if elapsed.total_seconds() > 3600:
+                    now_str = datetime.now().strftime('%Y-%m-%d %H:%M')
+                    gap_msg = f"[Some time has passed since your last interaction. The current date and time is now {now_str}.]"
+                    transcript.append({'role': 'user', 'content': [{'type': 'text', 'text': gap_msg}]})
+                    record_new_conversation(caller)
+                    logger.info(f"Injected time-gap message: {gap_msg}")
+            except (ValueError, TypeError):
+                pass
+
         # Start with only pseudo-tools — LLM discovers others dynamically
         converted_tools: List[TranscriptToolT] = [SEARCH_PSEUDO_TOOL, DIR_PSEUDO_TOOL]
         tool_lookup: Dict[str, ToolLookupInfo] = {}
@@ -745,7 +800,7 @@ async def chat():
         try:
             while turn_count < max_turns:
                 turn_count += 1
-                logger.info(f"=== CONVERSATION TURN {turn_count}/{max_turns} ===")
+                logger.info(f"=== TURN {turn_count}/{max_turns} === session={sessionId} request={requestId}")
 
                 if turn_count == 1:
                     await atlantis.owner_log(f"Attempting to call OpenRouter: {model}")
@@ -781,6 +836,8 @@ async def chat():
                 tool_call_made = False
                 accumulated_text = ""
 
+                logger.info(f">>> Calling OpenRouter ({model})...")
+                t_api = _t.monotonic()
                 stream = client.chat.completions.create(
                     model=model,
                     messages=cast(Any, api_messages),
@@ -791,7 +848,7 @@ async def chat():
                     extra_body={"reasoning": {"effort": "low"}},
                 )
 
-                logger.info("OpenRouter API call successful, starting stream...")
+                logger.info(f"<<< OpenRouter stream opened in {_t.monotonic() - t_api:.2f}s, reading chunks...")
                 if turn_count == 1:
                     await atlantis.owner_log("OpenRouter API call successful, starting stream")
 
@@ -849,7 +906,7 @@ async def chat():
                                 if tc_delta.function.arguments:
                                     tool_calls_accumulator[idx]['arguments'] += tc_delta.function.arguments
 
-                logger.info(f"Stream complete for turn {turn_count}. Events: {event_count}, text chunks: {streamed_count}, tool calls: {len(tool_calls_accumulator)}")
+                logger.info(f"Stream complete: turn={turn_count} events={event_count} text_chunks={streamed_count} tool_calls={len(tool_calls_accumulator)} session={sessionId}")
 
                 # Execute accumulated tool calls if any
                 if tool_calls_accumulator:
@@ -925,10 +982,10 @@ async def chat():
                         search_term = lookup_info['searchTerm']
                         function_name = lookup_info['functionName']
 
-                        logger.info(f"=== EXECUTING TOOL: {tool_key} ===")
-                        logger.info(f"  ID: {call_id}")
-                        logger.info(f"  Resolved: searchTerm='{search_term}', function='{function_name}'")
-                        logger.info(f"  Arguments: {format_json_log(arguments)}")
+                        import time as _t
+                        logger.info(f">>> EXECUTING TOOL: {tool_key} (call_id={call_id})")
+                        logger.info(f"    searchTerm='{search_term}' function='{function_name}'")
+                        logger.info(f"    args={format_json_log(arguments)}")
 
                         try:
                             # Look up the tool's schema from converted_tools for argument coercion
@@ -940,13 +997,18 @@ async def chat():
 
                             if tool_schema and arguments:
                                 arguments = coerce_args_to_schema(arguments, tool_schema)
-                                logger.info(f"  Post-coercion arguments: {format_json_log(arguments)}")
+                                logger.info(f"    post-coercion args={format_json_log(arguments)}")
 
+                            t0 = _t.monotonic()
+                            logger.info(f"    sending /silent on...")
                             await atlantis.client_command("/silent on")
+                            logger.info(f"    sending %{search_term}...")
                             tool_result = await atlantis.client_command(f"%{search_term}", data=arguments)
+                            logger.info(f"    sending /silent off...")
                             await atlantis.client_command("/silent off")
+                            elapsed = _t.monotonic() - t0
 
-                            logger.info(f"  Tool result: {tool_result}")
+                            logger.info(f"<<< TOOL {tool_key} RETURNED in {elapsed:.2f}s — result: {str(tool_result)[:200]}")
                             await atlantis.tool_result(function_name, tool_result)
 
                             transcript.append({
@@ -957,7 +1019,7 @@ async def chat():
                             tool_call_made = True
 
                         except Exception as e:
-                            logger.error(f"Error executing tool call {tool_key}: {e}")
+                            logger.error(f"<<< TOOL {tool_key} FAILED: {e}")
                             transcript.append({
                                 'role': 'tool',
                                 'tool_call_id': call_id,
@@ -969,10 +1031,10 @@ async def chat():
 
                 # Exit if no tool calls were made
                 if not tool_call_made:
-                    logger.info("No tool call made this turn - conversation complete")
+                    logger.info(f"No tool calls — conversation complete (session={sessionId})")
                     break
                 else:
-                    logger.info("Tool call made - continuing to next turn with updated transcript")
+                    logger.info(f"Tool calls executed — continuing to turn {turn_count + 1} (session={sessionId})")
                     tool_calls_accumulator = {}
 
             # End of while loop
@@ -1012,5 +1074,10 @@ async def chat():
                         pass
             raise
 
-        logger.info("=== CHAT FUNCTION COMPLETED SUCCESSFULLY ===")
-        return
+        logger.info(f"=== CHAT COMPLETED === session={sessionId} request={requestId} turns={turn_count}")
+
+    finally:
+        _busy_sessions.pop(sessionId, None)
+        logger.info(f"🔓 RELEASED: session={sessionId} request={requestId}")
+
+    return

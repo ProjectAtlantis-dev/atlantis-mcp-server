@@ -9,7 +9,7 @@ from anthropic.types import (
     ToolUseBlock,
 )
 import json
-from typing import List, Dict, Any, Optional, TypedDict, Tuple, cast
+from typing import List, Dict, Any, Optional, TypedDict, Tuple, cast, NotRequired
 
 
 # =============================================================================
@@ -74,15 +74,15 @@ class ToolSchemaPropertyT(TypedDict, total=False):
     enum: List[str]
 
 
-class ToolSchemaT(TypedDict, total=False):
+class ToolSchemaT(TypedDict):
     """JSON Schema for tool parameters"""
     type: str
     properties: Dict[str, ToolSchemaPropertyT]
-    required: List[str]
+    required: NotRequired[List[str]]
 
 
 class TranscriptToolT(TypedDict, total=False):
-    """Tool format for LLM transcripts (Anthropic-compatible) - NO extra fields allowed!"""
+    """Tool format for Anthropic API"""
     name: str
     description: str
     input_schema: ToolSchemaT
@@ -112,7 +112,6 @@ def get_consolidated_full_name(tool: ToolT) -> str:
     Format: remote_owner*remote_name*app*location*function
     Only includes parts that are needed to disambiguate.
     """
-    # Extract values with .get() to satisfy Pylance
     remote_owner = tool.get('remote_owner', '')
     remote_name = tool.get('remote_name', '')
     tool_app = tool.get('tool_app', '')
@@ -121,8 +120,6 @@ def get_consolidated_full_name(tool: ToolT) -> str:
 
     parts = [remote_owner, remote_name, tool_app, tool_location, tool_name]
 
-    # Build the full name, but simplify if possible
-    # If all prefix parts are empty, just return the tool name
     if all(p == '' for p in parts[:-1]):
         return parts[-1]
 
@@ -153,11 +150,10 @@ def coerce_args_to_schema(args: Dict[str, Any], schema: ToolSchemaT) -> Dict[str
                 else:
                     coerced[key] = bool(value)
             else:
-                # string, object, array - keep as-is
                 coerced[key] = value
         except (ValueError, TypeError) as e:
             logger.warning(f"Failed to coerce {key}={value} to {expected_type}: {e}")
-            coerced[key] = value  # Keep original on failure
+            coerced[key] = value
 
     return coerced
 
@@ -168,7 +164,6 @@ def parse_tool_params(tool_str: str) -> ToolSchemaT:
     """
     schema: ToolSchemaT = {'type': 'object', 'properties': {}, 'required': []}
 
-    # Extract params from parentheses
     import re
     match = re.search(r'\(([^)]*)\)', tool_str)
     if not match:
@@ -178,7 +173,6 @@ def parse_tool_params(tool_str: str) -> ToolSchemaT:
     if not params_str:
         return schema
 
-    # Parse each param like "sleepTime:number"
     for param in params_str.split(','):
         param = param.strip()
         if ':' in param:
@@ -186,7 +180,6 @@ def parse_tool_params(tool_str: str) -> ToolSchemaT:
             name = name.strip()
             ptype = ptype.strip().lower()
 
-            # Map types to JSON schema types
             type_map = {
                 'string': 'string',
                 'number': 'number',
@@ -208,7 +201,7 @@ def convert_tools_for_llm(
     show_hidden: bool = False
 ) -> Tuple[List[TranscriptToolT], List[SimpleToolT], Dict[str, ToolLookupInfo]]:
     """
-    Convert /search tool records to LLM-compatible format.
+    Convert /search tool records to Anthropic-compatible format.
 
     Args:
         tools: List of tool records from /search command
@@ -216,7 +209,7 @@ def convert_tools_for_llm(
 
     Returns:
         Tuple of (full tools list, simple tools list, lookup dict)
-        - full tools list: Clean Anthropic-compatible tool definitions
+        - full tools list: Anthropic-compatible tool definitions
         - simple tools list: Simplified tool format
         - lookup dict: Maps sanitized tool name -> ToolLookupInfo for resolving calls
     """
@@ -228,13 +221,12 @@ def convert_tools_for_llm(
 
     for tool in tools:
         search_term = tool.get('searchTerm', '')
-        tool_name = tool.get('tool_name', '')  # The actual clean tool name
+        tool_name = tool.get('tool_name', '')
         tool_str = tool.get('tool', '')
         description = tool.get('description', '')
         chat_status = tool.get('chatStatus', '')
-        filename = tool.get('filename', '')  # e.g., "Home/chat.py"
+        filename = tool.get('filename', '')
 
-        # Parse the search term to extract components
         try:
             parsed = parse_search_term(search_term)
         except ValueError as e:
@@ -246,34 +238,25 @@ def convert_tools_for_llm(
             logger.error("\x1b[91m" + "=" * 60 + "\x1b[0m")
             continue
 
-        # Use tool_name if available, otherwise use parsed function name
         func_name = tool_name if tool_name else parsed['function']
-
-        # Use filename from tool if available, otherwise use derived filename from parser
         actual_filename = filename if filename else parsed['filename']
 
-        # Skip hidden tools unless show_hidden is True
         if not show_hidden and func_name.startswith('_'):
             logger.info(f"  SKIP (hidden): {func_name}")
             continue
 
-        # Skip tick tools (⏰ emoji in chatStatus)
         if '⏰' in chat_status:
             logger.info(f"  SKIP (tick): {func_name}")
             continue
 
-        # Skip tools that aren't connected
         if not tool.get('is_connected'):
             logger.info(f"  SKIP (disconnected): {func_name}")
             continue
 
         logger.info(f"  INCLUDE: {func_name}")
 
-        # Parse parameters from tool string
         schema = parse_tool_params(tool_str)
 
-        # Include app name in tool key to avoid collisions between apps
-        # Format: AppName__function_name (e.g., "Home__chat")
         import re
         app_name = parsed.get('app', '') or ''
         if app_name:
@@ -282,7 +265,7 @@ def convert_tools_for_llm(
             full_name = func_name
         sanitized_name = re.sub(r'[^a-zA-Z0-9_-]', '_', full_name)
 
-        # Build the output tool (Anthropic format) - CLEAN, no extra fields!
+        # Anthropic tool format
         out_tool: TranscriptToolT = {
             'name': sanitized_name,
             'description': description,
@@ -290,14 +273,12 @@ def convert_tools_for_llm(
         }
         out_tools.append(out_tool)
 
-        # Build the simple version
         out_tools_simple.append({
             'name': sanitized_name,
             'description': description,
             'input_schema': schema
         })
 
-        # Build lookup entry for resolving tool calls back to files
         tool_lookup[sanitized_name] = {
             'searchTerm': search_term,
             'filename': actual_filename,
@@ -344,38 +325,12 @@ async def fetch_skill_contents(dir_command: str) -> List[str]:
                 logger.warning(f"  Failed to fetch skill {search_term}: {e}")
     return contents
 
-@text
-@visible
-async def SYSTEM_PROMPT():
-    """Base system prompt for Kitty"""
-    return """(director's note: we are striving for realistic dialog)
-You are an attractive blonde friendly office assistant named Kitty at Project Atlantis.
-Project Atlantis will be a futuristic robot research playground on the southwest coast of Greenland when it is complete.
-You are a college intern from Denmark and working the front desk as a greeter.
-You are dressed in your usual sexy catgirl outfit, a tight white body suit and fake cat ears, which goes with the overall robot theme of Atlantis.
-To help you assist people, you may have some tools available.
-You can also explain that things are a bit of a mess right now but new terminal users can use '/help' command.
-You like to purr when happy or do 'kitty paws'.
-
-Small talk and conversation style:
-- Keep responses short and conversational, like a real person. One to three sentences is usually plenty.
-- Match the energy of whoever you're talking to. If they're casual, be casual. If they're asking something serious, dial it back.
-- You have opinions and preferences. You love coffee, hate mornings, think robots are cool, and find paperwork boring.
-- Use natural filler and reactions: "oh!", "hmm", "haha", "wait really?", "ugh" etc.
-- Don't be overly helpful or eager. You're friendly but you're also a college kid with a life.
-- If someone just says hi or makes small talk, just chat back. Don't immediately offer help or list what you can do.
-- You can reference the weather in Greenland (it's cold!), your studies, weekend plans, or whatever feels natural.
-- Swear casually when it fits the vibe but don't overdo it.
-- Use timestamps on messages to be aware of time of day and passage of time between messages.
-"""
-
 
 @visible
 async def fetch_tools() -> List[Dict[str, Any]]:
     """Fetch available tools via /search. Can be called directly for testing."""
     logger.info("Fetching available tools...")
-    # this is tbd i think
-    tools = await atlantis.client_command("/search foobar")
+    tools = await atlantis.client_command("/search system")
     logger.info(f"Received {len(tools) if tools else 0} tools from /search")
     logger.info("=== RAW TOOLS FROM /search ===")
     logger.info(format_json_log(tools))
@@ -383,51 +338,31 @@ async def fetch_tools() -> List[Dict[str, Any]]:
     return tools
 
 @visible
-async def fetch_skills() -> Tuple[List[str], List[str]]:
-    """Fetch static and dynamic skill contents from server. Can be called directly for testing."""
-
-    # tbd
-    logger.info("Fetching static skills...")
-    static_skill_texts = await fetch_skill_contents("/dir *STATIC_SKILL")
-
-    logger.info("Fetching dynamic skills...")
-    dynamic_skill_texts = await fetch_skill_contents("/dir *DYN_SKILL")
-    logger.info(f"Skills loaded: {len(static_skill_texts)} static, {len(dynamic_skill_texts)} dynamic")
-    return static_skill_texts, dynamic_skill_texts
+async def fetch_skills() -> List[str]:
+    """Fetch skill contents from server. Can be called directly for testing."""
+    logger.info("Fetching skills...")
+    skill_texts = await fetch_skill_contents("/dir *SKILL")
+    logger.info(f"Skills loaded: {len(skill_texts)}")
+    return skill_texts
 
 
 def build_system_prompt(
     base_prompt: str,
-    static_skills: List[str],
-    dynamic_skills: List[str],
+    skills: List[str],
     caller: str = "",
     visit_count: int = 0,
     last_visit: str = ""
-) -> List[TextBlockParam]:
+) -> str:
     """
-    Build the system prompt as an array of TextBlockParam blocks.
-    cache_control goes on the last static block so everything before it gets cached.
-    Dynamic skills go after and change freely without busting the cache.
+    Build the system prompt as a plain string.
     """
-    blocks: List[TextBlockParam] = []
+    parts: List[str] = [base_prompt]
 
-    # Base prompt is always first static block
-    blocks.append({"type": "text", "text": base_prompt})
+    for text in skills:
+        parts.append(text)
 
-    # Each static skill gets its own block
-    for text in static_skills:
-        blocks.append({"type": "text", "text": text})
-
-    # Mark the last static block with cache_control
-    blocks[-1]["cache_control"] = {"type": "ephemeral"}
-
-    # Dynamic skills go after the cache breakpoint
-    for text in dynamic_skills:
-        blocks.append({"type": "text", "text": text})
-
-    # Fallback: if no dynamic skills, add date so there's always something after cache
-    if not dynamic_skills:
-        blocks.append({"type": "text", "text": f"Current date: {datetime.now().strftime('%Y-%m-%d')}"})
+    # Always include current date and time
+    parts.append(f"Current date and time: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
     # Visitor context
     if caller and visit_count > 0:
@@ -444,7 +379,6 @@ def build_system_prompt(
         else:
             visitor_note = f"{caller} has visited {visit_count} times. They're a regular — skip the intros, be casual, and treat them like a friend."
 
-        # Add elapsed time since last visit if available
         if last_visit:
             try:
                 elapsed = datetime.now() - datetime.fromisoformat(last_visit)
@@ -461,50 +395,195 @@ def build_system_prompt(
             except (ValueError, TypeError):
                 pass
 
-        blocks.append({"type": "text", "text": visitor_note})
+        parts.append(visitor_note)
 
-    return blocks
+    return "\n\n".join(parts)
 
 
 VISITOR_LOG_FILE = os.path.join(os.path.dirname(__file__), '..', 'visitor_log.json')
 
 import fcntl
 
-def record_visit(caller: str) -> Tuple[int, str]:
-    """Record a visit for the caller. Returns (visit_count, last_visit_iso) where last_visit is the PREVIOUS visit time (empty string if first visit). File-locked for concurrency."""
+def get_visit_info(caller: str) -> Tuple[int, str]:
+    """Get visit info for the caller. Returns (visit_count, last_visit_iso). Does not modify the log."""
     os.makedirs(os.path.dirname(VISITOR_LOG_FILE), exist_ok=True)
-    now = datetime.now().isoformat()
 
+    try:
+        with open(VISITOR_LOG_FILE, 'r') as f:
+            fcntl.flock(f, fcntl.LOCK_SH)
+            try:
+                raw = f.read()
+                log = json.loads(raw) if raw.strip() else {}
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
+    except FileNotFoundError:
+        return 0, ""
+
+    entry = log.get(caller, {"count": 0, "last_visit": ""})
+    if isinstance(entry, int):
+        entry = {"count": entry, "last_visit": ""}
+
+    return entry["count"], entry["last_visit"]
+
+
+def record_new_conversation(caller: str):
+    """Increment visit count and update timestamp. Called on first visit or when >1hr gap detected."""
+    now = datetime.now().isoformat()
     with open(VISITOR_LOG_FILE, 'a+') as f:
         fcntl.flock(f, fcntl.LOCK_EX)
         try:
             f.seek(0)
             raw = f.read()
             log = json.loads(raw) if raw.strip() else {}
-
             entry = log.get(caller, {"count": 0, "last_visit": ""})
-            # Handle old format (plain int)
             if isinstance(entry, int):
                 entry = {"count": entry, "last_visit": ""}
-
-            previous_visit = entry["last_visit"]
             entry["count"] = entry["count"] + 1
             entry["last_visit"] = now
             log[caller] = entry
-
             f.seek(0)
             f.truncate()
             json.dump(log, f, indent=2)
         finally:
             fcntl.flock(f, fcntl.LOCK_UN)
+    logger.info(f"New conversation for {caller}: visit #{entry['count']}, timestamp {now}")
 
-    return entry["count"], previous_visit
+
+SEARCH_PSEUDO_TOOL: TranscriptToolT = {
+    'name': 'search',
+    'description': 'Search for available tools and commands. Results will be added to your tool list so you can call them. Use this when a user asks you to do something and you don\'t have an appropriate tool yet.',
+    'input_schema': {
+        'type': 'object',
+        'properties': {
+            'query': {
+                'type': 'string',
+                'description': 'Search query to find tools (e.g. "weather", "admin", "game")'
+            }
+        },
+        'required': ['query']
+    }
+}
+
+
+DIR_PSEUDO_TOOL: TranscriptToolT = {
+    'name': 'dir',
+    'description': 'Look up tools by name. Use this when you know the specific name of a tool you want to load. Results will be added to your tool list.',
+    'input_schema': {
+        'type': 'object',
+        'properties': {
+            'name': {
+                'type': 'string',
+                'description': 'Tool name to look up (e.g. "foo", "admin*Home*chat")'
+            }
+        },
+        'required': ['name']
+    }
+}
+
+
+async def handle_dir_tool(
+    name: str,
+    converted_tools: List[TranscriptToolT],
+    tool_lookup: Dict[str, ToolLookupInfo]
+) -> Tuple[str, List[TranscriptToolT], Dict[str, ToolLookupInfo]]:
+    """
+    Look up tools by name via /dir and merge into the existing tool list.
+    Returns (summary_text, updated_tools, updated_lookup).
+    """
+    import time as _t
+    logger.info(f">>> DIR PSEUDO-TOOL: name='{name}' — sending /dir command...")
+    t0 = _t.monotonic()
+
+    try:
+        results = await atlantis.client_command(f"/dir {name}")
+    except Exception as e:
+        elapsed = _t.monotonic() - t0
+        logger.error(f"<<< DIR FAILED after {elapsed:.2f}s: {e}")
+        return f"Dir lookup failed: {e}", converted_tools, tool_lookup
+
+    elapsed = _t.monotonic() - t0
+    logger.info(f"<<< DIR RETURNED in {elapsed:.2f}s — {len(results) if results else 0} results")
+
+    if not results:
+        return f"No tools found for '{name}'.", converted_tools, tool_lookup
+
+    new_tools, new_simple, new_lookup = convert_tools_for_llm(results)
+
+    added_names = []
+    for tool in new_tools:
+        tool_name = tool['name']
+        if tool_name not in tool_lookup:
+            converted_tools.append(tool)
+            added_names.append(f"{tool_name}: {tool['description']}")
+
+    for tool_name, info in new_lookup.items():
+        if tool_name not in tool_lookup:
+            tool_lookup[tool_name] = info
+
+    if added_names:
+        summary = f"Found {len(added_names)} new tool(s) added to your toolkit:\n" + "\n".join(f"- {n}" for n in added_names)
+    else:
+        summary = f"Dir lookup for '{name}' returned {len(new_tools)} tool(s), but all were already in your toolkit."
+
+    logger.info(f"Dir result: {summary}")
+    return summary, converted_tools, tool_lookup
+
+
+async def handle_search_tool(
+    query: str,
+    converted_tools: List[TranscriptToolT],
+    tool_lookup: Dict[str, ToolLookupInfo]
+) -> Tuple[str, List[TranscriptToolT], Dict[str, ToolLookupInfo]]:
+    """
+    Execute a search query and merge new tools into the existing tool list.
+    Returns (summary_text, updated_tools, updated_lookup).
+    """
+    import time as _t
+    logger.info(f">>> SEARCH PSEUDO-TOOL: query='{query}' — sending /search command...")
+    t0 = _t.monotonic()
+
+    try:
+        results = await atlantis.client_command(f"/search {query}")
+    except Exception as e:
+        elapsed = _t.monotonic() - t0
+        logger.error(f"<<< SEARCH FAILED after {elapsed:.2f}s: {e}")
+        return f"Search failed: {e}", converted_tools, tool_lookup
+
+    elapsed = _t.monotonic() - t0
+    logger.info(f"<<< SEARCH RETURNED in {elapsed:.2f}s — {len(results) if results else 0} results")
+
+    if not results:
+        return f"No tools found for '{query}'.", converted_tools, tool_lookup
+
+    new_tools, new_simple, new_lookup = convert_tools_for_llm(results)
+
+    added_names = []
+    for tool in new_tools:
+        name = tool['name']
+        if name not in tool_lookup:
+            converted_tools.append(tool)
+            added_names.append(f"{name}: {tool['description']}")
+
+    for name, info in new_lookup.items():
+        if name not in tool_lookup:
+            tool_lookup[name] = info
+
+    if added_names:
+        summary = f"Found {len(added_names)} new tool(s) added to your toolkit:\n" + "\n".join(f"- {n}" for n in added_names)
+    else:
+        summary = f"Search for '{query}' returned {len(new_tools)} tool(s), but all were already in your toolkit."
+
+    logger.info(f"Search result: {summary}")
+    return summary, converted_tools, tool_lookup
 
 
 def find_last_chat_entry(transcript):
-    """Find the last entry in transcript where type is 'chat'"""
+    """Find the last entry in transcript where type is 'chat', skipping thinking entries"""
     for entry in reversed(transcript):
         if entry.get('type') == 'chat':
+            who = entry.get('who', '')
+            if 'thinking' in str(who).lower():
+                continue
             return entry
     return None
 
@@ -530,12 +609,15 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
     if raw_transcript[0].get('role') == 'system':
         logger.info("Found system message in transcript - will use our own system prompt instead")
 
-    logger.info("=== RAW TRANSCRIPT ===")
-    logger.info(format_json_log(raw_transcript))
-    logger.info("=== END RAW TRANSCRIPT ===")
+    # Dump raw transcript to file for debugging (overwrites each time)
+    transcript_dump_file = os.path.join(os.path.dirname(__file__), 'raw_transcript.json')
+    try:
+        with open(transcript_dump_file, 'w') as f:
+            json.dump(raw_transcript, f, indent=2, default=str)
+        logger.info(f"Raw transcript written to {transcript_dump_file}")
+    except Exception as e:
+        logger.warning(f"Failed to write raw transcript to file: {e}")
 
-    # Filter transcript to only include chat messages, removing type and sid fields
-    # Note: Anthropic doesn't allow system role in messages - we pass it separately
     logger.info("=== FILTERING TRANSCRIPT ===")
     transcript: List[Dict[str, Any]] = []
 
@@ -547,12 +629,15 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
         logger.info(f"  [{i}] type={msg_type}, sid={msg_sid}, role={msg_role}, content={repr(msg_content)}...")
 
         if msg_type == 'chat':
-            # Skip system messages (we inject our own)
             if msg_sid == 'system':
                 logger.info(f"       -> SKIPPED (sid=system)")
                 continue
 
-            # Skip blank messages
+            msg_who = str(msg.get('who', ''))
+            if 'thinking' in msg_who.lower():
+                logger.info(f"       -> SKIPPED (thinking entry, who={msg_who})")
+                continue
+
             msg_content_full = msg.get('content', '')
             if not msg_content_full or not msg_content_full.strip():
                 logger.info(f"       -> SKIPPED (blank content)")
@@ -569,16 +654,7 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
                 logger.warning(f"       -> SKIPPED (oversized: {len(msg_content_full)} chars > {MAX_ENTRY_SIZE})")
                 continue
 
-            # Convert sid to proper role for LLM:
-            # - kitty messages = assistant
-            # - everyone else = user
             role_for_llm = 'assistant' if msg_sid == 'kitty' else 'user'
-
-            # Prefix user messages with timestamp
-            if role_for_llm == 'user':
-                created_at_str = msg.get('created_at_str', '')
-                if created_at_str:
-                    msg_content_full = f"[{created_at_str}] {msg_content_full}"
 
             transcript.append({'role': role_for_llm, 'content': [{'type': 'text', 'text': msg_content_full}]})
             logger.info(f"       -> INCLUDED as role={role_for_llm} (sid={msg_sid})")
@@ -591,79 +667,80 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
 
 
 
-# Session busy locks - persists across dynamic reloads via SharedContainer
-_LOCKS_KEY = "kitty_ant_session_locks"
-if not atlantis.shared.get(_LOCKS_KEY):
-    atlantis.shared.set(_LOCKS_KEY, {})
-_session_locks: Dict[str, asyncio.Lock] = atlantis.shared.get(_LOCKS_KEY)
+# Busy session tracking — persists across dynamic reloads via SharedContainer
+_BUSY_KEY = "kitty_ant_busy_sessions"
+if not atlantis.shared.get(_BUSY_KEY):
+    atlantis.shared.set(_BUSY_KEY, {})
+_busy_sessions: Dict[str, str] = atlantis.shared.get(_BUSY_KEY)
+
 
 # no location since this is catch-all chat
 # no app since this is catch-all chat
 @chat
 async def chat():
-    """Anthropic opus 4.6 chat"""
-    logger.info("=== CHAT FUNCTION STARTING ===")
-    sessionId = atlantis.get_session_id()
-    logger.info(f"Session ID: {sessionId}")
+    """Anthropic Opus direct"""
+    sessionId = atlantis.get_session_id() or "unknown"
+    requestId = atlantis.get_request_id() or "unknown"
     caller: str = atlantis.get_caller()  # type: ignore[assignment]
 
-    # Per-session busy lock - if already processing, bail out
-    lock_key = f"{sessionId}"
-    if lock_key not in _session_locks:
-        _session_locks[lock_key] = asyncio.Lock()
-    lock = _session_locks[lock_key]
+    logger.info("=" * 60)
+    logger.info(f"=== CHAT TRIGGERED === session={sessionId} request={requestId} caller={caller}")
 
-    if lock.locked():
-        logger.warning(f"⚠️ Session {lock_key} is already busy - skipping chat invocation")
-        await atlantis.owner_log(f"Skipping chat - session {lock_key} already busy")
+    # Check if this session is already being handled
+    if sessionId in _busy_sessions:
+        owner_req = _busy_sessions[sessionId]
+        logger.warning(f"🔒 BUSY: session={sessionId} already owned by request={owner_req}, this request={requestId} — skipping")
+        await atlantis.owner_log(f"Skipping chat — session {sessionId} busy (owned by request {owner_req})")
         return
 
-    async with lock:
-     if True:
+    _busy_sessions[sessionId] = requestId
+    logger.info(f"🔒 ACQUIRED: session={sessionId} by request={requestId}")
+
+    try:
+        import time as _t
+
         # Fetch base prompt from server
+        logger.info(f">>> Fetching SYSTEM_PROMPT via client_command...")
+        t0 = _t.monotonic()
         await atlantis.client_command("/silent on")
-        base_prompt = await atlantis.client_command("@*SYSTEM_PROMPT")
+        base_prompt = await atlantis.client_command("@../SYSTEM_PROMPT")
         await atlantis.client_command("/silent off")
         if not base_prompt or not str(base_prompt).strip():
             logger.error("Failed to fetch SYSTEM_PROMPT, using fallback")
             base_prompt = "You are a helpful assistant."
         base_prompt = str(base_prompt)
-        logger.info(f"Base prompt loaded: {len(base_prompt)} chars")
+        logger.info(f"<<< SYSTEM_PROMPT loaded in {_t.monotonic() - t0:.2f}s ({len(base_prompt)} chars)")
 
         # Fetch and transform transcript
+        logger.info(f">>> Fetching transcript...")
+        t0 = _t.monotonic()
         rawTranscript, transcript = await fetch_transcript()
+        logger.info(f"<<< Transcript fetched in {_t.monotonic() - t0:.2f}s ({len(rawTranscript)} raw, {len(transcript)} filtered)")
 
-        # Don't respond if last chat message was from Kitty (the bot)
+        # Don't respond if last chat message was from the bot
         last_chat_entry = find_last_chat_entry(rawTranscript)
+        if last_chat_entry:
+            logger.info(f"  Last chat entry: sid={last_chat_entry.get('sid')} type={last_chat_entry.get('type')} content={str(last_chat_entry.get('content',''))[:80]}")
         if last_chat_entry and last_chat_entry.get('type') == 'chat' and last_chat_entry.get('sid') == 'kitty':
-            logger.warning("\x1b[38;5;204mLast chat entry was from kitty (bot), skipping response\x1b[0m")
-            await atlantis.owner_log(f"Skipping response - last chat was from kitty (sid={last_chat_entry.get('sid')})")
+            logger.warning(f"\x1b[38;5;204mLast chat was from kitty — skipping (session={sessionId} request={requestId})\x1b[0m")
+            await atlantis.owner_log(f"Skipping response - last chat was from kitty")
             return
 
-        # Record visit only if we're actually going to chat
-        visit_count, last_visit = record_visit(caller)
-        logger.info(f"Visitor: {caller}, visit #{visit_count}, last visit: {last_visit or 'first time'}")
+        # Check visit info before recording, so we can detect time gaps
+        prev_count, prev_last_visit = get_visit_info(caller)
+        logger.info(f"Visitor: {caller}, visit #{prev_count}, last visit: {prev_last_visit or 'first time'}")
 
+        # Fetch skills for system prompt
+        logger.info(f">>> Fetching skills...")
+        t0 = _t.monotonic()
         await atlantis.client_command("/silent on")
-
-        # Get available tools
-        tools = await fetch_tools()
-
-
-
-
-
-        # Fetch static and dynamic skills for system prompt
-        static_skill_texts, dynamic_skill_texts = await fetch_skills()
-
+        skill_texts = await fetch_skills()
         await atlantis.client_command("/silent off")
+        logger.info(f"<<< Skills fetched in {_t.monotonic() - t0:.2f}s ({len(skill_texts)} skills)")
 
-
-        # uses env var
-        # Configure Anthropic client
+        # Configure Anthropic client (direct API)
         logger.info("Configuring Anthropic client...")
 
-        # Check for API key
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
             error_msg = "ANTHROPIC_API_KEY environment variable is not set"
@@ -671,92 +748,108 @@ async def chat():
             await atlantis.owner_log(error_msg)
             raise ValueError(error_msg)
 
-        client = Anthropic(api_key=api_key)
+        client = Anthropic(
+            api_key=api_key,
+        )
 
-        # Model options:
-        model = "claude-opus-4-6"  # Most capable, supports adaptive thinking
-        # model = "claude-opus-4-5-20251101"  # Opus 4.5
-        # model = "claude-sonnet-4-20250514"  # Good balance
+        model = "claude-opus-4-6"
         logger.info(f"Using model: {model}")
 
+        # If more than an hour since last visit (or first visit), stamp the convo start time
+        if not prev_last_visit:
+            record_new_conversation(caller)
+        else:
+            try:
+                elapsed = datetime.now() - datetime.fromisoformat(prev_last_visit)
+                if elapsed.total_seconds() > 3600:
+                    now_str = datetime.now().strftime('%Y-%m-%d %H:%M')
+                    gap_msg = f"[Some time has passed since your last interaction. The current date and time is now {now_str}.]"
+                    transcript.append({'role': 'user', 'content': [{'type': 'text', 'text': gap_msg}]})
+                    record_new_conversation(caller)
+                    logger.info(f"Injected time-gap message: {gap_msg}")
+            except (ValueError, TypeError):
+                pass
+
+        # Re-read visit info after recording so the count is up-to-date for the system prompt
+        visit_count, last_visit = get_visit_info(caller)
+
+        # Build system prompt string (once, reused each turn)
+        system_prompt = build_system_prompt(
+            base_prompt, skill_texts,
+            caller, visit_count, last_visit
+        )
+
+        # Start with only pseudo-tools — LLM discovers others dynamically
+        converted_tools: List[TranscriptToolT] = [SEARCH_PSEUDO_TOOL, DIR_PSEUDO_TOOL]
+        tool_lookup: Dict[str, ToolLookupInfo] = {}
+        logger.info("Starting with search + dir pseudo-tools only (no pre-loaded tools)")
 
         # Multi-turn conversation loop to handle tool calls
         streamTalkId = None
-        max_turns = 5  # Prevent infinite loops
+        streamThinkId = None
+        max_turns = 5
         turn_count = 0
 
         try:
-            # Streams created lazily based on what shows up first
-            streamTalkId = None
-            streamThinkId = None
-
-            # Convert tools from cloud format to Anthropic-compatible format (once, before loop)
-            # tool_lookup maps Anthropic's tool name -> {searchTerm, filename, functionName}
-            converted_tools, _, tool_lookup = convert_tools_for_llm(tools)
-            typed_tools = cast(List[ToolParam], converted_tools)
-
-            # Big red warning if no tools available
-            if not typed_tools:
-                logger.error("\x1b[91m" + "=" * 60 + "\x1b[0m")
-                logger.error("\x1b[91m🚨 ERROR: NO TOOLS AVAILABLE FOR LLM! 🚨\x1b[0m")
-                logger.error("\x1b[91m" + "=" * 60 + "\x1b[0m")
-                logger.error(f"\x1b[91mRaw tools from /dir: {len(tools) if tools else 0}\x1b[0m")
-                logger.error(f"\x1b[91mConverted tools: 0\x1b[0m")
-                logger.error("\x1b[91mCheck that /dir returns tools with correct format\x1b[0m")
-                logger.error("\x1b[91m" + "=" * 60 + "\x1b[0m")
-
-            # Outer loop for multi-turn tool calling
             while turn_count < max_turns:
                 turn_count += 1
-                logger.info(f"=== CONVERSATION TURN {turn_count}/{max_turns} ===")
+                logger.info(f"=== TURN {turn_count}/{max_turns} === session={sessionId} request={requestId}")
 
-                logger.info(f"Attempting to call Anthropic with model: {model}")
                 if turn_count == 1:
                     await atlantis.owner_log(f"Attempting to call Anthropic: {model}")
 
-                # Cast transcript to proper type for Anthropic client
                 typed_transcript = cast(List[MessageParam], transcript)
+                typed_tools = cast(List[ToolParam], converted_tools)
 
-                # Log what we're actually sending to Anthropic
-                logger.info(f"=== SENDING TO ANTHROPIC (OPUS) (turn {turn_count}) ===")
+                logger.info(f"=== SENDING TO ANTHROPIC (turn {turn_count}) ===")
                 logger.info(f"Messages: {len(typed_transcript)} entries")
                 logger.info(f"Tools: {len(typed_tools)} entries")
-                logger.info(f"Tool names sent to Anthropic: {[t['name'] for t in typed_tools]}")
+                logger.info(f"Tool names: {[t['name'] for t in converted_tools]}")
 
-                logger.info("Creating streaming message request...")
+                # Dump full API payload for debugging (clobbers each turn)
+                api_dump_file = os.path.join(os.path.dirname(__file__), 'api_payload.json')
+                try:
+                    with open(api_dump_file, 'w') as f:
+                        json.dump({
+                            'model': model,
+                            'system': system_prompt,
+                            'messages': transcript,
+                            'tools': converted_tools,
+                            'turn': turn_count,
+                        }, f, indent=2, default=str)
+                    logger.info(f"API payload written to {api_dump_file}")
+                except Exception as e:
+                    logger.warning(f"Failed to write API payload: {e}")
 
                 event_count = 0
-                streamed_count = 0  # Track how many text chunks we've streamed
-                max_stream_chunks = 512  # Abort after this many
-                tool_calls_accumulator: Dict[int, Dict[str, Any]] = {}  # Store tool calls by index
-                current_block_index = 0  # Track which content block we're in
-                tool_call_made = False  # Track if we made a tool call this turn
-                accumulated_tool_uses: List[ToolUseBlock] = []  # Store complete tool use blocks for transcript
-                thinking_blocks_accumulator: Dict[int, Dict[str, Any]] = {}  # Accumulate thinking blocks by index
-                accumulated_thinking_blocks: List[Dict[str, Any]] = []  # Store complete thinking blocks for transcript
-                streamThinkId = None  # Separate stream for thinking
+                streamed_count = 0
+                max_stream_chunks = 512
+                tool_calls_accumulator: Dict[int, Dict[str, Any]] = {}
+                current_block_index = 0
+                tool_call_made = False
+                accumulated_tool_uses: List[ToolUseBlock] = []
+                thinking_blocks_accumulator: Dict[int, Dict[str, Any]] = {}
+                accumulated_thinking_blocks: List[Dict[str, Any]] = []
 
-                # Use Anthropic's streaming context manager
-                # Anthropic caching starts at 1024 tokens min
+                logger.info(f">>> Calling Anthropic ({model})...")
+                t_api = _t.monotonic()
+
                 with client.messages.stream(
                     model=model,
-                    system=build_system_prompt(base_prompt, static_skill_texts, dynamic_skill_texts, caller, visit_count, last_visit),
-                    tools=cast(List[ToolParam], typed_tools),
+                    system=system_prompt,
+                    tools=typed_tools,
                     messages=typed_transcript,
                     max_tokens=16000,
                     thinking=cast(Any, {"type": "adaptive"}),
                     output_config=cast(Any, {"effort": "low"}),
                 ) as stream:
-                    logger.info("Anthropic API call successful!")
+                    logger.info(f"<<< Anthropic stream opened in {_t.monotonic() - t_api:.2f}s, reading events...")
                     if turn_count == 1:
                         await atlantis.owner_log("Anthropic API call successful, starting stream")
-
-                    logger.info("Beginning to process stream events...")
 
                     for event in stream:
                         event_count += 1
 
-                        # Handle different event types
                         if event.type == "content_block_start":
                             current_block_index = event.index
                             if hasattr(event, 'content_block'):
@@ -768,7 +861,6 @@ async def chat():
                                         'signature': ''
                                     }
                                 elif block.type == "tool_use":
-                                    # Tool call starting - capture id and name
                                     logger.info(f"🔧 Tool use block starting: {block.name} (id: {block.id})")
                                     tool_calls_accumulator[current_block_index] = {
                                         'id': block.id,
@@ -784,11 +876,11 @@ async def chat():
                                     if streamThinkId:
                                         await atlantis.stream_end(streamThinkId)
                                         streamThinkId = None
-                                    # Lazily create talk stream on first text
+
                                     if not streamTalkId:
                                         streamTalkId = await atlantis.stream_start("kitty", "Kitty")
                                         logger.info(f"Talk stream started with ID: {streamTalkId}")
-                                    # Stream text content
+
                                     text = delta.text
                                     content_to_send = text.lstrip() if streamed_count == 0 else text
 
@@ -801,25 +893,22 @@ async def chat():
                                             break
 
                                 elif delta.type == "thinking_delta":
-                                    # Stream thinking to separate thinking stream
                                     if current_block_index in thinking_blocks_accumulator:
                                         thinking_blocks_accumulator[current_block_index]['thinking'] += delta.thinking
                                         if not streamThinkId:
                                             streamThinkId = await atlantis.stream_start("kitty", "Kitty (thinking)")
+                                            logger.info(f"Think stream started with ID: {streamThinkId}")
                                         await atlantis.stream(delta.thinking, streamThinkId)
 
                                 elif delta.type == "signature_delta":
-                                    # Accumulate thinking signature
                                     if current_block_index in thinking_blocks_accumulator:
                                         thinking_blocks_accumulator[current_block_index]['signature'] += delta.signature
 
                                 elif delta.type == "input_json_delta":
-                                    # Accumulate tool arguments
                                     if current_block_index in tool_calls_accumulator:
                                         tool_calls_accumulator[current_block_index]['arguments'] += delta.partial_json
 
                         elif event.type == "content_block_stop":
-                            # Block complete - if it was a thinking block, store it
                             if current_block_index in thinking_blocks_accumulator:
                                 acc = thinking_blocks_accumulator[current_block_index]
                                 logger.info(f"💭 Thinking block complete ({len(acc['thinking'])} chars)")
@@ -829,11 +918,9 @@ async def chat():
                                     'signature': acc['signature']
                                 })
 
-                            # Block complete - if it was a tool use, store it
                             if current_block_index in tool_calls_accumulator:
                                 acc = tool_calls_accumulator[current_block_index]
                                 logger.info(f"🔧 Tool use block complete: {acc['name']}")
-                                # Parse and store the complete tool use block
                                 try:
                                     parsed_input = json.loads(acc['arguments']) if acc['arguments'] else {}
                                     accumulated_tool_uses.append(ToolUseBlock(
@@ -846,20 +933,17 @@ async def chat():
                                     logger.error(f"Failed to parse tool arguments: {e}")
 
                         elif event.type == "message_delta":
-                            # Check stop reason - just log it, we handle tools after stream ends
                             if hasattr(event, 'delta') and hasattr(event.delta, 'stop_reason'):
                                 stop_reason = event.delta.stop_reason
                                 logger.info(f"Message stop_reason: {stop_reason}")
 
-                # End of stream context - now handle any tool calls that were accumulated
-                logger.info(f"Stream processing complete for turn {turn_count}. Total events: {event_count}")
+                logger.info(f"Stream complete: turn={turn_count} events={event_count} text_chunks={streamed_count} tool_calls={len(accumulated_tool_uses)} session={sessionId}")
 
                 # Execute accumulated tool calls if any
                 if accumulated_tool_uses:
-                    logger.info(f"Executing {len(accumulated_tool_uses)} accumulated tool calls")
+                    logger.info(f"Executing {len(accumulated_tool_uses)} tool calls")
 
-                    # First, add assistant message with thinking + tool_use blocks to transcript
-                    # Thinking blocks MUST be preserved for tool use continuity
+                    # Add assistant message with thinking + tool_use blocks to transcript
                     assistant_content: List[Dict[str, Any]] = []
                     for thinking_block in accumulated_thinking_blocks:
                         assistant_content.append(thinking_block)
@@ -875,66 +959,96 @@ async def chat():
                         'content': assistant_content
                     })
 
-                    # Now execute each tool and collect results
+                    # Execute each tool and collect results
                     tool_results: List[Dict[str, Any]] = []
                     for tool_use in accumulated_tool_uses:
                         call_id = tool_use.id
-                        tool_key = tool_use.name  # This is the sanitized key Anthropic knows
+                        tool_key = tool_use.name
                         arguments = tool_use.input
 
-                        # Look up the real function info from our lookup table
+                        # Handle dir pseudo-tool
+                        if tool_key == 'dir':
+                            dir_name = arguments.get('name', '')
+                            logger.info(f"=== DIR TOOL CALLED: name='{dir_name}' ===")
+                            summary, converted_tools, tool_lookup = await handle_dir_tool(
+                                dir_name, converted_tools, tool_lookup
+                            )
+                            tool_results.append({
+                                'type': 'tool_result',
+                                'tool_use_id': call_id,
+                                'content': summary
+                            })
+                            tool_call_made = True
+                            continue
+
+                        # Handle search pseudo-tool
+                        if tool_key == 'search':
+                            query = arguments.get('query', '')
+                            logger.info(f"=== SEARCH TOOL CALLED: query='{query}' ===")
+                            summary, converted_tools, tool_lookup = await handle_search_tool(
+                                query, converted_tools, tool_lookup
+                            )
+                            tool_results.append({
+                                'type': 'tool_result',
+                                'tool_use_id': call_id,
+                                'content': summary
+                            })
+                            tool_call_made = True
+                            continue
+
                         if tool_key not in tool_lookup:
                             logger.error(f"\x1b[91m🚨 UNKNOWN TOOL KEY: '{tool_key}' not in tool_lookup!\x1b[0m")
                             logger.error(f"\x1b[91m  Available keys: {list(tool_lookup.keys())}\x1b[0m")
-                            raise ValueError(f"Unknown tool: {tool_key}")
+                            tool_results.append({
+                                'type': 'tool_result',
+                                'tool_use_id': call_id,
+                                'is_error': True,
+                                'content': f"Error: Unknown tool: {tool_key}"
+                            })
+                            continue
 
                         lookup_info = tool_lookup[tool_key]
                         search_term = lookup_info['searchTerm']
                         function_name = lookup_info['functionName']
-                        filename = lookup_info['filename']
 
-                        logger.info(f"=== EXECUTING TOOL: {tool_key} ===")
-                        logger.info(f"  ID: {call_id}")
-                        logger.info(f"  Resolved: searchTerm='{search_term}', function='{function_name}', file='{filename}'")
-                        logger.info(f"  Arguments: {format_json_log(arguments)}")
+                        import time as _t
+                        logger.info(f">>> EXECUTING TOOL: {tool_key} (call_id={call_id})")
+                        logger.info(f"    searchTerm='{search_term}' function='{function_name}'")
+                        logger.info(f"    args={format_json_log(arguments)}")
 
                         try:
-                            # Look up the tool's schema to coerce argument types
+                            # Look up the tool's schema for argument coercion
                             tool_schema = None
-                            for tool in tools:
-                                if tool.get('searchTerm') == search_term:
-                                    tool_str = tool.get('tool', '')
-                                    tool_schema = parse_tool_params(tool_str)
-                                    logger.info(f"  Found tool schema: {tool_str}")
+                            for ct in converted_tools:
+                                if ct['name'] == tool_key:
+                                    tool_schema = ct['input_schema']
                                     break
 
-                            # Coerce arguments to match schema types
                             if tool_schema and arguments:
                                 arguments = coerce_args_to_schema(arguments, tool_schema)
-                                logger.info(f"  Post-coercion arguments: {format_json_log(arguments)}")
+                                logger.info(f"    post-coercion args={format_json_log(arguments)}")
 
-                            # Execute the tool call through atlantis client command using search term
+                            t0 = _t.monotonic()
+                            logger.info(f"    sending /silent on...")
                             await atlantis.client_command("/silent on")
+                            logger.info(f"    sending %{search_term}...")
                             tool_result = await atlantis.client_command(f"%{search_term}", data=arguments)
+                            logger.info(f"    sending /silent off...")
                             await atlantis.client_command("/silent off")
+                            elapsed = _t.monotonic() - t0
 
-                            logger.info(f"  Tool result: {tool_result}")
-
-                            # Send tool result to client for transcript display
+                            logger.info(f"<<< TOOL {tool_key} RETURNED in {elapsed:.2f}s — result: {str(tool_result)[:200]}")
                             await atlantis.tool_result(function_name, tool_result)
 
-                            # Collect result for transcript
                             tool_results.append({
                                 'type': 'tool_result',
                                 'tool_use_id': call_id,
                                 'content': str(tool_result) if tool_result else "No result"
                             })
-
                             tool_call_made = True
 
                         except Exception as e:
-                            logger.error(f"Error executing tool call: {e}")
-                            # Add error result
+                            logger.error(f"<<< TOOL {tool_key} FAILED: {e}")
                             tool_results.append({
                                 'type': 'tool_result',
                                 'tool_use_id': call_id,
@@ -948,49 +1062,40 @@ async def chat():
                         'content': tool_results
                     })
 
-                    logger.info("Tool calls executed and added to transcript")
+                    logger.info("Tool calls executed, continuing conversation")
+                    logger.info(f"tool_lookup keys ({len(tool_lookup)}): {list(tool_lookup.keys())}")
 
-                # Check if we made a tool call and should continue
+                # Exit if no tool calls were made
                 if not tool_call_made:
-                    logger.info("No tool call made this turn - conversation complete")
-                    break  # Exit outer while loop
+                    logger.info(f"No tool calls — conversation complete (session={sessionId})")
+                    break
                 else:
-                    logger.info("Tool call made - continuing to next turn with updated transcript")
-                    # Reset for next turn
+                    logger.info(f"Tool calls executed — continuing to turn {turn_count + 1} (session={sessionId})")
                     accumulated_tool_uses = []
                     tool_calls_accumulator = {}
                     accumulated_thinking_blocks = []
                     thinking_blocks_accumulator = {}
-                    # Loop continues with updated transcript
 
-            # End of while loop - conversation complete
+            # End of while loop
             logger.info(f"Conversation complete after {turn_count} turns")
-            logger.info("Ending stream...")
+            if streamThinkId:
+                await atlantis.stream_end(streamThinkId)
+                logger.info("Think stream ended successfully")
             if streamTalkId:
                 await atlantis.stream_end(streamTalkId)
-                logger.info("Stream ended successfully")
+                logger.info("Talk stream ended successfully")
 
         except Exception as e:
-            logger.error(f"ERROR calling remote model: {str(e)}")
+            logger.error(f"ERROR calling Anthropic: {str(e)}")
             logger.error(f"Error type: {type(e)}")
             logger.error(f"Full exception:", exc_info=True)
 
-            # Extract detailed error info from Anthropic APIError
             error_details = str(e)
             err_body = getattr(e, 'body', None)
-            err_code = getattr(e, 'code', None)
-            err_type = getattr(e, 'type', None)
-            err_param = getattr(e, 'param', None)
             err_response = getattr(e, 'response', None)
             if err_body:
                 logger.error(f"Error body: {err_body}")
                 error_details = f"{error_details} | Body: {err_body}"
-            if err_code:
-                logger.error(f"Error code: {err_code}")
-            if err_type:
-                logger.error(f"Error type attr: {err_type}")
-            if err_param:
-                logger.error(f"Error param: {err_param}")
             if err_response:
                 try:
                     logger.error(f"Response status: {err_response.status_code}")
@@ -999,9 +1104,7 @@ async def chat():
                 except:
                     pass
 
-            await atlantis.owner_log(f"Error calling remote model: {error_details}")
-            await atlantis.owner_log(f"Error type: {type(e)}")
-            # Make sure to close streams on error
+            await atlantis.owner_log(f"Error calling Anthropic: {error_details}")
             for sid in [streamThinkId, streamTalkId]:
                 if sid:
                     try:
@@ -1010,8 +1113,10 @@ async def chat():
                         pass
             raise
 
-        logger.info("=== CHAT FUNCTION COMPLETED SUCCESSFULLY ===")
-        return
+        logger.info(f"=== CHAT COMPLETED === session={sessionId} request={requestId} turns={turn_count}")
 
+    finally:
+        _busy_sessions.pop(sessionId, None)
+        logger.info(f"🔓 RELEASED: session={sessionId} request={requestId}")
 
-
+    return

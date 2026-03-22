@@ -587,8 +587,11 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
 
 
 
-# Session busy locks - prevents concurrent chat invocations for the same session
-_session_locks: Dict[str, asyncio.Lock] = {}
+# Session busy locks - persists across dynamic reloads via SharedContainer
+_LOCKS_KEY = "kitty_orant_session_locks"
+if not atlantis.shared.get(_LOCKS_KEY):
+    atlantis.shared.set(_LOCKS_KEY, {})
+_session_locks: Dict[str, asyncio.Lock] = atlantis.shared.get(_LOCKS_KEY)
 
 # no location since this is catch-all chat
 # no app since this is catch-all chat

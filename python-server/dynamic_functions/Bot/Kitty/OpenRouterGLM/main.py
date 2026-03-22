@@ -676,8 +676,11 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
 
 
 
-# Busy session tracking — keyed by session_id, stores the request_id that owns the lock
-_busy_sessions: Dict[str, str] = {}
+# Busy session tracking — persists across dynamic reloads via SharedContainer
+_BUSY_KEY = "kitty_busy_sessions"
+if not atlantis.shared.get(_BUSY_KEY):
+    atlantis.shared.set(_BUSY_KEY, {})
+_busy_sessions: Dict[str, str] = atlantis.shared.get(_BUSY_KEY)
 
 
 # no location since this is catch-all chat
@@ -732,9 +735,9 @@ async def chat():
             await atlantis.owner_log(f"Skipping response - last chat was from kitty")
             return
 
-        # Record visit only if we're actually going to chat
-        visit_count, last_visit = get_visit_info(caller)
-        logger.info(f"Visitor: {caller}, visit #{visit_count}, last visit: {last_visit or 'first time'}")
+        # Check visit info before recording, so we can detect time gaps
+        prev_count, prev_last_visit = get_visit_info(caller)
+        logger.info(f"Visitor: {caller}, visit #{prev_count}, last visit: {prev_last_visit or 'first time'}")
 
         # Fetch skills for system prompt
         logger.info(f">>> Fetching skills...")
@@ -763,18 +766,12 @@ async def chat():
         model = "z-ai/glm-5"
         logger.info(f"Using model: {model}")
 
-        # Build system prompt string (once, reused each turn)
-        system_prompt = build_system_prompt(
-            base_prompt, skill_texts,
-            caller, visit_count, last_visit
-        )
-
         # If more than an hour since last visit (or first visit), stamp the convo start time
-        if not last_visit:
+        if not prev_last_visit:
             record_new_conversation(caller)
         else:
             try:
-                elapsed = datetime.now() - datetime.fromisoformat(last_visit)
+                elapsed = datetime.now() - datetime.fromisoformat(prev_last_visit)
                 if elapsed.total_seconds() > 3600:
                     now_str = datetime.now().strftime('%Y-%m-%d %H:%M')
                     gap_msg = f"[Some time has passed since your last interaction. The current date and time is now {now_str}.]"
@@ -783,6 +780,15 @@ async def chat():
                     logger.info(f"Injected time-gap message: {gap_msg}")
             except (ValueError, TypeError):
                 pass
+
+        # Re-read visit info after recording so the count is up-to-date for the system prompt
+        visit_count, last_visit = get_visit_info(caller)
+
+        # Build system prompt string (once, reused each turn)
+        system_prompt = build_system_prompt(
+            base_prompt, skill_texts,
+            caller, visit_count, last_visit
+        )
 
         # Start with only pseudo-tools — LLM discovers others dynamically
         converted_tools: List[TranscriptToolT] = [SEARCH_PSEUDO_TOOL, DIR_PSEUDO_TOOL]

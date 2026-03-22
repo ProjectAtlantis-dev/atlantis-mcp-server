@@ -326,19 +326,30 @@ def _clean_data(data: str):
 - Internal functions can still be called by visible functions
 
 ### Chat Function
+
+Chat bots use the `@chat` decorator to handle conversations. The bot receives the transcript and can call tools on behalf of the user.
+
+**Tool Discovery:** Rather than pre-loading all available tools (or injecting "skills" into the system prompt), the recommended pattern is to give the LLM **search and dir pseudo-tools** so it can discover tools dynamically as needed. This keeps the initial tool list small, reduces token usage, and lets the bot find exactly what it needs on the fly via `/search` and `/dir` commands.
+
 ```python
 @chat
-@visible
 async def chat():
     """Chat function that processes conversation and calls LLM."""
     # Get conversation history
-    transcript = await atlantis.client_command("\\transcript get")
+    transcript = await atlantis.client_command("/transcript get")
 
-    # Get available tools
-    tools = await atlantis.client_command("\\transcript tools")
+    # Instead of pre-loading all tools, give the LLM search + dir
+    # pseudo-tools so it can discover tools dynamically:
+    #   search — find tools by keyword (e.g. "weather", "admin")
+    #   dir    — look up tools by exact name
+    #
+    # When the LLM calls search/dir, you run the corresponding
+    # /search or /dir command and merge results into the tool list.
+    # This replaces the old "skills" approach where tool descriptions
+    # were injected into the system prompt.
 
-    # Call your LLM with transcript and tools
-    response = await call_llm(transcript, tools)
+    # See Bot/Kitty/OpenRouterGLM/main.py for a full working example
+    # with streaming, tool execution, and multi-turn conversation.
 
     # Stream response back
     stream_id = await atlantis.stream_start("chat", "ai_assistant")

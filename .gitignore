@@ -73,8 +73,10 @@ python-server/set_ANTHROPIC.bat
 
 runServer.log
 python-server/tools_response_debug.json
-python-server/dynamic_functions/Bot/Kitty/Ant/visitor_log.json
 python-server/dynamic_functions.TEST/*
-python-server/dynamic_functions/Bot/Kitty/OpenRouterGLM/api_payload.json
-python-server/dynamic_functions/Bot/Kitty/OpenRouterGLM/raw_transcript.json
-python-server/dynamic_functions/Bot/Kitty/OpenRouterGLM/visitor_log.json
+
+# Bot Kitty runtime files (all variants)
+python-server/dynamic_functions/Bot/Kitty/visitor_log.json
+python-server/dynamic_functions/Bot/Kitty/*/api_payload.json
+python-server/dynamic_functions/Bot/Kitty/*/raw_transcript.json
+python-server/dynamic_functions/Bot/Kitty/*/visitor_log.json

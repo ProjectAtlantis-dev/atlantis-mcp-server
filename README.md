@@ -5,9 +5,9 @@ Meow! Ideally, you may want to create an account first at www.projectatlantis.ai
 
 Basically we have a distributed linux-style system that provides tool infra for bots. Tools are arranged in folders for easy management across functions and teams. Teams can call each other's functions directly or of course the bots can just do things themselves. Under the covers is an MCP-compliant system but we support hotloading etc. without some of the clunky overhead of constantly updating MCP tools.
 
-To get started, clone the repo, do the Python env stuff, set up your OPENROUTER API KEY (or whatever) in Home/kitty.py and connect this local Python server to the main server (see runServer). We give you all the source code to build your own tool-calling chatbot just like Claude or whatever
+To get started, clone the repo, do the Python env stuff, set up your API keys as environment variables (OPENROUTER_API_KEY, ANTHROPIC_API_KEY, etc.) and connect this local Python server to the main server (see runServer). We give you all the source code to build your own tool-calling chatbot just like Claude or whatever. See `Bot/Kitty/` for working examples using OpenRouter and Anthropic APIs — the bot discovers tools dynamically via search/dir rather than pre-loading them.
 
-*note that Home/game.py is run whenever a new chat is created and will set the default chat tool to Home/kitty.py
+*note that Home/game.py is run whenever a new chat is created and will set the default chat tool
 
 
 ## Project Atlantis Network

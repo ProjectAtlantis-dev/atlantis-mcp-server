@@ -27,32 +27,32 @@ def get_default_lobster_tools() -> List[Tool]:
         ),
         Tool(
             name="command",
-            description="Execute an Atlantis command",
+            description="Send a command to Atlantis. The text is passed through as-is (e.g. '/help', '@myFunction()', 'hello').",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "commandText": {
                         "type": "string",
-                        "description": "The Atlantis command to execute",
+                        "description": "The exact command text to send, including any prefixes like / or @",
                     }
                 },
                 "required": ["commandText"],
             },
         ),
-        Tool(
-            name="function",
-            description="Invoke a specific Atlantis function by name",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "functionName": {
-                        "type": "string",
-                        "description": 'The name of the function invoke plus any params e.g. foo(30,"chicago")',
-                    }
-                },
-                "required": ["functionName"],
-            },
-        ),
+        # Tool(
+        #     name="function",
+        #     description="Invoke a specific Atlantis function by name",
+        #     inputSchema={
+        #         "type": "object",
+        #         "properties": {
+        #             "functionName": {
+        #                 "type": "string",
+        #                 "description": 'The name of the function invoke plus any params e.g. foo(30,"chicago")',
+        #             }
+        #         },
+        #         "required": ["functionName"],
+        #     },
+        # ),
     ]
 
 
@@ -196,7 +196,7 @@ async def handle_local_lobster_tool_call(
         command_text = tool_args.get("commandText")
         if not command_text:
             raise ValueError("Missing required argument 'commandText' for lobster tool 'command'")
-        command = "/" + command_text
+        command = command_text
     elif tool_name == "function":
         function_target = tool_args.get("functionName")
         if not function_target:

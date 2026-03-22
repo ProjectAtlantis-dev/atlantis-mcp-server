@@ -705,19 +705,17 @@ async def chat():
     try:
         import time as _t
 
-        # Load system prompt directly from local module (no cloud round-trip)
-        logger.info(f">>> Loading SYSTEM_PROMPT locally...")
+        # Fetch base prompt from server
+        logger.info(f">>> Fetching SYSTEM_PROMPT via client_command...")
         t0 = _t.monotonic()
-        try:
-            from system_prompt import SYSTEM_PROMPT as _get_system_prompt
-            base_prompt = await _get_system_prompt()
-            if not base_prompt or not str(base_prompt).strip():
-                raise ValueError("Empty prompt returned")
-            base_prompt = str(base_prompt)
-            logger.info(f"<<< SYSTEM_PROMPT loaded in {_t.monotonic() - t0:.2f}s ({len(base_prompt)} chars)")
-        except Exception as e:
-            logger.error(f"<<< SYSTEM_PROMPT load failed: {e} — using fallback")
+        await atlantis.client_command("/silent on")
+        base_prompt = await atlantis.client_command("@../SYSTEM_PROMPT")
+        await atlantis.client_command("/silent off")
+        if not base_prompt or not str(base_prompt).strip():
+            logger.error("Failed to fetch SYSTEM_PROMPT, using fallback")
             base_prompt = "You are a helpful assistant."
+        base_prompt = str(base_prompt)
+        logger.info(f"<<< SYSTEM_PROMPT loaded in {_t.monotonic() - t0:.2f}s ({len(base_prompt)} chars)")
 
         # Fetch and transform transcript
         logger.info(f">>> Fetching transcript...")

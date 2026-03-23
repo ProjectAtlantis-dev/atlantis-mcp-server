@@ -1,7 +1,6 @@
 import atlantis
 
-@text
-@visible
+@text("md")
 async def SYSTEM_PROMPT():
     """Base system prompt for Kitty"""
     return """(director's note: we are striving for realistic dialog)

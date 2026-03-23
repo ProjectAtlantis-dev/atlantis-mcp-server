@@ -680,7 +680,7 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
 _BUSY_KEY = "kitty_busy_sessions"
 if not atlantis.shared.get(_BUSY_KEY):
     atlantis.shared.set(_BUSY_KEY, {})
-_busy_sessions: Dict[str, str] = atlantis.shared.get(_BUSY_KEY)
+_busy_sessions: Dict[str, str] = atlantis.shared.get(_BUSY_KEY) or {}
 
 
 # no location since this is catch-all chat
@@ -708,14 +708,13 @@ async def chat():
     try:
         import time as _t
 
-        # Fetch base prompt from server
-        logger.info(f">>> Fetching SYSTEM_PROMPT via client_command...")
+        # Load base prompt directly via import
+        logger.info(f">>> Loading SYSTEM_PROMPT via direct import...")
         t0 = _t.monotonic()
-        await atlantis.client_command("/silent on")
-        base_prompt = await atlantis.client_command("@../SYSTEM_PROMPT")
-        await atlantis.client_command("/silent off")
+        from dynamic_functions.Bot.Kitty.system_prompt import SYSTEM_PROMPT
+        base_prompt = await SYSTEM_PROMPT()
         if not base_prompt or not str(base_prompt).strip():
-            logger.error("Failed to fetch SYSTEM_PROMPT, using fallback")
+            logger.error("Failed to load SYSTEM_PROMPT, using fallback")
             base_prompt = "You are a helpful assistant."
         base_prompt = str(base_prompt)
         logger.info(f"<<< SYSTEM_PROMPT loaded in {_t.monotonic() - t0:.2f}s ({len(base_prompt)} chars)")

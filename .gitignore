@@ -55,6 +55,7 @@ python-server/dynamic_servers/OLD/
 !python-server/dynamic_servers/weather.json
 python-server/runServerProd
 python-server/runServerFoo*
+python-server/runServerAdmin*
 python-server/runServerBar*
 python-server/runServer*Local
 python-server/runServer*Prod

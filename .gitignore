@@ -78,7 +78,7 @@ python-server/tools_response_debug.json
 python-server/dynamic_functions.TEST/*
 
 # Bot Kitty runtime files (all variants)
-python-server/dynamic_functions/Bot/Kitty/visitor_log.json
+python-server/dynamic_functions/Bot/Kitty/visitor_data.json
 python-server/dynamic_functions/Bot/Kitty/*/api_payload.json
 python-server/dynamic_functions/Bot/Kitty/*/raw_transcript.json
 python-server/dynamic_functions/Bot/Kitty/*/visitor_log.json

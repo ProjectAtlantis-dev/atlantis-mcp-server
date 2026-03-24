@@ -271,7 +271,7 @@ class DynamicConfigEventHandler(FileSystemEventHandler):
         # Check if the change is relevant (Python file in any watched function dir or JSON file in any watched server dir)
         # Also handle directory changes (for directory deletions/additions)
         is_function_change = any(
-            (event_path.endswith(".py") or event_path.endswith(".txt") or event_path.startswith(watched_dir + os.sep)) and
+            (event_path.endswith(".py") or event_path.endswith(".txt")) and
             (event_path.startswith(watched_dir + os.sep) or os.path.dirname(event_path) == watched_dir)
             for watched_dir in self.watched_function_dirs
         )
@@ -314,7 +314,7 @@ class DynamicConfigEventHandler(FileSystemEventHandler):
             # --- Invalidate ALL Dynamic Function Runtime Caches ---
             # Check if the change was in the functions or servers directory
             # Also handle directory changes (not just .py files) for directory deletions/additions
-            is_function_change = (file_path.endswith(".py") or file_path.startswith(FUNCTIONS_DIR + os.sep)) and \
+            is_function_change = file_path.endswith(".py") and \
                                  (os.path.dirname(file_path) == FUNCTIONS_DIR or file_path.startswith(FUNCTIONS_DIR + os.sep))
             is_server_change = file_path.endswith(".json") and (os.path.dirname(file_path) == SERVERS_DIR or
                                                                 file_path.startswith(SERVERS_DIR + os.sep))

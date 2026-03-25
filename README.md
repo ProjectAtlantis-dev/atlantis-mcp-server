@@ -245,6 +245,7 @@ Bot/Kitty/
 
 ### Key files
 
+- **`python-server/dynamic_functions/Home/MULTIX.md`** — User-facing documentation for the Atlantis MCP tools (commands, search terms, tool prefixes, etc.). This is the file served by the `readme` MCP tool.
 - **`OpenRouterGLM/main.py`** — Main chat loop: fetches transcript, checks visitor data, builds the system prompt with visitor context, calls OpenRouter, handles tool calls in a multi-turn loop. Also writes `raw_transcript.json` for debugging what gets sent to the LLM.
 - **`visitor_data.json`** — Tracks per-user visit counts and last visit timestamps. Used by `get_visit_info()` (read) and `record_new_conversation()` (write). Both use `fcntl` file locking.
 - **`Tools/new_guest.py`** — Guest management tools (`new_guest`, `security_cleared`, `list_guests`, `guest_info`) that also read/write `visitor_data.json`.

@@ -14,7 +14,7 @@ You should have an MCP called Atlantis, with the following ways to access the wo
 
 Some interesting commands to get you started:
 
-- `help` - shows all the keywords
+- `help` - shows all the keywords (**warning:** calling with no arguments dumps a LOT of output; prefer `help <topic>` instead)
 - `help <topic>` - does fuzzy search of both keywords and tools
 - `ls` - list contents of current folder
 - `dir` - list contents from root (ignores current folder)

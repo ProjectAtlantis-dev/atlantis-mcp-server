@@ -230,6 +230,35 @@ update_image                          ✅ Works fine!
 **ImageTools**update_image            ✅ Now we need to specify the app
 ```
 
+## Bot: Kitty
+
+Kitty is the front-desk chatbot. There are multiple backend implementations under `python-server/dynamic_functions/Bot/Kitty/`:
+
+```
+Bot/Kitty/
+├── OpenRouterGLM/main.py     # GLM model via OpenRouter (primary)
+├── OpenRouterAnt/main.py     # Anthropic model via OpenRouter
+├── Ant/main.py               # Direct Anthropic API
+├── system_prompt.py          # Shared system prompt loaded by all backends
+└── visitor_data.json         # Visitor tracking DB (JSON, file-locked)
+```
+
+### Key files
+
+- **`OpenRouterGLM/main.py`** — Main chat loop: fetches transcript, checks visitor data, builds the system prompt with visitor context, calls OpenRouter, handles tool calls in a multi-turn loop. Also writes `raw_transcript.json` for debugging what gets sent to the LLM.
+- **`visitor_data.json`** — Tracks per-user visit counts and last visit timestamps. Used by `get_visit_info()` (read) and `record_new_conversation()` (write). Both use `fcntl` file locking.
+- **`Tools/new_guest.py`** — Guest management tools (`new_guest`, `security_cleared`, `list_guests`, `guest_info`) that also read/write `visitor_data.json`.
+
+### Logs
+
+The Python server writes logs to **`python-server/runServer.log`**. This file can get large — tail the last ~1000 lines to find recent errors:
+
+```bash
+tail -1000 python-server/runServer.log
+```
+
+Visitor-related log lines include `"Visitor:"`, `"New conversation for"`, and `"Injected time-gap message"`.
+
 ## Our Greenland Terrain Server
 ![happy](/happy.png)
 

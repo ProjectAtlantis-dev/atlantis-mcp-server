@@ -780,13 +780,15 @@ async def chat():
             except (ValueError, TypeError):
                 pass
 
-        # Re-read visit info after recording so the count is up-to-date for the system prompt
-        visit_count, last_visit = get_visit_info(caller)
+        # Re-read visit count after recording so it's up-to-date for the system prompt,
+        # but use the *previous* last_visit so we don't confuse "just recorded now" with
+        # "they were just here moments ago"
+        visit_count, _ = get_visit_info(caller)
 
         # Build system prompt string (once, reused each turn)
         system_prompt = build_system_prompt(
             base_prompt, skill_texts,
-            caller, visit_count, last_visit
+            caller, visit_count, prev_last_visit
         )
 
         # Start with only pseudo-tools — LLM discovers others dynamically

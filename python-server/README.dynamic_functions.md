@@ -226,22 +226,31 @@ The `atlantis` module is automatically injected into every dynamic function's ex
 **See `atlantis.py` for the full API** - the docstrings there are authoritative. Key functions include `client_log()`, `client_command()`, `stream_start/stream/stream_end()`, and various `get_*()` context accessors.
 
 
-## Shared Container
+## Shared Containers
 
-Use `atlantis.shared` for persistent memory objects (connections, not data).
+Two shared containers persist across dynamic function reloads:
+
+**`atlantis.server_shared`** — Global, server-wide. For DB connections, API clients, caches.
 
 ```python
 # Initialize database connection once
-if not atlantis.shared.get("db"):
-    atlantis.shared.set("db", sqlite3.connect("app.db"))
+if not atlantis.server_shared.get("db"):
+    atlantis.server_shared.set("db", sqlite3.connect("app.db"))
 
-db = atlantis.shared.get("db")
+db = atlantis.server_shared.get("db")
 ```
 
-**Store:** DB connections, API clients, caches
-**Don't store:** User data, application data (use databases)
+**`atlantis.session_shared`** — Auto-scoped per user session. For per-user state like tool inventories. Dynamic functions cannot access another user's session data.
 
-**Methods:** `shared.get(key)`, `shared.set(key, value)`, `shared.remove(key)`, `shared.keys()`
+```python
+# Store per-session state
+atlantis.session_shared.set("my_tools", tool_list)
+tools = atlantis.session_shared.get("my_tools")
+```
+
+**Don't store:** Application data (use databases)
+
+**Methods:** `.get(key)`, `.set(key, value)`, `.remove(key)`, `.keys()`
 
 ## Examples
 
@@ -371,7 +380,7 @@ def func(text: str, items: List[str], optional: Optional[int] = None):
 - Use `async def` for functions
 - Add type hints for parameters
 - Write clear docstrings for AI
-- Use `atlantis.shared` for connections only
+- Use `atlantis.server_shared` for connections, `atlantis.session_shared` for per-user state
 - Group related functions in same file
 - Use descriptive names
 

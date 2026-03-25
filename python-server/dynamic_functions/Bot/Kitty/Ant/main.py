@@ -667,11 +667,8 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
 
 
 
-# Busy session tracking — persists across dynamic reloads via SharedContainer
-_BUSY_KEY = "kitty_ant_busy_sessions"
-if not atlantis.shared.get(_BUSY_KEY):
-    atlantis.shared.set(_BUSY_KEY, {})
-_busy_sessions: Dict[str, str] = atlantis.shared.get(_BUSY_KEY)
+# Session-scoped keys — stored in session_shared (auto-scoped per user session)
+_BUSY_KEY = "kitty_busy"
 
 
 # no location since this is catch-all chat
@@ -687,13 +684,13 @@ async def chat():
     logger.info(f"=== CHAT TRIGGERED === session={sessionId} request={requestId} caller={caller}")
 
     # Check if this session is already being handled
-    if sessionId in _busy_sessions:
-        owner_req = _busy_sessions[sessionId]
+    owner_req = atlantis.session_shared.get(_BUSY_KEY)
+    if owner_req:
         logger.warning(f"🔒 BUSY: session={sessionId} already owned by request={owner_req}, this request={requestId} — skipping")
         await atlantis.owner_log(f"Skipping chat — session {sessionId} busy (owned by request {owner_req})")
         return
 
-    _busy_sessions[sessionId] = requestId
+    atlantis.session_shared.set(_BUSY_KEY, requestId)
     logger.info(f"🔒 ACQUIRED: session={sessionId} by request={requestId}")
 
     try:
@@ -1116,7 +1113,7 @@ async def chat():
         logger.info(f"=== CHAT COMPLETED === session={sessionId} request={requestId} turns={turn_count}")
 
     finally:
-        _busy_sessions.pop(sessionId, None)
+        atlantis.session_shared.remove(_BUSY_KEY)
         logger.info(f"🔓 RELEASED: session={sessionId} request={requestId}")
 
     return

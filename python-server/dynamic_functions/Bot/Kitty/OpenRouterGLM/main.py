@@ -330,15 +330,15 @@ async def fetch_skill_contents(dir_command: str) -> List[str]:
 
 
 @visible
-async def fetch_tools() -> List[Dict[str, Any]]:
-    """Fetch available tools via /search. Can be called directly for testing."""
-    logger.info("Fetching available tools...")
-    tools = await atlantis.client_command("/search system")
-    logger.info(f"Received {len(tools) if tools else 0} tools from /search")
-    logger.info("=== RAW TOOLS FROM /search ===")
-    logger.info(format_json_log(tools))
-    logger.info("=== END RAW TOOLS ===")
-    return tools
+async def show_tools() -> List[Dict[str, Any]]:
+    """Show Kitty's current tool inventory for this session."""
+    tools, lookup = get_session_tools()
+    simple: List[Dict[str, Any]] = [
+        {'name': t['function']['name'], 'description': t['function']['description']}
+        for t in tools
+    ]
+    logger.info(f"show_tools: {len(simple)} tools")
+    return simple
 
 @visible
 async def fetch_skills() -> List[str]:
@@ -676,11 +676,23 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
 
 
 
-# Busy session tracking — persists across dynamic reloads via SharedContainer
-_BUSY_KEY = "kitty_busy_sessions"
-if not atlantis.shared.get(_BUSY_KEY):
-    atlantis.shared.set(_BUSY_KEY, {})
-_busy_sessions: Dict[str, str] = atlantis.shared.get(_BUSY_KEY) or {}
+# Session-scoped keys — stored in session_shared (auto-scoped per user session)
+_BUSY_KEY = "kitty_busy"
+_TOOLS_KEY = "kitty_tools"
+_LOOKUP_KEY = "kitty_lookup"
+
+
+def get_session_tools() -> Tuple[List[TranscriptToolT], Dict[str, ToolLookupInfo]]:
+    """Get or initialize tool inventory for the current session."""
+    tools = atlantis.session_shared.get(_TOOLS_KEY)
+    lookup = atlantis.session_shared.get(_LOOKUP_KEY)
+    if tools is None:
+        tools = [SEARCH_PSEUDO_TOOL, DIR_PSEUDO_TOOL]
+        atlantis.session_shared.set(_TOOLS_KEY, tools)
+    if lookup is None:
+        lookup = {}
+        atlantis.session_shared.set(_LOOKUP_KEY, lookup)
+    return tools, lookup
 
 
 # no location since this is catch-all chat
@@ -696,13 +708,13 @@ async def chat():
     logger.info(f"=== CHAT TRIGGERED === session={sessionId} request={requestId} caller={caller}")
 
     # Check if this session is already being handled
-    if sessionId in _busy_sessions:
-        owner_req = _busy_sessions[sessionId]
+    owner_req = atlantis.session_shared.get(_BUSY_KEY)
+    if owner_req:
         logger.warning(f"🔒 BUSY: session={sessionId} already owned by request={owner_req}, this request={requestId} — skipping")
         await atlantis.owner_log(f"Skipping chat — session {sessionId} busy (owned by request {owner_req})")
         return
 
-    _busy_sessions[sessionId] = requestId
+    atlantis.session_shared.set(_BUSY_KEY, requestId)
     logger.info(f"🔒 ACQUIRED: session={sessionId} by request={requestId}")
 
     try:
@@ -791,10 +803,9 @@ async def chat():
             caller, visit_count, prev_last_visit
         )
 
-        # Start with only pseudo-tools — LLM discovers others dynamically
-        converted_tools: List[TranscriptToolT] = [SEARCH_PSEUDO_TOOL, DIR_PSEUDO_TOOL]
-        tool_lookup: Dict[str, ToolLookupInfo] = {}
-        logger.info("Starting with search + dir pseudo-tools only (no pre-loaded tools)")
+        # Get or initialize per-session tool inventory
+        converted_tools, tool_lookup = get_session_tools()
+        logger.info(f"Session tool inventory: {len(converted_tools)} tools, {len(tool_lookup)} in lookup")
 
         # Multi-turn conversation loop to handle tool calls
         streamTalkId = None
@@ -1082,7 +1093,7 @@ async def chat():
         logger.info(f"=== CHAT COMPLETED === session={sessionId} request={requestId} turns={turn_count}")
 
     finally:
-        _busy_sessions.pop(sessionId, None)
+        atlantis.session_shared.remove(_BUSY_KEY)
         logger.info(f"🔓 RELEASED: session={sessionId} request={requestId}")
 
     return

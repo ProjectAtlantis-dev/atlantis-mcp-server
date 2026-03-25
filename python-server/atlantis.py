@@ -59,10 +59,12 @@ AWAIT_STREAM_END_ACK: bool = True     # Wait for ack on stream_end
 
 
 
-# --- Shared Object Container ---
-# This container persists across dynamic function reloads and can store
-# shared resources like database connections, cache objects, etc.
-class SharedContainer:
+# --- Shared Object Containers ---
+# Two containers that persist across dynamic function reloads:
+#   server_shared — global, server-wide (DB connections, busy tracking, etc.)
+#   session_shared — auto-scoped by session ID, isolated per user session
+
+class _SharedContainer:
     """Container for objects that need to persist across dynamic function reloads"""
     def __init__(self):
         self._data = {}
@@ -87,8 +89,40 @@ class SharedContainer:
         """Get all keys in the shared container"""
         return list(self._data.keys())
 
-# Initialize the shared container
-shared = SharedContainer()
+
+class _SessionSharedContainer:
+    """Session-scoped shared container. Keys are automatically namespaced by session ID
+    so dynamic functions cannot access another user's session data."""
+    def __init__(self, backing: _SharedContainer):
+        self._backing = backing
+
+    def _scoped_key(self, key):
+        session_id = _session_id_var.get()
+        if not session_id:
+            raise RuntimeError("session_shared requires a session context (no session_id set)")
+        return f"__session:{session_id}:{key}"
+
+    def get(self, key, default=None):
+        """Get a value scoped to the current session"""
+        return self._backing.get(self._scoped_key(key), default)
+
+    def set(self, key, value):
+        """Store a value scoped to the current session"""
+        return self._backing.set(self._scoped_key(key), value)
+
+    def remove(self, key):
+        """Remove a value scoped to the current session"""
+        return self._backing.remove(self._scoped_key(key))
+
+    def keys(self):
+        """Get keys belonging to the current session only"""
+        prefix = self._scoped_key("")
+        return [k[len(prefix):] for k in self._backing.keys() if k.startswith(prefix)]
+
+
+# Initialize shared containers
+server_shared = _SharedContainer()
+session_shared = _SessionSharedContainer(server_shared)
 
 # --- Helper Functions ---
 

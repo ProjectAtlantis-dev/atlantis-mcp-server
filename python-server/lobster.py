@@ -361,7 +361,7 @@ async def process_mcp_request(
 ) -> Dict[str, Any]:
     """Process an MCP request and return a response."""
     method = request.get("method")
-    lobster.warning(f"\033[1;91m🦞 LOBSTER PATH: {method}\033[0m")
+    lobster.debug(f"\033[1;91m🦞 LOBSTER PATH: {method}\033[0m")
 
     if "id" not in request:
         return {"error": "Missing request ID"}
@@ -513,7 +513,7 @@ async def handle_lobster_socket(
                     )
 
                 logger.debug(f"Received (for MCP processing):\n{format_json_log(request_data)}")
-                lobster.warning(f"\033[1;91m🦞 TRAP→process_mcp_request: {request_data.get('method')}\033[0m")
+                lobster.debug(f"\033[1;91m🦞 TRAP→process_mcp_request: {request_data.get('method')}\033[0m")
                 response = await process_mcp_request(
                     mcp_server,
                     request_data,

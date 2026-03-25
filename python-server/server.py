@@ -551,7 +551,7 @@ class DynamicAdditionServer(Server):
             logger.error(f"❌ Cannot send awaitable command '{command}': Client ID '{client_id_for_routing}' not found or invalid.")
             error_data = ErrorData(
                 code=-32602,
-                message=f"Client ID '{client_id_for_routing}' not found for awaitable command."
+                message=f"Not connected. Please check that your account is set up at projectatlantis.ai and that your server is running."
             )
             raise McpError(error_data)
 
@@ -616,7 +616,7 @@ class DynamicAdditionServer(Server):
                 logger.error(f"❌ Cannot send awaitable command '{command}': Client '{client_id_for_routing}' has no valid/active connection.")
                 error_data = ErrorData(
                     code=-32602,
-                    message=f"Client '{client_id_for_routing}' has no active connection for awaitable command."
+                    message=f"Not connected. Please check that your account is set up at projectatlantis.ai and that your server is running."
                 )
                 raise McpError(error_data)
 
@@ -729,7 +729,7 @@ class DynamicAdditionServer(Server):
             logger.error(f"❌ Cannot send awaitable stream: Client ID '{client_id_for_routing}' not found or invalid.")
             error_data = ErrorData(
                 code=-32602,
-                message=f"Client ID '{client_id_for_routing}' not found for awaitable stream."
+                message=f"Not connected. Please check that your account is set up at projectatlantis.ai and that your server is running."
             )
             raise McpError(error_data)
 
@@ -764,7 +764,7 @@ class DynamicAdditionServer(Server):
                 logger.error(f"❌ Cannot send awaitable stream: Client '{client_id_for_routing}' has no valid/active connection.")
                 error_data = ErrorData(
                     code=-32602,
-                    message=f"Client '{client_id_for_routing}' has no active connection for awaitable stream."
+                    message=f"Not connected. Please check that your account is set up at projectatlantis.ai and that your server is running."
                 )
                 raise McpError(error_data)
 
@@ -1538,7 +1538,7 @@ class DynamicAdditionServer(Server):
                     if task_info:
                         logger.debug(f"🔧 _get_tools_list: Preparing Tool for '{server_name}': task_info exists={task_info is not None}, status='{status}'")
                     else:
-                        logger.warning(f"🔧 _get_tools_list: MCP server '{server_name}' installed but not yet started")
+                        logger.info(f"🔧 _get_tools_list: MCP server '{server_name}' installed but not yet started")
 
                     # Create tool with correct parameters
                     description = f"MCP server: {server_name}"

@@ -249,13 +249,18 @@ Bot/Kitty/
 - **`visitor_data.json`** — Tracks per-user visit counts and last visit timestamps. Used by `get_visit_info()` (read) and `record_new_conversation()` (write). Both use `fcntl` file locking.
 - **`Tools/new_guest.py`** — Guest management tools (`new_guest`, `security_cleared`, `list_guests`, `guest_info`) that also read/write `visitor_data.json`.
 
-### Logs
+### Troubleshooting
 
-The Python server writes logs to **`python-server/runServer.log`**. This file can get large — tail the last ~1000 lines to find recent errors:
+If MCP tools aren't working (e.g. returning `Unknown tool` errors), **check the server log first**. The Python server writes detailed logs to **`python-server/runServer.log`** — this file shows exactly what's happening with tool calls, cloud auth, and client connections. It can get large, so tail the last ~1000 lines:
 
 ```bash
 tail -1000 python-server/runServer.log
 ```
+
+**Common issues visible in the log:**
+- `⚠️ Unexpected tool call from local client` — the server received a tool call but didn't recognize it; check that your tools are registered
+- `❌ Authentication failed` — cloud credentials are wrong or the account doesn't exist; check your email/api-key
+- `🏠 Local MCP tool call intercepted` — confirms the server is receiving tool calls from the MCP client
 
 Visitor-related log lines include `"Visitor:"`, `"New conversation for"`, and `"Injected time-gap message"`.
 

@@ -327,15 +327,15 @@ async def fetch_skill_contents(dir_command: str) -> List[str]:
 
 
 @visible
-async def fetch_tools() -> List[Dict[str, Any]]:
-    """Fetch available tools via /search. Can be called directly for testing."""
-    logger.info("Fetching available tools...")
-    tools = await atlantis.client_command("/search system")
-    logger.info(f"Received {len(tools) if tools else 0} tools from /search")
-    logger.info("=== RAW TOOLS FROM /search ===")
-    logger.info(format_json_log(tools))
-    logger.info("=== END RAW TOOLS ===")
-    return tools
+async def show_tools() -> List[Dict[str, Any]]:
+    """Show Kitty's current tool inventory for this session."""
+    tools, lookup = get_session_tools()
+    simple: List[Dict[str, Any]] = [
+        {'name': t['name'], 'description': t['description']}
+        for t in tools
+    ]
+    logger.info(f"show_tools: {len(simple)} tools")
+    return simple
 
 @visible
 async def fetch_skills() -> List[str]:
@@ -669,13 +669,28 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
 
 # Session-scoped keys — stored in session_shared (auto-scoped per user session)
 _BUSY_KEY = "kitty_busy"
+_TOOLS_KEY = "kitty_tools"
+_LOOKUP_KEY = "kitty_lookup"
+
+
+def get_session_tools() -> Tuple[List[TranscriptToolT], Dict[str, ToolLookupInfo]]:
+    """Get or initialize tool inventory for the current session."""
+    tools = atlantis.session_shared.get(_TOOLS_KEY)
+    lookup = atlantis.session_shared.get(_LOOKUP_KEY)
+    if tools is None:
+        tools = [SEARCH_PSEUDO_TOOL, DIR_PSEUDO_TOOL]
+        atlantis.session_shared.set(_TOOLS_KEY, tools)
+    if lookup is None:
+        lookup = {}
+        atlantis.session_shared.set(_LOOKUP_KEY, lookup)
+    return tools, lookup
 
 
 # no location since this is catch-all chat
 # no app since this is catch-all chat
 @chat
 async def chat():
-    """Anthropic Opus via OpenRouter"""
+    """Main chat function"""
     sessionId = atlantis.get_session_id() or "unknown"
     requestId = atlantis.get_request_id() or "unknown"
     caller: str = atlantis.get_caller()  # type: ignore[assignment]
@@ -696,14 +711,13 @@ async def chat():
     try:
         import time as _t
 
-        # Fetch base prompt from server
-        logger.info(f">>> Fetching SYSTEM_PROMPT via client_command...")
+        # Load base prompt directly via import
+        logger.info(f">>> Loading SYSTEM_PROMPT via direct import...")
         t0 = _t.monotonic()
-        await atlantis.client_command("/silent on")
-        base_prompt = await atlantis.client_command("@../SYSTEM_PROMPT")
-        await atlantis.client_command("/silent off")
+        from dynamic_functions.Bot.Kitty.system_prompt import SYSTEM_PROMPT
+        base_prompt = await SYSTEM_PROMPT()
         if not base_prompt or not str(base_prompt).strip():
-            logger.error("Failed to fetch SYSTEM_PROMPT, using fallback")
+            logger.error("Failed to load SYSTEM_PROMPT, using fallback")
             base_prompt = "You are a helpful assistant."
         base_prompt = str(base_prompt)
         logger.info(f"<<< SYSTEM_PROMPT loaded in {_t.monotonic() - t0:.2f}s ({len(base_prompt)} chars)")
@@ -768,19 +782,20 @@ async def chat():
             except (ValueError, TypeError):
                 pass
 
-        # Re-read visit info after recording so the count is up-to-date for the system prompt
-        visit_count, last_visit = get_visit_info(caller)
+        # Re-read visit count after recording so it's up-to-date for the system prompt,
+        # but use the *previous* last_visit so we don't confuse "just recorded now" with
+        # "they were just here moments ago"
+        visit_count, _ = get_visit_info(caller)
 
         # Build system prompt string (once, reused each turn)
         system_prompt = build_system_prompt(
             base_prompt, skill_texts,
-            caller, visit_count, last_visit
+            caller, visit_count, prev_last_visit
         )
 
-        # Start with only pseudo-tools — LLM discovers others dynamically
-        converted_tools: List[TranscriptToolT] = [SEARCH_PSEUDO_TOOL, DIR_PSEUDO_TOOL]
-        tool_lookup: Dict[str, ToolLookupInfo] = {}
-        logger.info("Starting with search + dir pseudo-tools only (no pre-loaded tools)")
+        # Get or initialize per-session tool inventory
+        converted_tools, tool_lookup = get_session_tools()
+        logger.info(f"Session tool inventory: {len(converted_tools)} tools, {len(tool_lookup)} in lookup")
 
         # Multi-turn conversation loop to handle tool calls
         streamTalkId = None

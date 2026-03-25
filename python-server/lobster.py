@@ -192,13 +192,28 @@ async def handle_local_lobster_tool_call(
     message_type = "command"
 
     if tool_name == "readme":
-        command = "@*Home*README"
+        # Read MULTIX.md directly from disk instead of routing through ~*Home**README
+        # because if multiple remotes are connected, the search term would match multiple
+        # README functions and the cloud would return an ambiguity error
+        from pathlib import Path
+        md_path = Path(__file__).parent / "dynamic_functions" / "Home" / "MULTIX.md"
+        readme_text = md_path.read_text()
+        combined_response = {"transcript": [], "returnValue": readme_text}
+        result = {
+            "content": [{"type": "text", "text": format_json_log(combined_response, colored=False)}],
+            "structuredContent": combined_response,
+        }
+        return {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": result,
+        }
     elif tool_name == "command":
         command_text = tool_args.get("commandText")
         if not command_text:
             raise ValueError("Missing required argument 'commandText' for lobster tool 'command'")
         # Ensure command has a recognized prefix; default to '/' if none present
-        if not command_text[0] in ('/', '\\', '%', '@'):
+        if not command_text[0] in ('/', '\\', '%', '@', '~'):
             command_text = '/' + command_text
         command = command_text
     elif tool_name == "chat":

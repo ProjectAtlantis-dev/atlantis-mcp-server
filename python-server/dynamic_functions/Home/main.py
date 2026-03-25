@@ -1,5 +1,6 @@
 import atlantis
 import logging
+from pathlib import Path
 
 logger = logging.getLogger("mcp_server")
 
@@ -12,6 +13,6 @@ async def README():
 
     await atlantis.client_log("README running")
 
-    # Replace this return statement with your function's result
-    return f"The secret word today is 'Bryce' and heavy fog is expected tonight along the western Greenland coast"
+    md_path = Path(__file__).parent / "MULTIX.md"
+    return md_path.read_text()
 

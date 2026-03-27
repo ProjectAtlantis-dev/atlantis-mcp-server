@@ -349,6 +349,43 @@ async def fetch_skills() -> List[str]:
     return skill_texts
 
 
+def build_visitor_context(caller: str, visit_count: int, last_visit: str) -> str:
+    """Build a visitor context note based on caller info. Returns empty string if no context applies."""
+    if not caller or visit_count <= 0:
+        return ""
+
+    hour = datetime.now().hour
+    late_night = hour >= 22 or hour < 5
+
+    if visit_count == 1:
+        if late_night:
+            visitor_note = f"This is {caller}'s first time here. It's late — their helicopter probably just arrived behind schedule, likely delayed by weather. Welcome them warmly, they've had a long trip."
+        else:
+            visitor_note = f"This is {caller}'s first time here. They're brand new — introduce yourself, welcome them warmly, and help them get oriented."
+    elif visit_count <= 5:
+        visitor_note = f"{caller} has visited {visit_count} times. They're still fairly new — be friendly and remember they might still be figuring things out."
+    else:
+        visitor_note = f"{caller} has visited {visit_count} times. They're a regular — skip the intros, be casual, and treat them like a friend."
+
+    if last_visit:
+        try:
+            elapsed = datetime.now() - datetime.fromisoformat(last_visit)
+            days = elapsed.days
+            hours = elapsed.seconds // 3600
+            if days > 30:
+                visitor_note += f" It's been about {days // 30} month(s) since their last visit — maybe acknowledge it's been a while."
+            elif days > 0:
+                visitor_note += f" It's been about {days} day(s) since their last visit."
+            elif hours > 0:
+                visitor_note += f" They were here about {hours} hour(s) ago."
+            else:
+                visitor_note += " They were just here moments ago."
+        except (ValueError, TypeError):
+            pass
+
+    return visitor_note
+
+
 def build_system_prompt(
     base_prompt: str,
     skills: List[str],
@@ -368,36 +405,8 @@ def build_system_prompt(
     parts.append(f"Current date and time: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
     # Visitor context
-    if caller and visit_count > 0:
-        hour = datetime.now().hour
-        late_night = hour >= 22 or hour < 5
-
-        if visit_count == 1:
-            if late_night:
-                visitor_note = f"This is {caller}'s first time here. It's late — their helicopter probably just arrived behind schedule, likely delayed by weather. Welcome them warmly, they've had a long trip."
-            else:
-                visitor_note = f"This is {caller}'s first time here. They're brand new — introduce yourself, welcome them warmly, and help them get oriented."
-        elif visit_count <= 5:
-            visitor_note = f"{caller} has visited {visit_count} times. They're still fairly new — be friendly and remember they might still be figuring things out."
-        else:
-            visitor_note = f"{caller} has visited {visit_count} times. They're a regular — skip the intros, be casual, and treat them like a friend."
-
-        if last_visit:
-            try:
-                elapsed = datetime.now() - datetime.fromisoformat(last_visit)
-                days = elapsed.days
-                hours = elapsed.seconds // 3600
-                if days > 30:
-                    visitor_note += f" It's been about {days // 30} month(s) since their last visit — maybe acknowledge it's been a while."
-                elif days > 0:
-                    visitor_note += f" It's been about {days} day(s) since their last visit."
-                elif hours > 0:
-                    visitor_note += f" They were here about {hours} hour(s) ago."
-                else:
-                    visitor_note += " They were just here moments ago."
-            except (ValueError, TypeError):
-                pass
-
+    visitor_note = build_visitor_context(caller, visit_count, last_visit)
+    if visitor_note:
         parts.append(visitor_note)
 
     return "\n\n".join(parts)
@@ -702,7 +711,7 @@ async def chat():
     """Main chat function"""
     sessionId = atlantis.get_session_id() or "unknown"
     requestId = atlantis.get_request_id() or "unknown"
-    caller: str = atlantis.get_caller()  # type: ignore[assignment]
+    caller: str = atlantis.get_caller() or "the visitor"  # type: ignore[assignment]
 
     logger.info("=" * 60)
     logger.info(f"=== CHAT TRIGGERED === session={sessionId} request={requestId} caller={caller}")
@@ -777,6 +786,14 @@ async def chat():
         model = "z-ai/glm-5"
         logger.info(f"Using model: {model}")
 
+        # Anonymous / new guest: caller not in visitor DB yet
+        if prev_count == 0:
+            # Inject directive so Kitty follows new guest procedure
+            transcript.append({'role': 'system', 'content': [{'type': 'text', 'text':
+                "[PROCEDURE REQUIRED] This is an unidentified guest. You MUST call the `new_guest` tool now to get the proper arrival procedure. Do not skip this step."
+            }]})
+            logger.info(f"Injected new guest procedure directive for caller={caller}")
+
         # If more than an hour since last visit (or first visit), stamp the convo start time
         if not prev_last_visit:
             record_new_conversation(caller)
@@ -806,6 +823,13 @@ async def chat():
         # Get or initialize per-session tool inventory
         converted_tools, tool_lookup = get_session_tools()
         logger.info(f"Session tool inventory: {len(converted_tools)} tools, {len(tool_lookup)} in lookup")
+
+        # Pre-load new_guest tool for anonymous visitors
+        if prev_count == 0:
+            _, converted_tools, tool_lookup = await handle_dir_tool(
+                "new_guest", converted_tools, tool_lookup
+            )
+            logger.info("Pre-loaded new_guest tool for anonymous visitor")
 
         # Multi-turn conversation loop to handle tool calls
         streamTalkId = None

@@ -790,7 +790,7 @@ async def chat():
         if prev_count == 0:
             # Inject directive so Kitty follows new guest procedure
             transcript.append({'role': 'system', 'content': [{'type': 'text', 'text':
-                "[PROCEDURE REQUIRED] This is an unidentified guest. You MUST call the `new_guest` tool now to get the proper arrival procedure. Do not skip this step."
+                "[PROCEDURE REQUIRED] This is an unidentified guest. Your FIRST action MUST be to call the `Tools__new_guest` tool to get the arrival procedure. Do NOT greet them, do NOT say anything, do NOT improvise — call the tool FIRST and follow the steps it returns. The username on file is '" + caller + "' but that is NOT their real name — you must ask for their real name as part of the procedure."
             }]})
             logger.info(f"Injected new guest procedure directive for caller={caller}")
 

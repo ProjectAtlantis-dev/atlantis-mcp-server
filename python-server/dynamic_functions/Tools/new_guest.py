@@ -3,51 +3,71 @@ import logging
 import json
 import os
 import fcntl
-from datetime import datetime
 
 logger = logging.getLogger("mcp_server")
 
-VISITOR_DATA_FILE = os.path.join(os.path.dirname(__file__), '..', 'Bot', 'Kitty', 'visitor_data.json')
+VISITOR_DATA_FILE = os.path.join(os.path.dirname(__file__), '..', 'Data', 'visitor_data.json')
 
 
 @visible
-async def new_guest(username: str):
+async def new_guest():
     """
-    Procedures for handling a new guest who hasn't been processed yet.
-
-    Args:
-        username: The guest's name/identifier
+    Call this when a new guest arrives who has no record in the visitor database.
+    Returns the front-desk procedure Kitty must follow. Do NOT ask for the guest's
+    name or username yet — that comes later in the procedure.
     """
-    logger.info(f"new_guest tool called for: {username}")
-
-    # Mark that we've started the new guest procedure
-    _set_visitor_flag(username, "greeted", True)
+    logger.info("new_guest procedure initiated")
 
     return (
-        f"New guest procedure for {username}:\n"
-        f"1. Greet {username} warmly and introduce yourself — you're Kitty, the front desk intern.\n"
-        f"2. Offer them a warm drink and ask them the usual - first time to Greenland or Atlantis.\n"
-        f"3. Ask to see their paperwork. Everyone needs to have their documents checked so they can get their room key.\n"
-        f"3. Be friendly but firm — security paperwork is required, no exceptions.\n"
-        f"4. Once they provide their paperwork, call the `security_cleared` tool with their name to mark them as cleared."
+        "New guest procedure — follow these steps IN ORDER:\n"
+        "1. Greet the guest warmly and introduce yourself — you're Kitty, the front desk intern.\n"
+        "2. Offer them a warm drink (cocoa, coffee, tea) and ask if it's their first time in Greenland or at Atlantis.\n"
+        "3. Ask to see their security paperwork — the signed entry authorization form and their security card.\n"
+        "4. Be friendly but firm — you MUST receive their paperwork before proceeding. No exceptions.\n"
+        "5. Once they hand over their paperwork, call verify_paperwork with the username printed on their security card.\n"
+        "6. After verification, ask for their real first name and call register_guest to finish check-in."
     )
 
 
 @visible
-async def security_cleared(username: str):
+async def verify_paperwork(username: str):
     """
-    Mark a guest's security paperwork as reviewed and approved.
-    Call this after you have checked the guest's security documents.
+    Call this after the guest hands over their security card and entry authorization.
+    Reveals the username on their card so you can react to it.
 
     Args:
-        username: The guest's name/identifier
+        username: The username printed on the guest's security card
     """
-    logger.info(f"security_cleared called for: {username}")
+    logger.info(f"verify_paperwork called for: {username}")
 
-    _set_visitor_flag(username, "security_cleared", True)
-    _set_visitor_flag(username, "security_cleared_at", datetime.now().isoformat())
+    _set_visitor_flag(username, "greeted", True)
 
-    return f"{username}'s security paperwork has been verified and recorded. They are cleared to proceed into the facility."
+    return (
+        f"Paperwork received! The username on their security card is: {username}\n"
+        f"If the username is funny or weird, feel free to giggle about it — have fun!\n"
+        f"Now ask the guest for their real first name so you can finish check-in.\n"
+        f"Once you have it, call register_guest with their username and first name."
+    )
+
+
+@visible
+async def register_guest(username: str, first_name: str):
+    """
+    Final step of new guest check-in. Stores the guest's real first name in the visitor database.
+
+    Args:
+        username: The username from their security card
+        first_name: The guest's real first name
+    """
+    logger.info(f"register_guest called for: {username} (first_name={first_name})")
+
+    _set_visitor_flag(username, "first_name", first_name)
+
+    return (
+        f"Guest {first_name} (username: {username}) has been registered!\n"
+        f"Welcome them by name and let them know they're all set."
+    )
+
 
 
 @visible

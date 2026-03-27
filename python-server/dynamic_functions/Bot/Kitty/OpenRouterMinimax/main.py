@@ -359,15 +359,15 @@ def build_visitor_context(caller: str, visit_count: int, last_visit: str) -> str
 
     if visit_count == 1:
         if late_night:
-            visitor_note = f"This is {caller}'s first time here. It's late — their helicopter probably just arrived behind schedule, likely delayed by weather. Welcome them warmly, they've had a long trip."
+            visitor_note = "A new visitor just arrived. It's late — their helicopter probably just arrived behind schedule, likely delayed by weather. Welcome them warmly, they've had a long trip. You don't know their name yet — ask for it naturally."
         else:
-            visitor_note = f"This is {caller}'s first time here. They're brand new — introduce yourself, welcome them warmly, and help them get oriented."
+            visitor_note = "A new visitor just arrived. They're brand new — introduce yourself, welcome them warmly, and help them get oriented. You don't know their name yet — ask for it naturally."
     elif visit_count <= 5:
         visitor_note = f"{caller} has visited {visit_count} times. They're still fairly new — be friendly and remember they might still be figuring things out."
     else:
         visitor_note = f"{caller} has visited {visit_count} times. They're a regular — skip the intros, be casual, and treat them like a friend."
 
-    if last_visit:
+    if last_visit and visit_count > 1:
         try:
             elapsed = datetime.now() - datetime.fromisoformat(last_visit)
             days = elapsed.days
@@ -834,7 +834,7 @@ async def chat():
         # Multi-turn conversation loop to handle tool calls
         streamTalkId = None
         streamThinkId = None
-        max_turns = 5
+        max_turns = 10
         turn_count = 0
 
         try:

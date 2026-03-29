@@ -4,6 +4,7 @@ import asyncio
 from openai import OpenAI
 import json
 from typing import List, Dict, Any, Optional, TypedDict, Tuple, cast, NotRequired
+from dynamic_functions.Tools.todo import TODO_PSEUDO_TOOL, handle_todo_tool
 
 
 # =============================================================================
@@ -359,15 +360,15 @@ def build_visitor_context(caller: str, visit_count: int, last_visit: str) -> str
 
     if visit_count == 1:
         if late_night:
-            visitor_note = f"This is {caller}'s first time here. It's late — their helicopter probably just arrived behind schedule, likely delayed by weather. Welcome them warmly, they've had a long trip."
+            visitor_note = "A new visitor just arrived. It's late — their helicopter probably just arrived behind schedule, likely delayed by weather. Welcome them warmly, they've had a long trip. You don't know their name yet — ask for it naturally."
         else:
-            visitor_note = f"This is {caller}'s first time here. They're brand new — introduce yourself, welcome them warmly, and help them get oriented."
+            visitor_note = "A new visitor just arrived. They're brand new — introduce yourself, welcome them warmly, and help them get oriented. You don't know their name yet — ask for it naturally."
     elif visit_count <= 5:
         visitor_note = f"{caller} has visited {visit_count} times. They're still fairly new — be friendly and remember they might still be figuring things out."
     else:
         visitor_note = f"{caller} has visited {visit_count} times. They're a regular — skip the intros, be casual, and treat them like a friend."
 
-    if last_visit:
+    if last_visit and visit_count > 1:
         try:
             elapsed = datetime.now() - datetime.fromisoformat(last_visit)
             days = elapsed.days
@@ -436,6 +437,29 @@ def get_visit_info(caller: str) -> Tuple[int, str]:
         entry = {"count": entry, "last_visit": ""}
 
     return entry["count"], entry["last_visit"]
+
+
+# The Tools/new_guest.py check-in functions write to a separate visitor DB
+TOOLS_VISITOR_DATA_FILE = os.path.join(os.path.dirname(__file__), '..', '..', 'Data', 'visitor_data.json')
+
+def is_checkin_complete(caller: str) -> bool:
+    """Check if caller has completed the new guest check-in process (greeted + registered)."""
+    try:
+        with open(TOOLS_VISITOR_DATA_FILE, 'r') as f:
+            fcntl.flock(f, fcntl.LOCK_SH)
+            try:
+                raw = f.read()
+                data = json.loads(raw) if raw.strip() else {}
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
+    except FileNotFoundError:
+        return False
+
+    entry = data.get(caller)
+    if not entry or not isinstance(entry, dict):
+        return False
+
+    return bool(entry.get("greeted")) and bool(entry.get("first_name"))
 
 
 def record_new_conversation(caller: str):
@@ -686,7 +710,10 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
 
 
 # Session-scoped keys — stored in session_shared (auto-scoped per user session)
-_BUSY_KEY = "kitty_busy"
+def _busy_key() -> str:
+    """BUSY lock key scoped to session + shell so different shells don't collide."""
+    shell = atlantis.get_shell_path() or "default"
+    return f"kitty_busy:{shell}"
 _TOOLS_KEY = "kitty_tools"
 _LOOKUP_KEY = "kitty_lookup"
 
@@ -696,7 +723,7 @@ def get_session_tools() -> Tuple[List[TranscriptToolT], Dict[str, ToolLookupInfo
     tools = atlantis.session_shared.get(_TOOLS_KEY)
     lookup = atlantis.session_shared.get(_LOOKUP_KEY)
     if tools is None:
-        tools = [SEARCH_PSEUDO_TOOL, DIR_PSEUDO_TOOL]
+        tools = [SEARCH_PSEUDO_TOOL, DIR_PSEUDO_TOOL, TODO_PSEUDO_TOOL]
         atlantis.session_shared.set(_TOOLS_KEY, tools)
     if lookup is None:
         lookup = {}
@@ -716,15 +743,16 @@ async def chat():
     logger.info("=" * 60)
     logger.info(f"=== CHAT TRIGGERED === session={sessionId} request={requestId} caller={caller}")
 
-    # Check if this session is already being handled
-    owner_req = atlantis.session_shared.get(_BUSY_KEY)
+    # Check if this session+shell is already being handled
+    busy_key = _busy_key()
+    owner_req = atlantis.session_shared.get(busy_key)
     if owner_req:
-        logger.warning(f"🔒 BUSY: session={sessionId} already owned by request={owner_req}, this request={requestId} — skipping")
+        logger.warning(f"🔒 BUSY: session={sessionId} shell key={busy_key} already owned by request={owner_req}, this request={requestId} — skipping")
         await atlantis.owner_log(f"Skipping chat — session {sessionId} busy (owned by request {owner_req})")
         return
 
-    atlantis.session_shared.set(_BUSY_KEY, requestId)
-    logger.info(f"🔒 ACQUIRED: session={sessionId} by request={requestId}")
+    atlantis.session_shared.set(busy_key, requestId)
+    logger.info(f"🔒 ACQUIRED: session={sessionId} shell key={busy_key} by request={requestId}")
 
     try:
         import time as _t
@@ -786,11 +814,14 @@ async def chat():
         model = "z-ai/glm-5"
         logger.info(f"Using model: {model}")
 
-        # Anonymous / new guest: caller not in visitor DB yet
-        if prev_count == 0:
+        # Check if guest needs the new guest procedure:
+        # Either brand new (count == 0) or never completed check-in (no greeted + first_name)
+        needs_checkin = prev_count == 0 or not is_checkin_complete(caller)
+        if needs_checkin:
+            logger.info(f"Guest needs check-in: prev_count={prev_count}, checkin_complete={is_checkin_complete(caller)}")
             # Inject directive so Kitty follows new guest procedure
             transcript.append({'role': 'system', 'content': [{'type': 'text', 'text':
-                "[PROCEDURE REQUIRED] This is an unidentified guest. You MUST call the `new_guest` tool now to get the proper arrival procedure. Do not skip this step."
+                "[PROCEDURE REQUIRED] This is an unidentified guest who has NOT completed check-in. Your FIRST action MUST be to call the `Tools__new_guest` tool to get the arrival procedure. Do NOT greet them, do NOT say anything, do NOT improvise — call the tool FIRST and follow the steps it returns. The username on file is '" + caller + "' but that is NOT their real name — you must ask for their real name as part of the procedure."
             }]})
             logger.info(f"Injected new guest procedure directive for caller={caller}")
 
@@ -824,8 +855,8 @@ async def chat():
         converted_tools, tool_lookup = get_session_tools()
         logger.info(f"Session tool inventory: {len(converted_tools)} tools, {len(tool_lookup)} in lookup")
 
-        # Pre-load new_guest tool for anonymous visitors
-        if prev_count == 0:
+        # Pre-load new_guest tool for visitors who haven't completed check-in
+        if needs_checkin:
             _, converted_tools, tool_lookup = await handle_dir_tool(
                 "new_guest", converted_tools, tool_lookup
             )
@@ -834,7 +865,7 @@ async def chat():
         # Multi-turn conversation loop to handle tool calls
         streamTalkId = None
         streamThinkId = None
-        max_turns = 5
+        max_turns = 10
         turn_count = 0
 
         try:
@@ -1008,6 +1039,18 @@ async def chat():
                             tool_call_made = True
                             continue
 
+                        # Handle todo pseudo-tool
+                        if tool_key == 'todo':
+                            logger.info(f"=== TODO TOOL CALLED ===")
+                            result = await handle_todo_tool(arguments)
+                            transcript.append({
+                                'role': 'tool',
+                                'tool_call_id': call_id,
+                                'content': result
+                            })
+                            tool_call_made = True
+                            continue
+
                         if tool_key not in tool_lookup:
                             logger.error(f"\x1b[91m🚨 UNKNOWN TOOL KEY: '{tool_key}' not in tool_lookup!\x1b[0m")
                             logger.error(f"\x1b[91m  Available keys: {list(tool_lookup.keys())}\x1b[0m")
@@ -1117,7 +1160,7 @@ async def chat():
         logger.info(f"=== CHAT COMPLETED === session={sessionId} request={requestId} turns={turn_count}")
 
     finally:
-        atlantis.session_shared.remove(_BUSY_KEY)
-        logger.info(f"🔓 RELEASED: session={sessionId} request={requestId}")
+        atlantis.session_shared.remove(busy_key)
+        logger.info(f"🔓 RELEASED: session={sessionId} shell key={busy_key} request={requestId}")
 
     return

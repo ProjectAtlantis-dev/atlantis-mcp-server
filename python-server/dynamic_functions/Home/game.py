@@ -18,8 +18,8 @@ async def game():
     owner_id = atlantis.get_owner()
     #await atlantis.client_log(f"Owner ID: {owner_id}")  # TEMP
 
-    #kittyPath = f"{owner_id}**Bot.Kitty.OpenRouterGLM**chat"
-    kittyPath = f"{owner_id}**Bot.Kitty.OpenRouterMinimax**chat"
+    kittyPath = f"{owner_id}**Bot.Kitty.OpenRouterGLM**chat"
+    #kittyPath = f"{owner_id}**Bot.Kitty.OpenRouterMinimax**chat"
     await atlantis.client_command("/chat set " + kittyPath)
 
     # set background

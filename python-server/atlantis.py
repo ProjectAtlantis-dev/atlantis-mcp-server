@@ -289,6 +289,10 @@ def get_caller() -> Optional[str]:
     """Returns the username who called this function"""
     return _user_var.get()
 
+def get_shell_path() -> Optional[str]:
+    """Returns the shell path for this function call"""
+    return _shell_path_var.get()
+
 def get_command_seq() -> Optional[int]:
     """Returns the command sequence number for this function call"""
     return _command_seq_var.get()

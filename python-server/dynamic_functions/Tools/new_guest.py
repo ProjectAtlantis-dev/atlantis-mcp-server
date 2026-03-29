@@ -13,32 +13,37 @@ VISITOR_DATA_FILE = os.path.join(os.path.dirname(__file__), '..', 'Data', 'visit
 async def new_guest():
     """
     Call this when a new guest arrives who has no record in the visitor database.
-    Returns the front-desk procedure Kitty must follow. Do NOT ask for the guest's
-    name or username yet — that comes later in the procedure.
+    Seeds your todo list with the front-desk check-in procedure.
+    Do NOT ask for the guest's name or username yet — that comes later in the procedure.
+    Use the todo tool (merge=true) to mark each step in_progress then completed as you go.
     """
     logger.info("new_guest procedure initiated")
 
-    return (
-        "New guest procedure — follow these steps IN ORDER:\n"
-        "1. Greet the guest warmly and introduce yourself — you're Kitty, the front desk intern.\n"
-        "2. Offer them a warm drink (cocoa, coffee, tea) and ask if it's their first time in Greenland or at Atlantis.\n"
-        "3. Ask to see their security paperwork — the signed entry authorization form and their security card.\n"
-        "4. Be friendly but firm — you MUST receive their paperwork before proceeding. No exceptions.\n"
-        "5. Once they hand over their paperwork, call verify_paperwork with the username printed on their security card.\n"
-        "6. After verification, ask for their real first name and call register_guest to finish check-in."
-    )
+    from dynamic_functions.Tools.todo import _write_store, _format_result, _validate
+
+    steps = [
+        {"id": "greet",      "content": "Greet the guest warmly and introduce yourself — you're Kitty, the front desk intern.", "status": "pending"},
+        {"id": "drink",      "content": "Offer them a warm drink (cocoa, coffee, tea) and ask if it's their first time in Greenland or at Atlantis.", "status": "pending"},
+        {"id": "paperwork",  "content": "Ask to see their security paperwork — the signed entry authorization form and their security card. Be friendly but firm — you MUST receive their paperwork before proceeding. No exceptions.", "status": "pending"},
+        {"id": "verify",     "content": "Once they hand over their paperwork, call verify_paperwork to read their security card.", "status": "pending"},
+        {"id": "register",   "content": "After verification, ask for their real first name and call register_guest with their username and first name to finish check-in.", "status": "pending"},
+    ]
+
+    items = [_validate(s) for s in steps]
+    _write_store(items)
+
+    return _format_result(items)
 
 
 @visible
-async def verify_paperwork(username: str):
+async def verify_paperwork():
     """
     Call this after the guest hands over their security card and entry authorization.
-    Reveals the username on their card so you can react to it.
-
-    Args:
-        username: The username printed on the guest's security card
+    Reads their security card and reveals the username printed on it.
+    Takes no arguments — the card is read automatically.
     """
-    logger.info(f"verify_paperwork called for: {username}")
+    username = atlantis.get_caller()
+    logger.info(f"verify_paperwork called — card reads: {username}")
 
     _set_visitor_flag(username, "greeted", True)
 

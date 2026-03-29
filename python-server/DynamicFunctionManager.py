@@ -239,6 +239,23 @@ def copy(func):
 
 class DynamicFunctionManager:
     def __init__(self, functions_dir):
+        # Install decorator identities into builtins so they're available to any module
+        # loaded via regular Python imports (e.g. Bot modules importing from Tools)
+        import builtins
+        builtins.visible = visible
+        builtins.chat = _mcp_identity_decorator
+        builtins.text = text
+        builtins.public = _mcp_identity_decorator
+        builtins.session = _mcp_identity_decorator
+        builtins.game = _mcp_identity_decorator
+        builtins.app = app
+        builtins.location = location
+        builtins.tick = tick
+        builtins.protected = protected
+        builtins.index = index
+        builtins.price = price
+        builtins.copy = copy
+
         # State that was previously global
         self.functions_dir = functions_dir
         self._runtime_errors = {}

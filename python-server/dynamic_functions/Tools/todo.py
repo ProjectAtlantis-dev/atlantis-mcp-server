@@ -2,22 +2,38 @@ import atlantis
 import logging
 import json
 from typing import Optional
+from dynamic_functions.Tools.visitor import _read_data, set_visitor_flag, _normalize_entry
 
 logger = logging.getLogger("mcp_server")
 
-_TODO_KEY = "todo_items"
 VALID_STATUSES = {"pending", "in_progress", "completed", "cancelled"}
 
 
-def _read_store():
-    """Read the current todo list from session_shared."""
-    items = atlantis.session_shared.get(_TODO_KEY)
-    return items if items is not None else []
+def _get_caller() -> str:
+    """Get the current caller username, falling back to session_shared."""
+    caller = atlantis.get_caller()
+    if not caller:
+        caller = atlantis.session_shared.get("todo_caller")
+    return caller or ""
 
 
-def _write_store(items):
-    """Write the todo list to session_shared."""
-    atlantis.session_shared.set(_TODO_KEY, items)
+def _read_store(caller: str = "") -> list:
+    """Read the todo list from the visitor database."""
+    caller = caller or _get_caller()
+    if not caller:
+        return []
+    data = _read_data()
+    entry = _normalize_entry(data.get(caller, {}))
+    return entry.get("todos", [])
+
+
+def _write_store(items: list, caller: str = ""):
+    """Write the todo list to the visitor database."""
+    caller = caller or _get_caller()
+    if not caller:
+        logger.warning("todo _write_store: no caller, cannot persist")
+        return
+    set_visitor_flag(caller, "todos", items)
 
 
 def _validate(item):
@@ -110,12 +126,12 @@ TODO_PSEUDO_TOOL = {
                         'type': 'object',
                         'properties': {
                             'id': {'type': 'string', 'description': 'Unique item identifier'},
-                            'content': {'type': 'string', 'description': 'Task description'},
                             'status': {
                                 'type': 'string',
                                 'enum': ['pending', 'in_progress', 'completed', 'cancelled'],
                                 'description': 'Current status'
-                            }
+                            },
+                            'content': {'type': 'string', 'description': 'Task description'}
                         },
                         'required': ['id', 'content', 'status']
                     }

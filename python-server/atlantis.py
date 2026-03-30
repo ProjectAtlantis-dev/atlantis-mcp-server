@@ -734,7 +734,8 @@ async def client_command(command: str, data: Any = None, message_type: str = "co
     if isinstance(data, (dict, list)):
         logger.debug(f"   📦 data: {format_json_log(data, colored=True)}")
     elif data is not None:
-        logger.debug(f"   📦 data: {data}")
+        log_data = "[base64 image]" if isinstance(data, str) and data.startswith("data:image/") else data
+        logger.debug(f"   📦 data: {log_data}")
 
     if not client_id or not request_id:
         # This should ideally not happen if called within a proper request context

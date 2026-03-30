@@ -90,12 +90,13 @@ def record_new_conversation(caller: str):
 
 
 def is_checkin_complete(caller: str) -> bool:
-    """Check if caller has completed the new guest check-in process (greeted + registered)."""
+    """Check if caller has completed the new guest check-in process (register step completed in todo list)."""
     data = _read_data()
     entry = data.get(caller)
     if not entry or not isinstance(entry, dict):
         return False
-    return bool(entry.get("greeted")) and bool(entry.get("first_name"))
+    todos = entry.get("todos", [])
+    return any(t.get("id") == "register" and t.get("status") == "completed" for t in todos)
 
 
 # =========================================================================
@@ -133,8 +134,6 @@ async def verify_paperwork():
     if not username:
         raise ValueError("Could not read the security card — no caller identity found.")
     logger.info(f"verify_paperwork called — card reads: {username}")
-
-    set_visitor_flag(username, "greeted", True)
 
     return (
         f"Paperwork received! The username on their security card is: {username}\n"

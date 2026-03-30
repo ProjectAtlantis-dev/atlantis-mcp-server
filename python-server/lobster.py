@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import traceback
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
@@ -357,7 +358,12 @@ async def lobster_initialize(
             "resources": {},
             "logging": {},
         },
-        "serverInfo": {"name": server.name, "version": server_version},
+        "serverInfo": {
+            "name": server.name,
+            "version": server_version,
+            "pid": os.getpid(),
+            "remoteName": server.cloud_client.serviceName if server.cloud_client else server.name,
+        },
     }
 
 

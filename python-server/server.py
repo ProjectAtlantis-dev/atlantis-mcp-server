@@ -3747,7 +3747,8 @@ class ServiceClient:
                     "port": self.server_port, # Send the stored port
                     "serverVersion": SERVER_VERSION,
                     "pythonVersion": sys.version.split()[0],
-                    "mcpVersion": importlib.metadata.version('mcp')
+                    "mcpVersion": importlib.metadata.version('mcp'),
+                    "pid": os.getpid()
                 }
                 logger.info(f"🔐 Connecting with auth: email={self.email}, serviceName={self.serviceName}, appName={self.appName}, hostname={hostname}")
                 await self.sio.connect(
@@ -3864,6 +3865,7 @@ class ServiceClient:
             logger.info(f"{BOLD}{BRIGHT_WHITE}VERSION     : {SERVER_VERSION}{RESET}")
             logger.info(f"{BOLD}{BRIGHT_WHITE}CLOUD URL   : {self.server_url}{RESET}")
             logger.info(f"{BOLD}{BRIGHT_WHITE}LOCAL PORT  : {self.server_port}{RESET}")
+            logger.info(f"{BOLD}{BRIGHT_WHITE}PID         : {os.getpid()}{RESET}")
             logger.info("") # Blank line after
             logger.info("") # Blank line after
 

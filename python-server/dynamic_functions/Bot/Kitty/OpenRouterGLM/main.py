@@ -413,76 +413,7 @@ def build_system_prompt(
     return "\n\n".join(parts)
 
 
-VISITOR_LOG_FILE = os.path.join(os.path.dirname(__file__), '..', 'visitor_data.json')
-
-import fcntl
-
-def get_visit_info(caller: str) -> Tuple[int, str]:
-    """Get visit info for the caller. Returns (visit_count, last_visit_iso). Does not modify the log."""
-    os.makedirs(os.path.dirname(VISITOR_LOG_FILE), exist_ok=True)
-
-    try:
-        with open(VISITOR_LOG_FILE, 'r') as f:
-            fcntl.flock(f, fcntl.LOCK_SH)
-            try:
-                raw = f.read()
-                log = json.loads(raw) if raw.strip() else {}
-            finally:
-                fcntl.flock(f, fcntl.LOCK_UN)
-    except FileNotFoundError:
-        return 0, ""
-
-    entry = log.get(caller, {"count": 0, "last_visit": ""})
-    if isinstance(entry, int):
-        entry = {"count": entry, "last_visit": ""}
-
-    return entry["count"], entry["last_visit"]
-
-
-# The Tools/new_guest.py check-in functions write to a separate visitor DB
-TOOLS_VISITOR_DATA_FILE = os.path.join(os.path.dirname(__file__), '..', '..', 'Data', 'visitor_data.json')
-
-def is_checkin_complete(caller: str) -> bool:
-    """Check if caller has completed the new guest check-in process (greeted + registered)."""
-    try:
-        with open(TOOLS_VISITOR_DATA_FILE, 'r') as f:
-            fcntl.flock(f, fcntl.LOCK_SH)
-            try:
-                raw = f.read()
-                data = json.loads(raw) if raw.strip() else {}
-            finally:
-                fcntl.flock(f, fcntl.LOCK_UN)
-    except FileNotFoundError:
-        return False
-
-    entry = data.get(caller)
-    if not entry or not isinstance(entry, dict):
-        return False
-
-    return bool(entry.get("greeted")) and bool(entry.get("first_name"))
-
-
-def record_new_conversation(caller: str):
-    """Increment visit count and update timestamp. Called on first visit or when >1hr gap detected."""
-    now = datetime.now().isoformat()
-    with open(VISITOR_LOG_FILE, 'a+') as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
-        try:
-            f.seek(0)
-            raw = f.read()
-            log = json.loads(raw) if raw.strip() else {}
-            entry = log.get(caller, {"count": 0, "last_visit": ""})
-            if isinstance(entry, int):
-                entry = {"count": entry, "last_visit": ""}
-            entry["count"] = entry["count"] + 1
-            entry["last_visit"] = now
-            log[caller] = entry
-            f.seek(0)
-            f.truncate()
-            json.dump(log, f, indent=2)
-        finally:
-            fcntl.flock(f, fcntl.LOCK_UN)
-    logger.info(f"New conversation for {caller}: visit #{entry['count']}, timestamp {now}")
+from dynamic_functions.Tools.visitor import get_visit_info, record_new_conversation, is_checkin_complete
 
 
 SEARCH_PSEUDO_TOOL: TranscriptToolT = {
@@ -620,12 +551,9 @@ async def handle_search_tool(
 
 
 def find_last_chat_entry(transcript):
-    """Find the last entry in transcript where type is 'chat', skipping thinking entries"""
+    """Find the last entry in transcript where type is 'chat' (including thinking entries)."""
     for entry in reversed(transcript):
         if entry.get('type') == 'chat':
-            who = entry.get('who', '')
-            if 'thinking' in str(who).lower():
-                continue
             return entry
     return None
 
@@ -753,6 +681,7 @@ async def chat():
 
     atlantis.session_shared.set(busy_key, requestId)
     logger.info(f"🔒 ACQUIRED: session={sessionId} shell key={busy_key} by request={requestId}")
+    accumulated_text = ""
 
     try:
         import time as _t
@@ -821,7 +750,7 @@ async def chat():
             logger.info(f"Guest needs check-in: prev_count={prev_count}, checkin_complete={is_checkin_complete(caller)}")
             # Inject directive so Kitty follows new guest procedure
             transcript.append({'role': 'system', 'content': [{'type': 'text', 'text':
-                "[PROCEDURE REQUIRED] This is an unidentified guest who has NOT completed check-in. Your FIRST action MUST be to call the `Tools__new_guest` tool to get the arrival procedure. Do NOT greet them, do NOT say anything, do NOT improvise — call the tool FIRST and follow the steps it returns. The username on file is '" + caller + "' but that is NOT their real name — you must ask for their real name as part of the procedure."
+                "[PROCEDURE REQUIRED] This is an unidentified guest who has NOT completed check-in. Your FIRST action MUST be to call `Tools__get_guest_checklist` to get the check-in steps. It returns a JSON array — pass that array directly to the `todo` tool to load your checklist. Then use `todo` with merge=true to mark each step in_progress then completed as you work through them. Do NOT greet or say anything until your checklist is loaded. You do NOT know their name or username yet — that will be revealed when you verify their paperwork."
             }]})
             logger.info(f"Injected new guest procedure directive for caller={caller}")
 
@@ -846,21 +775,23 @@ async def chat():
         visit_count, _ = get_visit_info(caller)
 
         # Build system prompt string (once, reused each turn)
+        # Hide caller identity from system prompt if guest hasn't completed check-in
+        prompt_caller = "" if needs_checkin else caller
         system_prompt = build_system_prompt(
             base_prompt, skill_texts,
-            caller, visit_count, prev_last_visit
+            prompt_caller, visit_count, prev_last_visit
         )
 
         # Get or initialize per-session tool inventory
         converted_tools, tool_lookup = get_session_tools()
         logger.info(f"Session tool inventory: {len(converted_tools)} tools, {len(tool_lookup)} in lookup")
 
-        # Pre-load new_guest tool for visitors who haven't completed check-in
+        # Pre-load get_guest_checklist tool for visitors who haven't completed check-in
         if needs_checkin:
             _, converted_tools, tool_lookup = await handle_dir_tool(
-                "new_guest", converted_tools, tool_lookup
+                "get_guest_checklist", converted_tools, tool_lookup
             )
-            logger.info("Pre-loaded new_guest tool for anonymous visitor")
+            logger.info("Pre-loaded get_guest_checklist tool for anonymous visitor")
 
         # Multi-turn conversation loop to handle tool calls
         streamTalkId = None
@@ -1163,4 +1094,4 @@ async def chat():
         atlantis.session_shared.remove(busy_key)
         logger.info(f"🔓 RELEASED: session={sessionId} shell key={busy_key} request={requestId}")
 
-    return
+    return accumulated_text or None

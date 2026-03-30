@@ -267,7 +267,7 @@ async def tool_result(name: str, result: Any):
     """Sends a tool call result back to the requesting client to be added to the transcript.
     This allows the LLM to see tool results in the next conversation turn.
     """
-    return await client_command("tool", f"Tool {name} result: {result}", message_type="tool")
+    return await client_command("tool", result, message_type="text")
 
 # --- Other Accessors ---
 # this is established by the tool caller

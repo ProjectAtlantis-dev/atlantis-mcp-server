@@ -10,11 +10,8 @@ VALID_STATUSES = {"pending", "in_progress", "completed", "cancelled"}
 
 
 def _get_caller() -> str:
-    """Get the current caller username, falling back to session_shared."""
-    caller = atlantis.get_caller()
-    if not caller:
-        caller = atlantis.session_shared.get("todo_caller")
-    return caller or ""
+    """Get the current caller username."""
+    return atlantis.get_caller() or ""
 
 
 def _read_store(caller: str = "") -> list:

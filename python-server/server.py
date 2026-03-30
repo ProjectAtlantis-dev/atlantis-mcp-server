@@ -530,7 +530,7 @@ class DynamicAdditionServer(Server):
         future = asyncio.get_running_loop().create_future()
         self.awaitable_requests[correlation_id] = future
 
-        logger.info(f"⏳ Preparing awaitable command '{command}' for client {client_id_for_routing} (correlationId: {correlation_id}, MCP_reqId: {request_id})")
+        logger.info(f"⏳ Preparing awaitable command '{command}' (correlationId: {correlation_id})")
 
         payload = {
             "jsonrpc": "2.0",
@@ -603,14 +603,12 @@ class DynamicAdditionServer(Server):
                     "method": "notifications/message",
                     "params": cloud_notification_params
                 }
-                # Extra distinctive logging for tool calls (commands starting with %)
+                # Extra logging for tool calls (commands starting with %)
                 if command.startswith('%'):
-                    logger.info(f"🔧🔧🔧 CLOUD TOOL CALL WIRE FORMAT 🔧🔧🔧")
-                    logger.info(f"🔧 Full cloud_notification_params:\n{format_json_log(cloud_notification_params)}")
-                    logger.info(f"🔧🔧🔧 END WIRE FORMAT 🔧🔧🔧")
-                logger.info(f"☁️ About to send cloud payload with params:\n{format_json_log(cloud_notification_params)}")
+                    logger.info(f"🔧 CLOUD TOOL CALL: {command}")
+                    logger.debug(f"🔧 cloud_notification_params:\n{format_json_log(cloud_notification_params)}")
                 await connection.send_message('mcp_notification', cloud_wrapper_payload)
-                logger.info(f"☁️ Sent awaitable command '{command}' (as flat notifications/message) to cloud client {client_id_for_routing} (correlationId: {correlation_id}) via 'mcp_notification' event")
+                logger.info(f"☁️ Sent '{command}' to cloud (correlationId: {correlation_id})")
             else:
                 self.awaitable_requests.pop(correlation_id, None) # Clean up future
                 logger.error(f"❌ Cannot send awaitable command '{command}': Client '{client_id_for_routing}' has no valid/active connection.")
@@ -621,9 +619,9 @@ class DynamicAdditionServer(Server):
                 raise McpError(error_data)
 
             # Wait for the future to be resolved
-            logger.debug(f"⏳ Waiting for response for command '{command}' (correlationId: {correlation_id}) timeout: {self.awaitable_request_timeout}s")
+            logger.debug(f"⏳ Waiting for '{command}' (correlationId: {correlation_id}) timeout: {self.awaitable_request_timeout}s")
             result = await asyncio.wait_for(future, timeout=self.awaitable_request_timeout)
-            logger.info(f"✅ Received response for awaitable command '{command}' (correlationId: {correlation_id})")
+            logger.info(f"✅ Received response for '{command}' (correlationId: {correlation_id})")
             # Clear duplicate tracking on success so same command can be called again later
             # DISABLED: Duplicate tracking disabled
             # self._command_counts_per_context.pop(tracking_key, None)
@@ -3034,7 +3032,18 @@ async def index():
 
                 # Send awaitable command to cloud client
                 # For lobster tools, use the lobster request_id from cloud
+                context_tokens = None
                 try:
+                    # Set logging context so log lines show [reqId-shell] instead of [------]
+                    lobster_shell = getattr(self.cloud_client, 'lobster_shell_path', None) if hasattr(self, 'cloud_client') and self.cloud_client else None
+                    context_tokens = atlantis.set_context(
+                        client_log_func=lambda message, level="INFO", message_type="text": None,
+                        request_id=request_id,
+                        client_id=client_id,
+                        entry_point_name=f"lobster_{tool_name}",
+                        user=user,
+                        shell_path=lobster_shell or shell_path,
+                    )
                     lobster_req_id = self.cloud_client.lobster_request_id if hasattr(self, 'cloud_client') and self.cloud_client else None
                     return await handle_local_lobster_tool_call(
                         self,
@@ -3055,6 +3064,9 @@ async def index():
                             "message": f"Error communicating with cloud: {str(e)}"
                         }
                     }
+                finally:
+                    if context_tokens:
+                        atlantis.reset_context(context_tokens)
 
             # If we get here, it's an unexpected tool for local connections
             logger.warning(f"⚠️ Unexpected tool call from local client: {tool_name}")
@@ -3380,6 +3392,8 @@ class ServiceClient:
         self._creation_time = int(time.time())
         # Store the lobster request_id received from cloud for unsolicited requests
         self.lobster_request_id = None
+        # Store the lobster shell path received from cloud welcome
+        self.lobster_shell_path = None
         # Throttle repeated identical connect_error logs while the cloud is down.
         self._connect_error_signature = None
         self._connect_error_last_logged_at = None
@@ -3867,7 +3881,14 @@ class ServiceClient:
             # Report tools to console
             await self._report_tools_to_console()
 
-
+        @self.sio.event(namespace=self.namespace)
+        async def lobsterShell(data):
+            shell_path = data.get("shellPath") if isinstance(data, dict) else None
+            if shell_path:
+                self.lobster_shell_path = shell_path
+                logger.info(f"🦞 Lobster shell path: {shell_path}")
+            else:
+                logger.warning(f"🦞 Received lobsterShell event with no shellPath: {data}")
 
         # Connection error event
         @self.sio.event(namespace=self.namespace)

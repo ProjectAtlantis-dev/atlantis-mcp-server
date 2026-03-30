@@ -122,6 +122,7 @@ async def fetch_lobster_transcript(
     seq_start: int = 2,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Fetch transcript from the cloud client using the same sequence as Bot Kitty."""
+    logger.info("🦞 fetch_lobster_transcript: /silent on")
     await server.send_awaitable_client_command(
         client_id_for_routing=cloud_client_id,
         request_id=lobster_request_id,
@@ -133,6 +134,7 @@ async def fetch_lobster_transcript(
     )
 
     try:
+        logger.info("🦞 fetch_lobster_transcript: /transcript get")
         raw_transcript = await server.send_awaitable_client_command(
             client_id_for_routing=cloud_client_id,
             request_id=lobster_request_id,
@@ -142,8 +144,10 @@ async def fetch_lobster_transcript(
             entry_point_name="lobster_transcript_get",
             user=user,
         )
+        logger.info(f"🦞 fetch_lobster_transcript: got {len(raw_transcript) if isinstance(raw_transcript, list) else '?'} entries")
     finally:
         try:
+            logger.info("🦞 fetch_lobster_transcript: /silent off")
             await server.send_awaitable_client_command(
                 client_id_for_routing=cloud_client_id,
                 request_id=lobster_request_id,
@@ -154,7 +158,7 @@ async def fetch_lobster_transcript(
                 user=user,
             )
         except Exception as silent_off_error:
-            logger.warning(f"Failed to disable silent mode after lobster transcript fetch: {silent_off_error}")
+            logger.warning(f"🦞 Failed to disable silent mode after lobster transcript fetch: {silent_off_error}")
 
     if not isinstance(raw_transcript, list):
         raise ValueError(f"Unexpected transcript payload type: {type(raw_transcript).__name__}")
@@ -294,12 +298,18 @@ def apply_cloud_welcome(service_client: Any, data: Any) -> None:
         logger.info(f"  {r}{'=' * 59}{x}")
         logger.info(f"  {r}   Captain:    {(', '.join(owner_usernames) if owner_usernames else 'unknown'):<44}{x}")
         logger.info(f"  {r}   Trap tag:   {(lobster_request_id or 'MISSING!'):<44}{x}")
+        logger.info(f"  {r}   Shell:      {(data.get('shellPath') or 'not provided'):<44}{x}")
         logger.info(f"  {r}   Catch ({len(lobster_tool_names)}):  {str(lobster_tool_names):<44}{x}")
         logger.info(f"  {r}{'=' * 59}{x}")
         logger.info("")
 
         atlantis._set_owner_usernames(owner_usernames)
         atlantis._set_owner(owner_usernames[0] if owner_usernames else service_client.email)
+        shell_path = data.get("shellPath")
+        if shell_path:
+            service_client.lobster_shell_path = shell_path
+            logger.info(f"🦞 Lobster shell path (from welcome): {shell_path}")
+
         if lobster_request_id:
             service_client.lobster_request_id = lobster_request_id
         else:
@@ -440,6 +450,11 @@ async def handle_lobster_socket(
 ) -> None:
     """Handle local MCP websocket connections."""
     await websocket.accept(subprotocol="mcp")
+
+    # Set shell path contextvar for this async task so all log lines show the lobster shell
+    lobster_shell = getattr(mcp_server.cloud_client, 'lobster_shell_path', None) if mcp_server.cloud_client else None
+    if lobster_shell:
+        atlantis.set_shell_path(lobster_shell)
 
     client_id = f"ws_{websocket.client.host}_{id(websocket)}"
     active_websockets.add(websocket)

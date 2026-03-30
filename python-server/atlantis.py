@@ -293,6 +293,10 @@ def get_shell_path() -> Optional[str]:
     """Returns the shell path for this function call"""
     return _shell_path_var.get()
 
+def set_shell_path(path: Optional[str]) -> None:
+    """Set the shell path contextvar directly (e.g. for lobster socket tasks)."""
+    _shell_path_var.set(path)
+
 def get_command_seq() -> Optional[int]:
     """Returns the command sequence number for this function call"""
     return _command_seq_var.get()
@@ -718,17 +722,6 @@ async def client_command(command: str, data: Any = None, message_type: str = "co
         RuntimeError: If context variables (client_id, request_id) are not set.
         McpError: Propagated from underlying calls if timeouts or client-side errors occur.
     """
-    # === ENTRY POINT LOGGING - ALWAYS LOG ===
-    logger.warning(f"🚨🚨🚨 CLIENT_COMMAND ENTERED 🚨🚨🚨")
-    logger.warning(f"🚨 Command: '{command}'")
-    logger.warning(f"🚨 First char: '{command[0] if command else 'EMPTY'}' (ord: {ord(command[0]) if command else 'N/A'})")
-    logger.warning(f"🚨 Starts with %: {command.startswith('%') if command else False}")
-    if isinstance(data, (dict, list)):
-        logger.warning(f"🚨 Data:\n{format_json_log(data, colored=True)}")
-    else:
-        logger.warning(f"🚨 Data: {data}")
-    logger.warning(f"🚨🚨🚨 END ENTRY LOG 🚨🚨🚨")
-
     # Get necessary context for routing and correlation
     client_id = _client_id_var.get()
     request_id = _request_id_var.get()
@@ -737,7 +730,11 @@ async def client_command(command: str, data: Any = None, message_type: str = "co
     session_id = _session_id_var.get()  # Which session
     shell_path = _shell_path_var.get()  # Where in the command tree
 
-    logger.warning(f"🚨 Context: client_id={client_id}, request_id={request_id}, entry_point={entry_point_name}, user={user}, session={session_id}, shell={shell_path}")
+    logger.info(f"📡 client_command '{command}' (entry={entry_point_name}, user={user})")
+    if isinstance(data, (dict, list)):
+        logger.debug(f"   📦 data: {format_json_log(data, colored=True)}")
+    elif data is not None:
+        logger.debug(f"   📦 data: {data}")
 
     if not client_id or not request_id:
         # This should ideally not happen if called within a proper request context
@@ -748,22 +745,14 @@ async def client_command(command: str, data: Any = None, message_type: str = "co
         # Get current sequence number and increment it for the next call
         # Using the helper function for consistent sequence number management
         current_seq_to_send = await get_and_increment_seq_num(context_name="client_command")
-        logger.warning(f"🚨 Got seq_num: {current_seq_to_send}")
 
-        # Extra distinctive logging for tool calls (commands starting with %)
+        # Extra logging for tool calls (commands starting with %)
         if command.startswith('%'):
-            logger.warning(f"🔧🔧🔧 TOOL CALL DETECTED (% prefix) 🔧🔧🔧")
-            logger.warning(f"🔧 Command: {command}")
-            logger.warning(f"🔧 Client: {client_id}")
-            logger.warning(f"🔧 Request: {request_id}")
-            logger.warning(f"🔧 Seq: {current_seq_to_send}")
-            logger.warning(f"🔧 Data: {format_json_log(data) if isinstance(data, dict) else data}")
-            logger.warning(f"🔧🔧🔧 END TOOL CALL INFO 🔧🔧🔧")
+            logger.info(f"🔧 TOOL CALL seq={current_seq_to_send}: {command}")
+            if isinstance(data, dict):
+                logger.info(f"🔧 TOOL DATA: {format_json_log(data)}")
 
-        logger.warning(f"🚨 About to call execute_client_command_awaitable...")
-        logger.info(f"Atlantis: Sending awaitable command '{command}' for client {client_id}, request {request_id}, seq {current_seq_to_send}")
-        # Call the dedicated utility function for awaitable commands
-        logger.warning(f"🚨 Calling execute_client_command_awaitable with command='{command}'")
+        logger.info(f"📡 Sending awaitable '{command}' seq={current_seq_to_send}")
         result = await execute_client_command_awaitable(
             client_id_for_routing=client_id,
             request_id=request_id,
@@ -777,11 +766,11 @@ async def client_command(command: str, data: Any = None, message_type: str = "co
             message_type=message_type,  # Pass message_type for the protocol
             is_private=is_private  # Pass is_private for broadcast control
         )
-        logger.debug(f"Atlantis: Received result for awaitable command '{command}', type: {type(result)}")
+        logger.debug(f"📡 Result for '{command}': type={type(result).__name__}")
 
         return result
     except Exception as e:
-        logger.warning(f"🚨 EXCEPTION in client_command for '{command}': {type(e).__name__}: {e}")
+        logger.warning(f"❌ client_command '{command}' FAILED: {type(e).__name__}: {e}")
         # Server layer already logged with enhanced error message including command context
         # Just re-raise to let the dynamic function manager handle final logging
         raise

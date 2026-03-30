@@ -564,11 +564,13 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
     Returns (raw_transcript, processed_transcript) so caller can handle skip logic.
     Can be called directly for testing.
     """
+    logger.info("fetch_transcript: /silent on")
     await atlantis.client_command("/silent on")
-    logger.info("Fetching transcript from client...")
+    logger.info("fetch_transcript: /transcript get")
     raw_transcript = await atlantis.client_command("/transcript get")
-    logger.info(f"Received rawTranscript with {len(raw_transcript)} entries")
+    logger.info(f"fetch_transcript: received {len(raw_transcript)} entries")
     await atlantis.client_command("/silent off")
+    logger.info("fetch_transcript: /silent off")
 
     if not raw_transcript:
         logger.error("!!! CRITICAL: rawTranscript is EMPTY - no messages received from client!")
@@ -717,7 +719,7 @@ async def chat():
         logger.info(f"Visitor: {caller}, visit #{prev_count}, last visit: {prev_last_visit or 'first time'}")
 
         # Fetch skills for system prompt
-        logger.info(f">>> Fetching skills...")
+        logger.info(">>> Fetching skills...")
         t0 = _t.monotonic()
         await atlantis.client_command("/silent on")
         skill_texts = await fetch_skills()
@@ -1014,11 +1016,11 @@ async def chat():
                                 logger.info(f"    post-coercion args={format_json_log(arguments)}")
 
                             t0 = _t.monotonic()
-                            logger.info(f"    sending /silent on...")
+                            logger.info("    /silent on")
                             await atlantis.client_command("/silent on")
-                            logger.info(f"    sending %{search_term}...")
+                            logger.info(f"    %{search_term}")
                             tool_result = await atlantis.client_command(f"%{search_term}", data=arguments)
-                            logger.info(f"    sending /silent off...")
+                            logger.info("    /silent off")
                             await atlantis.client_command("/silent off")
                             elapsed = _t.monotonic() - t0
 

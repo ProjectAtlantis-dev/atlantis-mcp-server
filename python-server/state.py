@@ -2,7 +2,7 @@
 import logging
 import os
 import sys
-from ColoredFormatter import ColoredFormatter
+from ColoredFormatter import ColoredFormatter, ContextFilter
 
 # --- REMOVED basicConfig ---
 
@@ -18,6 +18,9 @@ logger.setLevel(log_level)
 # Create console handler
 ch = logging.StreamHandler(sys.stdout) # Use stdout
 ch.setLevel(log_level) # Process all messages from logger
+
+# Add context filter (injects [reqId-shell] into every log line)
+ch.addFilter(ContextFilter())
 
 # Set the custom formatter
 ch.setFormatter(ColoredFormatter())

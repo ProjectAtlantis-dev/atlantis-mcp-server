@@ -4,7 +4,7 @@ import asyncio
 from openai import OpenAI
 import json
 from typing import List, Dict, Any, Optional, TypedDict, Tuple, cast, NotRequired
-from dynamic_functions.Tools.todo import TODO_PSEUDO_TOOL, handle_todo_tool
+from dynamic_functions.Tools.todo import TODO_PSEUDO_TOOL, handle_todo_tool, list_tasks as _list_tasks
 
 
 # =============================================================================
@@ -334,12 +334,30 @@ async def fetch_skill_contents(dir_command: str) -> List[str]:
 async def show_tools() -> List[Dict[str, Any]]:
     """Show Kitty's current tool inventory for this session."""
     tools, lookup = get_session_tools()
-    simple: List[Dict[str, Any]] = [
-        {'name': t['function']['name'], 'description': t['function']['description']}
-        for t in tools
-    ]
+    simple: List[Dict[str, Any]] = []
+    for t in tools:
+        fn = t['function']
+        params = fn.get('parameters', {}).get('properties', {})
+        parts = []
+        for pname, pinfo in params.items():
+            ptype = pinfo.get('type', 'any')
+            if isinstance(ptype, list):
+                ptype = ','.join(ptype)
+            parts.append(f"{pname}:{ptype}")
+        sig = ', '.join(parts)
+        simple.append({
+            'name': f"{fn['name']} ({sig})",
+            'description': fn.get('description', ''),
+        })
     logger.info(f"show_tools: {len(simple)} tools")
     return simple
+
+
+@visible
+async def show_todos():
+    """Show Kitty's current todo/task list for this session."""
+    return await _list_tasks()
+
 
 @visible
 async def fetch_skills() -> List[str]:

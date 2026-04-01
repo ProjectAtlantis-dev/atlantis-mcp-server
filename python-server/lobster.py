@@ -299,8 +299,6 @@ def apply_cloud_welcome(service_client: Any, data: Any) -> None:
         logger.info(f"  {r}{'=' * 59}{x}")
         logger.info(f"  {r}   Captain:    {(', '.join(owner_usernames) if owner_usernames else 'unknown'):<44}{x}")
         logger.info(f"  {r}   Trap tag:   {(lobster_request_id or 'MISSING!'):<44}{x}")
-        logger.info(f"  {r}   Shell:      {(data.get('shellPath') or 'not provided'):<44}{x}")
-        logger.info(f"  {r}   Catch ({len(lobster_tool_names)}):  {str(lobster_tool_names):<44}{x}")
         logger.info(f"  {r}{'=' * 59}{x}")
         logger.info("")
 
@@ -478,8 +476,10 @@ async def handle_lobster_socket(
         lobster.info(f"  {r}🦞 ANOTHER LOBSTER IN THE TRAP! ({connection_count} total) 🦞{x}")
     else:
         lobster.info(f"  {r}🦞 FRESH CATCH! NEW MCP CLIENT HAULED ABOARD! 🦞{x}")
+    lobster_game_id = getattr(mcp_server.cloud_client, 'lobster_game_id', None) if mcp_server.cloud_client else None
     lobster.info(f"  {r}  Host:         {websocket.client.host}{x}")
     lobster.info(f"  {r}  Client ID:    {client_id}{x}")
+    lobster.info(f"  {r}  Game:         {lobster_game_id if lobster_game_id is not None else 'unknown'}{x}")
     lobster.info(f"  {r}  Trap count:   {connection_count}{x}")
     lobster.info(f"  {r}  Cloud:        {'⛵ AYE' if has_cloud else '🌊 NAY'}{x}")
     lobster.info(f"  {r}  Tools in pot: {lobster_count}{x}")

@@ -3394,6 +3394,8 @@ class ServiceClient:
         self.lobster_request_id = None
         # Store the lobster shell path received from cloud welcome
         self.lobster_shell_path = None
+        # Store the lobster game ID received from lobsterShell event
+        self.lobster_game_id = None
         # Throttle repeated identical connect_error logs while the cloud is down.
         self._connect_error_signature = None
         self._connect_error_last_logged_at = None
@@ -3886,9 +3888,11 @@ class ServiceClient:
         @self.sio.event(namespace=self.namespace)
         async def lobsterShell(data):
             shell_path = data.get("shellPath") if isinstance(data, dict) else None
+            game_id = data.get("gameId") if isinstance(data, dict) else None
             if shell_path:
                 self.lobster_shell_path = shell_path
-                logger.info(f"🦞 Lobster shell path: {shell_path}")
+                self.lobster_game_id = game_id
+                logger.info(f"\033[1;91m🦞 Lobster shell path: {shell_path}" + (f" (game {game_id})" if game_id else "") + "\033[0m")
             else:
                 logger.warning(f"🦞 Received lobsterShell event with no shellPath: {data}")
 

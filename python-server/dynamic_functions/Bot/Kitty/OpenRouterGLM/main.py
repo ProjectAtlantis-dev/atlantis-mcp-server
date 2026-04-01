@@ -975,6 +975,15 @@ async def chat():
 
                 # Execute accumulated tool calls if any
                 if tool_calls_accumulator:
+                    # Close any open streams before executing tools so the next
+                    # turn's text starts a fresh chat bubble.
+                    if streamTalkId:
+                        await atlantis.stream_end(streamTalkId)
+                        streamTalkId = None
+                    if streamThinkId:
+                        await atlantis.stream_end(streamThinkId)
+                        streamThinkId = None
+
                     logger.info(f"Executing {len(tool_calls_accumulator)} tool calls")
 
                     # Add assistant message with tool_calls to transcript (OpenAI format)

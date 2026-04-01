@@ -5,7 +5,7 @@ import re
 from openai import OpenAI
 import json
 from typing import List, Dict, Any, Optional, TypedDict, Tuple, cast, NotRequired
-from dynamic_functions.Tools.todo import TODO_PSEUDO_TOOL, handle_todo_tool, list_tasks as _list_tasks
+from dynamic_functions.Tools.todo import TODO_PSEUDO_TOOL, handle_todo_tool, list_tasks as _list_tasks, _read_store
 
 
 # =============================================================================
@@ -811,10 +811,20 @@ async def chat():
         needs_checkin = prev_count == 0 or not is_checkin_complete(caller)
         if needs_checkin:
             logger.info(f"Guest needs check-in: prev_count={prev_count}, checkin_complete={is_checkin_complete(caller)}")
-            # Inject directive so Kitty follows new guest procedure
-            transcript.append({'role': 'system', 'content': [{'type': 'text', 'text':
-                "[PROCEDURE REQUIRED] This is an unidentified guest who has NOT completed check-in. Your FIRST action MUST be to call `Tools__get_guest_checklist` to get the check-in steps. It returns a JSON array — pass that array directly to the `todo` tool to load your checklist. Then use `todo` with merge=true to mark each step in_progress then completed as you work through them. Do NOT greet or say anything until your checklist is loaded. You do NOT know their name or username yet — that will be revealed when you verify their paperwork."
-            }]})
+            # Check if the guest already has a checklist loaded from a previous turn
+            existing_todos = _read_store(caller)
+            if existing_todos:
+                # Checklist already loaded — tell the LLM to continue where it left off
+                transcript.append({'role': 'system', 'content': [{'type': 'text', 'text':
+                    "[PROCEDURE IN PROGRESS] This guest is mid-check-in. Your checklist is already loaded in the `todo` tool — do NOT call `get_guest_checklist` again. Call `todo` (no arguments) to see your current progress, then continue working through the remaining pending steps. Use `todo` with merge=true to update each step's status as you go. You do NOT know their name or username yet unless you have already verified their paperwork."
+                }]})
+                logger.info("Injected continue-checkin directive (existing todos found)")
+            else:
+                # No checklist yet — tell the LLM to load one
+                transcript.append({'role': 'system', 'content': [{'type': 'text', 'text':
+                    "[PROCEDURE REQUIRED] This is an unidentified guest who has NOT completed check-in. Your FIRST action MUST be to call `Tools__get_guest_checklist` to get the check-in steps. It returns a JSON array — pass that array directly to the `todo` tool to load your checklist. Then use `todo` with merge=true to mark each step in_progress then completed as you work through them. Do NOT greet or say anything until your checklist is loaded. You do NOT know their name or username yet — that will be revealed when you verify their paperwork."
+                }]})
+                logger.info("Injected new-checkin directive (no existing todos)")
             logger.info(f"Injected new guest procedure directive for caller={caller}")
 
         # If more than an hour since last visit (or first visit), stamp the convo start time

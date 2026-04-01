@@ -42,7 +42,7 @@ def get_default_lobster_tools() -> List[Tool]:
         ),
         Tool(
             name="chat",
-            description="Send a chat message to Atlantis. Use this for conversational messages, not commands.",
+            description="Send a chat message to Atlantis. Use this for conversational messages, not commands. You can put non-verbal cues in parenthesis e.g. 'Nice to meet you (holds out a hand)'",
             inputSchema={
                 "type": "object",
                 "properties": {

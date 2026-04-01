@@ -115,11 +115,11 @@ async def get_guest_checklist():
     logger.info("get_guest_checklist called")
 
     return [
-        {"id": "greet",      "content": "Greet the guest warmly and introduce yourself — you're Kitty, the front desk intern.", "status": "pending"},
-        {"id": "drink",      "content": "Offer them a warm drink (cocoa, coffee, tea) and ask if it's their first time in Greenland or at Atlantis.", "status": "pending"},
-        {"id": "paperwork",  "content": "Ask to see their security paperwork — the signed entry authorization form and their security card. Be friendly but firm — you MUST receive their paperwork before proceeding. No exceptions.", "status": "pending"},
-        {"id": "verify",     "content": "Once they hand over their paperwork, call verify_paperwork to read their security card.", "status": "pending"},
-        {"id": "register",   "content": "After verification, ask for their real first name and call register_guest with their username and first name to finish check-in.", "status": "pending"},
+        {"id": "greet",      "status": "pending", "content": "Greet the guest warmly and introduce yourself — you're Kitty, the front desk intern."},
+        {"id": "drink",      "status": "pending", "content": "Offer them a warm drink (cocoa, coffee, tea) and ask if it's their first time in Greenland or at Atlantis."},
+        {"id": "paperwork",  "status": "pending", "content": "Ask to see their security paperwork — the signed entry authorization form and their security card. Be friendly but firm — you MUST receive their paperwork before proceeding. No exceptions."},
+        {"id": "verify",     "status": "pending", "content": "Once they hand over their paperwork, call verify_paperwork to read their security card."},
+        {"id": "register",   "status": "pending", "content": "After verification, ask for their real first name and call register_guest with their username and first name to finish check-in."},
     ]
 
 

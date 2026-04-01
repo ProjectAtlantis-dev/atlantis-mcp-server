@@ -40,7 +40,7 @@ def _validate(item):
     status = str(item.get("status", "pending")).strip().lower()
     if status not in VALID_STATUSES:
         status = "pending"
-    return {"id": item_id, "content": content, "status": status}
+    return {"id": item_id, "status": status, "content": content}
 
 
 def _merge_items(existing_items, new_items):

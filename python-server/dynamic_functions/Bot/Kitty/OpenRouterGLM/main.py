@@ -1,5 +1,6 @@
 import atlantis
 import asyncio
+import re
 
 from openai import OpenAI
 import json
@@ -125,6 +126,49 @@ def get_consolidated_full_name(tool: ToolT) -> str:
         return parts[-1]
 
     return '*'.join(parts)
+
+
+def _repair_json(raw: str) -> Optional[Dict[str, Any]]:
+    """Try to fix common LLM JSON mistakes before giving up.
+
+    Handles: single quotes, trailing commas, unquoted keys,
+    Python booleans (True/False/None), and single-quoted strings
+    with embedded double quotes.
+    """
+    s = raw.strip()
+
+    # 1. Python literals (True -> true, False -> false, None -> null)
+    s = re.sub(r'\bTrue\b', 'true', s)
+    s = re.sub(r'\bFalse\b', 'false', s)
+    s = re.sub(r'\bNone\b', 'null', s)
+
+    # 2. Replace single-quoted strings with double-quoted strings
+    #    Match: 'some text' but be careful about apostrophes
+    s = re.sub(r"(?<=[\[{,:\s])\s*'([^']*?)'\s*(?=[,\]}:])", r'"\1"', s)
+
+    # 3. Trailing commas before } or ]
+    s = re.sub(r',\s*([}\]])', r'\1', s)
+
+    # 4. Unquoted keys:  { foo: ... } -> { "foo": ... }
+    s = re.sub(r'(?<=[{,])\s*([a-zA-Z_]\w*)\s*:', r' "\1":', s)
+
+    try:
+        result = json.loads(s)
+        if isinstance(result, dict):
+            return result
+    except json.JSONDecodeError:
+        pass
+
+    # 5. Last resort: ast.literal_eval for Python dict literals
+    try:
+        import ast
+        result = ast.literal_eval(raw.strip())
+        if isinstance(result, dict):
+            return result
+    except (ValueError, SyntaxError):
+        pass
+
+    return None
 
 
 def coerce_args_to_schema(args: Dict[str, Any], schema: ToolSchemaT) -> Dict[str, Any]:
@@ -659,9 +703,8 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
 
 # Session-scoped keys — stored in session_shared (auto-scoped per user session)
 def _busy_key() -> str:
-    """BUSY lock key scoped to session + shell so different shells don't collide."""
-    shell = atlantis.get_shell_path() or "default"
-    return f"kitty_busy:{shell}"
+    """BUSY lock key scoped to session only — no shell, so concurrent chats on different shells still block."""
+    return "kitty_busy"
 _TOOLS_KEY = "kitty_tools"
 _LOOKUP_KEY = "kitty_lookup"
 
@@ -957,8 +1000,20 @@ async def chat():
                         try:
                             arguments = json.loads(tc['arguments']) if tc['arguments'] else {}
                         except json.JSONDecodeError as e:
-                            logger.error(f"Failed to parse tool arguments for {tool_key}: {e}")
-                            arguments = {}
+                            logger.warning(f"Invalid JSON for {tool_key}, attempting repair: {e}")
+                            repaired = _repair_json(tc['arguments']) if tc['arguments'] else None
+                            if repaired is not None:
+                                logger.info(f"🔧 Repaired JSON for {tool_key}")
+                                arguments = repaired
+                            else:
+                                logger.error(f"❌ JSON repair failed for {tool_key}: {e}")
+                                transcript.append({
+                                    'role': 'tool',
+                                    'tool_call_id': call_id,
+                                    'content': f"ERROR: Could not parse your tool arguments as JSON: {e}. Please retry with valid JSON (double-quoted keys and strings)."
+                                })
+                                tool_call_made = True
+                                continue
 
                         # Handle dir pseudo-tool
                         if tool_key == 'dir':

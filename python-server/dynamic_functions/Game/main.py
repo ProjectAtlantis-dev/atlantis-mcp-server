@@ -1196,3 +1196,8 @@ async def chat():
         logger.info(f"🔓 RELEASED: session={sessionId} shell key={busy_key} request={requestId}")
 
     return accumulated_text or None
+
+
+@visible
+async def tick():
+    pass

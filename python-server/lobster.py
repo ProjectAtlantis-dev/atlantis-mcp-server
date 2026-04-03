@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional
 import atlantis
 import utils
 from mcp.shared.exceptions import McpError
-from mcp.types import INTERNAL_ERROR, ErrorData, Tool
+from mcp.types import INTERNAL_ERROR, LATEST_PROTOCOL_VERSION, ErrorData, Tool
 from state import logger
 from starlette.websockets import WebSocket, WebSocketDisconnect
 from utils import format_json_log, write_tools_debug_file
@@ -349,7 +349,7 @@ async def lobster_initialize(
     await server._get_tools_list(caller_context="initialize_method")
     lobster.info("\033[1;91m🦞 Lobster initialize complete\033[0m")
     return {
-        "protocolVersion": params.get("protocolVersion"),
+        "protocolVersion": LATEST_PROTOCOL_VERSION,
         "capabilities": {
             "tools": {},
             "prompts": {},
@@ -372,13 +372,14 @@ async def process_mcp_request(
     *,
     get_all_tools_for_response: Callable[["DynamicAdditionServer", str], Awaitable[List[Dict[str, Any]]]],
     server_version: str,
-) -> Dict[str, Any]:
+) -> Optional[Dict[str, Any]]:
     """Process an MCP request and return a response."""
     method = request.get("method")
     lobster.debug(f"\033[1;91m🦞 LOBSTER PATH: {method}\033[0m")
 
     if "id" not in request:
-        return {"error": "Missing request ID"}
+        logger.info(f"Ignoring notification without request ID: {method}")
+        return None
 
     req_id = request.get("id")
     params = request.get("params", {})
@@ -542,8 +543,9 @@ async def handle_lobster_socket(
                     get_all_tools_for_response=get_all_tools_for_response,
                     server_version=server_version,
                 )
-                lobster.info(f"\033[1;91m🦞 TRAP→sending response:\n{format_json_log(response)}\033[0m")
-                await websocket.send_text(json.dumps(response))
+                if response is not None:
+                    lobster.info(f"\033[1;91m🦞 TRAP→sending response:\n{format_json_log(response)}\033[0m")
+                    await websocket.send_text(json.dumps(response))
 
             except json.JSONDecodeError:
                 logger.error(f"Invalid JSON received: {message}")

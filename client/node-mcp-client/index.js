@@ -11,6 +11,46 @@ const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 8000;
 const DEFAULT_PATH = '/mcp';
 
+function writeStdioMessage(payload) {
+  const body = typeof payload === 'string' ? payload : JSON.stringify(payload);
+  const header = `Content-Length: ${Buffer.byteLength(body, 'utf8')}\r\n\r\n`;
+  process.stdout.write(header + body);
+}
+
+function tryConsumeStdioFrame(buffer) {
+  const headerEnd = buffer.indexOf('\r\n\r\n');
+  if (headerEnd === -1) {
+    return null;
+  }
+
+  const headerBlock = buffer.slice(0, headerEnd);
+  const contentLengthMatch = headerBlock.match(/(?:^|\r\n)Content-Length:\s*(\d+)(?:\r\n|$)/i);
+  if (!contentLengthMatch) {
+    return null;
+  }
+
+  const contentLength = Number.parseInt(contentLengthMatch[1], 10);
+  const bodyStart = headerEnd + 4;
+  if (buffer.length < bodyStart + contentLength) {
+    return null;
+  }
+
+  const body = buffer.slice(bodyStart, bodyStart + contentLength);
+  const rest = buffer.slice(bodyStart + contentLength);
+  return { body, rest };
+}
+
+function tryConsumeLegacyLine(buffer) {
+  const newlineIndex = buffer.indexOf('\n');
+  if (newlineIndex === -1) {
+    return null;
+  }
+
+  const line = buffer.slice(0, newlineIndex).trim();
+  const rest = buffer.slice(newlineIndex + 1);
+  return { line, rest };
+}
+
 // Helper function to output JSON messages to stdout
 /*
 function jsonLog(message, level = 'info') {
@@ -131,15 +171,11 @@ async function startMcpBridge() {
             // Parse and re-stringify to ensure proper JSON formatting
             const jsonData = JSON.parse(wsData);
 
-            // Write the properly formatted JSON to stdout
-            process.stdout.write(JSON.stringify(jsonData) + '\n');
+            // Write MCP stdio-framed JSON-RPC to stdout
+            writeStdioMessage(jsonData);
           } catch (parseError) {
-            // If it's not valid JSON, wrap it in a JSON text content object
-            const jsonWrapper = {
-              type: "text",
-              text: wsData
-            };
-            process.stdout.write(JSON.stringify(jsonWrapper) + '\n');
+            // Non-JSON websocket traffic is not valid MCP stdio; keep it off stdout.
+            logStatus(`Ignoring non-JSON server message: ${parseError.message}`, 'warn');
           }
         }
               } catch (error) {
@@ -167,34 +203,38 @@ async function startMcpBridge() {
         // Add the new data to our buffer
         inputBuffer += data.toString();
 
-        // Process complete JSON objects
-        let newlineIndex;
-        while ((newlineIndex = inputBuffer.indexOf('\n')) !== -1) {
-          // Extract a complete line
-          const line = inputBuffer.slice(0, newlineIndex).trim();
-          inputBuffer = inputBuffer.slice(newlineIndex + 1);
+        while (true) {
+          const framedMessage = tryConsumeStdioFrame(inputBuffer);
+          if (framedMessage) {
+            inputBuffer = framedMessage.rest;
+            if (connection.connected) {
+              connection.sendUTF(framedMessage.body);
+            }
+            continue;
+          }
 
-          if (!line) continue; // Skip empty lines
+          const legacyMessage = tryConsumeLegacyLine(inputBuffer);
+          if (!legacyMessage) {
+            break;
+          }
+
+          inputBuffer = legacyMessage.rest;
+          const line = legacyMessage.line;
+          if (!line) {
+            continue;
+          }
 
           try {
-            // Parse the JSON input
             const jsonInput = JSON.parse(line);
-
-            // Extract the actual text content if it's wrapped in a standard format
-            let textToSend;
-            if (jsonInput.type === 'text' && jsonInput.text) {
-              textToSend = jsonInput.text;
-            } else {
-              // Otherwise send the stringified JSON
-              textToSend = JSON.stringify(jsonInput);
-            }
+            const textToSend = jsonInput.type === 'text' && jsonInput.text
+              ? jsonInput.text
+              : JSON.stringify(jsonInput);
 
             if (connection.connected) {
               connection.sendUTF(textToSend);
             }
           } catch (jsonError) {
-            // If it's not valid JSON, send it as is
-            if (connection.connected && line) {
+            if (connection.connected) {
               connection.sendUTF(line);
             }
           }
@@ -225,4 +265,3 @@ startMcpBridge().catch(error => {
   logStatus(`Fatal error: ${error.message}`, 'error');
   process.exit(1);
 });
-

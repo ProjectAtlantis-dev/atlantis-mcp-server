@@ -8,7 +8,7 @@ from datetime import datetime
 from dynamic_functions.Game.common import (
     logger,
     BOT_SID, BOT_SESSION_PREFIX,
-    BOTS, next_bot,
+    BOTS, next_bot, add_bot, remove_bot, list_bots,
     get_session_tools, _busy_key,
     fetch_transcript, find_last_chat_entry,
     build_system_prompt, handle_dir_tool,
@@ -47,6 +47,27 @@ async def show_todos():
     return await _list_tasks()
 
 
+@visible
+async def bot_list():
+    """List all bots in the chat pool."""
+    return list_bots()
+
+
+@visible
+async def bot_add(model: str, base_url: str = "https://openrouter.ai/api/v1",
+                  api_key_env: str = "OPENROUTER_API_KEY"):
+    """Add a bot to the chat pool. Provide the model name (e.g. 'anthropic/claude-sonnet-4')."""
+    bot = add_bot(model, base_url, api_key_env)
+    return {"added": bot, "pool_size": len(BOTS)}
+
+
+@visible
+async def bot_remove(index: int):
+    """Remove a bot from the chat pool by its index number (see bot_list)."""
+    removed = remove_bot(index)
+    return {"removed": removed, "pool_size": len(BOTS)}
+
+
 # no location since this is catch-all chat
 # no app since this is catch-all chat
 @chat
@@ -54,7 +75,9 @@ async def chat():
     """Main chat function"""
     sessionId = atlantis.get_session_id() or "unknown"
     requestId = atlantis.get_request_id() or "unknown"
-    caller: str = atlantis.get_caller() or "the visitor"  # type: ignore[assignment]
+    caller: str = atlantis.get_caller()  # type: ignore[assignment]
+    if not caller:
+        raise ValueError("No caller identity available — cannot process chat without a caller")
 
     logger.info("=" * 60)
     logger.info(f"=== CHAT TRIGGERED === session={sessionId} request={requestId} caller={caller}")
@@ -79,8 +102,7 @@ async def chat():
         from dynamic_functions.Bot.Kitty.system_prompt import SYSTEM_PROMPT
         base_prompt = await SYSTEM_PROMPT()
         if not base_prompt or not str(base_prompt).strip():
-            logger.error("Failed to load SYSTEM_PROMPT, using fallback")
-            base_prompt = "You are a helpful assistant."
+            raise ValueError("SYSTEM_PROMPT returned empty — cannot proceed without a system prompt")
         base_prompt = str(base_prompt)
         logger.info(f"<<< SYSTEM_PROMPT loaded in {_t.monotonic() - t0:.2f}s ({len(base_prompt)} chars)")
 
@@ -104,6 +126,9 @@ async def chat():
         logger.info(f"Visitor: {caller}, visit #{prev_count}, last visit: {prev_last_visit or 'first time'}")
 
         # Pick next bot — round-robin through BOTS pool
+        if not BOTS:
+            logger.info("No bots registered — nothing to do")
+            return
         bot_index, bot_cfg = next_bot()
         model = bot_cfg["model"]
         logger.info(f"Selected bot [{bot_index}/{len(BOTS)}]: model={model}")
@@ -198,6 +223,6 @@ async def chat():
         logger.info(f"🔓 RELEASED: session={sessionId} shell key={busy_key} request={requestId}")
 
 
-@visible
+@tick
 async def tick():
     pass

@@ -25,21 +25,76 @@ BOT_SESSION_PREFIX = "kitty"   # prefix for session-scoped keys (busy, tools, lo
 
 # =============================================================================
 # Bot Pool — round-robin through these on each chat invocation
+# Persisted as bots.json alongside this file
 # =============================================================================
-BOTS = [
-    {
-        "model": "z-ai/glm-5",
-        "base_url": "https://openrouter.ai/api/v1",
-        "api_key_env": "OPENROUTER_API_KEY",
-    },
-]
+_BOTS_FILE = os.path.join(os.path.dirname(__file__), "bots.json")
 
-_bot_cycle = itertools.cycle(range(len(BOTS)))
+def _load_bots() -> List[Dict[str, Any]]:
+    """Load bot list from bots.json. Returns empty list if file doesn't exist."""
+    try:
+        with open(_BOTS_FILE, 'r') as f:
+            bots = json.load(f)
+            if not isinstance(bots, list):
+                raise ValueError(f"bots.json must contain a JSON array, got {type(bots).__name__}")
+            return bots
+    except FileNotFoundError:
+        return []
+    except json.JSONDecodeError as e:
+        raise ValueError(f"bots.json contains invalid JSON: {e}")
+
+
+def _save_bots(bots: List[Dict[str, Any]]) -> None:
+    """Persist the bot list to bots.json."""
+    with open(_BOTS_FILE, 'w') as f:
+        json.dump(bots, f, indent=2)
+    logger.info(f"Bot list saved to {_BOTS_FILE} ({len(bots)} bots)")
+
+
+BOTS: List[Dict[str, Any]] = _load_bots()
+_bot_index = 0
+
+
+def _reset_cycle() -> None:
+    """Reset the round-robin index (call after modifying BOTS)."""
+    global _bot_index
+    _bot_index = 0
+
 
 def next_bot() -> Tuple[int, Dict[str, Any]]:
-    """Pick the next bot from the pool. Returns (index, config)."""
-    idx = next(_bot_cycle)
+    """Pick the next bot from the pool (round-robin). Returns (index, config)."""
+    global _bot_index
+    if not BOTS:
+        raise ValueError("No bots configured — use add_bot to add one")
+    idx = _bot_index % len(BOTS)
+    _bot_index = idx + 1
     return idx, BOTS[idx]
+
+
+def add_bot(model: str, base_url: str = "https://openrouter.ai/api/v1",
+            api_key_env: str = "OPENROUTER_API_KEY") -> Dict[str, Any]:
+    """Add a bot to the pool. Returns the new bot config."""
+    bot = {"model": model, "base_url": base_url, "api_key_env": api_key_env}
+    BOTS.append(bot)
+    _save_bots(BOTS)
+    _reset_cycle()
+    logger.info(f"Bot added: {model} (pool size now {len(BOTS)})")
+    return bot
+
+
+def remove_bot(index: int) -> Dict[str, Any]:
+    """Remove a bot by index. Returns the removed bot config."""
+    if index < 0 or index >= len(BOTS):
+        raise IndexError(f"Bot index {index} out of range (0-{len(BOTS) - 1})")
+    removed = BOTS.pop(index)
+    _save_bots(BOTS)
+    _reset_cycle()
+    logger.info(f"Bot removed: {removed['model']} (pool size now {len(BOTS)})")
+    return removed
+
+
+def list_bots() -> List[Dict[str, Any]]:
+    """Return the current bot pool with indices."""
+    return [{"index": i, **bot} for i, bot in enumerate(BOTS)]
 
 
 # =============================================================================

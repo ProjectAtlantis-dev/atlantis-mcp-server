@@ -1620,6 +1620,41 @@ async def {name}():
         else:
             return f"Function '{secure_source_name}' moved from '{source_display}' to '{dest_app}'"
 
+    async def folder_rename(self, source_app: str, dest_app: str) -> str:
+        '''
+        Renames an app folder (directory) within dynamic_functions.
+
+        Args:
+            source_app: The current app/folder name (e.g. "Game")
+            dest_app: The new app/folder name (e.g. "Callback")
+
+        Returns:
+            Success message string
+
+        Raises:
+            ValueError: If source doesn't exist or destination already exists
+            IOError: If rename fails
+        '''
+        source_path = os.path.join(self.functions_dir, source_app)
+        dest_path = os.path.join(self.functions_dir, dest_app)
+
+        if not os.path.isdir(source_path):
+            raise ValueError(f"Source app folder '{source_app}' does not exist")
+
+        if os.path.exists(dest_path):
+            raise ValueError(f"Destination app folder '{dest_app}' already exists")
+
+        try:
+            os.rename(source_path, dest_path)
+            logger.info(f"Renamed app folder '{source_app}' to '{dest_app}'")
+        except OSError as e:
+            raise IOError(f"Failed to rename folder '{source_app}' to '{dest_app}': {e}")
+
+        # Rebuild mapping to reflect the new folder name
+        await self._build_function_file_mapping()
+
+        return f"App folder '{source_app}' renamed to '{dest_app}'"
+
     async def _write_error_log(self, name: str, error_message: str) -> None: # Made it async to match caller, added self
         '''
         Write an error message to a function-specific log file in the dynamic_functions folder.

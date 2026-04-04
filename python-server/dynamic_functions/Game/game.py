@@ -22,6 +22,9 @@ async def game():
     #kittyPath = f"{owner_id}**Bot.Kitty.OpenRouterGLM**chat"
     #kittyPath = f"{owner_id}**Bot.Kitty.OpenRouterMinimax**chat"
     #await atlantis.client_command("/chat set " + kittyPath)
+    # everything should be in same dir as game
+    await atlantis.client_command("/callback set chat chat")
+    await atlantis.client_command("/callback set tick tick")
 
     # set background
     await atlantis.client_command("/silent off")

@@ -8,7 +8,7 @@ logger = logging.getLogger("mcp_server")
 @visible
 async def README():
     """
-    This has the secret of the day and latest info
+    This has MULTIX command line instructions
     """
 
     await atlantis.client_log("README running")

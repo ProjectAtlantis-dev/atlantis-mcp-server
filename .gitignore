@@ -50,7 +50,7 @@ python-server/dynamic_functions/*
 !python-server/dynamic_functions/Home
 !python-server/dynamic_functions/Bot
 !python-server/dynamic_functions/Tools
-!python-server/dynamic_functions/Game
+!python-server/dynamic_functions/Callback
 python-server/dynamic_servers/*
 python-server/dynamic_functions/.gitignore
 python-server/dynamic_servers/OLD/
@@ -83,4 +83,4 @@ python-server/dynamic_functions/Bot/Kitty/visitor_data.json
 python-server/dynamic_functions/Bot/Kitty/*/api_payload.json
 python-server/dynamic_functions/Bot/Kitty/*/raw_transcript.json
 python-server/dynamic_functions/Bot/Kitty/*/visitor_log.json
-python-server/dynamic_functions/Game/raw_transcript.json
+python-server/dynamic_functions/Callback/raw_transcript.json

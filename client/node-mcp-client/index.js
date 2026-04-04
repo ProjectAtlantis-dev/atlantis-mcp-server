@@ -13,8 +13,48 @@ const DEFAULT_PATH = '/mcp';
 
 function writeStdioMessage(payload) {
   const body = typeof payload === 'string' ? payload : JSON.stringify(payload);
-  const header = `Content-Length: ${Buffer.byteLength(body, 'utf8')}\r\n\r\n`;
-  process.stdout.write(header + body);
+  process.stdout.write(body + '\n');
+}
+
+function trimForLog(value, maxLength = 240) {
+  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, maxLength)}...`;
+}
+
+function describeJsonRpcMessage(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return `non-object payload (${typeof payload})`;
+  }
+
+  if (payload.method) {
+    return `request method=${payload.method} id=${payload.id ?? 'notification'}`;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, 'result')) {
+    return `response id=${payload.id ?? 'unknown'} resultKeys=${Object.keys(payload.result || {}).join(',') || 'none'}`;
+  }
+
+  if (payload.error) {
+    const code = payload.error.code ?? 'unknown';
+    const message = payload.error.message ?? trimForLog(payload.error);
+    return `error id=${payload.id ?? 'unknown'} code=${code} message=${message}`;
+  }
+
+  return `json-rpc payload keys=${Object.keys(payload).join(',')}`;
+}
+
+function isHandshakeMessage(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return false;
+  }
+
+  return payload.method === 'initialize'
+    || payload.method === 'notifications/initialized'
+    || Object.prototype.hasOwnProperty.call(payload, 'result')
+    || Object.prototype.hasOwnProperty.call(payload, 'error');
 }
 
 function tryConsumeStdioFrame(buffer) {
@@ -170,12 +210,18 @@ async function startMcpBridge() {
           try {
             // Parse and re-stringify to ensure proper JSON formatting
             const jsonData = JSON.parse(wsData);
+            if (isHandshakeMessage(jsonData)) {
+              logStatus(`Handshake WS->stdio ${describeJsonRpcMessage(jsonData)}`);
+            }
 
-            // Write MCP stdio-framed JSON-RPC to stdout
+            // MCP stdio uses newline-delimited JSON, not LSP Content-Length frames.
             writeStdioMessage(jsonData);
           } catch (parseError) {
             // Non-JSON websocket traffic is not valid MCP stdio; keep it off stdout.
-            logStatus(`Ignoring non-JSON server message: ${parseError.message}`, 'warn');
+            logStatus(
+              `Ignoring non-JSON server message: ${parseError.message}; payload=${trimForLog(wsData)}`,
+              'warn'
+            );
           }
         }
               } catch (error) {
@@ -184,8 +230,8 @@ async function startMcpBridge() {
     });
 
     // Handle connection closure
-    connection.on('close', () => {
-      logStatus(`Connection to Python MCP server closed`);
+    connection.on('close', (code, description) => {
+      logStatus(`Connection to Python MCP server closed code=${code ?? 'unknown'} reason=${description || ''}`);
       process.exit(0);
     });
 
@@ -208,7 +254,19 @@ async function startMcpBridge() {
           if (framedMessage) {
             inputBuffer = framedMessage.rest;
             if (connection.connected) {
-              connection.sendUTF(framedMessage.body);
+              try {
+                const jsonInput = JSON.parse(framedMessage.body);
+                if (isHandshakeMessage(jsonInput)) {
+                  logStatus(`Handshake stdio->WS via content-length ${describeJsonRpcMessage(jsonInput)}`);
+                }
+                connection.sendUTF(JSON.stringify(jsonInput));
+              } catch (jsonError) {
+                logStatus(
+                  `Failed to parse Content-Length stdin payload as JSON: ${jsonError.message}; payload=${trimForLog(framedMessage.body)}`,
+                  'warn'
+                );
+                connection.sendUTF(framedMessage.body);
+              }
             }
             continue;
           }
@@ -226,14 +284,17 @@ async function startMcpBridge() {
 
           try {
             const jsonInput = JSON.parse(line);
-            const textToSend = jsonInput.type === 'text' && jsonInput.text
-              ? jsonInput.text
-              : JSON.stringify(jsonInput);
+            const textToSend = JSON.stringify(jsonInput);
+
+            if (isHandshakeMessage(jsonInput)) {
+              logStatus(`Handshake stdio->WS via ndjson ${describeJsonRpcMessage(jsonInput)}`);
+            }
 
             if (connection.connected) {
               connection.sendUTF(textToSend);
             }
           } catch (jsonError) {
+            logStatus(`Forwarding non-JSON stdin line to server: ${trimForLog(line)}`, 'warn');
             if (connection.connected) {
               connection.sendUTF(line);
             }

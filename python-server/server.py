@@ -27,7 +27,7 @@ import traceback
 from collections import defaultdict
 
 # Version
-SERVER_VERSION = "3.9.0"
+SERVER_VERSION = "3.9.1"
 
 # Tool list display column widths
 COL_WIDTH_APP = 30
@@ -1096,17 +1096,17 @@ class DynamicAdditionServer(Server):
             ),
             Tool(
                 name="_function_move",
-                description="Moves a function from one app to another. Gets the function code from source, adds it to destination, and removes it from source.",
+                description="Moves a function from one app to another. Gets the function code from source, adds it to destination, and removes it from source. Can also rename an app folder when both source_name and dest_name are empty (folder rename mode).",
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "source_name": {"type": "string", "description": "The name of the function to move"},
-                        "source_app": {"type": "string", "description": "Optional: The source app name to target a specific function when multiple exist with the same name"},
-                        "dest_app": {"type": "string", "description": "The destination app name to move the function to"},
-                        "dest_name": {"type": "string", "description": "Optional: New name for the function (defaults to source_name)"},
+                        "source_name": {"type": "string", "description": "The name of the function to move. Leave empty with empty dest_name to rename a folder/app instead."},
+                        "source_app": {"type": "string", "description": "The source app name. Required for folder rename mode."},
+                        "dest_app": {"type": "string", "description": "The destination app name to move the function to, or the new app/folder name for folder rename mode."},
+                        "dest_name": {"type": "string", "description": "Optional: New name for the function (defaults to source_name). Leave empty with empty source_name for folder rename."},
                         "dest_location": {"type": "string", "description": "Optional: Adds @location() decorator with the specified location value"}
                     },
-                    "required": ["source_name", "dest_app"]
+                    "required": ["dest_app"]
                 },
                 annotations=ToolAnnotations(title="_function_move")
             ),
@@ -2233,16 +2233,28 @@ class DynamicAdditionServer(Server):
         elif actual_function_name == "_function_move":
             logger.debug(f"---> Calling built-in: function_move with args:\n{format_json_log(args)}")
 
-            source_name = args.get("source_name")
-            source_app = args.get("source_app")
-            dest_app = args.get("dest_app")
-            dest_name = args.get("dest_name")
+            source_name = args.get("source_name", "")
+            source_app = args.get("source_app", "")
+            dest_app = args.get("dest_app", "")
+            dest_name = args.get("dest_name", "")
             dest_location = args.get("dest_location")
+
+            if not dest_app:
+                raise ValueError("Missing required parameter: dest_app")
+
+            # Folder rename mode: both source_name and dest_name are empty
+            if not source_name and not dest_name:
+                if not source_app:
+                    raise ValueError("source_app is required for folder rename mode")
+                try:
+                    result_msg = await self.function_manager.folder_rename(source_app, dest_app)
+                    await self._notify_tool_list_changed(change_type="updated", tool_name=dest_app)
+                    return result_msg
+                except (ValueError, IOError) as e:
+                    return str(e)
 
             if not source_name:
                 raise ValueError("Missing required parameter: source_name")
-            if not dest_app:
-                raise ValueError("Missing required parameter: dest_app")
 
             try:
                 result_msg = await self.function_manager.function_move(

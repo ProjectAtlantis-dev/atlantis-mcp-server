@@ -2,12 +2,13 @@ import atlantis
 import logging
 import os
 
+
 logger = logging.getLogger("mcp_server")
 
 
 @game
 async def game():
-    """Initializes a new chat session with Kitty Claw as the default chat bot"""
+    """Initializes a new chat session"""
 
     await atlantis.client_command("/silent on")
 
@@ -18,9 +19,12 @@ async def game():
     owner_id = atlantis.get_owner()
     #await atlantis.client_log(f"Owner ID: {owner_id}")  # TEMP
 
-    kittyPath = f"{owner_id}**Bot.Kitty.OpenRouterGLM**chat"
+    #kittyPath = f"{owner_id}**Bot.Kitty.OpenRouterGLM**chat"
     #kittyPath = f"{owner_id}**Bot.Kitty.OpenRouterMinimax**chat"
-    await atlantis.client_command("/chat set " + kittyPath)
+    #await atlantis.client_command("/chat set " + kittyPath)
+    # everything should be in same dir as game
+    await atlantis.client_command("/callback set chat chat")
+    await atlantis.client_command("/callback set tick tick")
 
     # set background
     await atlantis.client_command("/silent off")
@@ -35,13 +39,11 @@ async def game():
 
     # send kitty face image
 
-    kitty_path = os.path.join(os.path.dirname(__file__), "kitty_face_compressed.jpg")
-    await atlantis.client_image(kitty_path)
+    #kitty_path = os.path.join(os.path.dirname(__file__), "kitty_face_compressed.jpg")
+    #await atlantis.client_image(kitty_path)
 
 
 
-    await atlantis.client_log(f"Kitty is at the front desk!")
-
-
+    #await atlantis.client_log(f"Kitty is at the front desk!")
 
 

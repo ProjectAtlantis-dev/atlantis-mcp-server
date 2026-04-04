@@ -378,7 +378,7 @@ async def process_mcp_request(
     lobster.debug(f"\033[1;91m🦞 LOBSTER PATH: {method}\033[0m")
 
     if "id" not in request:
-        logger.info(f"Ignoring notification without request ID: {method}")
+        logger.warning(f"Ignoring notification without request ID: {method}")
         return None
 
     req_id = request.get("id")

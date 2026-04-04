@@ -5,7 +5,7 @@ from openai import OpenAI
 from typing import List, Dict, Any
 from datetime import datetime
 
-from dynamic_functions.Game.common import (
+from dynamic_functions.Callback.common import (
     logger,
     BOT_SID, BOT_SESSION_PREFIX,
     BOTS, next_bot, add_bot, remove_bot, list_bots,
@@ -14,7 +14,7 @@ from dynamic_functions.Game.common import (
     build_system_prompt, handle_dir_tool,
     get_visit_info, record_new_conversation, is_checkin_complete,
 )
-from dynamic_functions.Game.bot import run_bot_turn
+from dynamic_functions.Callback.bot import run_bot_turn
 from dynamic_functions.Tools.todo import list_tasks as _list_tasks, _read_store
 
 

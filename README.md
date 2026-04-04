@@ -18,12 +18,21 @@ The centerpiece of this project is a Python MCP host (referred to as a 'remote')
 
 ## Quick Start
 
-1. Prerequisites - need to install Python for the server and Node for the MCP client; you should also install uv/uvx and node/npx since it seems that MCP needs both
+1. Prerequisites - need to install Python for the server and Node for Lobster (the MCP client); you should also install uv/uvx and node/npx since it seems that MCP needs both
 
 
 2. Python 3.13 seems to be most stable right now because of async support
 
-3. Edit the runServer script in the `python-server` folder and set the email and service name (it's actually best practice to create a copy "runServerFoo" that you can replace the runServer file with when we do updates):
+3. Set up your Python virtual environment and install dependencies:
+
+```bash
+cd python-server
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+4. Edit the runServer script in the `python-server` folder and set the email and service name (it's actually best practice to create a copy "runServerFoo" that you can replace the runServer file with when we do updates):
 
 ```bash
 python server.py  \
@@ -35,36 +44,25 @@ python server.py  \
   --cloud-port=443  \
   --service-name=home                        # remote name, can be anything but must be unique across all machines
 ```
-4. To use this as a regular standalone MCP server, add the following config to Windsurf or Cursor or whatever:
-
-```json
-   "mcpServers": {
-      "atlantis": {
-         "command": "npx",
-         "args": [
-            "atlantis-mcp",
-            "--port",
-            "8000"
-            ]
-      }
-   }
-```
-
-To add Atlantis to Claude Code, this should work:
+5. The MCP client is now called **Lobster**. To connect it to Claude Code:
 
 ```claude mcp add atlantis -- npx atlantis-mcp --port 8000```
+
+To connect to Codex:
+
+```codex mcp add atlantis -- npx atlantis-mcp --port 8000```
 
 To add Atlantis Open Weather for testing:
 
 ```claude mcp add --transport stdio weather_forecast --env OPENWEATHER_API_KEY=mykey123 -- uvx --from atlantis-open-weather-mcp start-weather-server```
 
-5. To connect to Atlantis, sign into https://www.projectatlantis.ai under the same email
+6. To connect to Atlantis, sign into https://www.projectatlantis.ai under the same email
 
-6. Your remote(s) should autoconnect using email and default api key = 'foobar' (see 'api' command to generate a new key later). The first server to connect will be assigned your 'default' unless you manually change it later
+7. Your remote(s) should autoconnect using email and default api key = 'foobar' (see 'api' command to generate a new key later). The first server to connect will be assigned your 'default' unless you manually change it later
 
-7. Initially the functions and servers folders will be empty except for some examples
+8. Initially the functions and servers folders will be empty except for some examples
 
-8. You can run this standalone MCP or accessed from the cloud or both
+9. You can run this standalone MCP or accessed from the cloud or both
 
 ### Architecture
 
@@ -86,9 +84,9 @@ Note that MCP auth and security are still being worked out so using the cloud fo
 1. **Python Remote (MCP P2P server)** (`python-server/`)
    - Location of our 'remote'. Runs locally but can be controlled remotely
 
-2. **MCP Client** (`client/`)
-   - lets you treat the remote like any another MCP
-   - uses npx (easy to install into claude or cursor)
+2. **Lobster (MCP Client)** (`client/`)
+   - lets Claude Code or Codex run Atlantis commands or chat via MCP
+   - uses npx (easy to install into Claude Code or Codex)
    - cloud connection not needed - although it may complain
    - only supports a subset of the spec
    - can only see tools on the local box (at least right now) or shared

@@ -70,14 +70,28 @@ def next_bot() -> Tuple[int, Dict[str, Any]]:
     return idx, BOTS[idx]
 
 
-def add_bot(model: str, base_url: str = "https://openrouter.ai/api/v1",
-            api_key_env: str = "OPENROUTER_API_KEY") -> Dict[str, Any]:
-    """Add a bot to the pool. Returns the new bot config."""
-    bot = {"model": model, "base_url": base_url, "api_key_env": api_key_env}
+DEFAULT_MODEL = "anthropic/claude-sonnet-4"
+DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+DEFAULT_API_KEY_ENV = "OPENROUTER_API_KEY"
+
+
+def add_bot(name: str) -> Dict[str, Any]:
+    """Spawn a bot by name. Derives config by convention from Bot/{Name}/ directory."""
+    sid = name.lower()
+    display_name = name.capitalize()
+    system_prompt_module = f"dynamic_functions.Bot.{display_name}.system_prompt"
+    bot = {
+        "sid": sid,
+        "display_name": display_name,
+        "model": DEFAULT_MODEL,
+        "base_url": DEFAULT_BASE_URL,
+        "api_key_env": DEFAULT_API_KEY_ENV,
+        "system_prompt_module": system_prompt_module,
+    }
     BOTS.append(bot)
     _save_bots(BOTS)
     _reset_cycle()
-    logger.info(f"Bot added: {model} (pool size now {len(BOTS)})")
+    logger.info(f"Bot spawned: {display_name} (sid={sid}, pool size now {len(BOTS)})")
     return bot
 
 

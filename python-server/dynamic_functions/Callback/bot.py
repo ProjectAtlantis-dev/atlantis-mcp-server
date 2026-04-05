@@ -8,7 +8,6 @@ from typing import List, Dict, Any, Optional, cast
 
 from dynamic_functions.Callback.common import (
     logger,
-    BOT_SID, BOT_DISPLAY_NAME,
     TranscriptToolT, ToolLookupInfo, ToolSchemaT,
     _repair_json, coerce_args_to_schema, convert_tools_for_llm,
     handle_dir_tool, handle_search_tool,
@@ -21,6 +20,8 @@ async def run_bot_turn(
     *,
     client: OpenAI,
     model: str,
+    bot_sid: str,
+    bot_display_name: str,
     system_prompt: str,
     transcript: List[Dict[str, Any]],
     converted_tools: List[TranscriptToolT],
@@ -104,7 +105,7 @@ async def run_bot_turn(
                 reasoning_content = getattr(delta, 'reasoning_content', None) or getattr(delta, 'reasoning', None)
                 if reasoning_content:
                     if not streamThinkId:
-                        streamThinkId = await atlantis.stream_start(BOT_SID, f"{BOT_DISPLAY_NAME} (thinking)")
+                        streamThinkId = await atlantis.stream_start(bot_sid, f"{bot_display_name} (thinking)")
                         logger.info(f"Think stream started with ID: {streamThinkId}")
                     await atlantis.stream(reasoning_content, streamThinkId)
 
@@ -116,7 +117,7 @@ async def run_bot_turn(
                         streamThinkId = None
 
                     if not streamTalkId:
-                        streamTalkId = await atlantis.stream_start(BOT_SID, BOT_DISPLAY_NAME)
+                        streamTalkId = await atlantis.stream_start(bot_sid, bot_display_name)
                         logger.info(f"Talk stream started with ID: {streamTalkId}")
 
                     text = delta.content

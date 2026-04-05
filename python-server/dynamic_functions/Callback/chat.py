@@ -7,7 +7,6 @@ from datetime import datetime
 
 from dynamic_functions.Callback.common import (
     logger,
-    BOT_SID, BOT_SESSION_PREFIX,
     BOTS, next_bot, add_bot, remove_bot, list_bots,
     get_session_tools, _busy_key,
     fetch_transcript, find_last_chat_entry,
@@ -54,11 +53,10 @@ async def bot_list():
 
 
 @visible
-async def bot_add(model: str, base_url: str = "https://openrouter.ai/api/v1",
-                  api_key_env: str = "OPENROUTER_API_KEY"):
-    """Add a bot to the chat pool. Provide the model name (e.g. 'anthropic/claude-sonnet-4')."""
-    bot = add_bot(model, base_url, api_key_env)
-    return {"added": bot, "pool_size": len(BOTS)}
+async def bot_spawn(name: str):
+    """Spawn a bot into the chat pool by name (e.g. 'kitty'). Looks up Bot/{Name}/ for system prompt."""
+    bot = add_bot(name)
+    return {"spawned": bot, "pool_size": len(BOTS)}
 
 
 @visible
@@ -95,16 +93,7 @@ async def chat():
 
     try:
         import time as _t
-
-        # Load base prompt directly via import
-        logger.info(f">>> Loading SYSTEM_PROMPT via direct import...")
-        t0 = _t.monotonic()
-        from dynamic_functions.Bot.Kitty.system_prompt import SYSTEM_PROMPT
-        base_prompt = await SYSTEM_PROMPT()
-        if not base_prompt or not str(base_prompt).strip():
-            raise ValueError("SYSTEM_PROMPT returned empty — cannot proceed without a system prompt")
-        base_prompt = str(base_prompt)
-        logger.info(f"<<< SYSTEM_PROMPT loaded in {_t.monotonic() - t0:.2f}s ({len(base_prompt)} chars)")
+        from importlib import import_module
 
         # Fetch and transform transcript
         logger.info(f">>> Fetching transcript...")
@@ -112,26 +101,39 @@ async def chat():
         rawTranscript, transcript = await fetch_transcript()
         logger.info(f"<<< Transcript fetched in {_t.monotonic() - t0:.2f}s ({len(rawTranscript)} raw, {len(transcript)} filtered)")
 
-        # Don't respond if last chat message was from the bot
+        # Pick next bot — round-robin through BOTS pool
+        if not BOTS:
+            logger.info("No bots registered — nothing to do")
+            await atlantis.client_log("No bots in the room right now. Use `bot_spawn` to add one!")
+            return
+        bot_index, bot_cfg = next_bot()
+        bot_sid = bot_cfg["sid"]
+        bot_display_name = bot_cfg["display_name"]
+        model = bot_cfg["model"]
+        logger.info(f"Selected bot [{bot_index}/{len(BOTS)}]: {bot_display_name} (sid={bot_sid}, model={model})")
+
+        # Don't respond if last chat message was from this bot
         last_chat_entry = find_last_chat_entry(rawTranscript)
         if last_chat_entry:
             logger.info(f"  Last chat entry: sid={last_chat_entry.get('sid')} type={last_chat_entry.get('type')} content={str(last_chat_entry.get('content',''))[:80]}")
-        if last_chat_entry and last_chat_entry.get('type') == 'chat' and last_chat_entry.get('sid') == BOT_SID:
-            logger.warning(f"\x1b[38;5;204mLast chat was from kitty — skipping (session={sessionId} request={requestId})\x1b[0m")
-            await atlantis.owner_log(f"Skipping response - last chat was from kitty")
+        if last_chat_entry and last_chat_entry.get('type') == 'chat' and last_chat_entry.get('sid') == bot_sid:
+            logger.warning(f"\x1b[38;5;204mLast chat was from {bot_display_name} — skipping (session={sessionId} request={requestId})\x1b[0m")
+            await atlantis.owner_log(f"Skipping response - last chat was from {bot_display_name}")
             return
+
+        # Load system prompt from the bot's module
+        logger.info(f">>> Loading SYSTEM_PROMPT from {bot_cfg['system_prompt_module']}...")
+        t0 = _t.monotonic()
+        prompt_mod = import_module(bot_cfg["system_prompt_module"])
+        base_prompt = await prompt_mod.SYSTEM_PROMPT()
+        if not base_prompt or not str(base_prompt).strip():
+            raise ValueError(f"SYSTEM_PROMPT for {bot_display_name} returned empty")
+        base_prompt = str(base_prompt)
+        logger.info(f"<<< SYSTEM_PROMPT loaded in {_t.monotonic() - t0:.2f}s ({len(base_prompt)} chars)")
 
         # Check visit info before recording, so we can detect time gaps
         prev_count, prev_last_visit = get_visit_info(caller)
         logger.info(f"Visitor: {caller}, visit #{prev_count}, last visit: {prev_last_visit or 'first time'}")
-
-        # Pick next bot — round-robin through BOTS pool
-        if not BOTS:
-            logger.info("No bots registered — nothing to do")
-            return
-        bot_index, bot_cfg = next_bot()
-        model = bot_cfg["model"]
-        logger.info(f"Selected bot [{bot_index}/{len(BOTS)}]: model={model}")
 
         api_key = os.getenv(bot_cfg["api_key_env"])
         if not api_key:
@@ -210,6 +212,8 @@ async def chat():
         return await run_bot_turn(
             client=client,
             model=model,
+            bot_sid=bot_sid,
+            bot_display_name=bot_display_name,
             system_prompt=system_prompt,
             transcript=transcript,
             converted_tools=converted_tools,
@@ -221,8 +225,3 @@ async def chat():
     finally:
         atlantis.session_shared.remove(busy_key)
         logger.info(f"🔓 RELEASED: session={sessionId} shell key={busy_key} request={requestId}")
-
-
-@tick
-async def tick():
-    pass

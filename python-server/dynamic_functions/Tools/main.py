@@ -4,7 +4,7 @@ import logging
 logger = logging.getLogger("mcp_server")
 
 
-@visible
+#@visible
 async def index():
     """
     Folder for Tools

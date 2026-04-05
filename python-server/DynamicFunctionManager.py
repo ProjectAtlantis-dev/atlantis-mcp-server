@@ -1049,7 +1049,31 @@ async def {name}():
                 for dir_name in dirs:
                     if dir_name in ignore_dirs or dir_name.startswith('.'):
                         dirs_to_remove.append(dir_name)
-                        #logger.debug(f"🚫 Skipping directory: {os.path.join(root, dir_name)}")
+                    # Hidden folder check: folders are hidden by default unless main.py has a visible index()
+                    elif root == self.functions_dir:
+                        main_py = os.path.join(root, dir_name, 'main.py')
+                        visible = False
+                        if os.path.isfile(main_py):
+                            try:
+                                with open(main_py, 'r', encoding='utf-8') as f:
+                                    code = f.read()
+                                tree = ast.parse(code)
+                                for node in tree.body:
+                                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == 'index':
+                                        decorators = [
+                                            (d.id if isinstance(d, ast.Name) else
+                                             d.attr if isinstance(d, ast.Attribute) else
+                                             d.func.id if isinstance(d, ast.Call) and isinstance(d.func, ast.Name) else None)
+                                            for d in node.decorator_list
+                                        ]
+                                        if any(dec in VISIBILITY_DECORATORS for dec in decorators if dec):
+                                            visible = True
+                                        break
+                            except Exception as e:
+                                logger.warning(f"⚠️ Error checking visibility of {main_py}: {e}")
+                        if not visible:
+                            dirs_to_remove.append(dir_name)
+                            logger.info(f"🙈 Hidden folder (no visible index): {dir_name}")
 
                 for dir_name in dirs_to_remove:
                     dirs.remove(dir_name)

@@ -28,6 +28,7 @@ _entry_point_name_var: contextvars.ContextVar[Optional[str]] = contextvars.Conte
 
 _user_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_user_var", default=None)
 _session_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_session_id_var", default=None)
+_game_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_game_id_var", default=None)
 _command_seq_var: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar("_command_seq_var", default=None)
 _shell_path_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_shell_path_var", default=None)
 
@@ -285,6 +286,10 @@ def get_session_id() -> Optional[str]:
     """Returns the session_id for this function call"""
     return _session_id_var.get()
 
+def get_game_id() -> Optional[str]:
+    """Returns the game_id for this function call (a game may span multiple sessions)"""
+    return _game_id_var.get()
+
 def get_caller() -> Optional[str]:
     """Returns the username who called this function"""
     return _user_var.get()
@@ -337,6 +342,7 @@ def set_context(
         entry_point_name: str,
         user: Optional[str] = None,
         session_id: Optional[str] = None,
+        game_id: Optional[str] = None,
         command_seq: Optional[int] = None,
         shell_path: Optional[str] = None):
     """Sets all context variables and returns a tuple of their tokens for resetting."""
@@ -355,6 +361,10 @@ def set_context(
     actual_session_id = session_id if session_id is not None else None # Explicitly use None if session_id is not provided
     session_id_token = _session_id_var.set(actual_session_id)
 
+    # Handle optional game_id context (a game may span multiple sessions)
+    actual_game_id = game_id if game_id is not None else None
+    game_id_token = _game_id_var.set(actual_game_id)
+
     # Handle optional command_seq context
     # Ensure _command_seq_var is always set, even if to None, to get a valid token for reset_context
     actual_command_seq = command_seq if command_seq is not None else None # Explicitly use None if command_seq is not provided
@@ -364,20 +374,20 @@ def set_context(
     actual_shell_path = shell_path if shell_path is not None else None
     shell_path_token = _shell_path_var.set(actual_shell_path)
 
-    return (client_log_token, request_id_token, client_id_token, entry_point_token, user_token, session_id_token, command_seq_token, shell_path_token)
+    return (client_log_token, request_id_token, client_id_token, entry_point_token, user_token, session_id_token, game_id_token, command_seq_token, shell_path_token)
 
 # use sendChatter to send commands directly from browser
 
 def reset_context(tokens: tuple):
     """Resets the context variables using the provided tuple of tokens."""
-    # Expected order: client_log, request_id, client_id, entry_point, user, session_id, command_seq, shell_path
-    if not isinstance(tokens, tuple) or len(tokens) != 8:
-        logger.error(f"reset_context expected a tuple of 8 tokens, got {tokens}")
+    # Expected order: client_log, request_id, client_id, entry_point, user, session_id, game_id, command_seq, shell_path
+    if not isinstance(tokens, tuple) or len(tokens) != 9:
+        logger.error(f"reset_context expected a tuple of 9 tokens, got {tokens}")
         # Add more robust error handling or logging as needed
         return
 
     # Unpack tokens
-    client_log_token, request_id_token, client_id_token, entry_point_token, user_token, session_id_token, command_seq_token, shell_path_token = tokens
+    client_log_token, request_id_token, client_id_token, entry_point_token, user_token, session_id_token, game_id_token, command_seq_token, shell_path_token = tokens
 
     # Reset each context variable if its token is present (not strictly necessary with .set(None) giving a token)
     _client_log_var.reset(client_log_token)
@@ -386,6 +396,7 @@ def reset_context(tokens: tuple):
     _entry_point_name_var.reset(entry_point_token)
     _user_var.reset(user_token) # user_token will be valid even if user was None
     _session_id_var.reset(session_id_token) # session_id_token will be valid even if session_id was None
+    _game_id_var.reset(game_id_token) # game_id_token will be valid even if game_id was None
     _command_seq_var.reset(command_seq_token) # command_seq_token will be valid even if command_seq was None
     _shell_path_var.reset(shell_path_token) # shell_path_token will be valid even if shell_path was None
 

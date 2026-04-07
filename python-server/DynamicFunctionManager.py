@@ -1863,6 +1863,7 @@ async def {name}():
                     entry_point_name=actual_function_name,
                     user=user,
                     session_id=kwargs.get("session_id"),
+                    game_id=kwargs.get("game_id"),
                     command_seq=kwargs.get("command_seq"),
                     shell_path=kwargs.get("shell_path")
                 )
@@ -2061,6 +2062,8 @@ async def {name}():
 
             # Extract session_id from kwargs if present
             session_id = kwargs.get('session_id', None)
+            # Extract game_id from kwargs if present (a game may span multiple sessions)
+            game_id = kwargs.get('game_id', None)
             # Extract command_seq from kwargs if present
             command_seq = kwargs.get('command_seq', None)
 
@@ -2073,6 +2076,7 @@ async def {name}():
                 client_id=client_id,
                 user=user,  # Pass the user who made the call - only works if atlantis.py has been updated
                 session_id=session_id,  # Pass the session_id
+                game_id=game_id,  # Pass the game_id (game may span multiple sessions)
                 command_seq=command_seq,  # Pass the command_seq
                 shell_path=shell_path,  # Pass the shell_path
                 entry_point_name=actual_function_name # Pass the actual function name (not filename)

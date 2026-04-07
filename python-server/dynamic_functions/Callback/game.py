@@ -24,7 +24,10 @@ async def game():
     #await atlantis.client_command("/chat set " + kittyPath)
     # everything should be in same dir as game
     await atlantis.client_command("/callback set chat chat")
-    await atlantis.client_command("/callback set tick tick")
+
+    # Tick is managed locally by the MCP server (no remote callback)
+    from dynamic_functions.Callback.tick_enable import tick_enable
+    await tick_enable()
 
     # set background
     await atlantis.client_command("/silent off")

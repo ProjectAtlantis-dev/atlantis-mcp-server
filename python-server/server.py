@@ -2158,6 +2158,7 @@ class DynamicAdditionServer(Server):
         request_id: Optional[str],
         user: Optional[str],
         session_id: Optional[str],
+        game_id: Optional[str] = None,
     ) -> Any:
         if actual_function_name == "_function_set":
             logger.debug(f"---> Calling built-in: function_set")
@@ -2516,6 +2517,7 @@ class DynamicAdditionServer(Server):
                         request_id=request_id,
                         user=user,
                         session_id=session_id,
+                        game_id=game_id,
                         app=None,
                         args={}
                     )
@@ -2556,6 +2558,7 @@ class DynamicAdditionServer(Server):
                         request_id=request_id,
                         user=user,
                         session_id=session_id,
+                        game_id=game_id,
                         app=None,
                         args={"filename": filename, "filetype": filetype, "base64Content": base64Content}
                     )
@@ -2745,6 +2748,7 @@ async def index():
         request_id: Optional[str],
         user: Optional[str],
         session_id: Optional[str],
+        game_id: Optional[str],
         command_seq: Optional[int],
         shell_path: Optional[str],
     ) -> Any:
@@ -2768,6 +2772,7 @@ async def index():
                 request_id=request_id,
                 user=user,
                 session_id=session_id,
+                game_id=game_id,
                 command_seq=command_seq,
                 shell_path=shell_path,
                 app=parsed_app_name,
@@ -2783,7 +2788,7 @@ async def index():
         except Exception:
             raise
 
-    async def _execute_tool(self, name: str, args: dict, client_id: Optional[str] = None, request_id: Optional[str] = None, user: Optional[str] = None, session_id: Optional[str] = None, command_seq: Optional[int] = None, shell_path: Optional[str] = None) -> ToolResult:
+    async def _execute_tool(self, name: str, args: dict, client_id: Optional[str] = None, request_id: Optional[str] = None, user: Optional[str] = None, session_id: Optional[str] = None, game_id: Optional[str] = None, command_seq: Optional[int] = None, shell_path: Optional[str] = None) -> ToolResult:
         """Core logic to handle a tool call. Returns ToolResult with raw value.
 
         MCP response formatting (content + structuredContent) happens in
@@ -2795,6 +2800,8 @@ async def index():
             logger.debug(f"CALLED BY USER: {user}")
         if session_id:
             logger.debug(f"SESSION ID: {session_id}")
+        if game_id:
+            logger.debug(f"GAME ID: {game_id}")
         # ---> ADDED: Log entry and raw args
         logger.debug(f"---> _execute_tool ENTERED. Name: '{name}', Raw Args:\n{format_json_log(args) if isinstance(args, dict) else args!r}") # <-- ADD THIS LINE
 
@@ -2843,6 +2850,7 @@ async def index():
                 request_id=request_id,
                 user=user,
                 session_id=session_id,
+                game_id=game_id,
             )
 
             if result_raw is BUILTIN_NOT_HANDLED:
@@ -2869,6 +2877,7 @@ async def index():
                         request_id=request_id,
                         user=user,
                         session_id=session_id,
+                        game_id=game_id,
                         command_seq=command_seq,
                         shell_path=shell_path,
                     )
@@ -2974,6 +2983,7 @@ async def index():
         # Extract optional context fields
         user = params.get("user", None)
         session_id = params.get("session_id", None)
+        game_id = params.get("game_id", None)
         command_seq = params.get("command_seq", None)
         shell_path = params.get("shell_path", None)
 
@@ -2992,8 +3002,10 @@ async def index():
             logger.debug(f"Call made by user: {user}")
         if session_id:
             logger.debug(f"Call made with session_id: {session_id}")
+        if game_id:
+            logger.debug(f"Call made with game_id: {game_id}")
         if for_cloud:
-            logger.info(f"☁️ CLOUD TOOL CALL - Tool: '{tool_name}', User: '{user}', Session: '{session_id}', Seq: {command_seq}")
+            logger.info(f"☁️ CLOUD TOOL CALL - Tool: '{tool_name}', User: '{user}', Session: '{session_id}', Game: '{game_id}', Seq: {command_seq}")
 
         # Log the tool execution (don't re-register connections here)
         if for_cloud:
@@ -3054,6 +3066,8 @@ async def index():
                         client_id=client_id,
                         entry_point_name=f"lobster_{tool_name}",
                         user=user,
+                        session_id=session_id,
+                        game_id=game_id,
                         shell_path=lobster_shell or shell_path,
                     )
                     lobster_req_id = self.cloud_client.lobster_request_id if hasattr(self, 'cloud_client') and self.cloud_client else None
@@ -3100,6 +3114,7 @@ async def index():
                 request_id=request_id,
                 user=user,
                 session_id=session_id,
+                game_id=game_id,
                 command_seq=command_seq,
                 shell_path=shell_path
             )

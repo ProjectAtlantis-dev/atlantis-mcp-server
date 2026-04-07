@@ -2082,6 +2082,12 @@ async def {name}():
                 entry_point_name=actual_function_name # Pass the actual function name (not filename)
             )
 
+            # Auto-register the game in the active set now that contextvars are
+            # set, so background loops (tick fan-out) and game_list() see it
+            # without dynamic functions having to opt in.
+            if game_id:
+                atlantis.ensure_active_game()
+
             # --- Function Execution ---
             logger.info(f"Attempting to get function '{actual_function_name}' from loaded module.")
             function_to_call = getattr(module, actual_function_name, None)

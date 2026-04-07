@@ -125,6 +125,50 @@ class _SessionSharedContainer:
 server_shared = _SharedContainer()
 session_shared = _SessionSharedContainer(server_shared)
 
+# --- Active Games ---
+# Server-wide registry of currently active games. Populated automatically by
+# DynamicFunctionManager whenever a tool call arrives carrying a game_id, so
+# individual dynamic functions don't need to call game_activate themselves.
+# Shape: {game_id: {"ctx": contextvars.Context, "caller": str}}
+_active_games: dict = {}
+
+
+def get_active_games() -> dict:
+    """Return the live server-wide dict of active games."""
+    return _active_games
+
+
+def ensure_active_game() -> bool:
+    """Auto-register the current game (from contextvars) if not already active.
+
+    Must be called *after* set_context() so that contextvars.copy_context()
+    captures the game's request context for later use by background loops
+    (e.g. the tick fan-out).
+
+    Returns True if a new game was registered, False otherwise.
+    """
+    game_id = _game_id_var.get()
+    if not game_id:
+        return False
+    if game_id in _active_games:
+        return False
+    _active_games[game_id] = {
+        "ctx": contextvars.copy_context(),
+        "caller": _user_var.get() or "",
+    }
+    logger.info(f"ensure_active_game: registered game={game_id} (active games: {len(_active_games)})")
+    return True
+
+
+def deactivate_game(game_id: Optional[str] = None) -> bool:
+    """Remove a game from the active set. Defaults to the current contextvar."""
+    gid = game_id if game_id is not None else _game_id_var.get()
+    if gid and gid in _active_games:
+        del _active_games[gid]
+        logger.info(f"deactivate_game: removed game={gid} (remaining: {len(_active_games)})")
+        return True
+    return False
+
 # --- Helper Functions ---
 
 def _trim_message_for_debug(message: Any, max_len: int = 200) -> str:

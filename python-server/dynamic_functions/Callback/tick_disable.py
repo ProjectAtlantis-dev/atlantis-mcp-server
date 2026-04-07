@@ -1,21 +1,26 @@
 import atlantis
 import logging
 
+from dynamic_functions.Callback.tick_set import set_tick_enabled
+
 logger = logging.getLogger("mcp_server")
 
-_TICK_KEY = "tick_task"
+_LOOP_KEY = "tick_loop"
 
 
 @visible
 async def tick_disable() -> str:
-    """Stop the local tick loop if one is running."""
-    task = atlantis.server_shared.get(_TICK_KEY)
-    if task is None:
-        return "tick not running"
-    if task.done():
-        atlantis.server_shared.remove(_TICK_KEY)
-        return "tick already stopped"
-    task.cancel()
-    atlantis.server_shared.remove(_TICK_KEY)
+    """Disable ticking and cancel the global tick loop if it is running.
+
+    Per-game removal should go through game_deactivate(); this is the global
+    enable/disable switch for ticking itself.
+    """
+    set_tick_enabled(False)
+    loop_task = atlantis.server_shared.get(_LOOP_KEY)
+    if loop_task is None or loop_task.done():
+        return "tick disabled; loop already stopped"
+
+    loop_task.cancel()
+    atlantis.server_shared.remove(_LOOP_KEY)
     logger.info("tick_disable: tick loop cancelled")
-    return "tick disabled"
+    return "tick disabled; loop cancelled"

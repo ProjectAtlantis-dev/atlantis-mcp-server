@@ -7,7 +7,7 @@ logger = logging.getLogger("mcp_server")
 
 
 @game
-async def game():
+async def game_callback():
     """Initializes a new chat session"""
 
     await atlantis.client_command("/silent on")
@@ -25,9 +25,13 @@ async def game():
     # everything should be in same dir as game
     await atlantis.client_command("/callback set chat chat")
 
-    # Tick is managed locally by the MCP server (no remote callback)
-    from dynamic_functions.Callback.tick_enable import tick_enable
-    await tick_enable()
+    # Tick is managed locally by the MCP server (no remote callback).
+    # Game registration is now automatic: DynamicFunctionManager auto-adds
+    # this game to the server-wide active dict the moment this very call
+    # entered the context, so we don't need to call game_activate() here.
+    # We just guard the contract that nodejs must send game_id.
+    if not atlantis.get_game_id():
+        raise RuntimeError("game() callback fired without a game_id in context — nodejs side must send game_id")
 
     # set background
     await atlantis.client_command("/silent off")

@@ -3293,15 +3293,37 @@ async def get_all_tools_for_response(server: 'DynamicAdditionServer', caller_con
     tools_dict_list: List[Dict[str, Any]] = []
     for tool in raw_tool_list:
         try:
+            original_annotations: Dict[str, Any] = {}
             # Debug log to see all tools and their annotations BEFORE serialization
             #logger.debug(f"🔍 SERIALIZING TOOL '{tool.name}' with annotations: {getattr(tool, 'annotations', None)}")
             if hasattr(tool, 'annotations') and isinstance(tool.annotations, dict):
                 source_file = tool.annotations.get('sourceFile', 'NOT_FOUND')
+                original_annotations = tool.annotations.copy()
             elif hasattr(tool, 'annotations') and hasattr(tool.annotations, 'sourceFile'):
                 source_file = getattr(tool.annotations, 'sourceFile', 'NOT_FOUND')
+                if hasattr(tool.annotations, 'model_dump'):
+                    try:
+                        original_annotations = tool.annotations.model_dump(mode='json')
+                    except Exception:
+                        original_annotations = {}
+                extra_annotations = getattr(tool.annotations, '__pydantic_extra__', None)
+                if isinstance(extra_annotations, dict):
+                    original_annotations.update(extra_annotations)
+                elif hasattr(tool.annotations, '__dict__'):
+                    for key, value in vars(tool.annotations).items():
+                        if not key.startswith('_'):
+                            original_annotations.setdefault(key, value)
 
             # Ensure model_dump is called correctly for each tool
             tool_dict = tool.model_dump(mode='json') # Use mode='json' for better serialization
+
+            if original_annotations:
+                serialized_annotations = tool_dict.get('annotations')
+                if not isinstance(serialized_annotations, dict):
+                    tool_dict['annotations'] = original_annotations.copy()
+                else:
+                    for key, value in original_annotations.items():
+                        serialized_annotations.setdefault(key, value)
 
             # Debug log for all tools AFTER serialization
             annotations = tool_dict.get('annotations') if tool_dict else None
@@ -3582,6 +3604,8 @@ class ServiceClient:
                     visibility_str += f" {MAGENTA}[@session]{RESET_COLOR}"
                 if 'game' in decorators:
                     visibility_str += f" {MAGENTA}[@game]{RESET_COLOR}"
+                if 'dynamic' in decorators:
+                    visibility_str += f" {CYAN_COLOR}[@dynamic]{RESET_COLOR}"
                 if 'app' in decorators:
                     visibility_str += f" {CYAN_COLOR}[@app]{RESET_COLOR}"
                 if 'location' in decorators:

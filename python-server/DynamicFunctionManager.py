@@ -43,7 +43,7 @@ import utils  # Utility module for dynamic functions
 PARENT_PACKAGE_NAME = "dynamic_functions"
 
 # Visibility decorators that allow remote function calls
-VISIBILITY_DECORATORS = ['visible', 'public', 'protected', 'tick', 'chat', 'text', 'session', 'game', 'index', 'price', 'location', 'app', 'copy']
+VISIBILITY_DECORATORS = ['visible', 'public', 'protected', 'tick', 'chat', 'text', 'session', 'game', 'index', 'price', 'location', 'app', 'copy', 'dynamic']
 
 # --- Identity Decorator Definition ---
 def _mcp_identity_decorator(f):
@@ -215,6 +215,18 @@ def price(pricePerCall: float, pricePerSec: float):
 
     return decorator
 
+# --- Dynamic Decorator Definition ---
+def dynamic(func):
+    """
+    Decorator that marks a function as 'dynamic'.
+
+    Usage: @dynamic
+           def my_dynamic_function():
+               ...
+    """
+    setattr(func, '_is_dynamic', True)
+    return func
+
 # --- Copy Decorator Definition ---
 def copy(func):
     """
@@ -255,6 +267,7 @@ class DynamicFunctionManager:
         builtins.index = index
         builtins.price = price
         builtins.copy = copy
+        builtins.dynamic = dynamic
 
         # State that was previously global
         self.functions_dir = functions_dir
@@ -800,6 +813,7 @@ class DynamicFunctionManager:
                     protection_name_from_decorator = None # Initialize protection_name
                     is_index_from_decorator = False # Initialize is_index
                     is_copyable_from_decorator = False # Initialize is_copyable
+                    is_dynamic_from_decorator = False # Initialize is_dynamic
                     price_per_call_from_decorator = None # Initialize price_per_call
                     price_per_sec_from_decorator = None # Initialize price_per_sec
                     if func_def_node.decorator_list:
@@ -813,6 +827,9 @@ class DynamicFunctionManager:
                                 # Check if it's the @copy decorator
                                 if decorator_name == 'copy':
                                     is_copyable_from_decorator = True
+                                # Check if it's the @dynamic decorator
+                                if decorator_name == 'dynamic':
+                                    is_dynamic_from_decorator = True
                             elif isinstance(decorator_node, ast.Call): # e.g. @app(name="foo") or @app("foo"), @location(name="bar") or @location("bar")
                                 if isinstance(decorator_node.func, ast.Name):
                                     decorator_func_name = decorator_node.func.id
@@ -948,7 +965,8 @@ class DynamicFunctionManager:
                         "is_copyable": is_copyable_from_decorator, # Add extracted is_copyable flag
                         "price_per_call": price_per_call_from_decorator, # Add extracted price_per_call
                         "price_per_sec": price_per_sec_from_decorator, # Add extracted price_per_sec
-                        "text_content_type": text_content_type_from_decorator # Add extracted text content type (e.g. "markdown")
+                        "text_content_type": text_content_type_from_decorator, # Add extracted text content type (e.g. "markdown")
+                        "is_dynamic": is_dynamic_from_decorator # Add extracted is_dynamic flag
                     }
                     functions_info.append(function_info)
 

@@ -23,7 +23,7 @@ async def game_callback():
     #kittyPath = f"{owner_id}**Bot.Kitty.OpenRouterMinimax**chat"
     #await atlantis.client_command("/chat set " + kittyPath)
     # everything should be in same dir as game
-    await atlantis.client_command("/callback set chat chat")
+    await atlantis.client_command("/callback set chat chat_callback")
 
     # Tick is managed locally by the MCP server (no remote callback).
     # Game registration is now automatic: DynamicFunctionManager auto-adds

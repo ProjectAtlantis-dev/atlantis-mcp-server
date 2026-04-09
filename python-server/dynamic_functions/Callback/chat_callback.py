@@ -69,7 +69,7 @@ async def bot_remove(index: int):
 # no location since this is catch-all chat
 # no app since this is catch-all chat
 @chat
-async def chat():
+async def chat_callback():
     """Main chat function"""
     sessionId = atlantis.get_session_id() or "unknown"
     requestId = atlantis.get_request_id() or "unknown"

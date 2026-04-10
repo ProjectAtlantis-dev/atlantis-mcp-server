@@ -1,4 +1,4 @@
 @visible
 async def index():
-    """Callback functions"""
+    """Bot definitions"""
     pass

@@ -6,17 +6,17 @@ import time as _t
 from openai import OpenAI
 from typing import List, Dict, Any, Optional, cast
 
-from dynamic_functions.Callback.common import (
+from dynamic_functions.Game.Runtime.common import (
     logger,
     TranscriptToolT, ToolLookupInfo, ToolSchemaT,
     _repair_json, coerce_args_to_schema, convert_tools_for_llm,
     handle_dir_tool, handle_search_tool,
 )
-from dynamic_functions.Tools.todo import handle_todo_tool
+from dynamic_functions.Misc.todo import handle_todo_tool
 from utils import format_json_log
 
 
-async def run_bot_turn(
+async def run_turn(
     *,
     client: OpenAI,
     model: str,

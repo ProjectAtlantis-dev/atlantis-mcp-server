@@ -321,6 +321,36 @@ class DynamicFunctionManager:
         # Convert path separators to dots
         return app_path.replace(os.sep, '.')
 
+    @staticmethod
+    def _directory_has_visible_index(dir_path: str) -> bool:
+        """
+        A directory is visible only when its main.py defines an index() function
+        decorated with one of the visibility decorators.
+        """
+        main_py = os.path.join(dir_path, 'main.py')
+        if not os.path.isfile(main_py):
+            return False
+
+        try:
+            with open(main_py, 'r', encoding='utf-8') as f:
+                code = f.read()
+            tree = ast.parse(code)
+        except Exception as e:
+            logger.warning(f"⚠️ Error checking visibility of {main_py}: {e}")
+            return False
+
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == 'index':
+                decorators = [
+                    (d.id if isinstance(d, ast.Name) else
+                     d.attr if isinstance(d, ast.Attribute) else
+                     d.func.id if isinstance(d, ast.Call) and isinstance(d.func, ast.Name) else None)
+                    for d in node.decorator_list
+                ]
+                return any(dec in VISIBILITY_DECORATORS for dec in decorators if dec)
+
+        return False
+
     # File operations
     async def _fs_add_code(self, name: str, code: str, app: Optional[str] = None) -> str:
         """
@@ -1067,31 +1097,11 @@ async def {name}():
                 for dir_name in dirs:
                     if dir_name in ignore_dirs or dir_name.startswith('.'):
                         dirs_to_remove.append(dir_name)
-                    # Hidden folder check: folders are hidden by default unless main.py has a visible index()
-                    elif root == self.functions_dir:
-                        main_py = os.path.join(root, dir_name, 'main.py')
-                        visible = False
-                        if os.path.isfile(main_py):
-                            try:
-                                with open(main_py, 'r', encoding='utf-8') as f:
-                                    code = f.read()
-                                tree = ast.parse(code)
-                                for node in tree.body:
-                                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == 'index':
-                                        decorators = [
-                                            (d.id if isinstance(d, ast.Name) else
-                                             d.attr if isinstance(d, ast.Attribute) else
-                                             d.func.id if isinstance(d, ast.Call) and isinstance(d.func, ast.Name) else None)
-                                            for d in node.decorator_list
-                                        ]
-                                        if any(dec in VISIBILITY_DECORATORS for dec in decorators if dec):
-                                            visible = True
-                                        break
-                            except Exception as e:
-                                logger.warning(f"⚠️ Error checking visibility of {main_py}: {e}")
-                        if not visible:
-                            dirs_to_remove.append(dir_name)
-                            logger.info(f"🙈 Hidden folder (no visible index): {dir_name}")
+                    # Hidden folder check applies at every level. Pruning here also hides all descendants.
+                    elif not self._directory_has_visible_index(os.path.join(root, dir_name)):
+                        dirs_to_remove.append(dir_name)
+                        dir_rel_path = os.path.relpath(os.path.join(root, dir_name), self.functions_dir)
+                        logger.info(f"🙈 Hidden folder (no visible index): {dir_rel_path}")
 
                 for dir_name in dirs_to_remove:
                     dirs.remove(dir_name)

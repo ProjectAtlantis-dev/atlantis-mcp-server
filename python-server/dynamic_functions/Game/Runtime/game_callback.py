@@ -2,7 +2,6 @@ import atlantis
 import logging
 import os
 
-
 logger = logging.getLogger("mcp_server")
 
 
@@ -12,7 +11,6 @@ async def game_callback():
 
     await atlantis.client_command("/silent on")
 
-    # get user id ('brickhouse')
     user_id = atlantis.get_caller()
     logger.info(f"Game started for user: {user_id}")
 
@@ -31,26 +29,10 @@ async def game_callback():
     # entered the context, so we don't need to call game_activate() here.
     # We just guard the contract that nodejs must send game_id.
     if not atlantis.get_game_id():
-        raise RuntimeError("game() callback fired without a game_id in context — nodejs side must send game_id")
+        raise RuntimeError("game callback fired without a game_id in context — nodejs side must send game_id")
 
-    # set background
     await atlantis.client_command("/silent off")
-    image_path = os.path.join(os.path.dirname(__file__), "builder.jpg")
-
-
-
+    image_path = os.path.join(os.path.dirname(__file__), "..", "Content", "Lobby", "builder.jpg")
     await atlantis.set_background(image_path)
-
-
-
-
-    # send kitty face image
-
-    #kitty_path = os.path.join(os.path.dirname(__file__), "kitty_face_compressed.jpg")
-    #await atlantis.client_image(kitty_path)
-
-
-
-    #await atlantis.client_log(f"Kitty is at the front desk!")
 
 

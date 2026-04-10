@@ -5,16 +5,16 @@ from openai import OpenAI
 from typing import List, Dict, Any
 from datetime import datetime
 
-from dynamic_functions.Callback.common import (
+from dynamic_functions.Game.Runtime.common import (
     logger,
-    BOTS, next_bot, add_bot, remove_bot, list_bots,
+    BOTS, next_bot,
     get_session_tools, _busy_key,
     fetch_transcript, find_last_chat_entry,
     build_system_prompt, handle_dir_tool,
     get_visit_info, record_new_conversation, is_checkin_complete,
 )
-from dynamic_functions.Callback.bot import run_bot_turn
-from dynamic_functions.Tools.todo import list_tasks as _list_tasks, _read_store
+from dynamic_functions.Bot.Runtime.turn import run_turn
+from dynamic_functions.Misc.todo import list_tasks as _list_tasks, _read_store
 
 
 @visible
@@ -46,28 +46,6 @@ async def show_todos():
     return await _list_tasks()
 
 
-@visible
-async def bot_list():
-    """List all bots in the chat pool."""
-    return list_bots()
-
-
-@visible
-async def bot_spawn(name: str):
-    """Spawn a bot into the chat pool by name (e.g. 'kitty'). Looks up Bot/{Name}/ for system prompt."""
-    bot = add_bot(name)
-    return {"spawned": bot, "pool_size": len(BOTS)}
-
-
-@visible
-async def bot_remove(index: int):
-    """Remove a bot from the chat pool by its index number (see bot_list)."""
-    removed = remove_bot(index)
-    return {"removed": removed, "pool_size": len(BOTS)}
-
-
-# no location since this is catch-all chat
-# no app since this is catch-all chat
 @chat
 async def chat_callback():
     """Main chat function"""
@@ -80,7 +58,6 @@ async def chat_callback():
     logger.info("=" * 60)
     logger.info(f"=== CHAT TRIGGERED === session={sessionId} request={requestId} caller={caller}")
 
-    # Check if this session+shell is already being handled
     busy_key = _busy_key()
     owner_req = atlantis.session_shared.get(busy_key)
     if owner_req:
@@ -95,16 +72,14 @@ async def chat_callback():
         import time as _t
         from importlib import import_module
 
-        # Fetch and transform transcript
         logger.info(f">>> Fetching transcript...")
         t0 = _t.monotonic()
         rawTranscript, transcript = await fetch_transcript()
         logger.info(f"<<< Transcript fetched in {_t.monotonic() - t0:.2f}s ({len(rawTranscript)} raw, {len(transcript)} filtered)")
 
-        # Pick next bot — round-robin through BOTS pool
         if not BOTS:
             logger.info("No bots registered — nothing to do")
-            await atlantis.client_log("No bots in the room right now. Use `bot_spawn` to add one!")
+            await atlantis.client_log("No bots in the room right now. Use `spawn` to add one!")
             return
         bot_index, bot_cfg = next_bot()
         bot_sid = bot_cfg["sid"]
@@ -112,7 +87,6 @@ async def chat_callback():
         model = bot_cfg["model"]
         logger.info(f"Selected bot [{bot_index}/{len(BOTS)}]: {bot_display_name} (sid={bot_sid}, model={model})")
 
-        # Don't respond if last chat message was from this bot
         last_chat_entry = find_last_chat_entry(rawTranscript)
         if last_chat_entry:
             logger.info(f"  Last chat entry: sid={last_chat_entry.get('sid')} type={last_chat_entry.get('type')} content={str(last_chat_entry.get('content',''))[:80]}")
@@ -121,7 +95,6 @@ async def chat_callback():
             await atlantis.owner_log(f"Skipping response - last chat was from {bot_display_name}")
             return
 
-        # Load system prompt from the bot's module
         logger.info(f">>> Loading SYSTEM_PROMPT from {bot_cfg['system_prompt_module']}...")
         t0 = _t.monotonic()
         prompt_mod = import_module(bot_cfg["system_prompt_module"])
@@ -131,7 +104,6 @@ async def chat_callback():
         base_prompt = str(base_prompt)
         logger.info(f"<<< SYSTEM_PROMPT loaded in {_t.monotonic() - t0:.2f}s ({len(base_prompt)} chars)")
 
-        # Check visit info before recording, so we can detect time gaps
         prev_count, prev_last_visit = get_visit_info(caller)
         logger.info(f"Visitor: {caller}, visit #{prev_count}, last visit: {prev_last_visit or 'first time'}")
 
@@ -147,28 +119,22 @@ async def chat_callback():
             base_url=bot_cfg["base_url"],
         )
 
-        # Check if guest needs the new guest procedure:
-        # Either brand new (count == 0) or never completed check-in (no greeted + first_name)
         needs_checkin = prev_count == 0 or not is_checkin_complete(caller)
         if needs_checkin:
             logger.info(f"Guest needs check-in: prev_count={prev_count}, checkin_complete={is_checkin_complete(caller)}")
-            # Check if the guest already has a checklist loaded from a previous turn
             existing_todos = _read_store(caller)
             if existing_todos:
-                # Checklist already loaded — tell the LLM to continue where it left off
                 transcript.append({'role': 'system', 'content': [{'type': 'text', 'text':
                     "[PROCEDURE IN PROGRESS] This guest is mid-check-in. Your checklist is already loaded in the `todo` tool — do NOT call `get_guest_checklist` again. Call `todo` (no arguments) to see your current progress, then continue working through the remaining pending steps. Use `todo` with merge=true to update each step's status as you go. You do NOT know their name or username yet unless you have already verified their paperwork."
                 }]})
                 logger.info("Injected continue-checkin directive (existing todos found)")
             else:
-                # No checklist yet — tell the LLM to load one
                 transcript.append({'role': 'system', 'content': [{'type': 'text', 'text':
-                    "[PROCEDURE REQUIRED] This is an unidentified guest who has NOT completed check-in. Your FIRST action MUST be to call `Tools__get_guest_checklist` to get the check-in steps. It returns a JSON array — pass that array directly to the `todo` tool to load your checklist. Then use `todo` with merge=true to mark each step in_progress then completed as you work through them. Do NOT greet or say anything until your checklist is loaded. You do NOT know their name or username yet — that will be revealed when you verify their paperwork."
+                    "[PROCEDURE REQUIRED] This is an unidentified guest who has NOT completed check-in. Your FIRST action MUST be to call `Misc__get_guest_checklist` to get the check-in steps. It returns a JSON array — pass that array directly to the `todo` tool to load your checklist. Then use `todo` with merge=true to mark each step in_progress then completed as you work through them. Do NOT greet or say anything until your checklist is loaded. You do NOT know their name or username yet — that will be revealed when you verify their paperwork."
                 }]})
                 logger.info("Injected new-checkin directive (no existing todos)")
             logger.info(f"Injected new guest procedure directive for caller={caller}")
 
-        # If more than an hour since last visit (or first visit), stamp the convo start time
         if not prev_last_visit:
             record_new_conversation(caller)
         else:
@@ -183,33 +149,25 @@ async def chat_callback():
             except (ValueError, TypeError):
                 pass
 
-        # Re-read visit count after recording so it's up-to-date for the system prompt,
-        # but use the *previous* last_visit so we don't confuse "just recorded now" with
-        # "they were just here moments ago"
         visit_count, _ = get_visit_info(caller)
 
-        # Build system prompt string (once, reused each turn)
-        # Hide caller identity from system prompt if guest hasn't completed check-in
         prompt_caller = "" if needs_checkin else caller
         system_prompt = build_system_prompt(
             base_prompt,
             prompt_caller, visit_count, prev_last_visit
         )
 
-        # Get or initialize per-session tool inventory (scoped per bot)
         converted_tools, tool_lookup = get_session_tools(bot_index)
         logger.info(f"Session tool inventory: {len(converted_tools)} tools, {len(tool_lookup)} in lookup")
 
-        # Pre-load get_guest_checklist tool for visitors who haven't completed check-in
         if needs_checkin:
             _, converted_tools, tool_lookup = await handle_dir_tool(
                 "get_guest_checklist", converted_tools, tool_lookup
             )
             logger.info("Pre-loaded get_guest_checklist tool for anonymous visitor")
 
-        # Hand off to the streaming bot loop
         logger.info(f"=== HANDING OFF TO BOT === session={sessionId} request={requestId}")
-        return await run_bot_turn(
+        return await run_turn(
             client=client,
             model=model,
             bot_sid=bot_sid,

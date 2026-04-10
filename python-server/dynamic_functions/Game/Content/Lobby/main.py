@@ -4,10 +4,10 @@ import logging
 logger = logging.getLogger("mcp_server")
 
 
-#@visible
+@visible
 async def index():
     """
-    Folder for Tools
+    Atlantis lobby
     """
     logger.info(f"Executing placeholder function: index...")
 

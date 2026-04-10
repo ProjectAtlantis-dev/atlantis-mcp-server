@@ -1,4 +1,4 @@
 @visible
 async def index():
-    """Setup stuff"""
+    """Kitty the helpful catgirl"""
     pass

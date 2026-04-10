@@ -10,110 +10,11 @@ from datetime import datetime
 from jinja2 import Template
 
 from utils import format_json_log, parse_search_term
-from dynamic_functions.Tools.todo import TODO_PSEUDO_TOOL, handle_todo_tool, list_tasks as _list_tasks, _read_store
-from dynamic_functions.Tools.visitor import get_visit_info, record_new_conversation, is_checkin_complete
+from dynamic_functions.Misc.todo import TODO_PSEUDO_TOOL, handle_todo_tool, list_tasks as _list_tasks, _read_store
+from dynamic_functions.Misc.visitor import get_visit_info, record_new_conversation, is_checkin_complete
 
 logger = logging.getLogger("mcp_client")
 
-
-# =============================================================================
-# Bot Identity — change these to re-skin for a different bot
-# =============================================================================
-BOT_SID = "kitty"              # sid used in transcript events and stream calls
-BOT_DISPLAY_NAME = "Kitty"     # display name shown in chat bubbles
-BOT_SESSION_PREFIX = "kitty"   # prefix for session-scoped keys (busy, tools, lookup)
-
-# =============================================================================
-# Bot Pool — round-robin through these on each chat invocation
-# Persisted as bots.json alongside this file
-# =============================================================================
-_BOTS_FILE = os.path.join(os.path.dirname(__file__), "bots.json")
-
-def _load_bots() -> List[Dict[str, Any]]:
-    """Load bot list from bots.json. Returns empty list if file doesn't exist."""
-    try:
-        with open(_BOTS_FILE, 'r') as f:
-            bots = json.load(f)
-            if not isinstance(bots, list):
-                raise ValueError(f"bots.json must contain a JSON array, got {type(bots).__name__}")
-            return bots
-    except FileNotFoundError:
-        return []
-    except json.JSONDecodeError as e:
-        raise ValueError(f"bots.json contains invalid JSON: {e}")
-
-
-def _save_bots(bots: List[Dict[str, Any]]) -> None:
-    """Persist the bot list to bots.json."""
-    with open(_BOTS_FILE, 'w') as f:
-        json.dump(bots, f, indent=2)
-    logger.info(f"Bot list saved to {_BOTS_FILE} ({len(bots)} bots)")
-
-
-BOTS: List[Dict[str, Any]] = _load_bots()
-_bot_index = 0
-
-
-def _reset_cycle() -> None:
-    """Reset the round-robin index (call after modifying BOTS)."""
-    global _bot_index
-    _bot_index = 0
-
-
-def next_bot() -> Tuple[int, Dict[str, Any]]:
-    """Pick the next bot from the pool (round-robin). Returns (index, config)."""
-    global _bot_index
-    if not BOTS:
-        raise ValueError("No bots configured — use add_bot to add one")
-    idx = _bot_index % len(BOTS)
-    _bot_index = idx + 1
-    return idx, BOTS[idx]
-
-
-DEFAULT_MODEL = "anthropic/claude-sonnet-4"
-DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
-DEFAULT_API_KEY_ENV = "OPENROUTER_API_KEY"
-
-
-def add_bot(name: str) -> Dict[str, Any]:
-    """Spawn a bot by name. Derives config by convention from Bot/{Name}/ directory."""
-    sid = name.lower()
-    display_name = name.capitalize()
-    system_prompt_module = f"dynamic_functions.Bot.{display_name}.system_prompt"
-    bot = {
-        "sid": sid,
-        "display_name": display_name,
-        "model": DEFAULT_MODEL,
-        "base_url": DEFAULT_BASE_URL,
-        "api_key_env": DEFAULT_API_KEY_ENV,
-        "system_prompt_module": system_prompt_module,
-    }
-    BOTS.append(bot)
-    _save_bots(BOTS)
-    _reset_cycle()
-    logger.info(f"Bot spawned: {display_name} (sid={sid}, pool size now {len(BOTS)})")
-    return bot
-
-
-def remove_bot(index: int) -> Dict[str, Any]:
-    """Remove a bot by index. Returns the removed bot config."""
-    if index < 0 or index >= len(BOTS):
-        raise IndexError(f"Bot index {index} out of range (0-{len(BOTS) - 1})")
-    removed = BOTS.pop(index)
-    _save_bots(BOTS)
-    _reset_cycle()
-    logger.info(f"Bot removed: {removed['model']} (pool size now {len(BOTS)})")
-    return removed
-
-
-def list_bots() -> List[Dict[str, Any]]:
-    """Return the current bot pool with indices."""
-    return [{"index": i, **bot} for i, bot in enumerate(BOTS)]
-
-
-# =============================================================================
-# Cloud Tool Types (input from cloud)
-# =============================================================================
 
 class ToolT(TypedDict, total=False):
     """Tool record from the cloud"""
@@ -158,65 +59,46 @@ class ToolT(TypedDict, total=False):
     params: str
     input_schema: str
 
-    started_at: str  # ISO date string
-    remote_updated_at: str  # ISO date string
+    started_at: str
+    remote_updated_at: str
 
-
-# =============================================================================
-# LLM Tool Types (output for OpenAI/OpenRouter API)
-# =============================================================================
 
 class ToolSchemaPropertyT(TypedDict, total=False):
-    """Property definition within a tool schema"""
     type: str
     description: str
     enum: List[str]
 
 
 class ToolSchemaT(TypedDict):
-    """JSON Schema for tool parameters"""
     type: str
     properties: Dict[str, ToolSchemaPropertyT]
     required: NotRequired[List[str]]
 
 
 class OpenAIFunctionDefT(TypedDict):
-    """Function definition within an OpenAI tool"""
     name: str
     description: str
     parameters: ToolSchemaT
 
 
 class TranscriptToolT(TypedDict):
-    """Tool format for OpenAI/OpenRouter API"""
-    type: str  # "function"
+    type: str
     function: OpenAIFunctionDefT
 
 
 class SimpleToolT(TypedDict, total=False):
-    """Simplified tool format for display"""
     name: str
     description: str
     input_schema: ToolSchemaT
 
 
 class ToolLookupInfo(TypedDict):
-    """Internal mapping info for resolving LLM tool calls back to actual files"""
-    searchTerm: str    # Original compound search term (e.g., "admin*admin*Home**chat")
-    filename: str      # File path (e.g., "Home/chat.py")
-    functionName: str  # Actual function name (e.g., "chat")
+    searchTerm: str
+    filename: str
+    functionName: str
 
-
-# =============================================================================
-# Tool Conversion Functions
-# =============================================================================
 
 def get_consolidated_full_name(tool: ToolT) -> str:
-    """
-    Build a consolidated tool name from tool metadata.
-    Format: remote_owner*remote_name*app*location*function
-    Only includes parts that are needed to disambiguate.
-    """
     remote_owner = tool.get('remote_owner', '')
     remote_name = tool.get('remote_name', '')
     tool_app = tool.get('tool_app', '')
@@ -232,27 +114,13 @@ def get_consolidated_full_name(tool: ToolT) -> str:
 
 
 def _repair_json(raw: str) -> Optional[Dict[str, Any]]:
-    """Try to fix common LLM JSON mistakes before giving up.
-
-    Handles: single quotes, trailing commas, unquoted keys,
-    Python booleans (True/False/None), and single-quoted strings
-    with embedded double quotes.
-    """
+    """Try to fix common LLM JSON mistakes before giving up."""
     s = raw.strip()
-
-    # 1. Python literals (True -> true, False -> false, None -> null)
     s = re.sub(r'\bTrue\b', 'true', s)
     s = re.sub(r'\bFalse\b', 'false', s)
     s = re.sub(r'\bNone\b', 'null', s)
-
-    # 2. Replace single-quoted strings with double-quoted strings
-    #    Match: 'some text' but be careful about apostrophes
     s = re.sub(r"(?<=[\[{,:\s])\s*'([^']*?)'\s*(?=[,\]}:])", r'"\1"', s)
-
-    # 3. Trailing commas before } or ]
     s = re.sub(r',\s*([}\]])', r'\1', s)
-
-    # 4. Unquoted keys:  { foo: ... } -> { "foo": ... }
     s = re.sub(r'(?<=[{,])\s*([a-zA-Z_]\w*)\s*:', r' "\1":', s)
 
     try:
@@ -262,7 +130,6 @@ def _repair_json(raw: str) -> Optional[Dict[str, Any]]:
     except json.JSONDecodeError:
         pass
 
-    # 5. Last resort: ast.literal_eval for Python dict literals
     try:
         import ast
         result = ast.literal_eval(raw.strip())
@@ -275,10 +142,6 @@ def _repair_json(raw: str) -> Optional[Dict[str, Any]]:
 
 
 def coerce_args_to_schema(args: Dict[str, Any], schema: ToolSchemaT) -> Dict[str, Any]:
-    """
-    Coerce argument values to match the expected types from the schema.
-    LLMs often return everything as strings, so we need to convert them.
-    """
     if not schema or 'properties' not in schema:
         return args
 
@@ -307,9 +170,6 @@ def coerce_args_to_schema(args: Dict[str, Any], schema: ToolSchemaT) -> Dict[str
 
 
 def parse_tool_params(tool_str: str) -> ToolSchemaT:
-    """
-    Parse tool string like "barf (sleepTime:number, name:string)" into a JSON schema.
-    """
     schema: ToolSchemaT = {'type': 'object', 'properties': {}, 'required': []}
 
     match = re.search(r'\(([^)]*)\)', tool_str)
@@ -347,19 +207,6 @@ def convert_tools_for_llm(
     tools: List[Dict[str, Any]],
     show_hidden: bool = False
 ) -> Tuple[List[TranscriptToolT], List[SimpleToolT], Dict[str, ToolLookupInfo]]:
-    """
-    Convert /search tool records to OpenAI/OpenRouter-compatible format.
-
-    Args:
-        tools: List of tool records from /search command
-        show_hidden: If False, skip tools starting with '_'
-
-    Returns:
-        Tuple of (full tools list, simple tools list, lookup dict)
-        - full tools list: OpenAI-compatible tool definitions
-        - simple tools list: Simplified tool format
-        - lookup dict: Maps sanitized tool name -> ToolLookupInfo for resolving calls
-    """
     out_tools: List[TranscriptToolT] = []
     out_tools_simple: List[SimpleToolT] = []
     tool_lookup: Dict[str, ToolLookupInfo] = {}
@@ -411,7 +258,6 @@ def convert_tools_for_llm(
             full_name = func_name
         sanitized_name = re.sub(r'[^a-zA-Z0-9_-]', '_', full_name)
 
-        # OpenAI/OpenRouter tool format
         out_tool: TranscriptToolT = {
             'type': 'function',
             'function': {
@@ -437,10 +283,6 @@ def convert_tools_for_llm(
     logger.info(f"convert_tools_for_llm: Returning {len(out_tools)} tools (from {len(tools) if tools else 0} input)")
     return out_tools, out_tools_simple, tool_lookup
 
-
-# =============================================================================
-# Pseudo-tools (search, dir) + handlers
-# =============================================================================
 
 SEARCH_PSEUDO_TOOL: TranscriptToolT = {
     'type': 'function',
@@ -485,10 +327,6 @@ async def handle_dir_tool(
     converted_tools: List[TranscriptToolT],
     tool_lookup: Dict[str, ToolLookupInfo]
 ) -> Tuple[str, List[TranscriptToolT], Dict[str, ToolLookupInfo]]:
-    """
-    Look up tools by name via /dir and merge into the existing tool list.
-    Returns (summary_text, updated_tools, updated_lookup).
-    """
     import time as _t
     logger.info(f">>> DIR PSEUDO-TOOL: name='{name}' — sending /dir command...")
     t0 = _t.monotonic()
@@ -533,10 +371,6 @@ async def handle_search_tool(
     converted_tools: List[TranscriptToolT],
     tool_lookup: Dict[str, ToolLookupInfo]
 ) -> Tuple[str, List[TranscriptToolT], Dict[str, ToolLookupInfo]]:
-    """
-    Execute a search query and merge new tools into the existing tool list.
-    Returns (summary_text, updated_tools, updated_lookup).
-    """
     import time as _t
     logger.info(f">>> SEARCH PSEUDO-TOOL: query='{query}' — sending /search command...")
     t0 = _t.monotonic()
@@ -576,10 +410,6 @@ async def handle_search_tool(
     return summary, converted_tools, tool_lookup
 
 
-# =============================================================================
-# Transcript helpers
-# =============================================================================
-
 def find_last_chat_entry(transcript):
     """Find the last entry in transcript where type is 'chat' (including thinking entries)."""
     for entry in reversed(transcript):
@@ -610,7 +440,6 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
     if raw_transcript[0].get('role') == 'system':
         logger.info("Found system message in transcript - will use our own system prompt instead")
 
-    # Dump raw transcript to file for debugging (overwrites each time)
     transcript_dump_file = os.path.join(os.path.dirname(__file__), 'raw_transcript.json')
     try:
         with open(transcript_dump_file, 'w') as f:
@@ -644,18 +473,16 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
                 logger.info(f"       -> SKIPPED (blank content)")
                 continue
 
-            # Skip entries with HTML table content (leaked UI data)
             if 'data-metacol=' in msg_content_full or 'bot-table-cell' in msg_content_full:
                 logger.warning(f"       -> SKIPPED (contains HTML table data, {len(msg_content_full)} chars)")
                 continue
 
-            # Skip oversized entries (likely escaped HTML blobs)
             MAX_ENTRY_SIZE = 4000
             if len(msg_content_full) > MAX_ENTRY_SIZE:
                 logger.warning(f"       -> SKIPPED (oversized: {len(msg_content_full)} chars > {MAX_ENTRY_SIZE})")
                 continue
 
-            role_for_llm = 'assistant' if msg_sid == BOT_SID else 'user'
+            role_for_llm = 'assistant' if msg_sid in get_bot_sids() else 'user'
 
             transcript.append({'role': role_for_llm, 'content': [{'type': 'text', 'text': msg_content_full}]})
             logger.info(f"       -> INCLUDED as role={role_for_llm} (sid={msg_sid})")
@@ -665,10 +492,6 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
 
     return raw_transcript, transcript
 
-
-# =============================================================================
-# System prompt building
-# =============================================================================
 
 def build_visitor_context(caller: str, visit_count: int, last_visit: str) -> str:
     """Build a visitor context note based on caller info. Returns empty string if no context applies."""
@@ -713,15 +536,9 @@ def build_system_prompt(
     visit_count: int = 0,
     last_visit: str = ""
 ) -> str:
-    """
-    Build the system prompt as a plain string.
-    """
     parts: List[str] = [base_prompt]
-
-    # Always include current date and time
     parts.append(f"Current date and time: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
-    # Visitor context
     visitor_note = build_visitor_context(caller, visit_count, last_visit)
     if visitor_note:
         parts.append(visitor_note)
@@ -729,16 +546,14 @@ def build_system_prompt(
     return "\n\n".join(parts)
 
 
-# =============================================================================
-# Session-scoped tool storage
-# =============================================================================
-
 def _busy_key() -> str:
     """BUSY lock key scoped to session only — no shell, so concurrent chats on different shells still block."""
     return f"{BOT_SESSION_PREFIX}_busy"
 
+
 def _tools_key(bot_index: int) -> str:
     return f"{BOT_SESSION_PREFIX}_tools_{bot_index}"
+
 
 def _lookup_key(bot_index: int) -> str:
     return f"{BOT_SESSION_PREFIX}_lookup_{bot_index}"

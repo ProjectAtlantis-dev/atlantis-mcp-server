@@ -3,7 +3,7 @@ import os
 
 from openai import OpenAI
 
-from dynamic_functions.Game.Runtime.common import (
+from dynamic_functions.Bot.Runtime.common import (
     logger,
     _busy_key,
     fetch_transcript, find_last_chat_entry,

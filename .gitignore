@@ -88,3 +88,4 @@ python-server/dynamic_functions/Bot/Kitty/*/visitor_log.json
 python-server/dynamic_functions/Callback/raw_transcript.json
 python-server/dynamic_functions/Game/Runtime/raw_transcript.json
 python-server/dynamic_functions/Game/Data/player_data.json
+python-server/dynamic_functions/Bot/Runtime/raw_transcript.json

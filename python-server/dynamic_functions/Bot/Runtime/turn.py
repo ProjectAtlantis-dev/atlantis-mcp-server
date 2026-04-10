@@ -6,7 +6,7 @@ import time as _t
 from openai import OpenAI
 from typing import List, Dict, Any, Optional, cast
 
-from dynamic_functions.Game.Runtime.common import (
+from dynamic_functions.Bot.Runtime.common import (
     logger,
     TranscriptToolT, ToolLookupInfo, ToolSchemaT,
     _repair_json, coerce_args_to_schema, convert_tools_for_llm,

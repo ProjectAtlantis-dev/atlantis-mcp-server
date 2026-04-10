@@ -35,6 +35,7 @@ async def game_callback():
 
         # everything should be in same dir as game
         await atlantis.client_command("/callback set chat chat_callback")
+        await atlantis.client_command("/callback set session session_callback")
 
         # Game registration is automatic: DynamicFunctionManager auto-adds
         # this game to the server-wide active dict the moment this very call

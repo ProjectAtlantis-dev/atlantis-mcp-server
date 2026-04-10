@@ -170,6 +170,8 @@ def ensure_active_game() -> bool:
     if not game_id:
         return False
     if game_id in _active_games:
+        game_ids = list(_active_games.keys())
+        logger.info(f"ensure_active_game: game={game_id} already active ({len(game_ids)} active game(s): {game_ids})")
         return False
     _active_games[game_id] = {
         "ctx": contextvars.copy_context(),
@@ -272,7 +274,9 @@ def _ensure_tick_loop() -> None:
     """Start the global tick loop if it isn't already running."""
     global _tick_task
     if _tick_task is not None and not _tick_task.done():
-        return  # already running
+        game_ids = list(_active_games.keys())
+        logger.info(f"tick loop already running ({len(game_ids)} active game(s): {game_ids})")
+        return
     try:
         loop = asyncio.get_running_loop()
         _tick_task = loop.create_task(_tick_loop(), name="atlantis_tick_loop")

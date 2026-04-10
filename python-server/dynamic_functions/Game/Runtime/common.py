@@ -14,6 +14,7 @@ from dynamic_functions.Misc.todo import TODO_PSEUDO_TOOL, handle_todo_tool, list
 from dynamic_functions.Misc.visitor import get_visit_info, record_new_conversation, is_checkin_complete
 
 logger = logging.getLogger("mcp_client")
+BOT_SESSION_PREFIX = "game_runtime"
 
 
 class ToolT(TypedDict, total=False):

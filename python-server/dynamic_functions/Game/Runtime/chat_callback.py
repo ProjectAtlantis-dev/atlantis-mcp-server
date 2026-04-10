@@ -2,48 +2,16 @@ import atlantis
 import os
 
 from openai import OpenAI
-from typing import List, Dict, Any
-from datetime import datetime
 
 from dynamic_functions.Game.Runtime.common import (
     logger,
-    BOTS, next_bot,
-    get_session_tools, _busy_key,
+    _busy_key,
     fetch_transcript, find_last_chat_entry,
     build_system_prompt, handle_dir_tool,
     get_visit_info, record_new_conversation, is_checkin_complete,
 )
 from dynamic_functions.Bot.Runtime.turn import run_turn
-from dynamic_functions.Misc.todo import list_tasks as _list_tasks, _read_store
-
-
-@visible
-async def show_tools() -> List[Dict[str, Any]]:
-    """Show Kitty's current tool inventory for this session."""
-    tools, lookup = get_session_tools(0)
-    simple: List[Dict[str, Any]] = []
-    for t in tools:
-        fn = t['function']
-        params = fn.get('parameters', {}).get('properties', {})
-        parts = []
-        for pname, pinfo in params.items():
-            ptype = pinfo.get('type', 'any')
-            if isinstance(ptype, list):
-                ptype = ','.join(ptype)
-            parts.append(f"{pname}:{ptype}")
-        sig = ', '.join(parts)
-        simple.append({
-            'name': f"{fn['name']} ({sig})",
-            'description': fn.get('description', ''),
-        })
-    logger.info(f"show_tools: {len(simple)} tools")
-    return simple
-
-
-@visible
-async def show_todos():
-    """Show Kitty's current todo/task list for this session."""
-    return await _list_tasks()
+from dynamic_functions.Misc.todo import _read_store
 
 
 @chat
@@ -77,15 +45,9 @@ async def chat_callback():
         rawTranscript, transcript = await fetch_transcript()
         logger.info(f"<<< Transcript fetched in {_t.monotonic() - t0:.2f}s ({len(rawTranscript)} raw, {len(transcript)} filtered)")
 
-        if not BOTS:
-            logger.info("No bots registered — nothing to do")
-            await atlantis.client_log("No bots in the room right now. Use `spawn` to add one!")
-            return
-        bot_index, bot_cfg = next_bot()
-        bot_sid = bot_cfg["sid"]
-        bot_display_name = bot_cfg["display_name"]
-        model = bot_cfg["model"]
-        logger.info(f"Selected bot [{bot_index}/{len(BOTS)}]: {bot_display_name} (sid={bot_sid}, model={model})")
+        logger.info("No bots registered for runtime chat yet")
+        await atlantis.client_log("No bots in the room right now.")
+        return
 
         last_chat_entry = find_last_chat_entry(rawTranscript)
         if last_chat_entry:

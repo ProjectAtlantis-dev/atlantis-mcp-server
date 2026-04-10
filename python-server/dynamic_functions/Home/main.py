@@ -1,4 +1,4 @@
 @visible
 async def index():
-    """Setup stuff"""
+    """Multix CLI readme"""
     pass

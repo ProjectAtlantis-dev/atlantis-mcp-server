@@ -2,7 +2,6 @@ import atlantis
 import logging
 
 logger = logging.getLogger("mcp_server")
-_LOOP_KEY = "tick_loop"
 
 
 @visible
@@ -16,23 +15,30 @@ async def index():
 
     # Replace this return statement with your function's result
     return f"Placeholder function 'index' executed successfully."
+
+
 async def list() -> list[dict]:
     """Return the currently active games registered server-side.
 
-    Each entry: {"game_id": str, "caller": str}. Useful for debugging the
-    auto-registration / tick fan-out path.
+    Each entry: {"game_id": str, "caller": str, "has_tick": bool}.
+    Useful for debugging the active game registry.
     """
     games = atlantis.get_active_games()
     return [
-        {"game_id": gid, "caller": entry.get("caller", "")}
+        {
+            "game_id": gid,
+            "caller": entry.get("caller", ""),
+            "has_tick": entry.get("tick_callback") is not None,
+            "tick_busy": entry.get("tick_busy", False),
+        }
         for gid, entry in games.items()
     ]
+
 
 async def deactivate():
     """Remove the current game from the server-wide active game list.
 
-    If that was the last active game, cancel the tick loop immediately rather
-    than waiting for it to notice on its next iteration.
+    Tick loop cleanup is handled automatically by atlantis.deactivate_game().
     """
     game_id = atlantis.get_game_id()
     if not game_id:
@@ -43,13 +49,7 @@ async def deactivate():
         return f"game {game_id} was not active"
 
     atlantis.deactivate_game(game_id)
-    logger.info(f"deactivate: game={game_id} removed (remaining active: {len(games)})")
+    remaining = len(atlantis.get_active_games())
+    logger.info(f"deactivate: game={game_id} removed (remaining active: {remaining})")
 
-    if not games:
-        loop_task = atlantis.server_shared.get(_LOOP_KEY)
-        if loop_task is not None and not loop_task.done():
-            loop_task.cancel()
-        atlantis.server_shared.remove(_LOOP_KEY)
-        logger.info("deactivate: no active games, tick loop cancelled")
-
-    return f"game {game_id} deactivated (remaining active: {len(games)})"
+    return f"game {game_id} deactivated (remaining active: {remaining})"

@@ -3,8 +3,8 @@
 This document describes the security architecture of the Atlantis MCP Server.
 
 > **📖 Related Documentation**:
-> - Function-level access control details: [README.dynamic_functions_technical.md](./README.dynamic_functions_technical.md#security-model)
-> - Decorator usage (@visible, @public, @protected): [README.dynamic_functions_technical.md](./README.dynamic_functions_technical.md#visible-vs-public-vs-protected)
+> - Function-level access control details: [README.dynamic_functions.md](./README.dynamic_functions.md#security-model)
+> - Decorator usage (@visible, @public, @protected): [README.dynamic_functions.md](./README.dynamic_functions.md#visible-vs-public-vs-protected)
 
 ## Network Architecture
 

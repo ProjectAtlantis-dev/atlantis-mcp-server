@@ -8,7 +8,11 @@ import logging
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 
-from dynamic_functions.Misc.visitor import get_visit_info, record_new_conversation, is_checkin_complete
+from dynamic_functions.Game.Content.Lobby.checkin import (
+    get_visit_info,
+    is_checkin_complete,
+    record_new_conversation,
+)
 from dynamic_functions.Misc.todo import _read_store
 
 logger = logging.getLogger("mcp_server")
@@ -56,7 +60,7 @@ def get_checkin_context(caller: str) -> Dict[str, Any]:
                 'content': (
                     "[PROCEDURE REQUIRED] This is an unidentified guest who "
                     "has NOT completed check-in. Your FIRST action MUST be "
-                    "to call `Misc__get_guest_checklist` to get the check-in "
+                    "to call `Game_Content_Lobby__get_guest_checklist` to get the check-in "
                     "steps. It returns a JSON array — pass that array directly "
                     "to the `todo` tool to load your checklist. Then use `todo` "
                     "with merge=true to mark each step in_progress then "

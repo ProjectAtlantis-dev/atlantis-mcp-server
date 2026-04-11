@@ -2,7 +2,7 @@ import atlantis
 import logging
 import os
 
-from dynamic_functions.Game.Data.main import ensure_player_record
+from dynamic_functions.Computer.query import _connect
 
 logger = logging.getLogger("mcp_server")
 
@@ -23,11 +23,18 @@ async def game_callback():
             raise RuntimeError("game callback fired without a game_id in context — nodejs side must send game_id")
 
         logger.info(f"Game started for user: {user_id}")
-        player_record, is_new_player = ensure_player_record(user_id)
-        player_location = player_record["where"]
-        logger.info(
-            f"Game player state for {user_id}: where={player_location}, is_new={is_new_player}"
-        )
+
+        # Ask the Computer if we know this guest
+        conn = _connect()
+        guest = conn.execute("SELECT * FROM guests WHERE username = ?", (user_id,)).fetchone()
+        conn.close()
+
+        if guest:
+            player_location = guest["location"] or "Lobby"
+            logger.info(f"Known guest {user_id}: location={player_location}")
+        else:
+            player_location = "Lobby"
+            logger.info(f"Unknown guest {user_id}: routing to Lobby for check-in")
 
         await atlantis.client_command("/silent on")
 

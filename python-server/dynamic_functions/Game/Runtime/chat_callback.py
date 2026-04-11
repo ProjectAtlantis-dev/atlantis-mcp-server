@@ -29,7 +29,7 @@ from dynamic_functions.Bot.Runtime.common import (
 from dynamic_functions.Bot.Runtime.turn import run_turn
 from dynamic_functions.Bot.Content.Kitty.prompt import build_system_prompt, build_visitor_context
 from dynamic_functions.Computer.query import _connect
-from dynamic_functions.Misc.todo import _read_store
+from dynamic_functions.Data.todo import _read_store
 
 
 _BUSY_KEY = "chat_busy"

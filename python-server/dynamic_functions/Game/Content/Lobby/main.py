@@ -13,6 +13,5 @@ async def index():
 
     await atlantis.client_log("index running")
 
-    # Replace this return statement with your function's result
     return f"Placeholder function 'index' executed successfully."
 

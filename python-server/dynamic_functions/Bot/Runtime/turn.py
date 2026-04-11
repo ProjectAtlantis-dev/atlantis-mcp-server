@@ -16,6 +16,94 @@ from dynamic_functions.Misc.todo import handle_todo_tool
 from utils import format_json_log
 
 
+async def _close_streams(talk_id, think_id):
+    """Close any open stream IDs, ignoring errors."""
+    for sid in [think_id, talk_id]:
+        if sid:
+            try:
+                await atlantis.stream_end(sid)
+            except Exception as e:
+                logger.warning(f"Failed to close stream {sid}: {e}")
+
+
+async def _execute_tool(
+    tool_key: str,
+    arguments: Dict[str, Any],
+    call_id: str,
+    converted_tools: List[TranscriptToolT],
+    tool_lookup: Dict[str, ToolLookupInfo],
+    transcript: List[Dict[str, Any]],
+) -> bool:
+    """Execute a single tool call and append result to transcript. Returns True if handled."""
+
+    # Pseudo-tools
+    if tool_key == 'dir':
+        name = arguments.get('name', '')
+        logger.info(f"DIR: name='{name}'")
+        summary, _, _ = await handle_dir_tool(name, converted_tools, tool_lookup)
+        transcript.append({'role': 'tool', 'tool_call_id': call_id, 'content': summary})
+        return True
+
+    if tool_key == 'search':
+        query = arguments.get('query', '')
+        logger.info(f"SEARCH: query='{query}'")
+        summary, _, _ = await handle_search_tool(query, converted_tools, tool_lookup)
+        transcript.append({'role': 'tool', 'tool_call_id': call_id, 'content': summary})
+        return True
+
+    if tool_key == 'todo':
+        result = await handle_todo_tool(arguments)
+        transcript.append({'role': 'tool', 'tool_call_id': call_id, 'content': result})
+        return True
+
+    # Real tool via lookup
+    if tool_key not in tool_lookup:
+        raise ValueError(f"Unknown tool: {tool_key} (available: {list(tool_lookup.keys())})")
+
+    lookup_info = tool_lookup[tool_key]
+    search_term = lookup_info['searchTerm']
+    function_name = lookup_info['functionName']
+
+    logger.info(f"TOOL: {tool_key} searchTerm='{search_term}' args={format_json_log(arguments)}")
+
+    # Coerce args to match schema
+    for ct in converted_tools:
+        if ct['function']['name'] == tool_key:
+            tool_schema = ct['function']['parameters']
+            if tool_schema and arguments:
+                arguments = coerce_args_to_schema(arguments, tool_schema)
+            break
+
+    t0 = _t.monotonic()
+    await atlantis.client_command("/silent on")
+    tool_result = await atlantis.client_command(f"%{search_term}", data=arguments)
+    await atlantis.client_command("/silent off")
+
+    logger.info(f"TOOL {tool_key} returned in {_t.monotonic() - t0:.2f}s: {str(tool_result)[:200]}")
+    await atlantis.tool_result(function_name, tool_result)
+
+    transcript.append({
+        'role': 'tool',
+        'tool_call_id': call_id,
+        'content': str(tool_result) if tool_result else "No result"
+    })
+    return True
+
+
+def _parse_tool_arguments(raw_args: str, tool_key: str) -> Dict[str, Any]:
+    """Parse tool call arguments JSON, attempting repair if needed."""
+    if not raw_args:
+        return {}
+    try:
+        return json.loads(raw_args)
+    except json.JSONDecodeError as e:
+        logger.warning(f"Invalid JSON for {tool_key}, attempting repair: {e}")
+        repaired = _repair_json(raw_args)
+        if repaired is not None:
+            return repaired
+        raise ValueError(f"Could not parse tool arguments as JSON: {e}")
+
+
 async def run_turn(
     *,
     client: OpenAI,
@@ -31,52 +119,34 @@ async def run_turn(
 ) -> Optional[str]:
     """Stream a multi-turn LLM conversation with tool calls. Returns accumulated text."""
 
-    streamTalkId = None
-    streamThinkId = None
+    stream_talk_id = None
+    stream_think_id = None
     max_turns = 10
-    turn_count = 0
     accumulated_text = ""
 
     try:
-        while turn_count < max_turns:
-            turn_count += 1
-            logger.info(f"=== TURN {turn_count}/{max_turns} === session={sessionId} request={requestId}")
+        for turn_count in range(1, max_turns + 1):
+            logger.info(f"=== TURN {turn_count}/{max_turns} === session={sessionId}")
 
-            if turn_count == 1:
-                await atlantis.owner_log(f"Attempting to call OpenRouter: {model}")
-
-            # Build full message list: system prompt + transcript
             api_messages: List[Dict[str, Any]] = [
                 {'role': 'system', 'content': system_prompt}
             ] + transcript
 
-            logger.info(f"=== SENDING TO OPENROUTER (GLM) (turn {turn_count}) ===")
-            logger.info(f"Messages: {len(api_messages)} entries")
-            logger.info(f"Tools: {len(converted_tools)} entries")
-            logger.info(f"Tool names: {[t['function']['name'] for t in converted_tools]}")
+            logger.info(f"Sending to {model}: {len(api_messages)} messages, {len(converted_tools)} tools")
 
-            # Dump full API payload for debugging (clobbers each turn)
+            # Debug dump
             api_dump_file = os.path.join(os.path.dirname(__file__), 'api_payload.json')
             try:
                 with open(api_dump_file, 'w') as f:
-                    json.dump({
-                        'model': model,
-                        'messages': api_messages,
-                        'tools': converted_tools,
-                        'turn': turn_count,
-                    }, f, indent=2, default=str)
-                logger.info(f"API payload written to {api_dump_file}")
+                    json.dump({'model': model, 'messages': api_messages, 'tools': converted_tools, 'turn': turn_count}, f, indent=2, default=str)
             except Exception as e:
                 logger.warning(f"Failed to write API payload: {e}")
 
-            event_count = 0
-            streamed_count = 0
-            max_stream_chunks = 512
+            # Call LLM
             tool_calls_accumulator: Dict[int, Dict[str, Any]] = {}
-            tool_call_made = False
+            streamed_count = 0
             accumulated_text = ""
 
-            logger.info(f">>> Calling OpenRouter ({model})...")
             t_api = _t.monotonic()
             stream = client.chat.completions.create(
                 model=model,
@@ -87,263 +157,92 @@ async def run_turn(
                 max_tokens=16000,
                 extra_body={"reasoning": {"effort": "low"}},
             )
-
-            logger.info(f"<<< OpenRouter stream opened in {_t.monotonic() - t_api:.2f}s, reading chunks...")
-            if turn_count == 1:
-                await atlantis.owner_log("OpenRouter API call successful, starting stream")
+            logger.info(f"Stream opened in {_t.monotonic() - t_api:.2f}s")
 
             for chunk in stream:
-                event_count += 1
-
                 if not chunk.choices:
                     continue
 
-                choice = chunk.choices[0]
-                delta = choice.delta
+                delta = chunk.choices[0].delta
 
-                # Handle reasoning/thinking content
-                reasoning_content = getattr(delta, 'reasoning_content', None) or getattr(delta, 'reasoning', None)
-                if reasoning_content:
-                    if not streamThinkId:
-                        streamThinkId = await atlantis.stream_start(bot_sid, f"{bot_display_name} (thinking)")
-                        logger.info(f"Think stream started with ID: {streamThinkId}")
-                    await atlantis.stream(reasoning_content, streamThinkId)
+                # Thinking content
+                reasoning = getattr(delta, 'reasoning_content', None) or getattr(delta, 'reasoning', None)
+                if reasoning:
+                    if not stream_think_id:
+                        stream_think_id = await atlantis.stream_start(bot_sid, f"{bot_display_name} (thinking)")
+                    await atlantis.stream(reasoning, stream_think_id)
 
-                # Handle text content
+                # Text content
                 if delta.content:
-                    # Close thinking stream before streaming text
-                    if streamThinkId:
-                        await atlantis.stream_end(streamThinkId)
-                        streamThinkId = None
+                    if stream_think_id:
+                        await atlantis.stream_end(stream_think_id)
+                        stream_think_id = None
 
-                    if not streamTalkId:
-                        streamTalkId = await atlantis.stream_start(bot_sid, bot_display_name)
-                        logger.info(f"Talk stream started with ID: {streamTalkId}")
+                    if not stream_talk_id:
+                        stream_talk_id = await atlantis.stream_start(bot_sid, bot_display_name)
 
-                    text = delta.content
-                    content_to_send = text.lstrip() if streamed_count == 0 else text
-
-                    if content_to_send:
-                        await atlantis.stream(content_to_send, streamTalkId)
+                    text = delta.content.lstrip() if streamed_count == 0 else delta.content
+                    if text:
+                        await atlantis.stream(text, stream_talk_id)
                         streamed_count += 1
-                        accumulated_text += content_to_send
+                        accumulated_text += text
 
-                        if streamed_count >= max_stream_chunks:
-                            logger.warning(f"Aborting stream after {streamed_count} chunks")
+                        if streamed_count >= 512:
+                            logger.warning("Aborting stream — chunk limit reached")
                             break
 
-                # Accumulate tool calls (streamed in fragments)
+                # Tool call fragments
                 if delta.tool_calls:
-                    for tc_delta in delta.tool_calls:
-                        idx = tc_delta.index
-                        if idx not in tool_calls_accumulator:
-                            tool_calls_accumulator[idx] = {'id': '', 'name': '', 'arguments': ''}
-                        if tc_delta.id:
-                            tool_calls_accumulator[idx]['id'] = tc_delta.id
-                        if tc_delta.function:
-                            if tc_delta.function.name:
-                                tool_calls_accumulator[idx]['name'] += tc_delta.function.name
-                            if tc_delta.function.arguments:
-                                tool_calls_accumulator[idx]['arguments'] += tc_delta.function.arguments
+                    for tc in delta.tool_calls:
+                        acc = tool_calls_accumulator.setdefault(tc.index, {'id': '', 'name': '', 'arguments': ''})
+                        if tc.id:
+                            acc['id'] = tc.id
+                        if tc.function:
+                            if tc.function.name:
+                                acc['name'] += tc.function.name
+                            if tc.function.arguments:
+                                acc['arguments'] += tc.function.arguments
 
-            logger.info(f"Stream complete: turn={turn_count} events={event_count} text_chunks={streamed_count} tool_calls={len(tool_calls_accumulator)} session={sessionId}")
+            logger.info(f"Stream done: turn={turn_count} chunks={streamed_count} tool_calls={len(tool_calls_accumulator)}")
 
-            # Execute accumulated tool calls if any
-            if tool_calls_accumulator:
-                # Close any open streams before executing tools so the next
-                # turn's text starts a fresh chat bubble.
-                if streamTalkId:
-                    await atlantis.stream_end(streamTalkId)
-                    streamTalkId = None
-                if streamThinkId:
-                    await atlantis.stream_end(streamThinkId)
-                    streamThinkId = None
+            # No tool calls — we're done
+            if not tool_calls_accumulator:
+                break
 
-                logger.info(f"Executing {len(tool_calls_accumulator)} tool calls")
+            # Close streams before tool execution
+            await _close_streams(stream_talk_id, stream_think_id)
+            stream_talk_id = None
+            stream_think_id = None
 
-                # Add assistant message with tool_calls to transcript (OpenAI format)
-                assistant_tool_calls = [
-                    {
-                        'id': tc['id'],
-                        'type': 'function',
-                        'function': {'name': tc['name'], 'arguments': tc['arguments']}
-                    }
+            # Record assistant message with tool calls
+            transcript.append({
+                'role': 'assistant',
+                'content': accumulated_text or None,
+                'tool_calls': [
+                    {'id': tc['id'], 'type': 'function', 'function': {'name': tc['name'], 'arguments': tc['arguments']}}
                     for tc in tool_calls_accumulator.values()
                 ]
-                transcript.append({
-                    'role': 'assistant',
-                    'content': accumulated_text or None,
-                    'tool_calls': assistant_tool_calls
-                })
+            })
 
-                # Execute each tool and append result message
-                for tc in tool_calls_accumulator.values():
-                    call_id = tc['id']
-                    tool_key = tc['name']
-
-                    try:
-                        arguments = json.loads(tc['arguments']) if tc['arguments'] else {}
-                    except json.JSONDecodeError as e:
-                        logger.warning(f"Invalid JSON for {tool_key}, attempting repair: {e}")
-                        repaired = _repair_json(tc['arguments']) if tc['arguments'] else None
-                        if repaired is not None:
-                            logger.info(f"🔧 Repaired JSON for {tool_key}")
-                            arguments = repaired
-                        else:
-                            logger.error(f"❌ JSON repair failed for {tool_key}: {e}")
-                            transcript.append({
-                                'role': 'tool',
-                                'tool_call_id': call_id,
-                                'content': f"ERROR: Could not parse your tool arguments as JSON: {e}. Please retry with valid JSON (double-quoted keys and strings)."
-                            })
-                            tool_call_made = True
-                            continue
-
-                    # Handle dir pseudo-tool
-                    if tool_key == 'dir':
-                        name = arguments.get('name', '')
-                        logger.info(f"=== DIR TOOL CALLED: name='{name}' ===")
-                        summary, converted_tools, tool_lookup = await handle_dir_tool(
-                            name, converted_tools, tool_lookup
-                        )
-                        transcript.append({
-                            'role': 'tool',
-                            'tool_call_id': call_id,
-                            'content': summary
-                        })
-                        tool_call_made = True
-                        continue
-
-                    # Handle search pseudo-tool
-                    if tool_key == 'search':
-                        query = arguments.get('query', '')
-                        logger.info(f"=== SEARCH TOOL CALLED: query='{query}' ===")
-                        summary, converted_tools, tool_lookup = await handle_search_tool(
-                            query, converted_tools, tool_lookup
-                        )
-                        transcript.append({
-                            'role': 'tool',
-                            'tool_call_id': call_id,
-                            'content': summary
-                        })
-                        tool_call_made = True
-                        continue
-
-                    # Handle todo pseudo-tool
-                    if tool_key == 'todo':
-                        logger.info(f"=== TODO TOOL CALLED ===")
-                        result = await handle_todo_tool(arguments)
-                        transcript.append({
-                            'role': 'tool',
-                            'tool_call_id': call_id,
-                            'content': result
-                        })
-                        tool_call_made = True
-                        continue
-
-                    if tool_key not in tool_lookup:
-                        logger.error(f"\x1b[91m🚨 UNKNOWN TOOL KEY: '{tool_key}' not in tool_lookup!\x1b[0m")
-                        logger.error(f"\x1b[91m  Available keys: {list(tool_lookup.keys())}\x1b[0m")
-                        transcript.append({
-                            'role': 'tool',
-                            'tool_call_id': call_id,
-                            'content': f"Error: Unknown tool: {tool_key}"
-                        })
-                        continue
-
-                    lookup_info = tool_lookup[tool_key]
-                    search_term = lookup_info['searchTerm']
-                    function_name = lookup_info['functionName']
-
-                    logger.info(f">>> EXECUTING TOOL: {tool_key} (call_id={call_id})")
-                    logger.info(f"    searchTerm='{search_term}' function='{function_name}'")
-                    logger.info(f"    args={format_json_log(arguments)}")
-
-                    try:
-                        # Look up the tool's schema from converted_tools for argument coercion
-                        tool_schema = None
-                        for ct in converted_tools:
-                            if ct['function']['name'] == tool_key:
-                                tool_schema = ct['function']['parameters']
-                                break
-
-                        if tool_schema and arguments:
-                            arguments = coerce_args_to_schema(arguments, tool_schema)
-                            logger.info(f"    post-coercion args={format_json_log(arguments)}")
-
-                        t0 = _t.monotonic()
-                        logger.info("    /silent on")
-                        await atlantis.client_command("/silent on")
-                        logger.info(f"    %{search_term}")
-                        tool_result = await atlantis.client_command(f"%{search_term}", data=arguments)
-                        logger.info("    /silent off")
-                        await atlantis.client_command("/silent off")
-                        elapsed = _t.monotonic() - t0
-
-                        logger.info(f"<<< TOOL {tool_key} RETURNED in {elapsed:.2f}s — result: {str(tool_result)[:200]}")
-                        await atlantis.tool_result(function_name, tool_result)
-
-                        transcript.append({
-                            'role': 'tool',
-                            'tool_call_id': call_id,
-                            'content': str(tool_result) if tool_result else "No result"
-                        })
-                        tool_call_made = True
-
-                    except Exception as e:
-                        logger.error(f"<<< TOOL {tool_key} FAILED: {e}")
-                        transcript.append({
-                            'role': 'tool',
-                            'tool_call_id': call_id,
-                            'content': f"Error: {str(e)}"
-                        })
-
-                logger.info("Tool calls executed, continuing conversation")
-                logger.info(f"tool_lookup keys ({len(tool_lookup)}): {list(tool_lookup.keys())}")
-
-            # Exit if no tool calls were made
-            if not tool_call_made:
-                logger.info(f"No tool calls — conversation complete (session={sessionId})")
-                break
-            else:
-                logger.info(f"Tool calls executed — continuing to turn {turn_count + 1} (session={sessionId})")
-                tool_calls_accumulator = {}
-
-        # End of while loop
-        logger.info(f"Conversation complete after {turn_count} turns")
-        if streamThinkId:
-            await atlantis.stream_end(streamThinkId)
-            logger.info("Think stream ended successfully")
-        if streamTalkId:
-            await atlantis.stream_end(streamTalkId)
-            logger.info("Talk stream ended successfully")
-
-    except Exception as e:
-        logger.error(f"ERROR calling OpenRouter: {str(e)}")
-        logger.error(f"Error type: {type(e)}")
-        logger.error(f"Full exception:", exc_info=True)
-
-        error_details = str(e)
-        err_body = getattr(e, 'body', None)
-        err_response = getattr(e, 'response', None)
-        if err_body:
-            logger.error(f"Error body: {err_body}")
-            error_details = f"{error_details} | Body: {err_body}"
-        if err_response:
-            try:
-                logger.error(f"Response status: {err_response.status_code}")
-                logger.error(f"Response text: {err_response.text}")
-                error_details = f"{error_details} | Status: {err_response.status_code} | Response: {err_response.text}"
-            except:
-                pass
-
-        await atlantis.owner_log(f"Error calling OpenRouter: {error_details}")
-        for sid in [streamThinkId, streamTalkId]:
-            if sid:
+            # Execute each tool call
+            any_executed = False
+            for tc in tool_calls_accumulator.values():
                 try:
-                    await atlantis.stream_end(sid)
-                except:
-                    pass
-        raise
+                    arguments = _parse_tool_arguments(tc['arguments'], tc['name'])
+                    await _execute_tool(tc['name'], arguments, tc['id'], converted_tools, tool_lookup, transcript)
+                    any_executed = True
+                except Exception as e:
+                    logger.error(f"Tool {tc['name']} failed: {e}")
+                    transcript.append({
+                        'role': 'tool',
+                        'tool_call_id': tc['id'],
+                        'content': f"Error: {e}"
+                    })
+
+            if not any_executed:
+                break
+
+    finally:
+        await _close_streams(stream_talk_id, stream_think_id)
 
     return accumulated_text or None

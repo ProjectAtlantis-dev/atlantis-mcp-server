@@ -7,7 +7,6 @@ from typing import Any
 logger = logging.getLogger("mcp_server")
 
 PLAYER_DATA_FILE = os.path.join(os.path.dirname(__file__), "player_data.json")
-DEFAULT_LOCATION = "Lobby"
 
 
 def _read_data() -> dict[str, Any]:
@@ -28,7 +27,7 @@ def _normalize_entry(entry: Any) -> dict[str, Any]:
     if not isinstance(entry, dict):
         entry = {}
 
-    where = entry.get("where") or DEFAULT_LOCATION
+    where = entry.get("where") or "Lobby"
     return {
         **entry,
         "where": where,

@@ -1,0 +1,9 @@
+{
+  "sid": "kitty",
+  "displayName": "Kitty",
+  "provider": "openrouter",
+  "model": "z-ai/glm-5",
+  "baseUrl": "https://openrouter.ai/api/v1",
+  "apiKeyEnv": "OPENROUTER_API_KEY",
+  "systemPromptModule": "dynamic_functions.Bot.Content.Kitty.system_prompt"
+}

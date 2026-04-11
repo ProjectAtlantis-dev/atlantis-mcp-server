@@ -14,7 +14,6 @@ from dynamic_functions.Misc.todo import TODO_PSEUDO_TOOL, handle_todo_tool, list
 from dynamic_functions.Misc.visitor import get_visit_info, record_new_conversation, is_checkin_complete
 
 logger = logging.getLogger("mcp_client")
-BOT_SESSION_PREFIX = "game_runtime"
 
 
 class ToolT(TypedDict, total=False):
@@ -112,6 +111,43 @@ def get_consolidated_full_name(tool: ToolT) -> str:
         return parts[-1]
 
     return '*'.join(parts)
+
+
+def analyze_participants(raw_transcript: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Build a participant summary from the raw transcript.
+
+    Returns {
+        'participants': {sid: {'who': str, 'last_spoke': str, 'message_count': int}},
+        'last_speaker': str or None,  # sid of whoever spoke last
+    }
+    """
+    participants: Dict[str, Any] = {}
+    last_speaker: Optional[str] = None
+
+    for msg in raw_transcript:
+        if msg.get('type') != 'chat':
+            continue
+        sid = msg.get('sid')
+        if not sid or sid == 'system':
+            continue
+
+        timestamp = msg.get('created_at') or msg.get('created_at_str', '')
+
+        if sid not in participants:
+            participants[sid] = {
+                'who': msg.get('who', sid),
+                'last_spoke': timestamp,
+                'message_count': 0,
+            }
+
+        participants[sid]['last_spoke'] = timestamp
+        participants[sid]['message_count'] += 1
+        last_speaker = sid
+
+    return {
+        'participants': participants,
+        'last_speaker': last_speaker,
+    }
 
 
 def _repair_json(raw: str) -> Optional[Dict[str, Any]]:
@@ -411,14 +447,6 @@ async def handle_search_tool(
     return summary, converted_tools, tool_lookup
 
 
-def find_last_chat_entry(transcript):
-    """Find the last entry in transcript where type is 'chat' (including thinking entries)."""
-    for entry in reversed(transcript):
-        if entry.get('type') == 'chat':
-            return entry
-    return None
-
-
 async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
     Fetch raw transcript from server and transform it into OpenAI-compatible format.
@@ -483,7 +511,10 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
                 logger.warning(f"       -> SKIPPED (oversized: {len(msg_content_full)} chars > {MAX_ENTRY_SIZE})")
                 continue
 
-            role_for_llm = 'assistant' if msg_sid in get_bot_sids() else 'user'
+            # TODO: need a proper mechanism to identify bot-authored transcript
+            # entries so they can be replayed as 'assistant' messages. For now
+            # everything is treated as 'user'.
+            role_for_llm = 'user'
 
             transcript.append({'role': role_for_llm, 'content': [{'type': 'text', 'text': msg_content_full}]})
             logger.info(f"       -> INCLUDED as role={role_for_llm} (sid={msg_sid})")
@@ -494,82 +525,14 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
     return raw_transcript, transcript
 
 
-def build_visitor_context(caller: str, visit_count: int, last_visit: str) -> str:
-    """Build a visitor context note based on caller info. Returns empty string if no context applies."""
-    if not caller or visit_count <= 0:
-        return ""
-
-    hour = datetime.now().hour
-    late_night = hour >= 22 or hour < 5
-
-    if visit_count == 1:
-        if late_night:
-            visitor_note = "A new visitor just arrived. It's late — their helicopter probably just arrived behind schedule, likely delayed by weather. Welcome them warmly, they've had a long trip. You don't know their name yet — ask for it naturally."
-        else:
-            visitor_note = "A new visitor just arrived. They're brand new — introduce yourself, welcome them warmly, and help them get oriented. You don't know their name yet — ask for it naturally."
-    elif visit_count <= 5:
-        visitor_note = f"{caller} has visited {visit_count} times. They're still fairly new — be friendly and remember they might still be figuring things out."
-    else:
-        visitor_note = f"{caller} has visited {visit_count} times. They're a regular — skip the intros, be casual, and treat them like a friend."
-
-    if last_visit and visit_count > 1:
-        try:
-            elapsed = datetime.now() - datetime.fromisoformat(last_visit)
-            days = elapsed.days
-            hours = elapsed.seconds // 3600
-            if days > 30:
-                visitor_note += f" It's been about {days // 30} month(s) since their last visit — maybe acknowledge it's been a while."
-            elif days > 0:
-                visitor_note += f" It's been about {days} day(s) since their last visit."
-            elif hours > 0:
-                visitor_note += f" They were here about {hours} hour(s) ago."
-            else:
-                visitor_note += " They were just here moments ago."
-        except (ValueError, TypeError):
-            pass
-
-    return visitor_note
-
-
-def build_system_prompt(
-    base_prompt: str,
-    caller: str = "",
-    visit_count: int = 0,
-    last_visit: str = ""
-) -> str:
-    parts: List[str] = [base_prompt]
-    parts.append(f"Current date and time: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-
-    visitor_note = build_visitor_context(caller, visit_count, last_visit)
-    if visitor_note:
-        parts.append(visitor_note)
-
-    return "\n\n".join(parts)
-
-
-def _busy_key() -> str:
-    """BUSY lock key scoped to session only — no shell, so concurrent chats on different shells still block."""
-    return f"{BOT_SESSION_PREFIX}_busy"
-
-
-def _tools_key(bot_index: int) -> str:
-    return f"{BOT_SESSION_PREFIX}_tools_{bot_index}"
-
-
-def _lookup_key(bot_index: int) -> str:
-    return f"{BOT_SESSION_PREFIX}_lookup_{bot_index}"
-
-
-def get_session_tools(bot_index: int) -> Tuple[List[TranscriptToolT], Dict[str, ToolLookupInfo]]:
-    """Get or initialize tool inventory for the current session + bot."""
-    tk = _tools_key(bot_index)
-    lk = _lookup_key(bot_index)
-    tools = atlantis.session_shared.get(tk)
-    lookup = atlantis.session_shared.get(lk)
+def get_session_tools() -> Tuple[List[TranscriptToolT], Dict[str, ToolLookupInfo]]:
+    """Get or initialize tool inventory for the current session."""
+    tools = atlantis.session_shared.get("chat_tools")
+    lookup = atlantis.session_shared.get("chat_lookup")
     if tools is None:
         tools = [SEARCH_PSEUDO_TOOL, DIR_PSEUDO_TOOL, TODO_PSEUDO_TOOL]
-        atlantis.session_shared.set(tk, tools)
+        atlantis.session_shared.set("chat_tools", tools)
     if lookup is None:
         lookup = {}
-        atlantis.session_shared.set(lk, lookup)
+        atlantis.session_shared.set("chat_lookup", lookup)
     return tools, lookup

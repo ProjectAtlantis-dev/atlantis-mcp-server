@@ -8,6 +8,17 @@ logger = logging.getLogger("mcp_server")
 PLAYERS_DIR = os.path.join(os.path.dirname(__file__), "players")
 
 
+
+# =========================================================================
+# Visible tools
+# =========================================================================
+
+@visible
+async def index():
+    """Low-level player data mgmt"""
+    return list_player_names()
+
+
 # =========================================================================
 # Low-level per-user file I/O
 # =========================================================================
@@ -94,12 +105,3 @@ def set_player_location(username: str, where: str) -> dict[str, Any]:
         raise ValueError("Cannot set an empty location")
     return set_player_field(username, "where", where)
 
-
-# =========================================================================
-# Visible tools
-# =========================================================================
-
-@visible
-async def index():
-    """List all player files."""
-    return list_player_names()

@@ -18,23 +18,23 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "computer.db")
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "schema.sql")
 
 
+_bootstrapped = False
+
 def _connect():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
-    _bootstrap()
+    _bootstrap(conn)
     return conn
 
 
-_bootstrapped = False
-
-def _bootstrap():
+def _bootstrap(conn):
     """Run schema.sql if the db has no tables yet."""
     global _bootstrapped
     if _bootstrapped:
         return
-    conn = _connect()
+    _bootstrapped = True  # Set BEFORE querying to prevent re-entry
     tables = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table'"
     ).fetchall()
@@ -43,8 +43,6 @@ def _bootstrap():
         with open(SCHEMA_PATH) as f:
             conn.executescript(f.read())
         logger.info("Computer: bootstrap complete")
-    _bootstrapped = True
-    conn.close()
 
 
 @visible

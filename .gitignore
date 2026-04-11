@@ -94,3 +94,5 @@ python-server/dynamic_functions/Game/Runtime/raw_transcript.json
 python-server/dynamic_functions/Game/Data/player_data.json
 python-server/dynamic_functions/Bot/Runtime/raw_transcript.json
 python-server/dynamic_functions/Bot/Runtime/api_payload.json
+python-server/dynamic_functions/Computer/computer.db-shm
+python-server/dynamic_functions/Computer/computer.db-wal

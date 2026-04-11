@@ -1,15 +1,48 @@
 import atlantis
 import logging
 
-logger = logging.getLogger("mcp_server")
+from dynamic_functions.Bot.Runtime.common import (
+    logger,
+    analyze_participants,
+    fetch_transcript,
+)
+from dynamic_functions.Game.Runtime.game_callback import (
+    _pick_bot_for_location,
+    _spawn_bot,
+)
+from dynamic_functions.Computer.query import _connect
 
 
 @session
 async def session_callback():
-    """Fires on session reconnect — ensures the game stays in the active set
-    so any registered tick continues to fire."""
+    """Fires on session reconnect — checks room state and spawns a bot if needed."""
     game_id = atlantis.get_game_id()
     caller = atlantis.get_caller() or "unknown"
-    # NOTE: ensure_active_game() is already called by DynamicFunctionManager
-    # for any tool call carrying a game_id, so we don't need to call it here.
     logger.info(f"🔄 Session reconnect: game={game_id} caller={caller}")
+
+    # Figure out where the user is
+    conn = _connect()
+    guest = conn.execute("SELECT * FROM guests WHERE username = ?", (caller,)).fetchone()
+    conn.close()
+    location = guest["location"] if guest else "Lobby"
+
+    # Fetch transcript and check if a bot has already been spawned
+    raw_transcript, _ = await fetch_transcript(caller)
+    analysis = analyze_participants(raw_transcript)
+    participants = analysis.get('participants', {})
+    last_speaker = analysis.get('last_speaker')
+
+    # Is there a bot in the room? (anyone who isn't the caller)
+    bot_sids = [sid for sid in participants if sid != caller]
+
+    logger.info(f"🔄 Room state: location={location}, participants={list(participants.keys())}, "
+                f"bot_sids={bot_sids}, last_speaker={last_speaker}")
+
+    if not bot_sids:
+        # Nobody else here — spawn a bot
+        bot = _pick_bot_for_location(location)
+        if bot:
+            logger.info(f"🔄 Room empty, spawning {bot['bot_name']} at {location}")
+            await _spawn_bot(bot['bot_sid'])
+    else:
+        logger.info(f"🔄 Bot(s) already in room: {bot_sids}")

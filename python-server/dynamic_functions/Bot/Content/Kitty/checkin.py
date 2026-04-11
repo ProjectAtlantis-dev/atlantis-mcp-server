@@ -13,7 +13,7 @@ from dynamic_functions.Game.Content.Lobby.checkin import (
     is_checkin_complete,
     record_new_conversation,
 )
-from dynamic_functions.Misc.todo import _read_store
+from dynamic_functions.Data.todo import _read_store
 
 logger = logging.getLogger("mcp_server")
 

@@ -184,7 +184,7 @@ async def _handle_chat(session_id, request_id, game_id, caller):
 
     # Fetch transcript
     t0 = _t.monotonic()
-    raw_transcript, transcript = await fetch_transcript()
+    raw_transcript, transcript = await fetch_transcript(caller)
     logger.info(f"Transcript fetched in {_t.monotonic() - t0:.2f}s ({len(raw_transcript)} raw, {len(transcript)} filtered)")
 
     # Skip if last message was from this bot

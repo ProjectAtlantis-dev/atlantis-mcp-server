@@ -446,9 +446,10 @@ async def handle_search_tool(
     return summary, converted_tools, tool_lookup
 
 
-async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+async def fetch_transcript(caller: str = "") -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
     Fetch raw transcript from server and transform it into OpenAI-compatible format.
+    Pass caller sid to correctly assign 'user' vs 'assistant' roles.
     Returns (raw_transcript, processed_transcript) so caller can handle skip logic.
     """
     logger.info("fetch_transcript: /silent on")
@@ -510,10 +511,8 @@ async def fetch_transcript() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]
                 logger.warning(f"       -> SKIPPED (oversized: {len(msg_content_full)} chars > {MAX_ENTRY_SIZE})")
                 continue
 
-            # TODO: need a proper mechanism to identify bot-authored transcript
-            # entries so they can be replayed as 'assistant' messages. For now
-            # everything is treated as 'user'.
-            role_for_llm = 'user'
+            # Caller sid is the user, everything else is a bot
+            role_for_llm = 'user' if (caller and msg_sid == caller) else 'assistant' if caller else 'user'
 
             transcript.append({'role': role_for_llm, 'content': [{'type': 'text', 'text': msg_content_full}]})
             logger.info(f"       -> INCLUDED as role={role_for_llm} (sid={msg_sid})")

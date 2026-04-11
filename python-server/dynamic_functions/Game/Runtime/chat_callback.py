@@ -253,8 +253,13 @@ async def _handle_chat(session_id, request_id, game_id, caller):
                 pass
 
     # Build final system prompt with visitor context
-    prompt_caller = "" if needs_checkin else caller
-    system_prompt = build_system_prompt(base_prompt, prompt_caller, visit_count, last_visit)
+    if needs_checkin:
+        prompt_caller = ""
+        first_name = ""
+    else:
+        prompt_caller = caller
+        first_name = guest.get("first_name", "") if guest else ""
+    system_prompt = build_system_prompt(base_prompt, prompt_caller, visit_count, last_visit, first_name=first_name)
 
     # Tools — only pre-load what's needed for active procedures
     # Everything else Kitty discovers via search/dir on her console

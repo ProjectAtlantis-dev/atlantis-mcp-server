@@ -8,23 +8,26 @@ from datetime import datetime
 from typing import List
 
 
-def build_visitor_context(caller: str, visit_count: int, last_visit: str) -> str:
+def build_visitor_context(caller: str, visit_count: int, last_visit: str, first_name: str = "") -> str:
     """Build a visitor context note. Returns empty string if no context applies."""
     if not caller or visit_count <= 0:
         return ""
+
+    # Use real name if we have it, fall back to username
+    display_name = first_name or caller
 
     hour = datetime.now().hour
     late_night = hour >= 22 or hour < 5
 
     if visit_count == 1:
         if late_night:
-            visitor_note = "A new visitor just arrived. It's late — their helicopter probably just arrived behind schedule, likely delayed by weather. Welcome them warmly, they've had a long trip. You don't know their name yet — ask for it naturally."
+            visitor_note = f"{display_name} just arrived. It's late — their helicopter probably just arrived behind schedule, likely delayed by weather. Welcome them warmly, they've had a long trip."
         else:
-            visitor_note = "A new visitor just arrived. They're brand new — introduce yourself, welcome them warmly, and help them get oriented. You don't know their name yet — ask for it naturally."
+            visitor_note = f"{display_name} just arrived. They've been here once before — greet them by name."
     elif visit_count <= 5:
-        visitor_note = f"{caller} has visited {visit_count} times. They're still fairly new — be friendly and remember they might still be figuring things out."
+        visitor_note = f"{display_name} has visited {visit_count} times. They're still fairly new — be friendly and remember they might still be figuring things out."
     else:
-        visitor_note = f"{caller} has visited {visit_count} times. They're a regular — skip the intros, be casual, and treat them like a friend."
+        visitor_note = f"{display_name} has visited {visit_count} times. They're a regular — skip the intros, be casual, and treat them like a friend."
 
     if last_visit and visit_count > 1:
         try:
@@ -49,12 +52,13 @@ def build_system_prompt(
     base_prompt: str,
     caller: str = "",
     visit_count: int = 0,
-    last_visit: str = ""
+    last_visit: str = "",
+    first_name: str = ""
 ) -> str:
     parts: List[str] = [base_prompt]
     parts.append(f"Current date and time: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
-    visitor_note = build_visitor_context(caller, visit_count, last_visit)
+    visitor_note = build_visitor_context(caller, visit_count, last_visit, first_name)
     if visitor_note:
         parts.append(visitor_note)
 

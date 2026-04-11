@@ -7,7 +7,6 @@ from dynamic_functions.Bot.Runtime.common import (
     fetch_transcript,
 )
 from dynamic_functions.Game.Runtime.game_callback import (
-    _pick_bot_for_location,
     _spawn_bot,
 )
 from dynamic_functions.Computer.query import _connect
@@ -24,7 +23,9 @@ async def session_callback():
     conn = _connect()
     guest = conn.execute("SELECT * FROM guests WHERE username = ?", (caller,)).fetchone()
     conn.close()
-    location = guest["location"] if guest else "Lobby"
+    location = guest["location"] if guest else "AtlasLobby"
+    if location == "Lobby":
+        location = "AtlasLobby"
 
     # Fetch transcript and check if a bot has already been spawned
     raw_transcript, _ = await fetch_transcript(caller)
@@ -39,10 +40,7 @@ async def session_callback():
                 f"bot_sids={bot_sids}, last_speaker={last_speaker}")
 
     if not bot_sids:
-        # Nobody else here — spawn a bot
-        bot = _pick_bot_for_location(location)
-        if bot:
-            logger.info(f"🔄 Room empty, spawning {bot['bot_name']} at {location}")
-            await _spawn_bot(bot['bot_sid'])
+        logger.info(f"🔄 Room empty, spawning Atlas at {location}")
+        await _spawn_bot("atlas")
     else:
         logger.info(f"🔄 Bot(s) already in room: {bot_sids}")

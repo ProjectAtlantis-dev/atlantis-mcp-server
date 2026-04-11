@@ -8,7 +8,7 @@ import logging
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 
-from dynamic_functions.Game.Content.Lobby.checkin import (
+from dynamic_functions.Game.Content.AtlasLobby.checkin import (
     get_visit_info,
     is_checkin_complete,
     record_new_conversation,
@@ -26,7 +26,7 @@ def get_checkin_context(caller: str) -> Dict[str, Any]:
         'visit_count': int,
         'last_visit': str or None,
         'injections': list of {'role': str, 'content': str},
-        'preload_tools': list of tool names to dir-lookup before the LLM runs,
+        'preload_tools': list of exact tool names to preload before the LLM runs,
         'suppress_caller_name': bool,
     }
     """
@@ -60,7 +60,7 @@ def get_checkin_context(caller: str) -> Dict[str, Any]:
                 'content': (
                     "[PROCEDURE REQUIRED] This is an unidentified guest who "
                     "has NOT completed check-in. Your FIRST action MUST be "
-                    "to call `Game_Content_Lobby__get_guest_checklist` to get the check-in "
+                    "to call `Game_Content_AtlasLobby__get_guest_checklist` to get the check-in "
                     "steps. It returns a JSON array — pass that array directly "
                     "to the `todo` tool to load your checklist. Then use `todo` "
                     "with merge=true to mark each step in_progress then "
@@ -70,7 +70,7 @@ def get_checkin_context(caller: str) -> Dict[str, Any]:
                     "you verify their paperwork."
                 ),
             })
-            preload_tools.append("get_guest_checklist")
+            preload_tools.append("Game_Content_AtlasLobby__get_guest_checklist")
 
     # Record the visit
     if not prev_last_visit:

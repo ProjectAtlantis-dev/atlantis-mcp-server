@@ -24,7 +24,7 @@ CREATE TABLE guests (
     visit_count INTEGER DEFAULT 0,
     last_visit  TEXT,
     cleared     INTEGER DEFAULT 0,
-    location    TEXT DEFAULT 'Lobby'
+    location    TEXT DEFAULT 'AtlasLobby'
 );
 
 CREATE TABLE games (
@@ -38,9 +38,10 @@ CREATE TABLE games (
 -- Seed data
 
 INSERT INTO bots (sid, name, chat) VALUES
+    ('atlas', 'Atlas', 'Bot*Atlas*chat'),
     ('kitty', 'Kitty', 'Bot*Kitty*chat');
 
 INSERT INTO roles (name, bot_sid, location) VALUES
-    ('Receptionist',  'kitty', 'Lobby');
-
+    ('Front Desk Assistant', 'atlas', 'AtlasLobby'),
+    ('Receptionist', 'kitty', 'KittyLobby');
 

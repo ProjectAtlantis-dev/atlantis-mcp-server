@@ -1,8 +1,8 @@
-"""Game chat callback — routes messages to bots via the Computer.
+"""Game chat callback — routes messages to the active lobby bot.
 
 Flow:
-1. Figure out where the user is (Computer or default Lobby)
-2. Check games table for existing bot assignment, or random-pick one
+1. Figure out where the user is (Computer or default AtlasLobby)
+2. Use the static bot for that lobby
 3. Load the bot's system prompt
 4. Gather tools from role_tools + location_tools
 5. Build transcript with any checkin injections
@@ -23,11 +23,9 @@ from dynamic_functions.Bot.Runtime.common import (
     analyze_participants,
     fetch_transcript,
     get_session_tools,
-    handle_dir_tool,
-    convert_tools_for_llm,
 )
 from dynamic_functions.Bot.Runtime.turn import run_turn
-from dynamic_functions.Bot.Content.Kitty.prompt import build_system_prompt, build_visitor_context
+# prompt module is loaded dynamically per-bot below
 from dynamic_functions.Computer.query import _connect
 from dynamic_functions.Data.todo import _read_store
 
@@ -129,6 +127,63 @@ def _load_bot_config(bot_sid):
     return None
 
 
+def _add_lobby_tool(location, function_name, description, parameters, converted_tools, tool_lookup):
+    app_name = f"Game.Content.{location}"
+    tool_key = f"Game_Content_{location}__{function_name}"
+
+    if tool_key not in tool_lookup:
+        converted_tools.append({
+            "type": "function",
+            "function": {
+                "name": tool_key,
+                "description": description,
+                "parameters": parameters,
+            },
+        })
+        tool_lookup[tool_key] = {
+            "searchTerm": f"**{app_name}**{function_name}",
+            "filename": f"Game/Content/{location}/{function_name}.py",
+            "functionName": function_name,
+        }
+
+
+def _add_lobby_checkin_tools(location, converted_tools, tool_lookup):
+    no_args = {"type": "object", "properties": {}, "required": []}
+    register_args = {
+        "type": "object",
+        "properties": {
+            "username": {"type": "string", "description": "The username from the security card"},
+            "first_name": {"type": "string", "description": "The guest's real first name"},
+        },
+        "required": ["username", "first_name"],
+    }
+
+    _add_lobby_tool(
+        location,
+        "get_guest_checklist",
+        f"Get the {location} new-guest check-in checklist.",
+        no_args,
+        converted_tools,
+        tool_lookup,
+    )
+    _add_lobby_tool(
+        location,
+        "verify_paperwork",
+        "Read the guest's security card after they provide paperwork.",
+        no_args,
+        converted_tools,
+        tool_lookup,
+    )
+    _add_lobby_tool(
+        location,
+        "register_guest",
+        "Register a guest after paperwork verification.",
+        register_args,
+        converted_tools,
+        tool_lookup,
+    )
+
+
 # =========================================================================
 # Chat callback
 # =========================================================================
@@ -161,12 +216,12 @@ async def chat_callback():
 async def _handle_chat(session_id, request_id, game_id, caller):
     # Where is the user?
     guest = _get_guest(caller)
-    location = guest["location"] if guest else "Lobby"
+    location = guest["location"] if guest else "AtlasLobby"
+    if location == "Lobby":
+        location = "AtlasLobby"
     logger.info(f"Location: {location}, guest known: {guest is not None}")
 
-    # Who's handling this game? (random pick on first message, persisted after)
-    game = _get_or_create_game(game_id, caller, location)
-    bot_sid = game["bot_sid"]
+    bot_sid = "atlas" if location == "AtlasLobby" else "kitty"
     logger.info(f"Game {game_id}: bot={bot_sid} location={location}")
 
     # Get bot config from config.json
@@ -177,9 +232,7 @@ async def _handle_chat(session_id, request_id, game_id, caller):
     bot_display_name = bot_cfg["displayName"]
     bot_sid_str = bot_cfg["sid"]
 
-    # Get the role this bot is playing at this location
-    role = _get_role_for_bot_at_location(bot_sid, location)
-    role_name = role["name"] if role else "Unknown"
+    role_name = "Front Desk Assistant" if bot_sid == "atlas" else "Receptionist"
     logger.info(f"Role: {role_name}")
 
     # Fetch transcript
@@ -206,6 +259,11 @@ async def _handle_chat(session_id, request_id, game_id, caller):
     base_prompt = str(base_prompt)
     logger.info(f"System prompt loaded in {_t.monotonic() - t0:.2f}s ({len(base_prompt)} chars)")
 
+    # Load the bot's own prompt builder (e.g. Bot.Content.Atlas.prompt)
+    prompt_builder_module = bot_cfg["systemPromptModule"].rsplit(".", 1)[0] + ".prompt"
+    prompt_builder = import_module(prompt_builder_module)
+    build_system_prompt = prompt_builder.build_system_prompt
+
     # Checkin context — does this guest need the procedure?
     needs_checkin = guest is None
     visit_count = guest["visit_count"] if guest else 0
@@ -229,7 +287,7 @@ async def _handle_chat(session_id, request_id, game_id, caller):
             transcript.append({'role': 'system', 'content': [{'type': 'text', 'text':
                 "[PROCEDURE REQUIRED] This is an unidentified guest who "
                 "has NOT completed check-in. Your FIRST action MUST be "
-                "to call `get_guest_checklist` to get the check-in "
+                f"to call `Game_Content_{location}__get_guest_checklist` to get the check-in "
                 "steps. It returns a JSON array — pass that array directly "
                 "to the `todo` tool to load your checklist. Then use `todo` "
                 "with merge=true to mark each step in_progress then "
@@ -261,17 +319,12 @@ async def _handle_chat(session_id, request_id, game_id, caller):
         first_name = guest.get("first_name", "") if guest else ""
     system_prompt = build_system_prompt(base_prompt, prompt_caller, visit_count, last_visit, first_name=first_name)
 
-    # Tools — only pre-load what's needed for active procedures
-    # Everything else Kitty discovers via search/dir on her console
+    # Tools — only pre-load what's needed for active procedures.
     converted_tools, tool_lookup = get_session_tools()
 
     if needs_checkin:
-        await atlantis.client_command("/silent on")
-        _, converted_tools, tool_lookup = await handle_dir_tool(
-            "get_guest_checklist", converted_tools, tool_lookup
-        )
-        await atlantis.client_command("/silent off")
-        logger.info("Pre-loaded get_guest_checklist for unregistered guest")
+        _add_lobby_checkin_tools(location, converted_tools, tool_lookup)
+        logger.info(f"Pre-loaded {location} check-in tools for unregistered guest")
 
     # API key
     api_key = os.getenv(bot_cfg["apiKeyEnv"])

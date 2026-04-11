@@ -8,7 +8,8 @@ from dynamic_functions.Computer.query import _connect
 logger = logging.getLogger("mcp_server")
 
 LOCATION_BACKGROUNDS = {
-    "Lobby": os.path.join(os.path.dirname(__file__), "..", "Content", "Lobby", "builder.jpg"),
+    "AtlasLobby": os.path.join(os.path.dirname(__file__), "..", "Content", "AtlasLobby", "builder.jpg"),
+    "KittyLobby": os.path.join(os.path.dirname(__file__), "..", "Content", "KittyLobby", "builder.jpg"),
 }
 
 BOTS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "Bot", "Content")
@@ -59,8 +60,11 @@ async def _spawn_bot(bot_sid):
         await atlantis.client_image(face_path)
         logger.info(f"Spawned {display_name}: showed face image")
 
-    # Say hello as a chat message so she shows up in the transcript
-    greeting = f"*waves* Hey there~ Welcome to the Lobby! 🐱"
+    # Say hello as a chat message so the bot shows up in the transcript.
+    if bot_sid == "atlas":
+        greeting = "Hi, I'm Atlas. Welcome to FlowCentral."
+    else:
+        greeting = "*waves* Hey there~ Welcome to the lobby! 🐱"
     stream_id = await atlantis.stream_start(bot_sid, display_name)
     await atlantis.stream(greeting, stream_id)
     await atlantis.stream_end(stream_id)
@@ -85,11 +89,13 @@ async def game_callback():
         conn.close()
 
         if guest:
-            player_location = guest["location"] or "Lobby"
+            player_location = guest["location"] or "AtlasLobby"
+            if player_location == "Lobby":
+                player_location = "AtlasLobby"
             logger.info(f"Known guest {user_id}: location={player_location}")
         else:
-            player_location = "Lobby"
-            logger.info(f"Unknown guest {user_id}: routing to Lobby for check-in")
+            player_location = "AtlasLobby"
+            logger.info(f"Unknown guest {user_id}: routing to AtlasLobby for check-in")
 
         await atlantis.client_command("/silent on")
 
@@ -105,8 +111,6 @@ async def game_callback():
         raise RuntimeError(f"No background configured for game location: {player_location}")
     await atlantis.set_background(image_path)
 
-    # Spawn a bot if the lobby is empty
-    bot = _pick_bot_for_location(player_location)
-    if bot:
-        logger.info(f"Spawning {bot['bot_name']} (sid={bot['bot_sid']}) as {bot['role_name']} at {player_location}")
-        await _spawn_bot(bot["bot_sid"])
+    # Always spawn Atlas at the player's location
+    logger.info(f"Spawning Atlas at {player_location}")
+    await _spawn_bot("atlas")

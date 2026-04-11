@@ -5,7 +5,7 @@ logger = logging.getLogger("mcp_server")
 
 
 def on_activity(analysis: Dict[str, Any], caller_sid: str) -> Dict[str, Any]:
-    """Lobby-specific activity logic. Decides what to do based on who's in the room.
+    """KittyLobby-specific activity logic. Decides what to do based on who's in the room.
 
     analysis: output from analyze_participants()
     caller_sid: who just spoke
@@ -16,7 +16,7 @@ def on_activity(analysis: Dict[str, Any], caller_sid: str) -> Dict[str, Any]:
     others = {sid: info for sid, info in participants.items() if sid != caller_sid}
 
     if not others:
-        # Visitor is alone in the lobby — spawn Kitty
+        # Visitor is alone in KittyLobby — spawn Kitty
         return {'action': 'spawn', 'bot': 'kitty'}
 
     # Someone else is already here

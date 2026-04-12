@@ -6,39 +6,36 @@ from dynamic_functions.Bot.Runtime.common import (
     analyze_participants,
     fetch_transcript,
 )
-from dynamic_functions.Game.Runtime.game_callback import (
-    _spawn_bot,
-)
-from dynamic_functions.Data.main import get_guest
+from dynamic_functions.Game.Runtime.common import spawn_bot, _load_bot_config
+from dynamic_functions.Game.Runtime.roles import get_role_for_bot
 
 
 @session
 async def session_callback():
-    """Fires on session reconnect — checks room state and spawns a bot if needed."""
+    """Fires on session reconnect — checks room state and re-spawns the bot if needed."""
     game_id = atlantis.get_game_id()
     caller = atlantis.get_caller() or "unknown"
     logger.info(f"🔄 Session reconnect: game={game_id} caller={caller}")
 
-    # Figure out where the user is
-    guest = get_guest(caller)
-    location = (guest.get("location") if guest else None) or "AtlasLobby"
-    if not location:
-        location = "AtlasLobby"
-
-    # Fetch transcript and check if a bot has already been spawned
+    # Fetch transcript and check if a bot is already present
     raw_transcript, _ = await fetch_transcript(caller)
     analysis = analyze_participants(raw_transcript)
     participants = analysis.get('participants', {})
-    last_speaker = analysis.get('last_speaker')
 
-    # Is there a bot in the room? (anyone who isn't the caller)
-    bot_sids = [sid for sid in participants if sid != caller]
+    # Find known bots in the room (anyone who isn't the caller with a bot config)
+    bot_sids = []
+    for sid in participants:
+        if sid != caller:
+            cfg, _ = _load_bot_config(sid)
+            if cfg:
+                bot_sids.append(sid)
 
-    logger.info(f"🔄 Room state: location={location}, participants={list(participants.keys())}, "
-                f"bot_sids={bot_sids}, last_speaker={last_speaker}")
+    logger.info(f"🔄 Room state: participants={list(participants.keys())}, bot_sids={bot_sids}")
 
     if not bot_sids:
-        logger.info(f"🔄 Room empty, spawning Atlas at {location}")
-        await _spawn_bot("atlas")
+        # Room is empty — the game scenario already wrote the roster,
+        # but we don't know which role to re-spawn without scanning.
+        # This shouldn't normally happen since the game callback spawns the bot.
+        raise RuntimeError("No bot in room on reconnect — game scenario should have spawned one")
     else:
         logger.info(f"🔄 Bot(s) already in room: {bot_sids}")

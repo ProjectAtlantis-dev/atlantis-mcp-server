@@ -1,0 +1,16 @@
+[
+  {
+    "id": "flowcentral_receptionist",
+    "title": "FlowCentral Receptionist",
+    "location": "AtlasLobby",
+    "bot": "atlas",
+    "requiresCheckin": true
+  },
+  {
+    "id": "atlantis_receptionist",
+    "title": "Atlantis Receptionist",
+    "location": "KittyLobby",
+    "bot": null,
+    "requiresCheckin": true
+  }
+]

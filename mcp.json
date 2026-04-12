@@ -5,7 +5,7 @@
            "args": [
               "atlantis-mcp",
               "--port",
-              "8000"
+              "8001"
               ]
         }
      }

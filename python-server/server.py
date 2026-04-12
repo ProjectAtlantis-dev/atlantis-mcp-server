@@ -4492,17 +4492,7 @@ async def handle_health_check(request: Request) -> JSONResponse:
 
 class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
-        # Override the max body size for large file uploads
-        original_receive = request.receive
-
-        async def custom_receive():
-            message = await original_receive()
-            # Allow up to 100MB body size
-            if message['type'] == 'http.request' and 'body' in message:
-                return message
-            return message
-
-        request.receive = custom_receive
+        # Allow up to 100MB body size (pass through)
         return await call_next(request)
 
 app = Starlette(

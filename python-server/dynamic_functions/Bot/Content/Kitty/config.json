@@ -7,5 +7,6 @@
   "apiKeyEnv": "OPENROUTER_API_KEY",
   "systemPromptModule": "dynamic_functions.Bot.Content.Kitty.system_prompt",
   "location": "KittyLobby",
-  "role": "Receptionist"
+  "role": "Receptionist",
+  "greeting": "*waves* Hey there~ Welcome to the lobby! 🐱"
 }

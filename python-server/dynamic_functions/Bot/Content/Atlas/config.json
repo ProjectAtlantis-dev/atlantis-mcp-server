@@ -7,5 +7,6 @@
   "apiKeyEnv": "OPENROUTER_API_KEY",
   "systemPromptModule": "dynamic_functions.Bot.Content.Atlas.system_prompt",
   "location": "AtlasLobby",
-  "role": "Front Desk Assistant"
+  "role": "Front Desk Assistant",
+  "greeting": "Hi, I'm Atlas. Welcome to FlowCentral."
 }

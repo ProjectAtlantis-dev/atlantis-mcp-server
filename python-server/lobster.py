@@ -228,11 +228,6 @@ async def handle_local_lobster_tool_call(
             raise ValueError("Missing required argument 'message' for lobster tool 'chat'")
         command = message
         message_type = "chat"
-    elif tool_name == "function":
-        function_target = tool_args.get("functionName")
-        if not function_target:
-            raise ValueError("Missing required argument 'functionName' for lobster tool 'function'")
-        command = "@" + function_target
     else:
         raise ValueError(f"Unknown lobster tool '{tool_name}'")
 

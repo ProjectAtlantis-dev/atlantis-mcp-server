@@ -52,6 +52,8 @@ To connect to Codex:
 
 ```codex mcp add atlantis -- npx atlantis-mcp --port 8000```
 
+The default local MCP port is `8000`. If the client reports handshake errors, first check that the Python server and the MCP client are using the same port.
+
 To add Atlantis Open Weather for testing:
 
 ```claude mcp add --transport stdio weather_forecast --env OPENWEATHER_API_KEY=mykey123 -- uvx --from atlantis-open-weather-mcp start-weather-server```
@@ -282,6 +284,7 @@ tail -1000 python-server/runServer.log
 - `⚠️ Unexpected tool call from local client` — the server received a tool call but didn't recognize it; check that your tools are registered
 - `❌ Authentication failed` — cloud credentials are wrong or the account doesn't exist; check your email/api-key
 - `🏠 Local MCP tool call intercepted` — confirms the server is receiving tool calls from the MCP client
+- MCP handshake errors usually mean the client is pointed at the wrong port. The default local MCP port is `8000`; make sure the server `--port` and client `--port` match.
 
 Visitor-related log lines include `"Visitor:"`, `"New conversation for"`, and `"Injected time-gap message"`.
 

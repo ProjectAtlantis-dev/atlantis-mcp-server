@@ -5,7 +5,9 @@
         {
             "command": "npx",
             "args": [
-                "atlantis-mcp"
+                "atlantis-mcp",
+                "--port",
+                "8001"
             ]
         }
     }

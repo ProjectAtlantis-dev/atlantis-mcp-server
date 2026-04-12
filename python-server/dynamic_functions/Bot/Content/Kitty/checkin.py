@@ -60,17 +60,18 @@ def get_checkin_context(caller: str) -> Dict[str, Any]:
                 'content': (
                     "[PROCEDURE REQUIRED] This is an unidentified guest who "
                     "has NOT completed check-in. Your FIRST action MUST be "
-                    "to call `Game_Content_KittyLobby__get_guest_checklist` to get the check-in "
-                    "steps. It returns a JSON array — pass that array directly "
-                    "to the `todo` tool to load your checklist. Then use `todo` "
-                    "with merge=true to mark each step in_progress then "
-                    "completed as you work through them. Do NOT greet or say "
-                    "anything until your checklist is loaded. You do NOT know "
-                    "their name or username yet — that will be revealed when "
-                    "you verify their paperwork."
+                    "to call `find_checklist` with location=\"KittyLobby\" "
+                    "to discover and load the check-in checklist tool. Once "
+                    "the tool appears in your toolkit, call it to get the "
+                    "check-in steps. It returns a JSON array — pass that array "
+                    "directly to the `todo` tool to load your checklist. Then "
+                    "use `todo` with merge=true to mark each step in_progress "
+                    "then completed as you work through them. Do NOT greet or "
+                    "say anything until your checklist is loaded. You do NOT "
+                    "know their name or username yet — that will be revealed "
+                    "when you verify their paperwork."
                 ),
             })
-            preload_tools.append("Game_Content_KittyLobby__get_guest_checklist")
 
     # Record the visit
     if not prev_last_visit:

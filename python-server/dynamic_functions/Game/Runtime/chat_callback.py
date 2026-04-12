@@ -165,14 +165,16 @@ async def _handle_chat(session_id, request_id, game_id, caller):
             transcript.append({'role': 'system', 'content': [{'type': 'text', 'text':
                 "[PROCEDURE REQUIRED] This is an unidentified guest who "
                 "has NOT completed check-in. Your FIRST action MUST be "
-                f"to call `Game_Content_{location}__get_guest_checklist` to get the check-in "
-                "steps. It returns a JSON array — pass that array directly "
-                "to the `todo` tool to load your checklist. Then use `todo` "
-                "with merge=true to mark each step in_progress then "
-                "completed as you work through them. Do NOT greet or say "
-                "anything until your checklist is loaded. You do NOT know "
-                "their name or username yet — that will be revealed when "
-                "you verify their paperwork."
+                f"to call `find_checklist` with location=\"{location}\" "
+                "to discover and load the check-in checklist tool. Once "
+                "the tool appears in your toolkit, call it to get the "
+                "check-in steps. It returns a JSON array — pass that array "
+                "directly to the `todo` tool to load your checklist. Then "
+                "use `todo` with merge=true to mark each step in_progress "
+                "then completed as you work through them. Do NOT greet or "
+                "say anything until your checklist is loaded. You do NOT "
+                "know their name or username yet — that will be revealed "
+                "when you verify their paperwork."
             }]})
             logger.info("Injected new-checkin directive")
     else:

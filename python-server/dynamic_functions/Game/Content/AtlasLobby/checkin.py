@@ -80,11 +80,11 @@ async def get_guest_checklist():
     logger.info("AtlasLobby get_guest_checklist called")
     return [
         {"id": "greet", "status": "pending", "content": "Greet the guest warmly and introduce yourself — you're Atlas, the front desk assistant at FlowCentral."},
-        {"id": "overview", "status": "pending", "content": "Call `Game_Content_AtlasLobby__get_overview` to get the platform overview, then walk the guest through what FlowCentral has to offer in your own words. Keep it conversational — hit the highlights, don't just dump the whole thing."},
+        {"id": "overview", "status": "pending", "content": "Search for 'get_overview' on your console and call it to get the platform overview, then walk the guest through what FlowCentral has to offer in your own words. Keep it conversational — hit the highlights, don't just dump the whole thing."},
         {"id": "suggest", "status": "pending", "content": "Suggest they try Page Speed — it's the tool that's live right now. Ask if they have a website URL they'd like to test."},
         {"id": "paperwork", "status": "pending", "content": "Ask to see their security paperwork — the signed entry authorization form and their security card. Be friendly but firm — you MUST receive their paperwork before proceeding. No exceptions."},
-        {"id": "verify", "status": "pending", "content": "Once they hand over their paperwork, call `Game_Content_AtlasLobby__verify_paperwork` to read their security card."},
-        {"id": "register", "status": "pending", "content": "After verification, ask for their real first name, then call `Game_Content_AtlasLobby__register_guest` with their username and first name to finish check-in."},
+        {"id": "verify", "status": "pending", "content": "Once they hand over their paperwork, search for 'verify_paperwork' on your console and call it to read their security card."},
+        {"id": "register", "status": "pending", "content": "After verification, ask for their real first name, then search for 'register_guest' on your console and call it with their username and first name to finish check-in."},
     ]
 
 

@@ -1,7 +1,7 @@
 """Game chat callback — routes messages to the active lobby bot.
 
 Flow:
-1. Figure out where the user is (Computer or default AtlasLobby)
+1. Figure out where the user is (player JSON or default AtlasLobby)
 2. Use the static bot for that lobby
 3. Load the bot's system prompt
 4. Gather tools from role_tools + location_tools
@@ -22,86 +22,18 @@ from dynamic_functions.Bot.Runtime.common import (
     logger,
     analyze_participants,
     fetch_transcript,
-    get_session_tools,
+    get_base_tools,
 )
 from dynamic_functions.Bot.Runtime.turn import run_turn
 # prompt module is loaded dynamically per-bot below
-from dynamic_functions.Computer.query import _connect
+from dynamic_functions.Data.main import get_guest
 from dynamic_functions.Data.todo import _read_store
 
 
 _BUSY_KEY = "chat_busy"
 
 
-# =========================================================================
-# Computer queries
-# =========================================================================
 
-def _get_guest(username):
-    conn = _connect()
-    row = conn.execute("SELECT * FROM guests WHERE username = ?", (username,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
-
-
-def _get_or_create_game(game_id, username, location):
-    """Get existing bot assignment for this game, or random-pick one and store it."""
-    conn = _connect()
-
-    # Already assigned?
-    row = conn.execute("SELECT * FROM games WHERE game_id = ?", (str(game_id),)).fetchone()
-    if row:
-        conn.close()
-        return dict(row)
-
-    # Random pick a bot at this location
-    role = conn.execute("""
-        SELECT r.name as role_name, r.bot_sid, b.name as bot_name, b.chat
-        FROM roles r JOIN bots b ON b.sid = r.bot_sid
-        WHERE r.location = ?
-        ORDER BY RANDOM() LIMIT 1
-    """, (location,)).fetchone()
-
-    if not role:
-        conn.close()
-        raise RuntimeError(f"No bots assigned to location: {location}")
-
-    now = datetime.now().isoformat()
-    conn.execute("""
-        INSERT INTO games (game_id, username, bot_sid, location, started)
-        VALUES (?, ?, ?, ?, ?)
-    """, (str(game_id), username, role["bot_sid"], location, now))
-    conn.commit()
-
-    result = {
-        "game_id": str(game_id),
-        "username": username,
-        "bot_sid": role["bot_sid"],
-        "location": location,
-        "started": now,
-        "role_name": role["role_name"],
-        "bot_name": role["bot_name"],
-        "chat": role["chat"],
-    }
-    conn.close()
-    return result
-
-
-def _get_bot_info(bot_sid):
-    conn = _connect()
-    bot = conn.execute("SELECT * FROM bots WHERE sid = ?", (bot_sid,)).fetchone()
-    conn.close()
-    return dict(bot) if bot else None
-
-
-def _get_role_for_bot_at_location(bot_sid, location):
-    conn = _connect()
-    role = conn.execute(
-        "SELECT * FROM roles WHERE bot_sid = ? AND location = ?",
-        (bot_sid, location)
-    ).fetchone()
-    conn.close()
-    return dict(role) if role else None
 
 
 
@@ -109,7 +41,7 @@ def _get_role_for_bot_at_location(bot_sid, location):
 
 # =========================================================================
 # Bot config — maps bot sid to runtime config
-# TODO: this should probably live in the Computer too eventually
+
 # =========================================================================
 
 def _load_bot_config(bot_sid):
@@ -127,61 +59,7 @@ def _load_bot_config(bot_sid):
     return None
 
 
-def _add_lobby_tool(location, function_name, description, parameters, converted_tools, tool_lookup):
-    app_name = f"Game.Content.{location}"
-    tool_key = f"Game_Content_{location}__{function_name}"
 
-    if tool_key not in tool_lookup:
-        converted_tools.append({
-            "type": "function",
-            "function": {
-                "name": tool_key,
-                "description": description,
-                "parameters": parameters,
-            },
-        })
-        tool_lookup[tool_key] = {
-            "searchTerm": f"**{app_name}**{function_name}",
-            "filename": f"Game/Content/{location}/{function_name}.py",
-            "functionName": function_name,
-        }
-
-
-def _add_lobby_checkin_tools(location, converted_tools, tool_lookup):
-    no_args = {"type": "object", "properties": {}, "required": []}
-    register_args = {
-        "type": "object",
-        "properties": {
-            "username": {"type": "string", "description": "The username from the security card"},
-            "first_name": {"type": "string", "description": "The guest's real first name"},
-        },
-        "required": ["username", "first_name"],
-    }
-
-    _add_lobby_tool(
-        location,
-        "get_guest_checklist",
-        f"Get the {location} new-guest check-in checklist.",
-        no_args,
-        converted_tools,
-        tool_lookup,
-    )
-    _add_lobby_tool(
-        location,
-        "verify_paperwork",
-        "Read the guest's security card after they provide paperwork.",
-        no_args,
-        converted_tools,
-        tool_lookup,
-    )
-    _add_lobby_tool(
-        location,
-        "register_guest",
-        "Register a guest after paperwork verification.",
-        register_args,
-        converted_tools,
-        tool_lookup,
-    )
 
 
 # =========================================================================
@@ -190,7 +68,7 @@ def _add_lobby_checkin_tools(location, converted_tools, tool_lookup):
 
 @chat
 async def chat_callback():
-    """Main chat callback — routes to the right bot via the Computer."""
+    """Main chat callback — routes to the right bot via player data."""
     session_id = atlantis.get_session_id() or "unknown"
     request_id = atlantis.get_request_id() or "unknown"
     game_id = atlantis.get_game_id()
@@ -215,9 +93,9 @@ async def chat_callback():
 
 async def _handle_chat(session_id, request_id, game_id, caller):
     # Where is the user?
-    guest = _get_guest(caller)
-    location = guest["location"] if guest else "AtlasLobby"
-    if location == "Lobby":
+    guest = get_guest(caller)
+    location = guest.get("location") if guest else "AtlasLobby"
+    if not location:
         location = "AtlasLobby"
     logger.info(f"Location: {location}, guest known: {guest is not None}")
 
@@ -265,9 +143,9 @@ async def _handle_chat(session_id, request_id, game_id, caller):
     build_system_prompt = prompt_builder.build_system_prompt
 
     # Checkin context — does this guest need the procedure?
-    needs_checkin = guest is None
-    visit_count = guest["visit_count"] if guest else 0
-    last_visit = guest["last_visit"] if guest else ""
+    needs_checkin = not guest or not guest.get("cleared")
+    visit_count = guest.get("visit_count", 0) if guest else 0
+    last_visit = guest.get("last_visit", "") if guest else ""
 
     if needs_checkin:
         existing_todos = _read_store(caller)
@@ -319,12 +197,8 @@ async def _handle_chat(session_id, request_id, game_id, caller):
         first_name = guest.get("first_name", "") if guest else ""
     system_prompt = build_system_prompt(base_prompt, prompt_caller, visit_count, last_visit, first_name=first_name)
 
-    # Tools — only pre-load what's needed for active procedures.
-    converted_tools, tool_lookup = get_session_tools()
-
-    if needs_checkin:
-        _add_lobby_checkin_tools(location, converted_tools, tool_lookup)
-        logger.info(f"Pre-loaded {location} check-in tools for unregistered guest")
+    # Tools — fresh base tools each time; LLM discovers via /search
+    converted_tools, tool_lookup = get_base_tools()
 
     # API key
     api_key = os.getenv(bot_cfg["apiKeyEnv"])

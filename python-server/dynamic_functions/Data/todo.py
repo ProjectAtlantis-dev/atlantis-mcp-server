@@ -187,25 +187,10 @@ async def todo(todos: Optional[str] = None, merge: bool = False):
         todos: JSON array string of task items. Omit to read current list.
         merge: If true, update existing items by id. If false, replace entire list.
     """
-    items = _read_store()
-
+    args = {"merge": merge}
     if todos is not None:
-        if isinstance(todos, str):
-            todo_list = json.loads(todos)
-        else:
-            todo_list = todos
-
-        if not merge:
-            items = [_validate(t) for t in todo_list]
-        else:
-            items = _merge_items(items, todo_list)
-
-        _write_store(items)
-        logger.info(f"todo: wrote {len(items)} items (merge={merge})")
-    else:
-        logger.info(f"todo: read {len(items)} items")
-
-    return _format_result(items)
+        args["todos"] = json.loads(todos) if isinstance(todos, str) else todos
+    return await handle_todo_tool(args)
 
 
 @visible

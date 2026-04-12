@@ -9,7 +9,7 @@ from dynamic_functions.Bot.Runtime.common import (
 from dynamic_functions.Game.Runtime.game_callback import (
     _spawn_bot,
 )
-from dynamic_functions.Computer.query import _connect
+from dynamic_functions.Data.main import get_guest
 
 
 @session
@@ -20,11 +20,9 @@ async def session_callback():
     logger.info(f"🔄 Session reconnect: game={game_id} caller={caller}")
 
     # Figure out where the user is
-    conn = _connect()
-    guest = conn.execute("SELECT * FROM guests WHERE username = ?", (caller,)).fetchone()
-    conn.close()
-    location = guest["location"] if guest else "AtlasLobby"
-    if location == "Lobby":
+    guest = get_guest(caller)
+    location = (guest.get("location") if guest else None) or "AtlasLobby"
+    if not location:
         location = "AtlasLobby"
 
     # Fetch transcript and check if a bot has already been spawned

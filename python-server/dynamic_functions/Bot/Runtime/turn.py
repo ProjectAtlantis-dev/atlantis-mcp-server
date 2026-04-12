@@ -233,11 +233,7 @@ async def run_turn(
                     any_executed = True
                 except Exception as e:
                     logger.error(f"Tool {tc['name']} failed: {e}")
-                    transcript.append({
-                        'role': 'tool',
-                        'tool_call_id': tc['id'],
-                        'content': f"Error: {e}"
-                    })
+                    raise RuntimeError(f"Tool call failed: {tc['name']} — {e}") from e
 
             if not any_executed:
                 break

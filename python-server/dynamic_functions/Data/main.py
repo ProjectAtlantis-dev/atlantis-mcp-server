@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from datetime import datetime
 from typing import Any
 
 logger = logging.getLogger("mcp_server")
@@ -90,18 +91,87 @@ def ensure_player_record(username: str) -> tuple[dict[str, Any], bool]:
     created_new = len(data) == 0
 
     if created_new:
-        data["where"] = "Lobby"
+        data["location"] = "AtlasLobby"
         write_player(username, data)
         logger.info(f"Created new player record for {username}")
 
     return data, created_new
 
 
-def set_player_location(username: str, where: str) -> dict[str, Any]:
+def set_player_location(username: str, location: str) -> dict[str, Any]:
     """Persist a player's current location."""
     if not username:
         raise ValueError("Cannot set location without a username")
-    if not where:
+    if not location:
         raise ValueError("Cannot set an empty location")
-    return set_player_field(username, "where", where)
+    return set_player_field(username, "location", location)
+
+
+# =========================================================================
+# Guest / check-in helpers
+# =========================================================================
+
+def get_guest(username: str) -> dict[str, Any] | None:
+    """Return guest-relevant fields from the player record, or None if not found."""
+    data = read_player(username)
+    if not data:
+        return None
+    return data
+
+
+def is_cleared(username: str) -> bool:
+    """Has this player completed check-in?"""
+    data = read_player(username)
+    return bool(data and data.get("cleared"))
+
+
+def get_visit_info(username: str) -> tuple[int, str]:
+    """Return (visit_count, last_visit) for a player."""
+    data = read_player(username)
+    if not data:
+        return 0, ""
+    return int(data.get("visit_count") or 0), data.get("last_visit") or ""
+
+
+def record_new_conversation(username: str, location: str = "AtlasLobby") -> None:
+    """Bump visit count and timestamp for a player."""
+    if not username:
+        return
+    data = read_player(username)
+    now = datetime.now().isoformat()
+    data["visit_count"] = int(data.get("visit_count") or 0) + 1
+    data["last_visit"] = now
+    if not data.get("location"):
+        data["location"] = location
+    write_player(username, data)
+    logger.info(f"New conversation recorded for {username}")
+
+
+def register_guest(username: str, first_name: str, location: str = "AtlasLobby") -> dict[str, Any]:
+    """Register a guest (final check-in step). Sets cleared=True."""
+    data = read_player(username)
+    now = datetime.now().isoformat()
+    data["first_name"] = first_name
+    data["visit_count"] = int(data.get("visit_count") or 0) + 1
+    data["last_visit"] = now
+    data["cleared"] = True
+    data["location"] = location
+    write_player(username, data)
+    logger.info(f"Registered guest {first_name} ({username}) at {location}")
+    return data
+
+
+def list_all_guests() -> list[dict[str, Any]]:
+    """Return summary info for all players who have guest data."""
+    result = []
+    for name in list_player_names():
+        data = read_player(name)
+        if data:
+            result.append({
+                "username": name,
+                "first_name": data.get("first_name", ""),
+                "visit_count": int(data.get("visit_count") or 0),
+                "cleared": bool(data.get("cleared")),
+            })
+    return result
 

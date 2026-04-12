@@ -2,74 +2,67 @@
 
 These are the MCP-visible tools Atlas uses to walk a new guest
 through the FlowCentral front-desk procedure.
+
+Guest data lives in Data/players/{username}.json.
 """
 
 import atlantis
 import logging
-from datetime import datetime
 
-from dynamic_functions.Computer.query import _connect
+from dynamic_functions.Data.main import (
+    get_guest,
+    get_visit_info as _get_visit_info,
+    is_cleared,
+    record_new_conversation as _record_new_conversation,
+    register_guest as _register_guest,
+    list_all_guests,
+)
 
 logger = logging.getLogger("mcp_server")
 
+LOCATION = "AtlasLobby"
 
-def _get_guest(username: str) -> dict | None:
-    conn = _connect()
-    row = conn.execute("SELECT * FROM guests WHERE username = ?", (username,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
 
+# =========================================================================
+# Helpers (importable by other modules)
+# =========================================================================
 
 def get_visit_info(username: str) -> tuple[int, str]:
-    guest = _get_guest(username)
-    if not guest:
-        return 0, ""
-    return int(guest.get("visit_count") or 0), guest.get("last_visit") or ""
+    return _get_visit_info(username)
 
 
 def is_checkin_complete(username: str) -> bool:
-    guest = _get_guest(username)
-    return bool(guest and guest.get("cleared"))
+    return is_cleared(username)
 
 
 def record_new_conversation(username: str) -> None:
-    conn = _connect()
-    now = datetime.now().isoformat()
-    conn.execute("""
-        INSERT INTO guests (username, visit_count, last_visit, location)
-        VALUES (?, 1, ?, 'AtlasLobby')
-        ON CONFLICT(username) DO UPDATE SET
-            visit_count = visit_count + 1,
-            last_visit = ?,
-            location = COALESCE(location, 'AtlasLobby')
-    """, (username, now, now))
-    conn.commit()
-    conn.close()
-    logger.info(f"New AtlasLobby conversation recorded for {username}")
+    _record_new_conversation(username, location=LOCATION)
 
+
+# =========================================================================
+# Visible tools
+# =========================================================================
 
 @visible
 async def list_guests():
-    """Returns a list of all known guest names from the Computer."""
+    """Returns a list of all known guests."""
     logger.info("AtlasLobby list_guests called")
-    conn = _connect()
-    rows = conn.execute("SELECT username, first_name, visit_count, cleared FROM guests").fetchall()
-    conn.close()
-    if not rows:
+    guests = list_all_guests()
+    if not guests:
         return "No guests on record yet."
-    return [dict(r) for r in rows]
+    return guests
 
 
 @visible
 async def guest_info(username: str):
     """
-    Look up all stored data for a guest in the Computer.
+    Look up all stored data for a guest.
 
     Args:
         username: The guest's name/identifier
     """
     logger.info(f"AtlasLobby guest_info called for: {username}")
-    guest = _get_guest(username)
+    guest = get_guest(username)
     if not guest:
         return f"No record found for {username}. They may be a brand new guest."
     return guest
@@ -86,8 +79,9 @@ async def get_guest_checklist():
     """
     logger.info("AtlasLobby get_guest_checklist called")
     return [
-        {"id": "greet", "status": "pending", "content": "Greet the guest warmly and introduce yourself — you're Atlas, the front desk assistant."},
-        {"id": "drink", "status": "pending", "content": "Offer them a warm drink (cocoa, coffee, tea) and ask if it's their first time using FlowCentral."},
+        {"id": "greet", "status": "pending", "content": "Greet the guest warmly and introduce yourself — you're Atlas, the front desk assistant at FlowCentral."},
+        {"id": "overview", "status": "pending", "content": "Call `Game_Content_AtlasLobby__get_overview` to get the platform overview, then walk the guest through what FlowCentral has to offer in your own words. Keep it conversational — hit the highlights, don't just dump the whole thing."},
+        {"id": "suggest", "status": "pending", "content": "Suggest they try Page Speed — it's the tool that's live right now. Ask if they have a website URL they'd like to test."},
         {"id": "paperwork", "status": "pending", "content": "Ask to see their security paperwork — the signed entry authorization form and their security card. Be friendly but firm — you MUST receive their paperwork before proceeding. No exceptions."},
         {"id": "verify", "status": "pending", "content": "Once they hand over their paperwork, call `Game_Content_AtlasLobby__verify_paperwork` to read their security card."},
         {"id": "register", "status": "pending", "content": "After verification, ask for their real first name, then call `Game_Content_AtlasLobby__register_guest` with their username and first name to finish check-in."},
@@ -122,20 +116,7 @@ async def register_guest(username: str, first_name: str):
         first_name: The guest's real first name
     """
     logger.info(f"AtlasLobby register_guest called for: {username} (first_name={first_name})")
-    conn = _connect()
-    now = datetime.now().isoformat()
-    conn.execute("""
-        INSERT INTO guests (username, first_name, visit_count, last_visit, cleared, location)
-        VALUES (?, ?, 1, ?, 1, 'AtlasLobby')
-        ON CONFLICT(username) DO UPDATE SET
-            first_name = ?,
-            visit_count = visit_count + 1,
-            last_visit = ?,
-            cleared = 1,
-            location = 'AtlasLobby'
-    """, (username, first_name, now, first_name, now))
-    conn.commit()
-    conn.close()
+    _register_guest(username, first_name, location=LOCATION)
     return (
         f"Guest {first_name} (username: {username}) has been registered.\n"
         f"Welcome them by name and let them know they're all set."

@@ -3,7 +3,8 @@ import json
 import logging
 import os
 
-from dynamic_functions.Computer.query import _connect
+from dynamic_functions.Data.main import get_guest
+from dynamic_functions.Data.todo import _write_store
 
 logger = logging.getLogger("mcp_server")
 
@@ -15,20 +16,21 @@ LOCATION_BACKGROUNDS = {
 BOTS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "Bot", "Content")
 
 
-def _pick_bot_for_location(location):
-    """Pick a random bot assigned to this location via the roles table.
-    Returns (bot_sid, bot_name, role_name) or None."""
-    conn = _connect()
-    role = conn.execute("""
-        SELECT r.name as role_name, r.bot_sid, b.name as bot_name
-        FROM roles r JOIN bots b ON b.sid = r.bot_sid
-        WHERE r.location = ?
-        ORDER BY RANDOM() LIMIT 1
-    """, (location,)).fetchone()
-    conn.close()
-    if role:
-        return dict(role)
-    return None
+# =========================================================================
+# Bot config helpers
+# =========================================================================
+
+def _load_all_bot_configs():
+    """Load all config.json files from Bot/Content/*/."""
+    configs = []
+    for entry in os.listdir(BOTS_DIR):
+        config_path = os.path.join(BOTS_DIR, entry, "config.json")
+        if os.path.isfile(config_path):
+            with open(config_path) as f:
+                cfg = json.load(f)
+            cfg["_folder"] = entry
+            configs.append(cfg)
+    return configs
 
 
 def _load_bot_config(bot_sid):
@@ -41,6 +43,18 @@ def _load_bot_config(bot_sid):
             if cfg.get("sid") == bot_sid:
                 return cfg, entry  # cfg + folder name
     return None, None
+
+
+def pick_bot_for_location(location):
+    """Pick a bot assigned to this location via config.json 'location' field.
+    Returns config dict or None."""
+    import random
+    configs = _load_all_bot_configs()
+    matches = [c for c in configs if c.get("location") == location]
+    if not matches:
+        return None
+    cfg = random.choice(matches)
+    return cfg
 
 
 async def _spawn_bot(bot_sid):
@@ -83,14 +97,16 @@ async def game_callback():
 
         logger.info(f"Game started for user: {user_id}")
 
-        # Ask the Computer if we know this guest
-        conn = _connect()
-        guest = conn.execute("SELECT * FROM guests WHERE username = ?", (user_id,)).fetchone()
-        conn.close()
+        # Fresh game = fresh todo list
+        _write_store([], user_id)
+        logger.info(f"Cleared todo store for {user_id}")
+
+        # Check if we know this guest
+        guest = get_guest(user_id)
 
         if guest:
-            player_location = guest["location"] or "AtlasLobby"
-            if player_location == "Lobby":
+            player_location = guest.get("location") or "AtlasLobby"
+            if not player_location:
                 player_location = "AtlasLobby"
             logger.info(f"Known guest {user_id}: location={player_location}")
         else:

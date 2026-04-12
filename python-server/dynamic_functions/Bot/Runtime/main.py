@@ -1,7 +1,13 @@
+import atlantis
 from typing import List, Dict, Any
 
-from dynamic_functions.Bot.Runtime.common import logger, get_session_tools
+from dynamic_functions.Bot.Runtime.common import logger, get_base_tools
 from dynamic_functions.Data.todo import list_tasks as _list_tasks
+
+
+def _require_game():
+    if not atlantis.get_game_id():
+        raise RuntimeError("No active game — this tool requires a running game session.")
 
 
 @visible
@@ -14,7 +20,8 @@ async def index():
 @visible
 async def show_tools() -> List[Dict[str, Any]]:
     """Show the current runtime tool inventory for this session."""
-    tools, lookup = get_session_tools()
+    _require_game()
+    tools, lookup = get_base_tools()
     simple: List[Dict[str, Any]] = []
     for t in tools:
         fn = t["function"]
@@ -37,4 +44,5 @@ async def show_tools() -> List[Dict[str, Any]]:
 @visible
 async def show_todos():
     """Show the current todo/task list for this session."""
+    _require_game()
     return await _list_tasks()

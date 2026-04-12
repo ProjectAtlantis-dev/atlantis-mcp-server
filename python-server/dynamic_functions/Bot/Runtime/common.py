@@ -523,14 +523,13 @@ async def fetch_transcript(caller: str = "") -> Tuple[List[Dict[str, Any]], List
     return raw_transcript, transcript
 
 
-def get_session_tools() -> Tuple[List[TranscriptToolT], Dict[str, ToolLookupInfo]]:
-    """Get or initialize tool inventory for the current session."""
-    tools = atlantis.session_shared.get("chat_tools")
-    lookup = atlantis.session_shared.get("chat_lookup")
-    if tools is None:
-        tools = [SEARCH_PSEUDO_TOOL, DIR_PSEUDO_TOOL, TODO_PSEUDO_TOOL]
-        atlantis.session_shared.set("chat_tools", tools)
-    if lookup is None:
-        lookup = {}
-        atlantis.session_shared.set("chat_lookup", lookup)
+def get_base_tools() -> Tuple[List[TranscriptToolT], Dict[str, ToolLookupInfo]]:
+    """Return a fresh set of base pseudo-tools and an empty lookup.
+
+    Tools are discovered via /search at runtime — never cached in session_shared.
+    """
+    tools = [SEARCH_PSEUDO_TOOL, DIR_PSEUDO_TOOL, TODO_PSEUDO_TOOL]
+    lookup: Dict[str, ToolLookupInfo] = {}
     return tools, lookup
+
+

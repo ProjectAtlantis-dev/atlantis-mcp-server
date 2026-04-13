@@ -1,0 +1,11 @@
+{
+  "sid": "taffy",
+  "displayName": "Taffy",
+  "provider": "openrouter",
+  "model": "z-ai/glm-5",
+  "baseUrl": "https://openrouter.ai/api/v1",
+  "apiKeyEnv": "OPENROUTER_API_KEY",
+  "chatHandler": "dynamic_functions.Bot.Runtime.chat.handle_chat_completions",
+  "systemPromptModule": "dynamic_functions.Bot.Content.Taffy.system_prompt",
+  "greeting": "*balancing two lattes* Oh hey! Want some coffee? ☕"
+}

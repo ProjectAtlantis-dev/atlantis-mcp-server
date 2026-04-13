@@ -20,7 +20,11 @@ from dynamic_functions.Bot.Runtime.common import (
     fetch_transcript,
 )
 from dynamic_functions.Bot.Runtime.chat import BotChatContext, dispatch_chat
-from dynamic_functions.Data.main import get_guest, record_new_conversation
+from dynamic_functions.Data.main import (
+    get_bot_interaction_info,
+    get_user_profile,
+    record_bot_interaction,
+)
 from dynamic_functions.Game.Runtime.common import _load_bot_config
 from dynamic_functions.Game.Runtime.roster import get_role_for_bot
 
@@ -112,7 +116,7 @@ async def _build_procedure_injections(context):
 
 
 async def _handle_chat(session_id, request_id, game_id, caller):
-    guest = get_guest(caller)
+    user_profile = get_user_profile(caller)
 
     # Fetch transcript \u2014 we need it to detect the bot in the room
     t0 = _t.monotonic()
@@ -131,8 +135,22 @@ async def _handle_chat(session_id, request_id, game_id, caller):
 
     location = role["location"]
     role_title = role.get("title", "Assistant")
+    interaction_game_id = game_id or None
+    interaction_session_id = None if session_id == "unknown" else session_id
+    interaction = get_bot_interaction_info(
+        caller,
+        bot_sid,
+        game_id=interaction_game_id,
+        session_id=interaction_session_id,
+    )
 
     logger.info(f"Game {game_id}: bot={bot_sid} role={role_title} location={location}")
+    logger.info(
+        f"Interaction: caller={caller} bot={bot_sid} "
+        f"has_met_before={interaction.get('has_met_before')} "
+        f"prior_count={interaction.get('prior_interaction_count')} "
+        f"last={interaction.get('last_interaction_at') or 'never'}"
+    )
 
     context = BotChatContext(
         session_id=session_id,
@@ -142,7 +160,8 @@ async def _handle_chat(session_id, request_id, game_id, caller):
         bot_sid=bot_sid,
         bot_cfg=bot_cfg,
         role=role,
-        guest=guest,
+        user_profile=user_profile,
+        interaction=interaction,
         raw_transcript=raw_transcript,
         transcript=transcript,
         procedure_injection_provider=_build_procedure_injections,
@@ -153,7 +172,13 @@ async def _handle_chat(session_id, request_id, game_id, caller):
     if context.skip_post_turn_record:
         return result
 
-    record_new_conversation(caller, location=location)
+    record_bot_interaction(
+        caller,
+        bot_sid,
+        location=location,
+        game_id=interaction_game_id,
+        session_id=interaction_session_id,
+    )
 
     # Re-fetch transcript so debug dump includes the bot's response
     raw_after, _ = await fetch_transcript(caller)

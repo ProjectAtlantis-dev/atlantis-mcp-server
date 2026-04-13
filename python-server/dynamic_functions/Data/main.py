@@ -3,12 +3,13 @@ import logging
 import os
 import re
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 logger = logging.getLogger("mcp_server")
 
 PLAYERS_DIR = os.path.join(os.path.dirname(__file__), "players")
 _RESERVED_PLAYER_FILENAMES = {"games"}
+_INTERACTIONS_FIELD = "interactions"
 
 
 
@@ -163,6 +164,123 @@ def set_player_field(username: str, key: str, value) -> dict[str, Any]:
 
 
 # =========================================================================
+# Neutral bot interaction history
+# =========================================================================
+
+def _normalize_interactions(raw) -> dict[str, list[dict[str, Any]]]:
+    """Return bot-keyed interaction history, ignoring malformed records."""
+    if not isinstance(raw, dict):
+        return {}
+
+    normalized: dict[str, list[dict[str, Any]]] = {}
+    for bot_sid, records in raw.items():
+        if not bot_sid or not isinstance(records, list):
+            continue
+        normalized[str(bot_sid)] = [r for r in records if isinstance(r, dict)]
+    return normalized
+
+
+def _interaction_timestamp(record: dict[str, Any]) -> str:
+    return str(record.get("last_seen_at") or record.get("started_at") or "")
+
+
+def _same_interaction(
+    record: dict[str, Any],
+    *,
+    game_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+) -> bool:
+    if game_id and record.get("game_id") == game_id:
+        return True
+    if session_id and record.get("session_id") == session_id:
+        return True
+    return False
+
+
+def get_bot_interactions(username: str, bot_sid: str) -> list[dict[str, Any]]:
+    """Return all recorded interactions between a user and a specific bot."""
+    if not username or not bot_sid:
+        return []
+    interactions = _normalize_interactions(get_player_field(username, _INTERACTIONS_FIELD, {}))
+    return list(interactions.get(str(bot_sid), []))
+
+
+def get_bot_interaction_info(
+    username: str,
+    bot_sid: str,
+    *,
+    game_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+) -> dict[str, Any]:
+    """Return prior interaction context for a specific user/bot pair.
+
+    The current game/session is excluded so one long conversation does not turn
+    into "we have met before" on the second message.
+    """
+    records = get_bot_interactions(username, bot_sid)
+    prior_records = [
+        record for record in records
+        if not _same_interaction(record, game_id=game_id, session_id=session_id)
+    ]
+    last_prior = prior_records[-1] if prior_records else None
+
+    return {
+        "bot_sid": str(bot_sid or ""),
+        "has_met_before": bool(prior_records),
+        "prior_interaction_count": len(prior_records),
+        "last_interaction_at": _interaction_timestamp(last_prior) if last_prior else "",
+        "total_recorded_interactions": len(records),
+    }
+
+
+def record_bot_interaction(
+    username: str,
+    bot_sid: str,
+    *,
+    location: str = "",
+    game_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+) -> dict[str, Any]:
+    """Record or update the current interaction for a specific user/bot pair."""
+    if not username or not bot_sid:
+        return {}
+
+    now = datetime.now().isoformat()
+    interactions = _normalize_interactions(get_player_field(username, _INTERACTIONS_FIELD, {}))
+    bot_key = str(bot_sid)
+    records = interactions.setdefault(bot_key, [])
+
+    current = None
+    for record in records:
+        if _same_interaction(record, game_id=game_id, session_id=session_id):
+            current = record
+            break
+
+    if current is None:
+        current = {
+            "bot_sid": bot_key,
+            "started_at": now,
+            "last_seen_at": now,
+            "location": location,
+        }
+        if game_id:
+            current["game_id"] = game_id
+        if session_id:
+            current["session_id"] = session_id
+        records.append(current)
+        logger.info(f"Recorded first interaction for user={username} bot={bot_key}")
+    else:
+        current["last_seen_at"] = now
+        if location and not current.get("location"):
+            current["location"] = location
+        logger.info(f"Updated interaction for user={username} bot={bot_key}")
+
+    current["message_count"] = int(current.get("message_count") or 0) + 1
+    set_player_field(username, _INTERACTIONS_FIELD, interactions)
+    return current
+
+
+# =========================================================================
 # Player record helpers (used by game/chat callbacks)
 # =========================================================================
 
@@ -203,12 +321,17 @@ def set_player_location(username: str, location: str) -> dict[str, Any]:
 # Guest / check-in helpers
 # =========================================================================
 
-def get_guest(username: str) -> dict[str, Any] | None:
-    """Return guest-relevant fields from the player record, or None if not found."""
+def get_user_profile(username: str) -> dict[str, Any] | None:
+    """Return stored user profile fields, or None if not found."""
     data = read_player(username)
     if not data:
         return None
     return data
+
+
+def get_guest(username: str) -> dict[str, Any] | None:
+    """Scenario-specific alias for check-in bots."""
+    return get_user_profile(username)
 
 
 def is_cleared(username: str) -> bool:

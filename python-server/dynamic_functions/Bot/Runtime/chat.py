@@ -16,7 +16,6 @@ from dynamic_functions.Bot.Runtime.common import (
     logger,
 )
 from dynamic_functions.Bot.Runtime.turn import run_turn
-from dynamic_functions.Data.main import get_visit_info
 
 
 ProcedureInjectionProvider = Callable[["BotChatContext"], Any]
@@ -34,7 +33,8 @@ class BotChatContext:
     bot_sid: str
     bot_cfg: Dict[str, Any]
     role: Dict[str, Any]
-    guest: Optional[Dict[str, Any]]
+    user_profile: Optional[Dict[str, Any]]
+    interaction: Dict[str, Any]
     raw_transcript: List[Dict[str, Any]]
     transcript: List[Dict[str, Any]]
     procedure_injection_provider: Optional[ProcedureInjectionProvider] = None
@@ -51,6 +51,11 @@ class BotChatContext:
     @property
     def bot_display_name(self) -> str:
         return str(self.bot_cfg.get("displayName", self.bot_sid))
+
+    @property
+    def guest(self) -> Optional[Dict[str, Any]]:
+        """Scenario compatibility for check-in modules that still say guest."""
+        return self.user_profile
 
     async def build_procedure_injections(self) -> List[Dict[str, Any]]:
         if not self.procedure_injection_provider:
@@ -160,12 +165,12 @@ async def _build_system_prompt(context: BotChatContext) -> str:
     module_name, attr_name = _split_dotted_callable(str(prompt_builder_path))
     build_system_prompt = getattr(import_module(module_name), attr_name)
 
-    prompt_caller, first_name, visit_count, last_visit = _visitor_prompt_context(context)
+    prompt_caller, first_name, interaction_count, last_interaction = _interaction_prompt_context(context)
     system_prompt = build_system_prompt(
         str(base_prompt),
         prompt_caller,
-        visit_count,
-        last_visit,
+        interaction_count,
+        last_interaction,
         first_name=first_name,
     )
     if inspect.isawaitable(system_prompt):
@@ -173,17 +178,11 @@ async def _build_system_prompt(context: BotChatContext) -> str:
     return str(system_prompt)
 
 
-def _visitor_prompt_context(context: BotChatContext) -> tuple[str, str, int, str]:
-    needs_checkin = context.role.get("requiresCheckin") and (
-        not context.guest or not context.guest.get("cleared")
-    )
-    visit_count, last_visit = get_visit_info(context.caller) if context.guest else (0, "")
-
-    if needs_checkin:
-        return "", "", visit_count, last_visit
-
-    first_name = str(context.guest.get("first_name", "")) if context.guest else ""
-    return context.caller, first_name, visit_count, last_visit
+def _interaction_prompt_context(context: BotChatContext) -> tuple[str, str, int, str]:
+    interaction_count = int(context.interaction.get("prior_interaction_count") or 0)
+    last_interaction = str(context.interaction.get("last_interaction_at") or "")
+    first_name = str(context.user_profile.get("first_name", "")) if context.user_profile else ""
+    return context.caller, first_name, interaction_count, last_interaction
 
 
 async def _build_tools(context: BotChatContext) -> tuple[List[TranscriptToolT], Dict[str, ToolLookupInfo]]:

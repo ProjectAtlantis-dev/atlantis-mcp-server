@@ -1,4 +1,4 @@
-"""Kitty's system prompt builder.
+"""Taffy's system prompt builder.
 
 Assembles the final system prompt from the base prompt template
 plus bot-specific interaction context.
@@ -25,15 +25,13 @@ def build_interaction_context(
 
     if prior_interaction_count <= 0:
         if late_night:
-            interaction_note = f"This is your first interaction with {display_name}. It's late — welcome them warmly."
+            interaction_note = f"This is your first interaction with {display_name}. It's super late — offer them something warm."
         else:
-            interaction_note = f"This is your first interaction with {display_name}. Introduce yourself naturally and help them get oriented."
-    elif prior_interaction_count == 1:
-        interaction_note = f"You have interacted with {display_name} once before. Greet them like someone you remember, but don't overdo it."
+            interaction_note = f"This is your first interaction with {display_name}. You haven't learned their coffee order yet — ask what they like."
     elif prior_interaction_count <= 5:
-        interaction_note = f"You have interacted with {display_name} {prior_interaction_count} times before. They're still fairly new — be friendly and keep context light."
+        interaction_note = f"You have interacted with {display_name} {prior_interaction_count} time(s) before. You're still learning their preferences."
     else:
-        interaction_note = f"You have interacted with {display_name} {prior_interaction_count} times before. They're familiar with you — skip the intros and be casual."
+        interaction_note = f"You have interacted with {display_name} {prior_interaction_count} times before. Treat them like a familiar regular."
 
     if last_interaction_at and prior_interaction_count > 0:
         try:
@@ -41,13 +39,13 @@ def build_interaction_context(
             days = elapsed.days
             hours = elapsed.seconds // 3600
             if days > 30:
-                interaction_note += f" It has been about {days // 30} month(s) since your last interaction — maybe acknowledge it's been a while."
+                interaction_note += f" It has been about {days // 30} month(s) since your last interaction — maybe their taste has changed."
             elif days > 0:
                 interaction_note += f" It has been about {days} day(s) since your last interaction."
             elif hours > 0:
-                interaction_note += f" Your last interaction was about {hours} hour(s) ago."
+                interaction_note += f" Your last interaction was about {hours} hour(s) ago — maybe they need a refill."
             else:
-                interaction_note += " Your last interaction was moments ago."
+                interaction_note += " Your last interaction was moments ago — probably a refill situation."
         except (ValueError, TypeError):
             pass
 

@@ -1,16 +1,21 @@
 """Atlas's system prompt builder.
 
 Assembles the final system prompt from the base prompt template
-plus visitor-specific context.
+plus bot-specific interaction context.
 """
 
 from datetime import datetime
 from typing import List
 
 
-def build_visitor_context(caller: str, visit_count: int, last_visit: str, first_name: str = "") -> str:
-    """Build a visitor context note. Returns empty string if no context applies."""
-    if not caller or visit_count <= 0:
+def build_interaction_context(
+    caller: str,
+    prior_interaction_count: int,
+    last_interaction_at: str,
+    first_name: str = "",
+) -> str:
+    """Build a bot-specific interaction note."""
+    if not caller:
         return ""
 
     display_name = first_name or caller
@@ -18,47 +23,54 @@ def build_visitor_context(caller: str, visit_count: int, last_visit: str, first_
     hour = datetime.now().hour
     late_night = hour >= 22 or hour < 5
 
-    if visit_count == 1:
+    if prior_interaction_count <= 0:
         if late_night:
-            visitor_note = f"{display_name} just arrived. It's late — welcome them warmly."
+            interaction_note = f"This is your first interaction with {display_name}. It's late — welcome them warmly."
         else:
-            visitor_note = f"{display_name} just arrived. They're brand new — introduce yourself, welcome them, and help them get oriented."
-    elif visit_count <= 5:
-        visitor_note = f"{display_name} has visited {visit_count} times. They're still fairly new — be friendly and remember they might still be figuring things out."
+            interaction_note = f"This is your first interaction with {display_name}. Introduce yourself, welcome them, and help them get oriented."
+    elif prior_interaction_count == 1:
+        interaction_note = f"You have interacted with {display_name} once before. Welcome them back without doing a full first-time intro."
+    elif prior_interaction_count <= 5:
+        interaction_note = f"You have interacted with {display_name} {prior_interaction_count} times before. They're still fairly new — be friendly and keep context light."
     else:
-        visitor_note = f"{display_name} has visited {visit_count} times. They're a regular — skip the intros, be casual, and treat them like a friend."
+        interaction_note = f"You have interacted with {display_name} {prior_interaction_count} times before. They're familiar with you — skip the intros and be direct."
 
-    if last_visit and visit_count > 1:
+    if last_interaction_at and prior_interaction_count > 0:
         try:
-            elapsed = datetime.now() - datetime.fromisoformat(last_visit)
+            elapsed = datetime.now() - datetime.fromisoformat(last_interaction_at)
             days = elapsed.days
             hours = elapsed.seconds // 3600
             if days > 30:
-                visitor_note += f" It's been about {days // 30} month(s) since their last visit — maybe acknowledge it's been a while."
+                interaction_note += f" It has been about {days // 30} month(s) since your last interaction — maybe acknowledge it's been a while."
             elif days > 0:
-                visitor_note += f" It's been about {days} day(s) since their last visit."
+                interaction_note += f" It has been about {days} day(s) since your last interaction."
             elif hours > 0:
-                visitor_note += f" They were here about {hours} hour(s) ago."
+                interaction_note += f" Your last interaction was about {hours} hour(s) ago."
             else:
-                visitor_note += " They were just here moments ago."
+                interaction_note += " Your last interaction was moments ago."
         except (ValueError, TypeError):
             pass
 
-    return visitor_note
+    return interaction_note
 
 
 def build_system_prompt(
     base_prompt: str,
     caller: str = "",
-    visit_count: int = 0,
-    last_visit: str = "",
+    prior_interaction_count: int = 0,
+    last_interaction_at: str = "",
     first_name: str = ""
 ) -> str:
     parts: List[str] = [base_prompt]
     parts.append(f"Current date and time: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
-    visitor_note = build_visitor_context(caller, visit_count, last_visit, first_name)
-    if visitor_note:
-        parts.append(visitor_note)
+    interaction_note = build_interaction_context(
+        caller,
+        prior_interaction_count,
+        last_interaction_at,
+        first_name,
+    )
+    if interaction_note:
+        parts.append(interaction_note)
 
     return "\n\n".join(parts)

@@ -7,7 +7,7 @@ from dynamic_functions.Bot.Runtime.common import (
     fetch_transcript,
 )
 from dynamic_functions.Game.Runtime.common import spawn_bot, _load_bot_config
-from dynamic_functions.Game.Runtime.roles import get_role_for_bot
+from dynamic_functions.Game.Runtime.roster import get_role_for_bot
 
 
 @session

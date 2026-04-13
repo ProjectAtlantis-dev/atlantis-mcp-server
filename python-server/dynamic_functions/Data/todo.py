@@ -2,7 +2,7 @@ import atlantis
 import logging
 import json
 from typing import Optional
-from dynamic_functions.Data.main import read_player, set_player_field
+from dynamic_functions.Data.main import get_player_field, set_player_field
 
 logger = logging.getLogger("mcp_server")
 
@@ -15,16 +15,15 @@ def _get_caller() -> str:
 
 
 def _read_store(caller: str = "") -> list:
-    """Read the todo list from the player database."""
+    """Read the todo list from the player's todo file."""
     caller = caller or _get_caller()
     if not caller:
         return []
-    data = read_player(caller)
-    return data.get("todos", [])
+    return get_player_field(caller, "todos", [])
 
 
 def _write_store(items: list, caller: str = ""):
-    """Write the todo list to the player database."""
+    """Write the todo list to the player's todo file."""
     caller = caller or _get_caller()
     if not caller:
         logger.warning("todo _write_store: no caller, cannot persist")

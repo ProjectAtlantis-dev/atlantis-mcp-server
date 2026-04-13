@@ -1,50 +1,38 @@
-"""Role registry — the join between bot, location, and procedures.
+"""Static role definitions.
 
-Game callbacks create roles at runtime. Nothing is static.
-In-memory, keyed by game_id. DB table later.
+Roles describe what a job is: location, title, procedures, and tool access.
+Rosters assign bots to these roles for a specific user's game.
 """
 
+import json
 import logging
-from typing import Optional, Dict, Any, List
+import os
+from typing import List
 
 logger = logging.getLogger("mcp_server")
 
-# In-memory rosters keyed by game_id
-_game_rosters: Dict[str, List[Dict[str, Any]]] = {}
+_ROLES_FILE = os.path.join(os.path.dirname(__file__), "roles.json")
 
 
-def create_role(game_id: str, *, id: str, title: str, location: str,
-                bot: str, requiresCheckin: bool = False) -> Dict[str, Any]:
-    """Create a role in a game's roster. Called by scenario game callbacks."""
-    role = {
-        "id": id,
-        "title": title,
-        "location": location,
-        "bot": bot,
-        "requiresCheckin": requiresCheckin,
-    }
-    _game_rosters.setdefault(game_id, []).append(role)
-    logger.info(f"Game {game_id}: created role '{id}' -> bot='{bot}' location='{location}'")
-    return role
+def _load_roles() -> List[dict]:
+    if not os.path.exists(_ROLES_FILE):
+        return []
+    with open(_ROLES_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, list):
+        raise ValueError(f"Invalid role data in {_ROLES_FILE}: expected a list")
+    return data
 
 
-def get_role_for_bot(game_id: str, bot_sid: str) -> Optional[Dict[str, Any]]:
-    """Given a game and bot sid, return the role they're assigned to (or None)."""
-    for role in _game_rosters.get(game_id, []):
-        if role.get("bot") == bot_sid:
+def get_role(role_id: str) -> dict:
+    """Get a static role definition by id. Raises if not found."""
+    for role in _load_roles():
+        if role["id"] == role_id:
             return role
-    return None
+    raise ValueError(f"Unknown role: '{role_id}'")
 
 
-def get_role_for_location(game_id: str, location: str) -> Optional[Dict[str, Any]]:
-    """Given a game and location, return the role assigned there (or None)."""
-    for role in _game_rosters.get(game_id, []):
-        if role.get("location") == location:
-            return role
-    return None
-
-
-def clear_game(game_id: str) -> None:
-    """Clean up a game's roster when the game ends."""
-    _game_rosters.pop(game_id, None)
-    logger.info(f"Game {game_id}: roster cleared")
+@visible
+async def roles_list() -> List[dict]:
+    """List all static role definitions."""
+    return _load_roles()

@@ -1,0 +1,17 @@
+#!/usr/bin/env sh
+set -eu
+
+if [ "$#" -eq 0 ]; then
+  set -- "python-server/dynamic_functions"
+fi
+
+for target in "$@"; do
+  if [ ! -e "$target" ]; then
+    printf 'skip missing: %s\n' "$target" >&2
+    continue
+  fi
+
+  count=$(find "$target" -type d -name __pycache__ -prune -print | wc -l | tr -d ' ')
+  find "$target" -type d -name __pycache__ -prune -exec rm -rf {} +
+  printf 'removed %s __pycache__ director%s under %s\n' "$count" "$( [ "$count" = "1" ] && printf y || printf ies )" "$target"
+done

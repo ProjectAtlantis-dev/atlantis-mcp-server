@@ -1,68 +1,114 @@
-"""Roster — persistent role definitions with bot assignments.
+"""Runtime roster assignments.
 
-roster.json is an array of role records. Each has id, title, location,
-bot, requiresCheckin, etc. Game callbacks read these to set up the world.
-Editable via exposed tools.
+Each user's game has a private roster.json. The roster records which bot is
+assigned to each static role for that game.
 """
 
 import json
-import os
 import logging
-from typing import Optional, List
+import os
+from typing import Optional, Dict, Any, List
+
+from dynamic_functions.Game.Runtime.common import game_data_dir
+from dynamic_functions.Game.Runtime.roles import get_role
 
 logger = logging.getLogger("mcp_server")
 
-_ROSTER_FILE = os.path.join(os.path.dirname(__file__), "roster.json")
+_ROSTER_FILE = "roster.json"
 
 
-def _load_roster() -> List[dict]:
-    if not os.path.exists(_ROSTER_FILE):
+def _roster_path(game_id: str, user_sid: Optional[str] = None, *, create_dir: bool = False) -> str:
+    return os.path.join(game_data_dir(game_id, user_sid=user_sid, create=create_dir), _ROSTER_FILE)
+
+
+def _load_roster(game_id: str, user_sid: Optional[str] = None) -> List[Dict[str, Any]]:
+    path = _roster_path(game_id, user_sid)
+    if not os.path.exists(path):
         return []
-    with open(_ROSTER_FILE) as f:
-        return json.load(f)
+
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    if not isinstance(data, list):
+        raise ValueError(f"Invalid game roster data in {path}: expected a list")
+
+    return data
 
 
-def _save_roster(roster: List[dict]) -> None:
-    with open(_ROSTER_FILE, "w") as f:
+def _save_roster(game_id: str, roster: List[Dict[str, Any]], user_sid: Optional[str] = None) -> None:
+    path = _roster_path(game_id, user_sid, create_dir=True)
+    tmp_path = f"{path}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(roster, f, indent=2)
+        f.write("\n")
+    os.replace(tmp_path, path)
 
 
-def get_role(role_id: str) -> dict:
-    """Get a role record by id. Raises if not found."""
-    for role in _load_roster():
-        if role["id"] == role_id:
-            return role
-    raise ValueError(f"Unknown role: '{role_id}'")
+def assign_role(game_id: str, *, id: str, title: str, location: str,
+                bot: str, requiresCheckin: bool = False,
+                user_sid: Optional[str] = None) -> Dict[str, Any]:
+    """Assign a bot to a role in a user's private game roster."""
+    roster_entry = {
+        "id": id,
+        "title": title,
+        "location": location,
+        "bot": bot,
+        "requiresCheckin": requiresCheckin,
+    }
+
+    roster = [
+        existing
+        for existing in _load_roster(game_id, user_sid)
+        if existing.get("id") != id
+        and existing.get("bot") != bot
+        and existing.get("location") != location
+    ]
+    roster.append(roster_entry)
+    _save_roster(game_id, roster, user_sid)
+
+    logger.info(f"Game {game_id}: assigned bot='{bot}' to role='{id}' location='{location}'")
+    return roster_entry
 
 
-def get_bot_for_role(role_id: str) -> str:
-    """Look up which bot is assigned to a role. Raises if unassigned."""
-    role = get_role(role_id)
-    bot = role.get("bot")
-    if not bot:
-        raise ValueError(f"No bot assigned to role '{role_id}'")
-    return bot
+def get_role_for_bot(game_id: str, bot_sid: str, user_sid: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Given a user's game and bot sid, return the assigned role."""
+    for roster_entry in _load_roster(game_id, user_sid):
+        if roster_entry.get("bot") == bot_sid:
+            return roster_entry
+    return None
+
+
+def get_role_for_location(game_id: str, location: str, user_sid: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Given a user's game and location, return the assigned role."""
+    for roster_entry in _load_roster(game_id, user_sid):
+        if roster_entry.get("location") == location:
+            return roster_entry
+    return None
 
 
 @visible
-async def list_roles() -> List[dict]:
-    """List all roles in the roster."""
-    return _load_roster()
+async def roster_list(game_id: Optional[str] = None, user_sid: Optional[str] = None) -> List[Dict[str, Any]]:
+    """List role assignments for the current caller/game, or an explicit user/game."""
+    return _load_roster(game_id, user_sid)
 
 
 @visible
-async def assign_bot(role_id: str, bot_sid: str) -> dict:
-    """Assign a bot to a role. Takes effect on the next game start.
+async def roster_assign(role_id: str, bot_sid: str,
+                        game_id: Optional[str] = None,
+                        user_sid: Optional[str] = None) -> Dict[str, Any]:
+    """Assign a bot to a static role in the current caller/game roster."""
+    role = {**get_role(role_id), "bot": bot_sid}
+    return assign_role(game_id, user_sid=user_sid, **role)
 
-    Args:
-        role_id: Role identifier (e.g. "flowcentral_receptionist")
-        bot_sid: Bot sid to assign (e.g. "atlas", "kitty")
-    """
-    roster = _load_roster()
-    for role in roster:
-        if role["id"] == role_id:
-            role["bot"] = bot_sid
-            _save_roster(roster)
-            logger.info(f"Roster updated: {role_id} -> {bot_sid}")
-            return role
-    raise ValueError(f"Unknown role: '{role_id}'")
+
+def clear_game(game_id: str, user_sid: Optional[str] = None) -> None:
+    """Clean up this game's roster data."""
+    path = _roster_path(game_id, user_sid)
+    if os.path.exists(path):
+        os.remove(path)
+        game_dir = os.path.dirname(path)
+        try:
+            os.rmdir(game_dir)
+        except OSError:
+            pass
+    logger.info(f"Game {game_id}: roster cleared")

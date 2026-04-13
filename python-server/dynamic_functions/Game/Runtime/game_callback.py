@@ -1,9 +1,9 @@
-"""Default game_callback — delegates to the AtlasLobby scenario."""
+"""Default game_callback — delegates to the FlowCentralLobby scenario."""
 
-from dynamic_functions.Game.Content.AtlasLobby.game_callback import game_callback as _atlas_callback
+from dynamic_functions.Game.Content.FlowCentralLobby.game_callback import game_callback as _flowcentral_callback
 
 
 @game
 async def game_callback():
-    """Default game callback — routes to AtlasLobby game_callback."""
-    await _atlas_callback()
+    """Default game callback — routes to FlowCentralLobby game_callback."""
+    await _flowcentral_callback()

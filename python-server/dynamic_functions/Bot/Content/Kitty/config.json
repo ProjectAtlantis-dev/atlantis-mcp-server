@@ -6,7 +6,5 @@
   "baseUrl": "https://openrouter.ai/api/v1",
   "apiKeyEnv": "OPENROUTER_API_KEY",
   "systemPromptModule": "dynamic_functions.Bot.Content.Kitty.system_prompt",
-  "location": "KittyLobby",
-  "role": "Receptionist",
   "greeting": "*waves* Hey there~ Welcome to the lobby! 🐱"
 }

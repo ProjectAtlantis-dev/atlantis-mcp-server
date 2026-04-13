@@ -2,15 +2,13 @@
   {
     "id": "flowcentral_receptionist",
     "title": "FlowCentral Receptionist",
-    "location": "AtlasLobby",
-    "bot": "atlas",
+    "location": "FlowCentralLobby",
     "requiresCheckin": true
   },
   {
     "id": "atlantis_receptionist",
     "title": "Atlantis Receptionist",
-    "location": "KittyLobby",
-    "bot": null,
+    "location": "AtlantisLobby",
     "requiresCheckin": true
   }
 ]

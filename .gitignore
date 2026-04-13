@@ -97,4 +97,5 @@ python-server/dynamic_functions/Bot/Runtime/api_payload.json
 python-server/dynamic_functions/Computer/computer.db-shm
 python-server/dynamic_functions/Computer/computer.db-wal
 python-server/dynamic_functions/Data/players/*.json
+python-server/dynamic_functions/Data/players/*/
 python-server/runServerSeo

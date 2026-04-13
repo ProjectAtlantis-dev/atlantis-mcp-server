@@ -533,7 +533,7 @@ FIND_CHECKLIST_PSEUDO_TOOL: TranscriptToolT = {
             'properties': {
                 'location': {
                     'type': 'string',
-                    'description': 'Location name to find the checklist for (e.g. "AtlasLobby", "KittyLobby")'
+                    'description': 'Location name to find the checklist for (e.g. "FlowCentralLobby", "AtlantisLobby")'
                 }
             },
             'required': ['location']

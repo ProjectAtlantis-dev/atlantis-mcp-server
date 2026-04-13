@@ -1,4 +1,4 @@
-"""AtlasLobby — SEO platform overview narrative.
+"""FlowCentralLobby — SEO platform overview narrative.
 
 Returns a markdown overview of what FlowCentral SEO has to offer.
 Atlas calls this tool and relays the info to new visitors in his own words.
@@ -16,7 +16,7 @@ async def get_overview():
     Returns a markdown overview of the FlowCentral SEO platform
     for Atlas to relay to new visitors.
     """
-    logger.info("AtlasLobby get_overview called")
+    logger.info("FlowCentralLobby get_overview called")
 
     return """## FlowCentral SEO Tools
 

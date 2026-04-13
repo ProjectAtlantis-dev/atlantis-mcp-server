@@ -8,6 +8,6 @@ async def coffee():
     """
     Provides current coffee directions in the FlowCentral lobby.
     """
-    logger.info("AtlasLobby coffee called")
+    logger.info("FlowCentralLobby coffee called")
 
     return "Coffee is available near the FlowCentral lobby workspace."

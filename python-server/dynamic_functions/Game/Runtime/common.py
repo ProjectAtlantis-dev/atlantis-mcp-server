@@ -5,26 +5,18 @@ import json
 import logging
 import os
 
+from dynamic_functions.Data.main import player_game_dir
+
 logger = logging.getLogger("mcp_server")
 
 BOTS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "Bot", "Content")
 
 
-# =========================================================================
-# Bot config helpers
-# =========================================================================
-
-def _load_all_bot_configs():
-    """Load all config.json files from Bot/Content/*/."""
-    configs = []
-    for entry in os.listdir(BOTS_DIR):
-        config_path = os.path.join(BOTS_DIR, entry, "config.json")
-        if os.path.isfile(config_path):
-            with open(config_path) as f:
-                cfg = json.load(f)
-            cfg["_folder"] = entry
-            configs.append(cfg)
-    return configs
+def game_data_dir(game_id=None, user_sid=None, *, create=True):
+    """Return the private runtime data directory for a user's game."""
+    actual_game_id = game_id if game_id is not None else atlantis.get_game_id()
+    actual_user_sid = user_sid if user_sid is not None else atlantis.get_caller()
+    return player_game_dir(actual_user_sid, actual_game_id, create=create)
 
 
 def _load_bot_config(bot_sid):
@@ -37,17 +29,6 @@ def _load_bot_config(bot_sid):
             if cfg.get("sid") == bot_sid:
                 return cfg, entry  # cfg + folder name
     return None, None
-
-
-def pick_bot_for_location(location):
-    """Pick a bot assigned to this location via config.json 'location' field.
-    Returns config dict or None."""
-    import random
-    configs = _load_all_bot_configs()
-    matches = [c for c in configs if c.get("location") == location]
-    if not matches:
-        return None
-    return random.choice(matches)
 
 
 async def spawn_bot(bot_sid):

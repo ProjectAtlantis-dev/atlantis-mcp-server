@@ -2,35 +2,31 @@
 
 Flow:
 1. Fetch transcript and detect which bot is already in the room (by sid)
-2. Look up the bot's current Role for location + procedures
-3. Load the bot's system prompt; apply role procedures (checkin etc.)
+2. Look up the bot's current role assignment from the game roster
+3. Load the bot's system prompt; apply location procedure injections
 4. Hand off to run_turn
 
 The bot's identity is determined by who's actually present.
-Procedures (checkin, etc.) belong to the Role, not the bot or location.
+Procedure text belongs to the Game.Content.<Location> module, not the chat runtime.
 """
 
 import atlantis
-import logging
 import os
 import time as _t
-from datetime import datetime
 from importlib import import_module
 
 from openai import OpenAI
 
 from dynamic_functions.Bot.Runtime.common import (
     logger,
-    analyze_participants,
     fetch_transcript,
     get_base_tools,
 )
 from dynamic_functions.Bot.Runtime.turn import run_turn
 # prompt module is loaded dynamically per-bot below
 from dynamic_functions.Data.main import get_guest
-from dynamic_functions.Data.todo import _read_store
 from dynamic_functions.Game.Runtime.common import _load_bot_config
-from dynamic_functions.Game.Runtime.roles import get_role_for_bot, get_role_for_location
+from dynamic_functions.Game.Runtime.roster import get_role_for_bot
 
 
 _BUSY_KEY = "chat_busy"
@@ -93,61 +89,21 @@ def _find_bot_in_room(raw_transcript, caller):
 
 
 def _get_checkin_injections(role, caller, location, guest):
-    """Build transcript injections for the role's procedures.
-
-    Returns a list of message dicts to append to the transcript.
-    All procedure logic flows from the role config.
-    """
-    injections = []
-
+    """Build transcript injections by delegating to the location content module."""
     if not role.get("requiresCheckin"):
-        return injections
+        return []
 
-    needs_checkin = not guest or not guest.get("cleared")
-    last_visit = guest.get("last_visit", "") if guest else ""
+    module_name = f"dynamic_functions.Game.Content.{location}.checkin"
+    try:
+        checkin_mod = import_module(module_name)
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(f"Role {role['id']} requires check-in but {module_name} is missing") from exc
 
-    if needs_checkin:
-        existing_todos = _read_store(caller)
-        if existing_todos:
-            injections.append({'role': 'system', 'content': [{'type': 'text', 'text':
-                "[PROCEDURE IN PROGRESS] This guest is mid-check-in. "
-                "Your checklist is already loaded in the `todo` tool \u2014 "
-                "do NOT call `get_guest_checklist` again. Call `todo` "
-                "(no arguments) to see your current progress, then "
-                "continue working through the remaining pending steps. "
-                "Use `todo` with merge=true to update each step's status "
-                "as you go. You do NOT know their name or username yet "
-                "unless you have already verified their paperwork."
-            }]})
-        else:
-            injections.append({'role': 'system', 'content': [{'type': 'text', 'text':
-                "[PROCEDURE REQUIRED] This is an unidentified guest who "
-                "has NOT completed check-in. Your FIRST action MUST be "
-                f"to call `find_checklist` with location=\"{location}\" "
-                "to discover and load the check-in checklist tool. Once "
-                "the tool appears in your toolkit, call it to get the "
-                "check-in steps. It returns a JSON array \u2014 pass that array "
-                "directly to the `todo` tool to load your checklist. Then "
-                "use `todo` with merge=true to mark each step in_progress "
-                "then completed as you work through them. Do NOT greet or "
-                "say anything until your checklist is loaded. You do NOT "
-                "know their name or username yet \u2014 that will be revealed "
-                "when you verify their paperwork."
-            }]})
-    else:
-        # Returning guest \u2014 check for time gap
-        if last_visit:
-            try:
-                elapsed = datetime.now() - datetime.fromisoformat(last_visit)
-                if elapsed.total_seconds() > 3600:
-                    now_str = datetime.now().strftime('%Y-%m-%d %H:%M')
-                    injections.append({'role': 'user', 'content': [{'type': 'text', 'text':
-                        f"[Some time has passed since your last interaction. The current date and time is now {now_str}.]"
-                    }]})
-            except (ValueError, TypeError):
-                pass
+    build_checkin_injections = getattr(checkin_mod, "build_checkin_injections", None)
+    if not callable(build_checkin_injections):
+        raise RuntimeError(f"Role {role['id']} requires check-in but {module_name}.build_checkin_injections is missing")
 
-    return injections
+    return build_checkin_injections(caller, guest)
 
 
 async def _handle_chat(session_id, request_id, game_id, caller):
@@ -164,7 +120,7 @@ async def _handle_chat(session_id, request_id, game_id, caller):
         raise RuntimeError("No bot detected in room — game_callback should have spawned one")
 
     # Look up the role this bot is filling
-    role = get_role_for_bot(game_id, bot_sid)
+    role = get_role_for_bot(game_id, bot_sid, caller)
     if not role:
         raise RuntimeError(f"Bot {bot_sid} is in the room but has no assigned role in game {game_id}")
 

@@ -1,13 +1,14 @@
-"""KittyLobby arrival check-in tools.
+"""AtlantisLobby arrival check-in tools.
 
 These are the MCP-visible tools that Kitty uses to walk a new guest
-through the front-desk security procedure in KittyLobby.
+through the front-desk security procedure in AtlantisLobby.
 
-Guest data lives in Data/players/{username}.json.
+Guest data lives in Data/players/{username}/.
 """
 
 import atlantis
 import logging
+from datetime import datetime
 
 from dynamic_functions.Data.main import (
     get_guest,
@@ -17,10 +18,11 @@ from dynamic_functions.Data.main import (
     register_guest as _register_guest,
     list_all_guests,
 )
+from dynamic_functions.Data.todo import _read_store
 
 logger = logging.getLogger("mcp_server")
 
-LOCATION = "KittyLobby"
+LOCATION = "AtlantisLobby"
 
 
 # =========================================================================
@@ -37,6 +39,53 @@ def is_checkin_complete(username: str) -> bool:
 
 def record_new_conversation(username: str) -> None:
     _record_new_conversation(username, location=LOCATION)
+
+
+def build_checkin_injections(caller: str, guest: dict | None) -> list[dict]:
+    """Build runtime procedure prompts for AtlantisLobby check-in."""
+    if guest and guest.get("cleared"):
+        last_visit = guest.get("last_visit", "")
+        if not last_visit:
+            return []
+        try:
+            elapsed = datetime.now() - datetime.fromisoformat(last_visit)
+        except (ValueError, TypeError):
+            return []
+        if elapsed.total_seconds() <= 3600:
+            return []
+        now_str = datetime.now().strftime('%Y-%m-%d %H:%M')
+        return [{'role': 'user', 'content': [{'type': 'text', 'text':
+            f"[Some time has passed since your last interaction. The current date and time is now {now_str}.]"
+        }]}]
+
+    existing_todos = _read_store(caller)
+    if existing_todos:
+        text = (
+            "[PROCEDURE IN PROGRESS] This guest is mid-check-in. "
+            "Your checklist is already loaded in the `todo` tool — "
+            "do NOT call `get_guest_checklist` again. Call `todo` "
+            "(no arguments) to see your current progress, then "
+            "continue working through the remaining pending steps. "
+            "Use `todo` with merge=true to update each step's status "
+            "as you go. You do NOT know their name or username yet "
+            "unless you have already verified their paperwork."
+        )
+    else:
+        text = (
+            "[PROCEDURE REQUIRED] This is an unidentified guest who "
+            "has NOT completed Atlantis check-in. Your FIRST action MUST be "
+            f"to call `find_checklist` with location=\"{LOCATION}\" "
+            "to discover and load the check-in checklist tool. Once "
+            "the tool appears in your toolkit, call it to get the "
+            "check-in steps. It returns a JSON array — pass that array "
+            "directly to the `todo` tool to load your checklist. Then "
+            "use `todo` with merge=true to mark each step in_progress "
+            "then completed as you work through them. Do NOT greet or "
+            "say anything until your checklist is loaded. You do NOT "
+            "know their name or username yet — that will be revealed "
+            "when you verify their paperwork."
+        )
+    return [{'role': 'system', 'content': [{'type': 'text', 'text': text}]}]
 
 
 # =========================================================================

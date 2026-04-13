@@ -3,12 +3,14 @@
     "id": "flowcentral_receptionist",
     "title": "FlowCentral Receptionist",
     "location": "FlowCentralLobby",
-    "requiresCheckin": true
+    "requiresCheckin": true,
+    "allowedApps": ["SEO", "Game.Content.FlowCentralLobby"]
   },
   {
     "id": "atlantis_receptionist",
     "title": "Atlantis Receptionist",
     "location": "AtlantisLobby",
-    "requiresCheckin": true
+    "requiresCheckin": true,
+    "allowedApps": ["Game.Content.AtlantisLobby"]
   }
 ]

@@ -3,28 +3,24 @@
 Flow:
 1. Fetch transcript and detect which bot is already in the room (by sid)
 2. Look up the bot's current role assignment from the game roster
-3. Load the bot's system prompt; apply location procedure injections
-4. Hand off to run_turn
+3. Build a bot chat context with game-owned procedure hooks
+4. Dispatch to the bot's configured chat handler
 
 The bot's identity is determined by who's actually present.
-Procedure text belongs to the Game.Content.<Location> module, not the chat runtime.
+Procedure text belongs to the Game.Content.<Location> module; the bot runtime
+decides whether to apply it.
 """
 
 import atlantis
-import os
 import time as _t
 from importlib import import_module
-
-from openai import OpenAI
 
 from dynamic_functions.Bot.Runtime.common import (
     logger,
     fetch_transcript,
-    get_base_tools,
 )
-from dynamic_functions.Bot.Runtime.turn import run_turn
-# prompt module is loaded dynamically per-bot below
-from dynamic_functions.Data.main import get_guest
+from dynamic_functions.Bot.Runtime.chat import BotChatContext, dispatch_chat
+from dynamic_functions.Data.main import get_guest, record_new_conversation
 from dynamic_functions.Game.Runtime.common import _load_bot_config
 from dynamic_functions.Game.Runtime.roster import get_role_for_bot
 
@@ -88,8 +84,13 @@ def _find_bot_in_room(raw_transcript, caller):
     return None, None, None
 
 
-def _get_checkin_injections(role, caller, location, guest):
+async def _build_procedure_injections(context):
     """Build transcript injections by delegating to the location content module."""
+    role = context.role
+    caller = context.caller
+    location = context.location
+    guest = context.guest
+
     if not role.get("requiresCheckin"):
         return []
 
@@ -103,7 +104,11 @@ def _get_checkin_injections(role, caller, location, guest):
     if not callable(build_checkin_injections):
         raise RuntimeError(f"Role {role['id']} requires check-in but {module_name}.build_checkin_injections is missing")
 
-    return build_checkin_injections(caller, guest)
+    result = build_checkin_injections(caller, guest)
+    # Support both sync and async build_checkin_injections
+    if hasattr(result, '__await__'):
+        result = await result
+    return result
 
 
 async def _handle_chat(session_id, request_id, game_id, caller):
@@ -126,76 +131,32 @@ async def _handle_chat(session_id, request_id, game_id, caller):
 
     location = role["location"]
     role_title = role.get("title", "Assistant")
-    bot_display_name = bot_cfg["displayName"]
-    bot_sid_str = bot_cfg["sid"]
 
     logger.info(f"Game {game_id}: bot={bot_sid} role={role_title} location={location}")
 
-    # Skip if last message was from this bot
-    last_chat = None
-    for msg in reversed(raw_transcript):
-        if msg.get("type") == "chat" and msg.get("sid") != "system":
-            last_chat = msg
-            break
-    if last_chat and last_chat.get("sid") == bot_sid_str:
-        logger.warning(f"Last chat was from {bot_display_name} \u2014 skipping")
-        return
-
-    # Load system prompt from the bot's content module
-    t0 = _t.monotonic()
-    prompt_mod = import_module(bot_cfg["systemPromptModule"])
-    base_prompt = await prompt_mod.SYSTEM_PROMPT()
-    if not base_prompt or not str(base_prompt).strip():
-        raise ValueError(f"SYSTEM_PROMPT for {bot_display_name} returned empty")
-    base_prompt = str(base_prompt)
-    logger.info(f"System prompt loaded in {_t.monotonic() - t0:.2f}s ({len(base_prompt)} chars)")
-
-    prompt_builder_module = bot_cfg["systemPromptModule"].rsplit(".", 1)[0] + ".prompt"
-    prompt_builder = import_module(prompt_builder_module)
-    build_system_prompt = prompt_builder.build_system_prompt
-
-    # Role procedures \u2014 checkin injections etc.
-    injections = _get_checkin_injections(role, caller, location, guest)
-    for inj in injections:
-        transcript.append(inj)
-    if injections:
-        logger.info(f"Injected {len(injections)} procedure message(s) from role {role['id']}")
-
-    # Build final system prompt with visitor context
-    needs_checkin = role.get("requiresCheckin") and (not guest or not guest.get("cleared"))
-    visit_count = guest.get("visit_count", 0) if guest else 0
-    last_visit = guest.get("last_visit", "") if guest else ""
-    if needs_checkin:
-        prompt_caller = ""
-        first_name = ""
-    else:
-        prompt_caller = caller
-        first_name = guest.get("first_name", "") if guest else ""
-    system_prompt = build_system_prompt(base_prompt, prompt_caller, visit_count, last_visit, first_name=first_name)
-
-    # Tools \u2014 fresh base tools each time; LLM discovers via /search
-    converted_tools, tool_lookup = get_base_tools()
-
-    # API key
-    api_key = os.getenv(bot_cfg["apiKeyEnv"])
-    if not api_key:
-        raise ValueError(f"{bot_cfg['apiKeyEnv']} environment variable is not set")
-
-    client = OpenAI(
-        api_key=api_key,
-        base_url=bot_cfg["baseUrl"],
-    )
-
-    logger.info(f"=== HANDING OFF TO {bot_display_name} ({role_title} at {location}) === session={session_id}")
-    return await run_turn(
-        client=client,
-        model=bot_cfg["model"],
-        bot_sid=bot_sid_str,
-        bot_display_name=bot_display_name,
-        system_prompt=system_prompt,
+    context = BotChatContext(
+        session_id=session_id,
+        request_id=request_id,
+        game_id=game_id,
+        caller=caller,
+        bot_sid=bot_sid,
+        bot_cfg=bot_cfg,
+        role=role,
+        guest=guest,
+        raw_transcript=raw_transcript,
         transcript=transcript,
-        converted_tools=converted_tools,
-        tool_lookup=tool_lookup,
-        sessionId=session_id,
-        requestId=request_id,
+        procedure_injection_provider=_build_procedure_injections,
     )
+
+    result = await dispatch_chat(context)
+
+    if context.skip_post_turn_record:
+        return result
+
+    record_new_conversation(caller, location=location)
+
+    # Re-fetch transcript so debug dump includes the bot's response
+    raw_after, _ = await fetch_transcript(caller)
+    logger.info(f"Post-turn transcript: {len(raw_after)} entries")
+
+    return result

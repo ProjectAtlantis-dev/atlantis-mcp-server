@@ -44,7 +44,8 @@ def record_new_conversation(username: str) -> None:
 def build_checkin_injections(caller: str, guest: dict | None) -> list[dict]:
     """Build runtime procedure prompts for AtlantisLobby check-in."""
     if guest and guest.get("cleared"):
-        last_visit = guest.get("last_visit", "")
+        visits = guest.get("visits") or []
+        last_visit = visits[-1] if visits else ""
         if not last_visit:
             return []
         try:

@@ -402,13 +402,26 @@ async def handle_dir_tool(
     return summary, converted_tools, tool_lookup
 
 
+def _filter_by_allowed_apps(results: List[Dict[str, Any]], allowed_apps: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    """Filter search results to only include tools from allowed app prefixes."""
+    if not allowed_apps:
+        return results
+    filtered = []
+    for r in results:
+        app = (r.get('app', '') or r.get('tool_app', '')).lower()
+        if any(app.startswith(prefix.lower()) for prefix in allowed_apps):
+            filtered.append(r)
+    return filtered
+
+
 async def handle_search_tool(
     query: str,
     converted_tools: List[TranscriptToolT],
-    tool_lookup: Dict[str, ToolLookupInfo]
+    tool_lookup: Dict[str, ToolLookupInfo],
+    allowed_apps: Optional[List[str]] = None,
 ) -> Tuple[str, List[TranscriptToolT], Dict[str, ToolLookupInfo]]:
     import time as _t
-    logger.info(f">>> SEARCH PSEUDO-TOOL: query='{query}' — sending /search command...")
+    logger.info(f">>> SEARCH PSEUDO-TOOL: query='{query}' allowed_apps={allowed_apps} — sending /search command...")
     t0 = _t.monotonic()
 
     try:
@@ -421,6 +434,10 @@ async def handle_search_tool(
     elapsed = _t.monotonic() - t0
     logger.info(f"<<< SEARCH RETURNED in {elapsed:.2f}s — {len(results) if results else 0} results")
 
+    if not results:
+        return f"No tools found for '{query}'.", converted_tools, tool_lookup
+
+    results = _filter_by_allowed_apps(results, allowed_apps)
     if not results:
         return f"No tools found for '{query}'.", converted_tools, tool_lookup
 
@@ -551,8 +568,10 @@ async def handle_find_checklist(
     logger.info(f">>> FIND_CHECKLIST PSEUDO-TOOL: location='{location}' — searching...")
     t0 = _t.monotonic()
 
+    # Scope search to the specific location so the bot only sees relevant results
+    scoped_query = f"**Game.Content.{location}**get_guest_checklist"
     try:
-        results = await atlantis.client_command("/search get_guest_checklist")
+        results = await atlantis.client_command(f"/search {scoped_query}")
     except Exception as e:
         elapsed = _t.monotonic() - t0
         logger.error(f"<<< FIND_CHECKLIST FAILED after {elapsed:.2f}s: {e}")
@@ -562,13 +581,12 @@ async def handle_find_checklist(
     logger.info(f"<<< FIND_CHECKLIST RETURNED in {elapsed:.2f}s — {len(results) if results else 0} results")
 
     if not results:
-        return f"No checklist tools found.", converted_tools, tool_lookup
+        return f"No checklist tools found for '{location}'.", converted_tools, tool_lookup
 
-    # Filter to matching location
-    filtered = [r for r in results if location.lower() in (r.get('searchTerm', '') + r.get('tool_app', '')).lower()]
+    # Post-filter using the app field to match the requested location
+    filtered = [r for r in results if location.lower() in (r.get('app', '') or r.get('tool_app', '')).lower()]
     if not filtered:
-        available = [r.get('searchTerm', '') for r in results]
-        return f"No checklist found for location '{location}'. Available: {available}", converted_tools, tool_lookup
+        return f"No checklist found for location '{location}'.", converted_tools, tool_lookup
 
     logger.info(f"Filtered to {len(filtered)} checklist(s) for '{location}'")
 

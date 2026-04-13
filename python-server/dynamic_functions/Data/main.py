@@ -183,7 +183,7 @@ def ensure_player_record(username: str, location: str = "FlowCentralLobby") -> t
     if created_new:
         now = datetime.now().isoformat()
         set_player_field(username, "location", location)
-        set_player_field(username, "first_seen_at", now)
+        set_player_field(username, "visits", [now])
         data = read_player(username)
         logger.info(f"Created new player folder for {username}")
 
@@ -217,25 +217,34 @@ def is_cleared(username: str) -> bool:
     return bool(data and data.get("cleared"))
 
 
+def _get_visits(data: dict) -> list[str]:
+    """Return the visits log from player data."""
+    visits = data.get("visits")
+    if isinstance(visits, list):
+        return visits
+    return []
+
+
 def get_visit_info(username: str) -> tuple[int, str]:
     """Return (visit_count, last_visit) for a player."""
     data = read_player(username)
     if not data:
         return 0, ""
-    return int(data.get("visit_count") or 0), data.get("last_visit") or ""
+    visits = _get_visits(data)
+    return len(visits), (visits[-1] if visits else "")
 
 
 def record_new_conversation(username: str, location: str = "FlowCentralLobby") -> None:
-    """Bump visit count and timestamp for a player."""
+    """Append a timestamped visit to the player's visit log."""
     if not username:
         return
     data = read_player(username)
     now = datetime.now().isoformat()
-    data["visit_count"] = int(data.get("visit_count") or 0) + 1
-    data["last_visit"] = now
+    visits = _get_visits(data)
+    visits.append(now)
+    set_player_field(username, "visits", visits)
     if not data.get("location"):
-        data["location"] = location
-    write_player(username, data)
+        set_player_field(username, "location", location)
     logger.info(f"New conversation recorded for {username}")
 
 
@@ -243,9 +252,10 @@ def register_guest(username: str, first_name: str, location: str = "FlowCentralL
     """Register a guest (final check-in step). Sets cleared=True."""
     data = read_player(username)
     now = datetime.now().isoformat()
+    visits = _get_visits(data)
+    visits.append(now)
     data["first_name"] = first_name
-    data["visit_count"] = int(data.get("visit_count") or 0) + 1
-    data["last_visit"] = now
+    data["visits"] = visits
     data["cleared"] = True
     data["location"] = location
     write_player(username, data)
@@ -259,10 +269,11 @@ def list_all_guests() -> list[dict[str, Any]]:
     for name in list_player_names():
         data = read_player(name)
         if data:
+            visits = _get_visits(data)
             result.append({
                 "username": name,
                 "first_name": data.get("first_name", ""),
-                "visit_count": int(data.get("visit_count") or 0),
+                "visit_count": len(visits),
                 "cleared": bool(data.get("cleared")),
             })
     return result

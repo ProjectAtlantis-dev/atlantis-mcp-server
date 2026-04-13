@@ -33,6 +33,7 @@ async def _execute_tool(
     converted_tools: List[TranscriptToolT],
     tool_lookup: Dict[str, ToolLookupInfo],
     transcript: List[Dict[str, Any]],
+    allowed_apps: Optional[List[str]] = None,
 ) -> bool:
     """Execute a single tool call and append result to transcript. Returns True if handled."""
 
@@ -47,7 +48,7 @@ async def _execute_tool(
     if tool_key == 'search':
         query = arguments.get('query', '')
         logger.info(f"SEARCH: query='{query}'")
-        summary, _, _ = await handle_search_tool(query, converted_tools, tool_lookup)
+        summary, _, _ = await handle_search_tool(query, converted_tools, tool_lookup, allowed_apps=allowed_apps)
         transcript.append({'role': 'tool', 'tool_call_id': call_id, 'content': summary})
         return True
 
@@ -123,6 +124,7 @@ async def run_turn(
     tool_lookup: Dict[str, ToolLookupInfo],
     sessionId: str,
     requestId: str,
+    allowed_apps: Optional[List[str]] = None,
 ) -> Optional[str]:
     """Stream a multi-turn LLM conversation with tool calls. Returns accumulated text."""
 
@@ -236,7 +238,7 @@ async def run_turn(
             for tc in tool_calls_accumulator.values():
                 try:
                     arguments = _parse_tool_arguments(tc['arguments'], tc['name'])
-                    await _execute_tool(tc['name'], arguments, tc['id'], converted_tools, tool_lookup, transcript)
+                    await _execute_tool(tc['name'], arguments, tc['id'], converted_tools, tool_lookup, transcript, allowed_apps=allowed_apps)
                     any_executed = True
                 except Exception as e:
                     logger.error(f"Tool {tc['name']} failed: {e}")

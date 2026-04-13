@@ -46,7 +46,7 @@ def _save_roster(game_id: str, roster: List[Dict[str, Any]], user_sid: Optional[
 
 def assign_role(game_id: str, *, id: str, title: str, location: str,
                 bot: str, requiresCheckin: bool = False,
-                user_sid: Optional[str] = None) -> Dict[str, Any]:
+                user_sid: Optional[str] = None, **extra) -> Dict[str, Any]:
     """Assign a bot to a role in a user's private game roster."""
     roster_entry = {
         "id": id,
@@ -54,6 +54,7 @@ def assign_role(game_id: str, *, id: str, title: str, location: str,
         "location": location,
         "bot": bot,
         "requiresCheckin": requiresCheckin,
+        **extra,
     }
 
     roster = [

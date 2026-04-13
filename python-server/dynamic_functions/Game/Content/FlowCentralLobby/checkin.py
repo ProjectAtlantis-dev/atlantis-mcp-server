@@ -1,12 +1,11 @@
 """FlowCentralLobby arrival check-in tools.
 
-These are the MCP-visible tools Atlas uses to walk a new guest
+MCP-visible tools the receptionist bot uses to walk a new guest
 through the FlowCentral front-desk procedure.
 
 Guest data lives in Data/players/{username}/.
 """
 
-import atlantis
 import logging
 from datetime import datetime
 
@@ -15,7 +14,6 @@ from dynamic_functions.Data.main import (
     get_visit_info as _get_visit_info,
     is_cleared,
     record_new_conversation as _record_new_conversation,
-    register_guest as _register_guest,
     list_all_guests,
 )
 from dynamic_functions.Data.todo import _read_store
@@ -74,13 +72,12 @@ def build_checkin_injections(caller: str, guest: dict | None) -> list[dict]:
             "(no arguments) to see your current progress, then "
             "continue working through the remaining pending steps. "
             "Use `todo` with merge=true to update each step's status "
-            "as you go. You do NOT know their name or username yet "
-            "unless you have already verified their paperwork."
+            "as you go."
             f"{first_visit_note}"
         )
     else:
         text = (
-            "[PROCEDURE REQUIRED] This is an unidentified guest who "
+            "[PROCEDURE REQUIRED] This is a new guest who "
             "has NOT completed FlowCentral check-in. Your FIRST action MUST be "
             f"to call `find_checklist` with location=\"{LOCATION}\" "
             "to discover and load the check-in checklist tool. Once "
@@ -89,9 +86,7 @@ def build_checkin_injections(caller: str, guest: dict | None) -> list[dict]:
             "directly to the `todo` tool to load your checklist. Then "
             "use `todo` with merge=true to mark each step in_progress "
             "then completed as you work through them. Do NOT greet or "
-            "say anything until your checklist is loaded. You do NOT "
-            "know their name or username yet — that will be revealed "
-            "when you verify their paperwork."
+            "say anything until your checklist is loaded."
             f"{first_visit_note}"
         )
     return [{'role': 'system', 'content': [{'type': 'text', 'text': text}]}]
@@ -133,49 +128,12 @@ async def get_guest_checklist():
     Call this ONCE, then pass the returned array to the todo tool to load it.
     After loading, use todo(merge=true) to update each step's status as you go.
     Do NOT call this again — just use the todo tool to track progress.
-    Do NOT ask for the guest's name or username yet — that comes later in the procedure.
     """
     logger.info("FlowCentralLobby get_guest_checklist called")
     return [
-        {"id": "greet", "status": "pending", "content": "Greet the guest warmly and introduce yourself — you're Atlas, the front desk assistant at FlowCentral."},
+        {"id": "greet", "status": "pending", "content": "Greet the guest warmly and introduce yourself — you're the front desk assistant at FlowCentral."},
         {"id": "overview", "status": "pending", "content": "Search for 'get_overview' on your console and call it to get the platform overview, then walk the guest through what FlowCentral has to offer in your own words. Keep it conversational — hit the highlights, don't just dump the whole thing."},
         {"id": "suggest", "status": "pending", "content": "Suggest they try Page Speed — it's the tool that's live right now. Ask if they have a website URL they'd like to test."},
-        {"id": "paperwork", "status": "pending", "content": "Ask to see their security paperwork — the signed entry authorization form and their security card. Be friendly but firm — you MUST receive their paperwork before proceeding. No exceptions."},
-        {"id": "verify", "status": "pending", "content": "Once they hand over their paperwork, search for 'verify_paperwork' on your console and call it to read their security card."},
-        {"id": "register", "status": "pending", "content": "After verification, ask for their real first name, then search for 'register_guest' on your console and call it with their username and first name to finish check-in."},
     ]
 
 
-@visible
-async def verify_paperwork():
-    """
-    Call this after the guest hands over their security card and entry authorization.
-    Reads their security card and reveals the username printed on it.
-    Takes no arguments — the card is read automatically.
-    """
-    username = atlantis.get_caller()
-    if not username:
-        raise ValueError("Could not read the security card — no caller identity found.")
-    logger.info(f"FlowCentralLobby verify_paperwork called — card reads: {username}")
-    return (
-        f"Paperwork received. The username on their security card is: {username}\n"
-        f"Now ask the guest for their real first name so you can finish check-in.\n"
-        f"Once you have it, call register_guest with their username and first name."
-    )
-
-
-@visible
-async def register_guest(username: str, first_name: str):
-    """
-    Final step of new guest check-in. Stores the guest's real first name.
-
-    Args:
-        username: The username from their security card
-        first_name: The guest's real first name
-    """
-    logger.info(f"FlowCentralLobby register_guest called for: {username} (first_name={first_name})")
-    _register_guest(username, first_name, location=LOCATION)
-    return (
-        f"Guest {first_name} (username: {username}) has been registered.\n"
-        f"Welcome them by name and let them know they're all set."
-    )

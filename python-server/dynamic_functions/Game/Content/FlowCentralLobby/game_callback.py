@@ -33,7 +33,7 @@ async def game_callback():
         if created_player:
             logger.info(f"FlowCentralLobby first-time player folder created for user: {user_id}")
 
-        _write_store([], user_id)
+        _write_store([], user_id, game_id)
 
         # Assign the bot inside this game's private role data.
         roster_role = {**get_role("flowcentral_receptionist"), "bot": "atlas"}

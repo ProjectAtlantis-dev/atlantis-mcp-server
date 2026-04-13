@@ -10,7 +10,7 @@ from datetime import datetime
 from jinja2 import Template
 
 from utils import format_json_log, parse_search_term
-from dynamic_functions.Data.todo import TODO_PSEUDO_TOOL, handle_todo_tool, list_tasks as _list_tasks, _read_store
+from dynamic_functions.Data.todo import TODO_PSEUDO_TOOL, handle_todo_tool, list_tasks as _list_tasks
 
 logger = logging.getLogger("mcp_client")
 

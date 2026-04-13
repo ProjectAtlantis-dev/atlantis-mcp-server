@@ -1,8 +1,9 @@
 import atlantis
 import logging
 import json
+import os
 from typing import Optional
-from dynamic_functions.Data.main import get_player_field, set_player_field
+from dynamic_functions.Data.main import player_game_dir, _read_json_file, _write_json_file
 
 logger = logging.getLogger("mcp_server")
 
@@ -14,21 +15,34 @@ def _get_caller() -> str:
     return atlantis.get_caller() or ""
 
 
-def _read_store(caller: str = "") -> list:
-    """Read the todo list from the player's todo file."""
+def _game_todo_path(caller: str, game_id: str) -> str:
+    """Return the path to the per-game todos file."""
+    return os.path.join(player_game_dir(caller, game_id, create=True), "todos.json")
+
+
+def _read_store(caller: str = "", game_id: str = "") -> list:
+    """Read the todo list from the player's per-game todo file."""
     caller = caller or _get_caller()
     if not caller:
         return []
-    return get_player_field(caller, "todos", [])
+    game_id = game_id or (atlantis.get_game_id() or "")
+    if not game_id:
+        logger.warning("todo _read_store: no game_id, returning empty")
+        return []
+    return _read_json_file(_game_todo_path(caller, game_id), [])
 
 
-def _write_store(items: list, caller: str = ""):
-    """Write the todo list to the player's todo file."""
+def _write_store(items: list, caller: str = "", game_id: str = ""):
+    """Write the todo list to the player's per-game todo file."""
     caller = caller or _get_caller()
     if not caller:
         logger.warning("todo _write_store: no caller, cannot persist")
         return
-    set_player_field(caller, "todos", items)
+    game_id = game_id or (atlantis.get_game_id() or "")
+    if not game_id:
+        logger.warning("todo _write_store: no game_id, cannot persist")
+        return
+    _write_json_file(_game_todo_path(caller, game_id), items)
 
 
 def _validate(item):

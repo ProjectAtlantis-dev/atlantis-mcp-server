@@ -25,9 +25,9 @@ def build_interaction_context(
 
     if prior_interaction_count <= 0:
         if late_night:
-            interaction_note = f"This is your first interaction with {display_name}. It's late — welcome them warmly."
+            interaction_note = f"This is your first interaction with {display_name}. It's late; welcome them warmly and keep the tone calm."
         else:
-            interaction_note = f"This is your first interaction with {display_name}. Introduce yourself, welcome them, and help them get oriented."
+            interaction_note = f"This is your first interaction with {display_name}. Be warm and welcoming; introduce yourself only if it fits naturally."
     elif prior_interaction_count == 1:
         interaction_note = f"You have interacted with {display_name} once before. Welcome them back without doing a full first-time intro."
     elif prior_interaction_count <= 5:

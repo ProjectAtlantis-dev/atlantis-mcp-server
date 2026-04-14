@@ -12,9 +12,8 @@ from datetime import datetime
 
 from dynamic_functions.Data.main import (
     get_guest,
-    get_visit_info as _get_visit_info,
+    get_interaction_info as _get_interaction_info,
     is_cleared,
-    record_new_conversation as _record_new_conversation,
     register_guest as _register_guest,
     list_all_guests,
 )
@@ -29,27 +28,26 @@ LOCATION = "AtlantisLobby"
 # Helpers (importable by other modules)
 # =========================================================================
 
-def get_visit_info(username: str) -> tuple[int, str]:
-    return _get_visit_info(username)
+def get_interaction_info(username: str) -> tuple[int, str]:
+    return _get_interaction_info(username)
 
 
 def is_checkin_complete(username: str) -> bool:
     return is_cleared(username)
 
 
-def record_new_conversation(username: str) -> None:
-    _record_new_conversation(username, location=LOCATION)
-
-
-def build_checkin_injections(caller: str, guest: dict | None) -> list[dict]:
+def build_checkin_injections(
+    caller: str,
+    guest: dict | None,
+    interaction: dict | None = None,
+) -> list[dict]:
     """Build runtime procedure prompts for AtlantisLobby check-in."""
     if guest and guest.get("cleared"):
-        visits = guest.get("visits") or []
-        last_visit = visits[-1] if visits else ""
-        if not last_visit:
+        last_interaction_at = (interaction or {}).get("last_interaction_at") or ""
+        if not last_interaction_at:
             return []
         try:
-            elapsed = datetime.now() - datetime.fromisoformat(last_visit)
+            elapsed = datetime.now() - datetime.fromisoformat(last_interaction_at)
         except (ValueError, TypeError):
             return []
         if elapsed.total_seconds() <= 3600:

@@ -34,11 +34,6 @@ def _safe_data_id(value: str, label: str = "id") -> str:
     return safe_id
 
 
-def _player_path(username: str) -> str:
-    """Legacy flat player path. Read-only compatibility for old data."""
-    return os.path.join(PLAYERS_DIR, f"{username}.json")
-
-
 def player_data_dir(username: str, *, create: bool = False) -> str:
     """Return a player's private data directory."""
     path = os.path.join(PLAYERS_DIR, _safe_data_id(username, "username"))
@@ -55,10 +50,10 @@ def player_folder_exists(username: str) -> bool:
 
 
 def player_data_exists(username: str) -> bool:
-    """Return whether this player has folder data or legacy flat data."""
+    """Return whether this player has folder data."""
     if not username:
         return False
-    return player_folder_exists(username) or os.path.exists(_player_path(username))
+    return player_folder_exists(username)
 
 
 def player_game_dir(username: str, game_id: str, *, create: bool = False) -> str:
@@ -99,14 +94,10 @@ def _write_json_file(path: str, data) -> None:
 
 
 def read_player(username: str) -> dict[str, Any]:
-    """Read all top-level player fields from the player's folder.
-
-    Legacy flat player JSON is merged first for backwards compatibility.
-    New writes go to one file per field under players/{username}/.
-    """
+    """Read all top-level player fields from the player's folder."""
     if not username:
         return {}
-    data = _read_json_file(_player_path(username), {})
+    data = {}
 
     player_dir = player_data_dir(username, create=False)
     if not os.path.isdir(player_dir):
@@ -133,15 +124,13 @@ def write_player(username: str, data: dict[str, Any]) -> None:
 
 
 def list_player_names() -> list[str]:
-    """List all player record names from folders and legacy flat JSON."""
+    """List all player record names from folders."""
     os.makedirs(PLAYERS_DIR, exist_ok=True)
     names = set()
     for filename in os.listdir(PLAYERS_DIR):
         path = os.path.join(PLAYERS_DIR, filename)
         if os.path.isdir(path):
             names.add(filename)
-        elif filename.endswith(".json"):
-            names.add(filename[:-5])
     return sorted(names)
 
 
@@ -152,7 +141,7 @@ def get_player_field(username: str, key: str, default=None):
     field_path = _field_path(username, key)
     if os.path.exists(field_path):
         return _read_json_file(field_path, default)
-    return _read_json_file(_player_path(username), {}).get(key, default)
+    return default
 
 
 def set_player_field(username: str, key: str, value) -> dict[str, Any]:
@@ -182,6 +171,21 @@ def _normalize_interactions(raw) -> dict[str, list[dict[str, Any]]]:
 
 def _interaction_timestamp(record: dict[str, Any]) -> str:
     return str(record.get("last_seen_at") or record.get("started_at") or "")
+
+
+def _all_interaction_records(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return every interaction record from a player profile."""
+    interactions = _normalize_interactions(data.get(_INTERACTIONS_FIELD))
+    records: list[dict[str, Any]] = []
+    for bot_records in interactions.values():
+        records.extend(bot_records)
+    return records
+
+
+def _latest_interaction(records: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not records:
+        return None
+    return max(records, key=_interaction_timestamp)
 
 
 def _same_interaction(
@@ -299,9 +303,7 @@ def ensure_player_record(username: str, location: str = "FlowCentralLobby") -> t
     data = read_player(username)
 
     if created_new:
-        now = datetime.now().isoformat()
         set_player_field(username, "location", location)
-        set_player_field(username, "visits", [now])
         data = read_player(username)
         logger.info(f"Created new player folder for {username}")
 
@@ -340,50 +342,23 @@ def is_cleared(username: str) -> bool:
     return bool(data and data.get("cleared"))
 
 
-def _get_visits(data: dict) -> list[str]:
-    """Return the visits log from player data."""
-    visits = data.get("visits")
-    if isinstance(visits, list):
-        return visits
-    return []
-
-
-def get_visit_info(username: str) -> tuple[int, str]:
-    """Return (visit_count, last_visit) for a player."""
+def get_interaction_info(username: str) -> tuple[int, str]:
+    """Return (interaction_count, last_interaction_at) for a player."""
     data = read_player(username)
     if not data:
         return 0, ""
-    visits = _get_visits(data)
-    return len(visits), (visits[-1] if visits else "")
-
-
-def record_new_conversation(username: str, location: str = "FlowCentralLobby") -> None:
-    """Append a timestamped visit to the player's visit log."""
-    if not username:
-        return
-    data = read_player(username)
-    now = datetime.now().isoformat()
-    visits = _get_visits(data)
-    visits.append(now)
-    set_player_field(username, "visits", visits)
-    if not data.get("location"):
-        set_player_field(username, "location", location)
-    logger.info(f"New conversation recorded for {username}")
+    interactions = _all_interaction_records(data)
+    latest = _latest_interaction(interactions)
+    return len(interactions), (_interaction_timestamp(latest) if latest else "")
 
 
 def register_guest(username: str, first_name: str, location: str = "FlowCentralLobby") -> dict[str, Any]:
     """Register a guest (final check-in step). Sets cleared=True."""
-    data = read_player(username)
-    now = datetime.now().isoformat()
-    visits = _get_visits(data)
-    visits.append(now)
-    data["first_name"] = first_name
-    data["visits"] = visits
-    data["cleared"] = True
-    data["location"] = location
-    write_player(username, data)
+    set_player_field(username, "first_name", first_name)
+    set_player_field(username, "cleared", True)
+    set_player_field(username, "location", location)
     logger.info(f"Registered guest {first_name} ({username}) at {location}")
-    return data
+    return read_player(username)
 
 
 def list_all_guests() -> list[dict[str, Any]]:
@@ -392,11 +367,11 @@ def list_all_guests() -> list[dict[str, Any]]:
     for name in list_player_names():
         data = read_player(name)
         if data:
-            visits = _get_visits(data)
+            interactions = _all_interaction_records(data)
             result.append({
                 "username": name,
                 "first_name": data.get("first_name", ""),
-                "visit_count": len(visits),
+                "interaction_count": len(interactions),
                 "cleared": bool(data.get("cleared")),
             })
     return result

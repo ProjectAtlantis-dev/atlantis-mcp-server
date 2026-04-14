@@ -11,9 +11,8 @@ from datetime import datetime
 
 from dynamic_functions.Data.main import (
     get_guest,
-    get_visit_info as _get_visit_info,
+    get_interaction_info as _get_interaction_info,
     is_cleared,
-    record_new_conversation as _record_new_conversation,
     list_all_guests,
 )
 
@@ -26,27 +25,26 @@ LOCATION = "FlowCentralLobby"
 # Helpers (importable by other modules)
 # =========================================================================
 
-def get_visit_info(username: str) -> tuple[int, str]:
-    return _get_visit_info(username)
+def get_interaction_info(username: str) -> tuple[int, str]:
+    return _get_interaction_info(username)
 
 
 def is_checkin_complete(username: str) -> bool:
     return is_cleared(username)
 
 
-def record_new_conversation(username: str) -> None:
-    _record_new_conversation(username, location=LOCATION)
-
-
-async def build_checkin_injections(caller: str, guest: dict | None) -> list[dict]:
+async def build_checkin_injections(
+    caller: str,
+    guest: dict | None,
+    interaction: dict | None = None,
+) -> list[dict]:
     """Build runtime procedure prompts for FlowCentralLobby check-in."""
     if guest and guest.get("cleared"):
-        visits = guest.get("visits") or []
-        last_visit = visits[-1] if visits else ""
-        if not last_visit:
+        last_interaction_at = (interaction or {}).get("last_interaction_at") or ""
+        if not last_interaction_at:
             return []
         try:
-            elapsed = datetime.now() - datetime.fromisoformat(last_visit)
+            elapsed = datetime.now() - datetime.fromisoformat(last_interaction_at)
         except (ValueError, TypeError):
             return []
         if elapsed.total_seconds() <= 3600:
@@ -56,14 +54,14 @@ async def build_checkin_injections(caller: str, guest: dict | None) -> list[dict
             f"[Some time has passed since your last interaction. The current date and time is now {now_str}.]"
         }]}]
 
-    visits = (guest.get("visits") or []) if guest else []
-    is_new = len(visits) <= 1
+    prior_interaction_count = int((interaction or {}).get("prior_interaction_count") or 0)
+    is_new = prior_interaction_count <= 0
 
     if is_new:
         from dynamic_functions.Game.Content.FlowCentralLobby.overview import get_overview
         overview = await get_overview()
         text = (
-            "[NEW GUEST] This guest has not visited FlowCentral before. "
+            "[NEW GUEST] This guest has not interacted with FlowCentral before. "
             "Welcome them warmly and walk them through the platform overview "
             "below in your own words — keep it conversational, hit the "
             "highlights, don't just dump the whole thing. After the overview, "
@@ -73,8 +71,8 @@ async def build_checkin_injections(caller: str, guest: dict | None) -> list[dict
         )
     else:
         text = (
-            "[RETURNING GUEST] This guest has visited FlowCentral before "
-            f"({len(visits)} times) but hasn't completed check-in yet. "
+            "[RETURNING GUEST] This guest has interacted with FlowCentral before "
+            f"({prior_interaction_count} time(s)) but hasn't completed check-in yet. "
             "Welcome them back casually — no need for the full overview. "
             "Ask what they'd like to do today."
         )
@@ -123,5 +121,3 @@ async def get_guest_checklist():
         {"id": "overview", "status": "pending", "content": "Ssearch for 'get_overview' on your console and call it to get the platform overview, then walk the guest through what FlowCentral has to offer in your own words. Keep it conversational — hit the highlights, don't just dump the whole thing."},
         {"id": "suggest", "status": "pending", "content": "Suggest they try Page Speed — it's the tool that's live right now. Ask if they have a website URL they'd like to test."},
     ]
-
-

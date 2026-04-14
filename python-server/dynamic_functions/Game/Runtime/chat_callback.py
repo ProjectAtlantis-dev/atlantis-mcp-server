@@ -30,9 +30,27 @@ from dynamic_functions.Game.Runtime.roster import get_role_for_bot
 
 
 _BUSY_KEY = "chat_busy"
+_PURPLE = "\033[1;35m"
+_RESET = "\033[0m"
 
 
+def _log_interaction_banner(caller, bot_sid, role_title, location, interaction):
+    prior_count = int(interaction.get("prior_interaction_count") or 0)
+    has_met_before = bool(interaction.get("has_met_before"))
+    interaction_type = "RETURNING INTERACTION" if has_met_before else "FIRST INTERACTION"
+    banner_subject = f"{str(location).upper()} / {str(bot_sid).upper()}"
+    last_seen = interaction.get("last_interaction_at") or "never"
+    total_recorded = int(interaction.get("total_recorded_interactions") or 0)
 
+    logger.info(
+        "\n"
+        f"{_PURPLE}======================================================================{_RESET}\n"
+        f"{_PURPLE}  {banner_subject} INTERACTION CHECK: {interaction_type}{_RESET}\n"
+        f"{_PURPLE}  caller={caller} bot={bot_sid} role={role_title} location={location}{_RESET}\n"
+        f"{_PURPLE}  has_met_before={has_met_before} prior_count={prior_count} "
+        f"total_recorded={total_recorded} last={last_seen}{_RESET}\n"
+        f"{_PURPLE}======================================================================{_RESET}"
+    )
 
 # =========================================================================
 # Chat callback
@@ -108,7 +126,7 @@ async def _build_procedure_injections(context):
     if not callable(build_checkin_injections):
         raise RuntimeError(f"Role {role['id']} requires check-in but {module_name}.build_checkin_injections is missing")
 
-    result = build_checkin_injections(caller, guest)
+    result = build_checkin_injections(caller, guest, context.interaction)
     # Support both sync and async build_checkin_injections
     if hasattr(result, '__await__'):
         result = await result
@@ -145,6 +163,7 @@ async def _handle_chat(session_id, request_id, game_id, caller):
     )
 
     logger.info(f"Game {game_id}: bot={bot_sid} role={role_title} location={location}")
+    _log_interaction_banner(caller, bot_sid, role_title, location, interaction)
     logger.info(
         f"Interaction: caller={caller} bot={bot_sid} "
         f"has_met_before={interaction.get('has_met_before')} "

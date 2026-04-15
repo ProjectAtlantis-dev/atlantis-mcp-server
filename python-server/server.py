@@ -16,6 +16,8 @@ import socketio
 import argparse
 import uuid
 import secrets
+import base64
+import mimetypes
 from utils import clean_filename, format_json_log, parse_search_term, write_tools_debug_file
 from PIDManager import PIDManager
 from typing import Any, Callable, Dict, List, Optional, Union
@@ -3464,13 +3466,30 @@ class ServiceClient:
 
     Manages the Socket.IO connection to the cloud server's service namespace.
     """
-    def __init__(self, appName:str, server_url: str, namespace: str, email: str, api_key: str, serviceName: str, mcp_server: 'DynamicAdditionServer', port: int):
+    @staticmethod
+    def _encode_image(image_path: str) -> str:
+        """Read an image file and return a base64 data URI string."""
+        if not image_path:
+            return ""
+        try:
+            resolved = os.path.abspath(image_path)
+            mime_type = mimetypes.guess_type(resolved)[0] or "image/png"
+            with open(resolved, "rb") as f:
+                encoded = base64.b64encode(f.read()).decode("utf-8")
+            return f"data:{mime_type};base64,{encoded}"
+        except Exception as e:
+            logger.warning(f"⚠️ Could not read image '{image_path}': {e}")
+            return ""
+
+    def __init__(self, appName:str, server_url: str, namespace: str, email: str, api_key: str, serviceName: str, mcp_server: 'DynamicAdditionServer', port: int, description: str = "", image: str = ""):
         self.server_url = server_url
         self.namespace = namespace
         self.email = email
         self.api_key = api_key
         self.appName = appName
         self.serviceName = serviceName
+        self.description = description
+        self.image = self._encode_image(image)
         self.mcp_server = mcp_server
         self.server_port = port # Store the server's listening port
         self.sio = None
@@ -3843,7 +3862,9 @@ class ServiceClient:
                     "serverVersion": SERVER_VERSION,
                     "pythonVersion": sys.version.split()[0],
                     "mcpVersion": importlib.metadata.version('mcp'),
-                    "pid": os.getpid()
+                    "pid": os.getpid(),
+                    "description": self.description,
+                    "image": self.image
                 }
                 logger.info(f"🔐 Connecting with auth: email={self.email}, serviceName={self.serviceName}, appName={self.appName}, hostname={hostname}")
                 await self.sio.connect(
@@ -3954,6 +3975,10 @@ class ServiceClient:
             logger.info("") # Blank line after
             logger.info(f"{BOLD}{BRIGHT_WHITE}REMOTE NAME : {self.serviceName}{RESET}")
             logger.info(f"{BOLD}{BRIGHT_WHITE}APP NAME    : {self.appName}{RESET}")
+            if self.description:
+                logger.info(f"{BOLD}{BRIGHT_WHITE}DESCRIPTION : {self.description}{RESET}")
+            if self.image:
+                logger.info(f"{BOLD}{BRIGHT_WHITE}IMAGE       : {self.image}{RESET}")
             logger.info(f"{BOLD}{BRIGHT_WHITE}OWNER       : {atlantis._owner}{RESET}")
             logger.info(f"{BOLD}{BRIGHT_WHITE}OWNER USERS : {atlantis._owner_usernames}{RESET}")
             logger.info(f"{BOLD}{BRIGHT_WHITE}LOGIN       : {self.email}{RESET}")
@@ -4519,6 +4544,8 @@ if __name__ == "__main__":
     parser.add_argument("--api-key", help="Service API key for cloud authentication")
     parser.add_argument("--service-name", help="Desired service name")
     parser.add_argument("--app-name", help="App name for cloud authentication")
+    parser.add_argument("--description", default="", help="Friendly description string for the service")
+    parser.add_argument("--image", default="", help="Image path or URL for the service")
     parser.add_argument("--no-cloud", action="store_true", help="Disable cloud server connection")
     parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], default="INFO", help="Set the logging level")
     args = parser.parse_args()
@@ -4660,7 +4687,9 @@ if __name__ == "__main__":
                     serviceName=args.service_name,
                     appName = args.app_name,
                     mcp_server=mcp_server,
-                    port=PORT # Pass the listening port
+                    port=PORT, # Pass the listening port
+                    description=args.description,
+                    image=args.image
                 )
                 # Store cloud client reference on server for tool reporting
                 mcp_server.cloud_client = cloud_connection

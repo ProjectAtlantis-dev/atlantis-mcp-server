@@ -29,7 +29,7 @@ import traceback
 from collections import defaultdict
 
 # Version
-SERVER_VERSION = "3.9.2"
+SERVER_VERSION = "4.0.0"
 
 # Tool list display column widths
 COL_WIDTH_APP = 30
@@ -797,7 +797,7 @@ class DynamicAdditionServer(Server):
                 logger.warning(f"🧹 Final cleanup: Future for stream {correlation_id} was still in awaitable_requests.")
                 self.awaitable_requests.pop(correlation_id, None)
 
-    async def _get_dynamic_index_filter(self, app_name: str) -> set:
+    async def _get_dynamic_index_filter(self, app_name: str) -> set[str] | None:
         """
         Check if an app/folder has a @dynamic @index function.
         If so, call it and return a set of allowed tool names.

@@ -421,9 +421,15 @@ async def process_mcp_request(
         if method == "resources/list":
             result = await server._get_resources_list()
             return {"jsonrpc": "2.0", "id": req_id, "result": {"resources": result}}
+        if method == "resources/templates/list":
+            return {"jsonrpc": "2.0", "id": req_id, "result": {"resourceTemplates": []}}
         if method == "tools/call":
             if client_id is None:
-                return {"jsonrpc": "2.0", "id": req_id, "error": "Missing client_id for tools/call"}
+                return {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "error": {"code": -32602, "message": "Missing client_id for tools/call"},
+                }
             return await server._handle_tools_call(
                 params=params,
                 client_id=client_id,
@@ -432,11 +438,19 @@ async def process_mcp_request(
             )
 
         logger.warning(f"Unknown method requested: {method}")
-        return {"jsonrpc": "2.0", "id": req_id, "error": f"Unknown method: {method}"}
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32601, "message": f"Method not found: {method}"},
+        }
     except Exception as e:
         logger.error(f"Error processing request '{method}': {e}")
         logger.debug(f"Traceback: {traceback.format_exc()}")
-        return {"jsonrpc": "2.0", "id": req_id, "error": f"Error processing request: {e}"}
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32603, "message": f"Internal error: {e}"},
+        }
 
 
 async def handle_lobster_socket(

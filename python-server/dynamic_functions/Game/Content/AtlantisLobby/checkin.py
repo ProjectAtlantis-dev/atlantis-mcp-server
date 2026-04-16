@@ -128,10 +128,10 @@ async def get_guest_checklist():
     logger.info("get_guest_checklist called")
     return [
         {"id": "greet",      "status": "pending", "content": "Greet the guest warmly and introduce yourself — you're the front desk assistant."},
-        {"id": "drink",      "status": "pending", "content": "Offer them a warm drink (cocoa, coffee, tea) and ask if it's their first time in Greenland or at Atlantis."},
-        {"id": "paperwork",  "status": "pending", "content": "Ask to see their security paperwork — the signed entry authorization form and their security card. Be friendly but firm — you MUST receive their paperwork before proceeding. No exceptions."},
+        {"id": "paperwork",  "status": "pending", "content": "Confirm if first visit to Greenland or Atlantis. Ask to see their security paperwork — the signed entry authorization form and their security card. Be friendly but firm — you MUST receive their paperwork before proceeding. No exceptions."},
         {"id": "verify",     "status": "pending", "content": "Once they hand over their paperwork, search for 'verify_paperwork' on your console and call it to read their security card."},
         {"id": "register",   "status": "pending", "content": "After verification, ask for their real first name, then search for 'register_guest' on your console and call it with their username and first name to finish check-in."},
+        {"id": "drink",      "status": "pending", "content": "Offer them a warm drink (cocoa, coffee, tea, booze)."},
     ]
 
 

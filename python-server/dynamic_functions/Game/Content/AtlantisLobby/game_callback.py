@@ -41,8 +41,8 @@ async def game_callback():
         logger.info(f"Roster: {role['bot']} -> {role['title']}")
 
         await atlantis.client_command("/silent on")
-        await atlantis.client_command("/callback set chat chat_callback")
-        await atlantis.client_command("/callback set session session_callback")
+        await atlantis.client_command("/callback set chat $Game/Runtime/chat_callback")
+        await atlantis.client_command("/callback set session $Game/Runtime/session_callback")
 
     finally:
         await atlantis.client_command("/silent off")

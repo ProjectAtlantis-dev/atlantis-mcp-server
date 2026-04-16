@@ -64,7 +64,7 @@ class ParsedSearchTerm(TypedDict):
     """Parsed components of a compound search term."""
     owner: Optional[str]        # Remote owner (e.g., "admin")
     remote: Optional[str]       # Remote name (e.g., "admin")
-    app: str                    # App/folder name (e.g., "Home")
+    app: Optional[str]          # App/folder name (e.g., "Home"), or None for root-level functions
     location: Optional[str]     # Location identifier
     function: str               # Function name (e.g., "chat")
     filename: str               # Derived filename (e.g., "Home/chat.py")

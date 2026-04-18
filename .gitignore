@@ -28,12 +28,7 @@ yarn-debug.log
 yarn-error.log
 .npm
 .yarn-integrity
-.env
-.env.test
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env*
 
 # Editor directories and files
 .idea/
@@ -43,59 +38,25 @@ yarn-error.log
 .DS_Store
 *.pid
 
-
 *.OLD
-python-server/dynamic_functions/OLD/
 python-server/dynamic_functions/*
+
+python-server/dynamic_functions copy/*
 
 !python-server/dynamic_functions/Home
 !python-server/dynamic_functions/Bot
 !python-server/dynamic_functions/Game
-!python-server/dynamic_functions/Tick
-!python-server/dynamic_functions/Tools
-!python-server/dynamic_functions/Callback
-!python-server/dynamic_functions/Computer
 !python-server/dynamic_functions/Data
+python-server/dynamic_functions/.gitignore
 
 python-server/dynamic_servers/*
-python-server/dynamic_functions/.gitignore
-python-server/dynamic_servers/OLD/
 !python-server/dynamic_servers/weather.json
-python-server/runServerProd
-python-server/runServerFoo*
-python-server/runServerAdmin*
-python-server/runServerBar*
-python-server/runServer*Local
-python-server/runServer*Prod
-
-
-python-server2/
+python-server/runServer?*
 
 log/
 
 *.db
+python-server/**/*.json
+python-server/**/*.log
 
-server.log
-
-python-server/set_OPENROUTER.bat
-python-server/set_ANTHROPIC.bat
-
-runServer.log
-python-server/tools_response_debug.json
-python-server/dynamic_functions.TEST/*
-
-# Bot Kitty runtime files (all variants)
-python-server/dynamic_functions/Bot/Kitty/visitor_data.json
-python-server/dynamic_functions/Bot/Kitty/*/api_payload.json
-python-server/dynamic_functions/Bot/Kitty/*/raw_transcript.json
-python-server/dynamic_functions/Bot/Kitty/*/visitor_log.json
-python-server/dynamic_functions/Callback/raw_transcript.json
-python-server/dynamic_functions/Game/Runtime/raw_transcript.json
-python-server/dynamic_functions/Game/Data/player_data.json
-python-server/dynamic_functions/Bot/Runtime/raw_transcript.json
-python-server/dynamic_functions/Bot/Runtime/api_payload.json
-python-server/dynamic_functions/Computer/computer.db-shm
-python-server/dynamic_functions/Computer/computer.db-wal
-python-server/dynamic_functions/Data/players/*.json
 python-server/dynamic_functions/Data/players/*/
-python-server/runServerSeo

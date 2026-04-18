@@ -1,4 +1,4 @@
-"""AtlantisLobby scenario — assigns Kitty to the Atlantis receptionist role."""
+"""FlowCentralLobby scenario — assigns Atlas to the FlowCentral receptionist role."""
 
 import atlantis
 import logging
@@ -17,7 +17,7 @@ BACKGROUND = os.path.join(os.path.dirname(__file__), "builder.jpg")
 
 @game
 async def game_callback():
-    """AtlantisLobby scenario — sets up the Atlantis receptionist roster entry."""
+    """FlowCentralLobby scenario — sets up the FlowCentral receptionist roster entry."""
 
     try:
         user_id = atlantis.get_caller()
@@ -27,16 +27,16 @@ async def game_callback():
         if not game_id:
             raise RuntimeError("game callback fired without a game_id in context")
 
-        logger.info(f"AtlantisLobby game started for user: {user_id}")
+        logger.info(f"FlowCentralLobby game started for user: {user_id}")
 
-        _, created_player = ensure_player_record(user_id, location="AtlantisLobby")
+        _, created_player = ensure_player_record(user_id, location="FlowCentralLobby")
         if created_player:
-            logger.info(f"AtlantisLobby first-time player folder created for user: {user_id}")
+            logger.info(f"FlowCentralLobby first-time player folder created for user: {user_id}")
 
         _write_store([], user_id, game_id)
 
         # Assign the bot inside this game's private role data.
-        roster_role = {**get_role("atlantis_receptionist"), "bot": "kitty"}
+        roster_role = {**get_role("flowcentral_receptionist"), "bot": "atlas"}
         role = assign_role(game_id, user_sid=user_id, **roster_role)
         logger.info(f"Roster: {role['bot']} -> {role['title']}")
 

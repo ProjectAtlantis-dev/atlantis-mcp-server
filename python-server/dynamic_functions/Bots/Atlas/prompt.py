@@ -1,4 +1,4 @@
-"""Kitty's system prompt builder.
+"""Atlas's system prompt builder.
 
 Assembles the final system prompt from the base prompt template
 plus bot-specific interaction context.
@@ -25,15 +25,15 @@ def build_interaction_context(
 
     if prior_interaction_count <= 0:
         if late_night:
-            interaction_note = f"This is your first interaction with {display_name}. It's late — welcome them warmly."
+            interaction_note = f"This is your first interaction with {display_name}. It's late; welcome them warmly and keep the tone calm."
         else:
-            interaction_note = f"This is your first interaction with {display_name}. Introduce yourself naturally and help them get oriented."
+            interaction_note = f"This is your first interaction with {display_name}. Be warm and welcoming; introduce yourself only if it fits naturally."
     elif prior_interaction_count == 1:
-        interaction_note = f"You have interacted with {display_name} once before. Greet them like someone you remember, but don't overdo it."
+        interaction_note = f"You have interacted with {display_name} once before. Welcome them back without doing a full first-time intro."
     elif prior_interaction_count <= 5:
         interaction_note = f"You have interacted with {display_name} {prior_interaction_count} times before. They're still fairly new — be friendly and keep context light."
     else:
-        interaction_note = f"You have interacted with {display_name} {prior_interaction_count} times before. They're familiar with you — skip the intros and be casual."
+        interaction_note = f"You have interacted with {display_name} {prior_interaction_count} times before. They're familiar with you — skip the intros and be direct."
 
     if last_interaction_at and prior_interaction_count > 0:
         try:

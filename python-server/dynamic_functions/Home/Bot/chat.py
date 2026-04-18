@@ -9,13 +9,13 @@ from typing import Any, Callable, Dict, List, Optional
 
 from openai import OpenAI
 
-from dynamic_functions.Bot.Runtime.common import (
+from dynamic_functions.Home.Bot.common import (
     TranscriptToolT,
     ToolLookupInfo,
     get_base_tools,
     logger,
 )
-from dynamic_functions.Bot.Runtime.turn import run_turn
+from dynamic_functions.Home.Bot.turn import run_turn
 
 
 ProcedureInjectionProvider = Callable[["BotChatContext"], Any]

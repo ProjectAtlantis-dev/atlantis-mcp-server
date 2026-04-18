@@ -9,8 +9,8 @@ import logging
 import os
 from typing import Optional, Dict, Any, List
 
-from dynamic_functions.Game.Runtime.common import game_data_dir
-from dynamic_functions.Game.Runtime.roles import get_role
+from dynamic_functions.Home.Game.common import game_data_dir
+from dynamic_functions.Home.Game.roles import get_role
 
 logger = logging.getLogger("mcp_server")
 

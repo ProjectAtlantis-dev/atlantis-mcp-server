@@ -1,13 +1,13 @@
 import atlantis
 import logging
 
-from dynamic_functions.Bot.Runtime.common import (
+from dynamic_functions.Home.Bot.common import (
     logger,
     analyze_participants,
     fetch_transcript,
 )
-from dynamic_functions.Game.Runtime.common import spawn_bot, _load_bot_config
-from dynamic_functions.Game.Runtime.roster import get_role_for_bot
+from dynamic_functions.Home.Game.common import spawn_bot, _load_bot_config
+from dynamic_functions.Home.Game.roster import get_role_for_bot
 
 
 @session
@@ -26,8 +26,7 @@ async def session_callback():
     bot_sids = []
     for sid in participants:
         if sid != caller:
-            cfg, _ = _load_bot_config(sid)
-            if cfg:
+            if _load_bot_config(sid):
                 bot_sids.append(sid)
 
     logger.info(f"🔄 Room state: participants={list(participants.keys())}, bot_sids={bot_sids}")

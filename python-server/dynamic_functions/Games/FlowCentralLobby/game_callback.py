@@ -5,14 +5,16 @@ import logging
 import os
 
 from dynamic_functions.Data.main import ensure_player_record
-from dynamic_functions.Data.todo import _write_store
-from dynamic_functions.Game.Runtime.common import spawn_bot
-from dynamic_functions.Game.Runtime.roles import get_role
-from dynamic_functions.Game.Runtime.roster import assign_role
+from dynamic_functions.Data.todo import todo_write
+from dynamic_functions.Home.Game.common import spawn_bot
+from dynamic_functions.Home.Game.location import enter_location
+from dynamic_functions.Home.Game.roles import get_role
+from dynamic_functions.Home.Game.roster import assign_role
 
 logger = logging.getLogger("mcp_server")
 
-BACKGROUND = os.path.join(os.path.dirname(__file__), "builder.jpg")
+GAME_DIR = os.path.dirname(__file__)
+BOTS_DIR = os.path.join(GAME_DIR, "..", "..", "Bots")
 
 
 @game
@@ -33,7 +35,7 @@ async def game_callback():
         if created_player:
             logger.info(f"FlowCentralLobby first-time player folder created for user: {user_id}")
 
-        _write_store([], user_id, game_id)
+        todo_write(f"FlowCentral/{user_id}/{game_id}/greeting_todo", [])
 
         # Assign the bot inside this game's private role data.
         roster_role = {**get_role("flowcentral_receptionist"), "bot": "atlas"}
@@ -47,5 +49,5 @@ async def game_callback():
     finally:
         await atlantis.client_command("/silent off")
 
-    await atlantis.set_background(BACKGROUND)
-    await spawn_bot(role["bot"])
+    await enter_location("FlowCentralLobby", GAME_DIR, game_id=game_id, user_sid=user_id)
+    await spawn_bot(role["bot"], BOTS_DIR)

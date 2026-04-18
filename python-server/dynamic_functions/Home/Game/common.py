@@ -4,44 +4,45 @@ import atlantis
 import json
 import logging
 import os
+from typing import Any, Dict, Optional, Tuple
 
 from dynamic_functions.Data.main import player_game_dir
 
 logger = logging.getLogger("mcp_server")
 
-BOTS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "Bot", "Content")
 
-
-def game_data_dir(game_id=None, user_sid=None, *, create=True):
+def game_data_dir(game_id: Optional[str] = None, user_sid: Optional[str] = None, *, create: bool = True) -> str:
     """Return the private runtime data directory for a user's game."""
     actual_game_id = game_id if game_id is not None else atlantis.get_game_id()
     actual_user_sid = user_sid if user_sid is not None else atlantis.get_caller()
+    if not actual_game_id or not actual_user_sid:
+        raise RuntimeError("game_data_dir requires an active game and caller")
     return player_game_dir(actual_user_sid, actual_game_id, create=create)
 
 
-def _load_bot_config(bot_sid):
-    """Find config.json for a bot by sid."""
-    for entry in os.listdir(BOTS_DIR):
-        config_path = os.path.join(BOTS_DIR, entry, "config.json")
+def _load_bot_config(bot_sid: str, bots_dir: str) -> Optional[Tuple[Dict[str, Any], str]]:
+    """Find config.json for a bot by sid under bots_dir. Returns (config, folder_name) or None."""
+    for entry in os.listdir(bots_dir):
+        config_path = os.path.join(bots_dir, entry, "config.json")
         if os.path.isfile(config_path):
             with open(config_path) as f:
                 cfg = json.load(f)
             if cfg.get("sid") == bot_sid:
-                return cfg, entry  # cfg + folder name
-    return None, None
+                return cfg, entry
+    return None
 
 
-async def spawn_bot(bot_sid):
+async def spawn_bot(bot_sid: str, bots_dir: str) -> None:
     """Spawn a bot: show their face image and announce them."""
-    cfg, folder = _load_bot_config(bot_sid)
-    if not cfg:
+    loaded = _load_bot_config(bot_sid, bots_dir)
+    if not loaded:
         logger.warning(f"No config.json found for bot sid: {bot_sid}")
         return
+    cfg, folder = loaded
 
     display_name = cfg.get("displayName", folder)
 
-    # Look for a face image in the bot's content folder
-    bot_dir = os.path.join(BOTS_DIR, folder)
+    bot_dir = os.path.join(bots_dir, folder)
     face_candidates = [f for f in os.listdir(bot_dir) if "face" in f.lower() and f.lower().endswith((".jpg", ".png", ".webp"))]
     if face_candidates:
         face_path = os.path.join(bot_dir, face_candidates[0])

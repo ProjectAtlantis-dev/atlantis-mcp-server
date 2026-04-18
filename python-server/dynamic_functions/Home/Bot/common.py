@@ -10,7 +10,7 @@ from datetime import datetime
 from jinja2 import Template
 
 from utils import format_json_log, parse_search_term
-from dynamic_functions.Data.todo import TODO_PSEUDO_TOOL, handle_todo_tool, list_tasks as _list_tasks
+from dynamic_functions.Data.todo import TODO_PSEUDO_TOOL
 
 logger = logging.getLogger("mcp_client")
 
@@ -540,84 +540,12 @@ async def fetch_transcript(caller: str = "") -> Tuple[List[Dict[str, Any]], List
     return raw_transcript, transcript
 
 
-FIND_CHECKLIST_PSEUDO_TOOL: TranscriptToolT = {
-    'type': 'function',
-    'function': {
-        'name': 'find_checklist',
-        'description': 'Find and load the guest check-in checklist for a specific location. Returns the checklist tool added to your toolkit so you can call it.',
-        'parameters': {
-            'type': 'object',
-            'properties': {
-                'location': {
-                    'type': 'string',
-                    'description': 'Location name to find the checklist for (e.g. "FlowCentralLobby", "AtlantisLobby")'
-                }
-            },
-            'required': ['location']
-        }
-    }
-}
-
-
-async def handle_find_checklist(
-    location: str,
-    converted_tools: List[TranscriptToolT],
-    tool_lookup: Dict[str, ToolLookupInfo]
-) -> Tuple[str, List[TranscriptToolT], Dict[str, ToolLookupInfo]]:
-    import time as _t
-    logger.info(f">>> FIND_CHECKLIST PSEUDO-TOOL: location='{location}' — searching...")
-    t0 = _t.monotonic()
-
-    # Scope search to the specific location so the bot only sees relevant results
-    scoped_query = f"**Game.Content.{location}**get_guest_checklist"
-    try:
-        results = await atlantis.client_command(f"/search {scoped_query}")
-    except Exception as e:
-        elapsed = _t.monotonic() - t0
-        logger.error(f"<<< FIND_CHECKLIST FAILED after {elapsed:.2f}s: {e}")
-        return f"Checklist search failed: {e}", converted_tools, tool_lookup
-
-    elapsed = _t.monotonic() - t0
-    logger.info(f"<<< FIND_CHECKLIST RETURNED in {elapsed:.2f}s — {len(results) if results else 0} results")
-
-    if not results:
-        return f"No checklist tools found for '{location}'.", converted_tools, tool_lookup
-
-    # Post-filter using the app field to match the requested location
-    filtered = [r for r in results if location.lower() in (r.get('app', '') or r.get('tool_app', '')).lower()]
-    if not filtered:
-        return f"No checklist found for location '{location}'.", converted_tools, tool_lookup
-
-    logger.info(f"Filtered to {len(filtered)} checklist(s) for '{location}'")
-
-    new_tools, new_simple, new_lookup = convert_tools_for_llm(filtered)
-
-    added_names = []
-    for tool in new_tools:
-        tool_name = tool['function']['name']
-        if tool_name not in tool_lookup:
-            converted_tools.append(tool)
-            added_names.append(f"{tool_name}: {tool['function']['description']}")
-
-    for tool_name, info in new_lookup.items():
-        if tool_name not in tool_lookup:
-            tool_lookup[tool_name] = info
-
-    if added_names:
-        summary = f"Checklist tool loaded for {location}:\n" + "\n".join(f"- {n}" for n in added_names)
-    else:
-        summary = f"Checklist for '{location}' was already in your toolkit."
-
-    logger.info(f"find_checklist result: {summary}")
-    return summary, converted_tools, tool_lookup
-
-
 def get_base_tools() -> Tuple[List[TranscriptToolT], Dict[str, ToolLookupInfo]]:
     """Return a fresh set of base pseudo-tools and an empty lookup.
 
     Tools are discovered via /search at runtime — never cached in session_shared.
     """
-    tools = [SEARCH_PSEUDO_TOOL, DIR_PSEUDO_TOOL, TODO_PSEUDO_TOOL, FIND_CHECKLIST_PSEUDO_TOOL]
+    tools = [SEARCH_PSEUDO_TOOL, DIR_PSEUDO_TOOL, TODO_PSEUDO_TOOL]
     lookup: Dict[str, ToolLookupInfo] = {}
     return tools, lookup
 

@@ -6,11 +6,11 @@ import time as _t
 from openai import OpenAI
 from typing import List, Dict, Any, Optional, cast
 
-from dynamic_functions.Bot.Runtime.common import (
+from dynamic_functions.Home.Bot.common import (
     logger,
     TranscriptToolT, ToolLookupInfo, ToolSchemaT,
     _repair_json, coerce_args_to_schema, convert_tools_for_llm,
-    handle_dir_tool, handle_search_tool, handle_find_checklist,
+    handle_dir_tool, handle_search_tool,
 )
 from dynamic_functions.Data.todo import handle_todo_tool
 from utils import format_json_log
@@ -55,13 +55,6 @@ async def _execute_tool(
     if tool_key == 'todo':
         result = await handle_todo_tool(arguments)
         transcript.append({'role': 'tool', 'tool_call_id': call_id, 'content': result})
-        return True
-
-    if tool_key == 'find_checklist':
-        location = arguments.get('location', '')
-        logger.info(f"FIND_CHECKLIST: location='{location}'")
-        summary, _, _ = await handle_find_checklist(location, converted_tools, tool_lookup)
-        transcript.append({'role': 'tool', 'tool_call_id': call_id, 'content': summary})
         return True
 
     # Real tool via lookup

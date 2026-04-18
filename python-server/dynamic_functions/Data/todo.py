@@ -1,52 +1,102 @@
-import atlantis
-import logging
+"""Generic per-path todo list storage.
+
+The module knows nothing about apps, players, games, or bots. Callers supply a
+relative path under Data/; layout conventions are the caller's choice. For
+example: "FlowCentral/Kitty/game3/greeting_todo".
+"""
+
 import json
+import logging
 import os
-from typing import Optional
-from dynamic_functions.Data.main import player_game_dir, _read_json_file, _write_json_file
+from typing import Any, Dict, List
 
 logger = logging.getLogger("mcp_server")
 
+DATA_ROOT = os.path.dirname(__file__)
 VALID_STATUSES = {"pending", "in_progress", "completed", "cancelled"}
 
 
-def _get_caller() -> str:
-    """Get the current caller username."""
-    return atlantis.get_caller() or ""
+def _resolve(path: str) -> str:
+    if not path:
+        raise ValueError("todo path cannot be empty")
+    rel = path.strip("/")
+    if not rel.endswith(".json"):
+        rel += ".json"
+    full = os.path.normpath(os.path.join(DATA_ROOT, rel))
+    if not full.startswith(DATA_ROOT + os.sep) and full != DATA_ROOT:
+        raise ValueError(f"todo path escapes Data/: {path}")
+    return full
 
 
-def _game_todo_path(caller: str, game_id: str) -> str:
-    """Return the path to the per-game todos file."""
-    return os.path.join(player_game_dir(caller, game_id, create=True), "todos.json")
+def _resolve_dir(directory: str) -> str:
+    full = os.path.normpath(os.path.join(DATA_ROOT, directory.strip("/")))
+    if not (full == DATA_ROOT or full.startswith(DATA_ROOT + os.sep)):
+        raise ValueError(f"todo dir escapes Data/: {directory}")
+    return full
 
 
-def _read_store(caller: str = "", game_id: str = "") -> list:
-    """Read the todo list from the player's per-game todo file."""
-    caller = caller or _get_caller()
-    if not caller:
+def _read_json(path: str, default):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            raw = f.read()
+            return json.loads(raw) if raw.strip() else default
+    except FileNotFoundError:
+        return default
+
+
+def _write_json(path: str, data) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = f"{path}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+    os.replace(tmp, path)
+
+
+def todo_read(path: str) -> List[Dict[str, Any]]:
+    """Read a todo list at Data/<path>.json. Returns [] if missing."""
+    return _read_json(_resolve(path), [])
+
+
+def todo_write(path: str, items: List[Dict[str, Any]]) -> None:
+    """Write a todo list to Data/<path>.json."""
+    _write_json(_resolve(path), items)
+
+
+def todo_delete(path: str) -> None:
+    """Delete a todo list file if it exists."""
+    full = _resolve(path)
+    if os.path.exists(full):
+        os.remove(full)
+
+
+def todo_list(directory: str = "") -> List[str]:
+    """List todo names directly under Data/<directory>/ (no extension, sorted)."""
+    full = _resolve_dir(directory)
+    if not os.path.isdir(full):
         return []
-    game_id = game_id or (atlantis.get_game_id() or "")
-    if not game_id:
-        logger.warning("todo _read_store: no game_id, returning empty")
+    return sorted(
+        name[:-5]
+        for name in os.listdir(full)
+        if name.endswith(".json") and os.path.isfile(os.path.join(full, name))
+    )
+
+
+def todo_walk(directory: str = "") -> List[str]:
+    """Recursively list all todos under Data/<directory>/ as paths (no extension)."""
+    full = _resolve_dir(directory)
+    if not os.path.isdir(full):
         return []
-    return _read_json_file(_game_todo_path(caller, game_id), [])
+    results = []
+    for root, _, files in os.walk(full):
+        for name in files:
+            if name.endswith(".json"):
+                rel = os.path.relpath(os.path.join(root, name), DATA_ROOT)
+                results.append(rel[:-5])
+    return sorted(results)
 
 
-def _write_store(items: list, caller: str = "", game_id: str = ""):
-    """Write the todo list to the player's per-game todo file."""
-    caller = caller or _get_caller()
-    if not caller:
-        logger.warning("todo _write_store: no caller, cannot persist")
-        return
-    game_id = game_id or (atlantis.get_game_id() or "")
-    if not game_id:
-        logger.warning("todo _write_store: no game_id, cannot persist")
-        return
-    _write_json_file(_game_todo_path(caller, game_id), items)
-
-
-def _validate(item):
-    """Validate and normalize a todo item."""
+def _validate(item: Dict[str, Any]) -> Dict[str, Any]:
     item_id = str(item.get("id", "")).strip() or "?"
     content = str(item.get("content", "")).strip() or "(no description)"
     status = str(item.get("status", "pending")).strip().lower()
@@ -55,15 +105,12 @@ def _validate(item):
     return {"id": item_id, "status": status, "content": content}
 
 
-def _merge_items(existing_items, new_items):
-    """Merge new items into existing list by id. Append unknown ids."""
+def _merge_items(existing_items: List[Dict[str, Any]], new_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     existing = {item["id"]: item for item in existing_items}
-
     for t in new_items:
         item_id = str(t.get("id", "")).strip()
         if not item_id:
             continue
-
         if item_id in existing:
             if "content" in t and t["content"]:
                 existing[item_id]["content"] = str(t["content"]).strip()
@@ -76,7 +123,6 @@ def _merge_items(existing_items, new_items):
             existing[validated["id"]] = validated
             existing_items.append(validated)
 
-    # Rebuild preserving order
     seen = set()
     rebuilt = []
     for item in existing_items:
@@ -87,13 +133,11 @@ def _merge_items(existing_items, new_items):
     return rebuilt
 
 
-def _format_result(items):
-    """Format the todo list with summary counts."""
+def _format_result(items: List[Dict[str, Any]]) -> str:
     pending = sum(1 for i in items if i["status"] == "pending")
     in_progress = sum(1 for i in items if i["status"] == "in_progress")
     completed = sum(1 for i in items if i["status"] == "completed")
     cancelled = sum(1 for i in items if i["status"] == "cancelled")
-
     return json.dumps({
         "todos": items,
         "summary": {
@@ -107,7 +151,7 @@ def _format_result(items):
 
 
 # =========================================================================
-# Pseudo-tool definition & handler — imported by Kitty backends
+# Pseudo-tool definition & handler — dispatched from Home/Bot/turn.py
 # =========================================================================
 
 TODO_PSEUDO_TOOL = {
@@ -115,22 +159,26 @@ TODO_PSEUDO_TOOL = {
     'function': {
         'name': 'todo',
         'description': (
-            'Manage your task list for this session. Use for multi-step procedures. '
-            'Call with no parameters to read the current list.\n\n'
+            'Manage a named task list stored at Data/<path>.json. '
+            'Call with only "path" to read the current list.\n\n'
             'Writing:\n'
-            '- Provide "todos" array to create/update items\n'
-            '- merge=false (default): replace the entire list with a fresh plan\n'
-            '- merge=true: update existing items by id, add any new ones\n\n'
+            '- Provide "todos" array to create/update items.\n'
+            '- merge=false (default): replace the entire list with a fresh plan.\n'
+            '- merge=true: update existing items by id, add any new ones.\n\n'
             'Each item: {id: string, content: string, status: pending|in_progress|completed|cancelled}\n'
-            'List order is priority. Only ONE item in_progress at a time.\n'
+            'List order is priority. Only ONE item in_progress at a time. '
             'Mark items completed immediately when done.'
         ),
         'parameters': {
             'type': 'object',
             'properties': {
+                'path': {
+                    'type': 'string',
+                    'description': 'Path of the todo list under Data/, e.g. "FlowCentral/<user>/<game>/greeting_todo".'
+                },
                 'todos': {
                     'type': 'array',
-                    'description': 'Task items to write. Omit to read current list.',
+                    'description': 'Task items to write. Omit to read the current list.',
                     'items': {
                         'type': 'object',
                         'properties': {
@@ -151,67 +199,30 @@ TODO_PSEUDO_TOOL = {
                     'default': False
                 }
             },
-            'required': []
+            'required': ['path']
         }
     }
 }
 
 
 async def handle_todo_tool(arguments: dict) -> str:
-    """Handle the todo pseudo-tool. Called from Kitty's tool-call loop."""
+    """Handle the todo pseudo-tool. Requires 'path' in arguments."""
+    path = arguments.get('path')
+    if not path:
+        return json.dumps({"error": "todo tool requires a 'path' argument"})
+
     todos_arg = arguments.get('todos')
     merge = arguments.get('merge', False)
-
-    items = _read_store()
+    items = todo_read(path)
 
     if todos_arg is not None:
         if not merge:
             items = [_validate(t) for t in todos_arg]
         else:
             items = _merge_items(items, todos_arg)
-        _write_store(items)
-        logger.info(f"todo pseudo-tool: wrote {len(items)} items (merge={merge})")
+        todo_write(path, items)
+        logger.info(f"todo pseudo-tool: wrote {len(items)} items to '{path}' (merge={merge})")
     else:
-        logger.info(f"todo pseudo-tool: read {len(items)} items")
+        logger.info(f"todo pseudo-tool: read {len(items)} items from '{path}'")
 
-    return _format_result(items)
-
-
-# =========================================================================
-# Visible tools — callable via MCP for debugging
-# =========================================================================
-
-@visible
-async def todo(todos: Optional[str] = None, merge: bool = False):
-    """
-    Manage your task list for this session. Use for multi-step procedures.
-    Call with no parameters to read the current list.
-
-    Writing:
-    - Provide 'todos' as a JSON array string to create/update items.
-    - merge=false (default): replace the entire list with a fresh plan.
-    - merge=true: update existing items by id, add any new ones.
-
-    Each item: {"id": "string", "content": "description", "status": "pending|in_progress|completed|cancelled"}
-    List order is priority. Only ONE item in_progress at a time.
-    Mark items completed immediately when done.
-
-    Args:
-        todos: JSON array string of task items. Omit to read current list.
-        merge: If true, update existing items by id. If false, replace entire list.
-    """
-    args = {"merge": merge}
-    if todos is not None:
-        args["todos"] = json.loads(todos) if isinstance(todos, str) else todos
-    return await handle_todo_tool(args)
-
-
-@visible
-async def list_tasks():
-    """
-    Debug tool — returns the current todo list for this session.
-    Use this to inspect task state without modifying anything.
-    """
-    items = _read_store()
-    logger.info(f"list_tasks: {len(items)} items")
     return _format_result(items)

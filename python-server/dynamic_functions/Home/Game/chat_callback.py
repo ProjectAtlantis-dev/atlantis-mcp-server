@@ -7,7 +7,7 @@ Flow:
 4. Dispatch to the bot's configured chat handler
 
 The bot's identity is determined by who's actually present.
-Procedure text belongs to the Game.Content.<Location> module; the bot runtime
+Procedure text belongs to the Games.<Location> module; the bot runtime
 decides whether to apply it.
 """
 
@@ -117,7 +117,7 @@ async def _build_procedure_injections(context):
     if not role.get("requiresCheckin"):
         return []
 
-    module_name = f"dynamic_functions.Game.Content.{location}.checkin"
+    module_name = f"dynamic_functions.Games.{location}.checkin"
     try:
         checkin_mod = import_module(module_name)
     except ModuleNotFoundError as exc:

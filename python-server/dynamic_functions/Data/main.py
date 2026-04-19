@@ -254,7 +254,7 @@ def record_bot_interaction(
     bot_key = str(bot_sid)
     records = interactions.setdefault(bot_key, [])
 
-    current = None
+    current: Optional[dict[str, Any]] = None
     for record in records:
         if _same_interaction(record, game_id=game_id, session_id=session_id):
             current = record

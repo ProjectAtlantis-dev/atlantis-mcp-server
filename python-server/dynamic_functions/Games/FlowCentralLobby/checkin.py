@@ -58,7 +58,7 @@ async def build_checkin_injections(
     is_new = prior_interaction_count <= 0
 
     if is_new:
-        from dynamic_functions.Game.Content.FlowCentralLobby.overview import get_overview
+        from dynamic_functions.Games.FlowCentralLobby.overview import get_overview
         overview = await get_overview()
         text = (
             "[NEW GUEST] This guest has not interacted with FlowCentral before. "

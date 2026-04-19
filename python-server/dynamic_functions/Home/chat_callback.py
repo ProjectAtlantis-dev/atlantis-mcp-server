@@ -15,18 +15,18 @@ import atlantis
 import time as _t
 from importlib import import_module
 
-from dynamic_functions.Home.Bot.common import (
+from dynamic_functions.Home.bot_common import (
     logger,
     fetch_transcript,
 )
-from dynamic_functions.Home.Bot.chat import BotChatContext, dispatch_chat
+from dynamic_functions.Home.chat import BotChatContext, dispatch_chat
 from dynamic_functions.Data.main import (
     get_bot_interaction_info,
     get_user_profile,
     record_bot_interaction,
 )
-from dynamic_functions.Home.Game.common import _load_bot_config
-from dynamic_functions.Home.Game.roster import get_role_for_bot
+from dynamic_functions.Home.game_common import _load_bot_config
+from dynamic_functions.Home.roster import get_role_for_bot
 
 
 _BUSY_KEY = "chat_busy"

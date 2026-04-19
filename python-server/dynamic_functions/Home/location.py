@@ -9,7 +9,7 @@ import json
 import os
 from typing import Any, Dict, List, Optional
 
-from dynamic_functions.Home.Game.common import game_data_dir
+from dynamic_functions.Home.game_common import game_data_dir
 
 
 _STATE_FILE = "state.json"

@@ -28,6 +28,7 @@ def _load_bot_config(bot_sid: str, bots_dir: str) -> Optional[Tuple[Dict[str, An
             with open(config_path) as f:
                 cfg = json.load(f)
             if cfg.get("sid") == bot_sid:
+                cfg["_botDir"] = os.path.join(bots_dir, entry)
                 return cfg, entry
     return None
 

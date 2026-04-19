@@ -6,10 +6,10 @@ import os
 
 from dynamic_functions.Data.main import ensure_player_record
 from dynamic_functions.Data.todo import todo_write
-from dynamic_functions.Home.Game.common import spawn_bot
-from dynamic_functions.Home.Game.location import enter_location
-from dynamic_functions.Home.Game.roles import get_role
-from dynamic_functions.Home.Game.roster import assign_role
+from dynamic_functions.Home.game_common import spawn_bot
+from dynamic_functions.Home.location import enter_location
+from dynamic_functions.Home.roles import get_role
+from dynamic_functions.Home.roster import assign_role
 
 logger = logging.getLogger("mcp_server")
 

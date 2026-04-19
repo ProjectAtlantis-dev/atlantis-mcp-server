@@ -9,13 +9,13 @@ from typing import Any, Callable, Dict, List, Optional
 
 from openai import OpenAI
 
-from dynamic_functions.Home.Bot.common import (
+from dynamic_functions.Home.bot_common import (
     TranscriptToolT,
     ToolLookupInfo,
     get_base_tools,
     logger,
 )
-from dynamic_functions.Home.Bot.turn import run_turn
+from dynamic_functions.Home.turn import run_turn
 
 
 ProcedureInjectionProvider = Callable[["BotChatContext"], Any]
@@ -148,34 +148,45 @@ def _last_chat_sid(raw_transcript: List[Dict[str, Any]]) -> Optional[str]:
 
 async def _build_system_prompt(context: BotChatContext) -> str:
     bot_cfg = context.bot_cfg
-    system_prompt_module = str(bot_cfg["systemPromptModule"])
-    prompt_mod = import_module(system_prompt_module)
-    load_base_prompt = getattr(prompt_mod, "SYSTEM_PROMPT")
+    bot_dir = bot_cfg.get("_botDir", "")
 
-    base_prompt = load_base_prompt()
-    if inspect.isawaitable(base_prompt):
-        base_prompt = await base_prompt
-    if not base_prompt or not str(base_prompt).strip():
-        raise ValueError(f"SYSTEM_PROMPT for {context.bot_display_name} returned empty")
+    # Read base prompt from markdown file
+    prompt_file = bot_cfg.get("systemPrompt", "system_prompt.md")
+    prompt_path = os.path.join(bot_dir, prompt_file) if bot_dir else prompt_file
+    if not os.path.isfile(prompt_path):
+        raise ValueError(f"System prompt not found: {prompt_path}")
+    with open(prompt_path, "r", encoding="utf-8") as f:
+        base_prompt = f.read().strip()
+    if not base_prompt:
+        raise ValueError(f"System prompt is empty: {prompt_path}")
 
-    prompt_builder_path = bot_cfg.get(
-        "promptBuilder",
-        system_prompt_module.rsplit(".", 1)[0] + ".prompt.build_system_prompt",
-    )
-    module_name, attr_name = _split_dotted_callable(str(prompt_builder_path))
-    build_system_prompt = getattr(import_module(module_name), attr_name)
+    # Apply prompt builder (adds datetime, interaction context, etc.)
+    prompt_builder_path = bot_cfg.get("promptBuilder")
+    if not prompt_builder_path:
+        # Default: look for prompt.py next to system_prompt.md
+        prompt_py = os.path.join(bot_dir, "prompt.py") if bot_dir else None
+        if prompt_py and os.path.isfile(prompt_py):
+            # Derive module path from bot dir
+            rel = os.path.relpath(prompt_py, os.path.join(bot_dir, "..", ".."))
+            module_name = rel.replace(os.sep, ".").replace(".py", "")
+            prompt_builder_path = f"dynamic_functions.{module_name}.build_system_prompt"
 
-    prompt_caller, first_name, interaction_count, last_interaction = _interaction_prompt_context(context)
-    system_prompt = build_system_prompt(
-        str(base_prompt),
-        prompt_caller,
-        interaction_count,
-        last_interaction,
-        first_name=first_name,
-    )
-    if inspect.isawaitable(system_prompt):
-        system_prompt = await system_prompt
-    return str(system_prompt)
+    if prompt_builder_path:
+        module_name, attr_name = _split_dotted_callable(str(prompt_builder_path))
+        build_system_prompt = getattr(import_module(module_name), attr_name)
+        prompt_caller, first_name, interaction_count, last_interaction = _interaction_prompt_context(context)
+        system_prompt = build_system_prompt(
+            base_prompt,
+            prompt_caller,
+            interaction_count,
+            last_interaction,
+            first_name=first_name,
+        )
+        if inspect.isawaitable(system_prompt):
+            system_prompt = await system_prompt
+        return str(system_prompt)
+
+    return base_prompt
 
 
 def _interaction_prompt_context(context: BotChatContext) -> tuple[str, str, int, str]:

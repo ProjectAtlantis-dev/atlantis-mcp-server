@@ -1,38 +1,39 @@
-"""Generic per-path todo list storage.
+"""Game-scoped todo list storage.
 
-The module knows nothing about apps, players, games, or bots. Callers supply a
-relative path under Data/; layout conventions are the caller's choice. For
-example: "FlowCentral/Kitty/game3/greeting_todo".
+Todos live at Data/{game_id}/todos/{sid}/{todo_name}.json.
+The game_id comes from atlantis context; callers supply sid and todo_name.
 """
 
+import atlantis
 import json
 import logging
 import os
+import re
 from typing import Any, Dict, List
+
+from dynamic_functions.Data.main import game_dir
 
 logger = logging.getLogger("mcp_server")
 
-DATA_ROOT = os.path.dirname(__file__)
 VALID_STATUSES = {"pending", "in_progress", "completed", "cancelled"}
 
 
-def _resolve(path: str) -> str:
-    if not path:
-        raise ValueError("todo path cannot be empty")
-    rel = path.strip("/")
-    if not rel.endswith(".json"):
-        rel += ".json"
-    full = os.path.normpath(os.path.join(DATA_ROOT, rel))
-    if not full.startswith(DATA_ROOT + os.sep) and full != DATA_ROOT:
-        raise ValueError(f"todo path escapes Data/: {path}")
-    return full
+def _safe(value: str, label: str = "value") -> str:
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", str(value or "").strip())
+    if not safe:
+        raise ValueError(f"Cannot use an empty {label}")
+    return safe
 
 
-def _resolve_dir(directory: str) -> str:
-    full = os.path.normpath(os.path.join(DATA_ROOT, directory.strip("/")))
-    if not (full == DATA_ROOT or full.startswith(DATA_ROOT + os.sep)):
-        raise ValueError(f"todo dir escapes Data/: {directory}")
-    return full
+def _todo_dir(game_id: str, sid: str) -> str:
+    return os.path.join(game_dir(game_id, create=True), "todos", _safe(sid, "sid"))
+
+
+def _todo_path(game_id: str, sid: str, todo_name: str) -> str:
+    name = _safe(todo_name, "todo_name")
+    if not name.endswith(".json"):
+        name += ".json"
+    return os.path.join(_todo_dir(game_id, sid), name)
 
 
 def _read_json(path: str, default):
@@ -53,48 +54,102 @@ def _write_json(path: str, data) -> None:
     os.replace(tmp, path)
 
 
-def todo_read(path: str) -> List[Dict[str, Any]]:
-    """Read a todo list at Data/<path>.json. Returns [] if missing."""
-    return _read_json(_resolve(path), [])
+# =========================================================================
+# Core API
+# =========================================================================
+
+def todo_read(sid: str, todo_name: str, game_id: str = None) -> List[Dict[str, Any]]:
+    """Read a todo list. Returns [] if missing."""
+    game_id = game_id or atlantis.get_game_id()
+    if not game_id:
+        raise ValueError("No active game in context")
+    return _read_json(_todo_path(game_id, sid, todo_name), [])
 
 
-def todo_write(path: str, items: List[Dict[str, Any]]) -> None:
-    """Write a todo list to Data/<path>.json."""
-    _write_json(_resolve(path), items)
+def todo_write(sid: str, todo_name: str, items: List[Dict[str, Any]], game_id: str = None) -> None:
+    """Write a todo list."""
+    game_id = game_id or atlantis.get_game_id()
+    if not game_id:
+        raise ValueError("No active game in context")
+    _write_json(_todo_path(game_id, sid, todo_name), items)
 
 
-def todo_delete(path: str) -> None:
+def todo_delete(sid: str, todo_name: str, game_id: str = None) -> None:
     """Delete a todo list file if it exists."""
-    full = _resolve(path)
-    if os.path.exists(full):
-        os.remove(full)
+    game_id = game_id or atlantis.get_game_id()
+    if not game_id:
+        raise ValueError("No active game in context")
+    path = _todo_path(game_id, sid, todo_name)
+    if os.path.exists(path):
+        os.remove(path)
 
 
-def todo_list(directory: str = "") -> List[str]:
-    """List todo names directly under Data/<directory>/ (no extension, sorted)."""
-    full = _resolve_dir(directory)
-    if not os.path.isdir(full):
+def todo_list(sid: str, game_id: str = None) -> List[str]:
+    """List todo names for a player in the current game."""
+    game_id = game_id or atlantis.get_game_id()
+    if not game_id:
+        raise ValueError("No active game in context")
+    d = _todo_dir(game_id, sid)
+    if not os.path.isdir(d):
         return []
     return sorted(
         name[:-5]
-        for name in os.listdir(full)
-        if name.endswith(".json") and os.path.isfile(os.path.join(full, name))
+        for name in os.listdir(d)
+        if name.endswith(".json") and os.path.isfile(os.path.join(d, name))
     )
 
 
-def todo_walk(directory: str = "") -> List[str]:
-    """Recursively list all todos under Data/<directory>/ as paths (no extension)."""
-    full = _resolve_dir(directory)
-    if not os.path.isdir(full):
-        return []
-    results = []
-    for root, _, files in os.walk(full):
-        for name in files:
-            if name.endswith(".json"):
-                rel = os.path.relpath(os.path.join(root, name), DATA_ROOT)
-                results.append(rel[:-5])
-    return sorted(results)
+def todo_add(sid: str, todo_name: str, item_id: str, content: str, status: str = "pending", game_id: str = None) -> Dict[str, Any]:
+    """Add a single item to a todo list. Returns the validated item."""
+    item = _validate({"id": item_id, "content": content, "status": status})
+    items = todo_read(sid, todo_name, game_id=game_id)
+    # Replace if id already exists
+    for i, existing in enumerate(items):
+        if existing["id"] == item["id"]:
+            items[i] = item
+            todo_write(sid, todo_name, items, game_id=game_id)
+            return item
+    items.append(item)
+    todo_write(sid, todo_name, items, game_id=game_id)
+    return item
 
+
+def todo_update_status(sid: str, todo_name: str, item_id: str, status: str, game_id: str = None) -> Dict[str, Any]:
+    """Update the status of a single item. Returns the updated item. Raises ValueError if not found."""
+    status = status.strip().lower()
+    if status not in VALID_STATUSES:
+        raise ValueError(f"Invalid status: {status}. Must be one of {VALID_STATUSES}")
+    items = todo_read(sid, todo_name, game_id=game_id)
+    for item in items:
+        if item["id"] == item_id:
+            item["status"] = status
+            todo_write(sid, todo_name, items, game_id=game_id)
+            return item
+    raise ValueError(f"Todo item '{item_id}' not found in {sid}/{todo_name}")
+
+
+def todo_remove(sid: str, todo_name: str, item_id: str, game_id: str = None) -> bool:
+    """Remove a single item by id. Returns True if found and removed."""
+    items = todo_read(sid, todo_name, game_id=game_id)
+    before = len(items)
+    items = [i for i in items if i["id"] != item_id]
+    if len(items) < before:
+        todo_write(sid, todo_name, items, game_id=game_id)
+        return True
+    return False
+
+
+def todo_get(sid: str, todo_name: str, item_id: str, game_id: str = None) -> Dict[str, Any] | None:
+    """Get a single item by id, or None."""
+    for item in todo_read(sid, todo_name, game_id=game_id):
+        if item["id"] == item_id:
+            return item
+    return None
+
+
+# =========================================================================
+# Item helpers
+# =========================================================================
 
 def _validate(item: Dict[str, Any]) -> Dict[str, Any]:
     item_id = str(item.get("id", "")).strip() or "?"
@@ -151,7 +206,7 @@ def _format_result(items: List[Dict[str, Any]]) -> str:
 
 
 # =========================================================================
-# Pseudo-tool definition & handler — dispatched from Home/Bot/turn.py
+# Pseudo-tool definition & handler — dispatched from Home/turn.py
 # =========================================================================
 
 TODO_PSEUDO_TOOL = {
@@ -159,8 +214,8 @@ TODO_PSEUDO_TOOL = {
     'function': {
         'name': 'todo',
         'description': (
-            'Manage a named task list stored at Data/<path>.json. '
-            'Call with only "path" to read the current list.\n\n'
+            'Manage a named task list for a player in the current game. '
+            'Call with "sid" and "todo_name" to read the current list.\n\n'
             'Writing:\n'
             '- Provide "todos" array to create/update items.\n'
             '- merge=false (default): replace the entire list with a fresh plan.\n'
@@ -172,9 +227,13 @@ TODO_PSEUDO_TOOL = {
         'parameters': {
             'type': 'object',
             'properties': {
-                'path': {
+                'sid': {
                     'type': 'string',
-                    'description': 'Path of the todo list under Data/, e.g. "FlowCentral/<user>/<game>/greeting_todo".'
+                    'description': 'Player sid who owns this todo list.'
+                },
+                'todo_name': {
+                    'type': 'string',
+                    'description': 'Name of the todo list, e.g. "greeting_todo".'
                 },
                 'todos': {
                     'type': 'array',
@@ -199,30 +258,33 @@ TODO_PSEUDO_TOOL = {
                     'default': False
                 }
             },
-            'required': ['path']
+            'required': ['sid', 'todo_name']
         }
     }
 }
 
 
 async def handle_todo_tool(arguments: dict) -> str:
-    """Handle the todo pseudo-tool. Requires 'path' in arguments."""
-    path = arguments.get('path')
-    if not path:
-        return json.dumps({"error": "todo tool requires a 'path' argument"})
+    """Handle the todo pseudo-tool. Requires 'sid' and 'todo_name'."""
+    sid = arguments.get('sid')
+    todo_name = arguments.get('todo_name')
+    if not sid:
+        return json.dumps({"error": "todo tool requires a 'sid' argument"})
+    if not todo_name:
+        return json.dumps({"error": "todo tool requires a 'todo_name' argument"})
 
     todos_arg = arguments.get('todos')
     merge = arguments.get('merge', False)
-    items = todo_read(path)
+    items = todo_read(sid, todo_name)
 
     if todos_arg is not None:
         if not merge:
             items = [_validate(t) for t in todos_arg]
         else:
             items = _merge_items(items, todos_arg)
-        todo_write(path, items)
-        logger.info(f"todo pseudo-tool: wrote {len(items)} items to '{path}' (merge={merge})")
+        todo_write(sid, todo_name, items)
+        logger.info(f"todo: wrote {len(items)} items to {sid}/{todo_name} (merge={merge})")
     else:
-        logger.info(f"todo pseudo-tool: read {len(items)} items from '{path}'")
+        logger.info(f"todo: read {len(items)} items from {sid}/{todo_name}")
 
     return _format_result(items)

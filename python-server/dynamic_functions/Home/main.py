@@ -5,6 +5,7 @@ import os
 from typing import List, Dict, Any
 
 from dynamic_functions.Home.bot_common import logger, get_base_tools
+from dynamic_functions.Data.main import get_positions
 
 LOCATIONS_DIR = os.path.join(os.path.dirname(__file__), '..', 'Locations')
 BOTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'Bots')
@@ -76,6 +77,7 @@ async def bot_list() -> List[Dict[str, str]]:
             paras = text.split('\n\n')
             blurb = '\n\n'.join(paras[:3]).strip()
         bots.append({
+            'sid': cfg.get('sid', entry.lower()),
             'name': cfg.get('displayName', entry),
             'image': image_data,
             'description': blurb,
@@ -105,13 +107,23 @@ async def location_list() -> List[Dict[str, str]]:
                 image_data = f'data:image/{mime};base64,{b64}'
         locations.append({
             'name': data.get('name', fname[:-5]),
+            'description': data.get('description', data.get('name', fname[:-5])),
             'image': image_data,
         })
     return locations
 
 
 @visible
-async def list_games() -> list[dict]:
+async def position_list() -> Dict[str, str]:
+    """Show current player positions for the active game."""
+    game_id = atlantis.get_game_id()
+    if not game_id:
+        raise ValueError("No active game in context")
+    return get_positions(game_id)
+
+
+@visible
+async def game_list() -> list[dict]:
     """List all currently active games with their game_id, caller, and tick info."""
     games = atlantis.get_active_games()
     return [

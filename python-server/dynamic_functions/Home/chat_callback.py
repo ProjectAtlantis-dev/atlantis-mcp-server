@@ -25,6 +25,7 @@ from dynamic_functions.Data.main import (
     get_user_profile,
     record_bot_interaction,
 )
+# NOTE: these functions are now game-scoped and take game_id as first arg
 from dynamic_functions.Home.game_common import _load_bot_config
 from dynamic_functions.Home.roster import get_role_for_bot
 
@@ -135,7 +136,7 @@ async def _build_procedure_injections(context):
 
 
 async def _handle_chat(session_id, request_id, game_id, caller):
-    user_profile = get_user_profile(caller)
+    user_profile = get_user_profile(game_id, caller) if game_id else None
 
     # Fetch transcript \u2014 we need it to detect the bot in the room
     t0 = _t.monotonic()
@@ -154,14 +155,22 @@ async def _handle_chat(session_id, request_id, game_id, caller):
 
     location = role["location"]
     role_title = role.get("title", "Assistant")
-    interaction_game_id = game_id or None
     interaction_session_id = None if session_id == "unknown" else session_id
-    interaction = get_bot_interaction_info(
-        caller,
-        bot_sid,
-        game_id=interaction_game_id,
-        session_id=interaction_session_id,
-    )
+    if game_id:
+        interaction = get_bot_interaction_info(
+            game_id,
+            caller,
+            bot_sid,
+            session_id=interaction_session_id,
+        )
+    else:
+        interaction = {
+            "bot_sid": bot_sid,
+            "has_met_before": False,
+            "prior_interaction_count": 0,
+            "last_interaction_at": "",
+            "total_recorded_interactions": 0,
+        }
 
     logger.info(f"Game {game_id}: bot={bot_sid} role={role_title} location={location}")
     _log_interaction_banner(caller, bot_sid, role_title, location, interaction)
@@ -192,13 +201,14 @@ async def _handle_chat(session_id, request_id, game_id, caller):
     if context.skip_post_turn_record:
         return result
 
-    record_bot_interaction(
-        caller,
-        bot_sid,
-        location=location,
-        game_id=interaction_game_id,
-        session_id=interaction_session_id,
-    )
+    if game_id:
+        record_bot_interaction(
+            game_id,
+            caller,
+            bot_sid,
+            location=location,
+            session_id=interaction_session_id,
+        )
 
     # Re-fetch transcript so debug dump includes the bot's response
     raw_after, _ = await fetch_transcript(caller)

@@ -156,6 +156,16 @@ async def game_list() -> List[str]:
 
 
 @visible
+async def game_status() -> dict:
+    """Show current game lock status, including game_id and locked game folder."""
+    game = _get_current_game()
+    return {
+        "game_id": atlantis.get_game_id(),
+        "game": game if game else "unlocked",
+    }
+
+
+@visible
 async def game_set(name: str) -> str:
     """Lock this MCP server to a specific game (e.g. 'Atlantis' or 'FlowCentral').
 

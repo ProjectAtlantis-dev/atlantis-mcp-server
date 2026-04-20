@@ -59,7 +59,7 @@ async def build_checkin_injections(
 
     prior_interaction_count = int((interaction or {}).get("prior_interaction_count") or 0)
     game_id = atlantis.get_game_id() or ""
-    existing_todos = todo_read(f"AtlantisLobby/{caller}/{game_id}/greeting_todo") if game_id else []
+    existing_todos = todo_read("greeting_todo") if game_id else []
 
     if existing_todos:
         text = (

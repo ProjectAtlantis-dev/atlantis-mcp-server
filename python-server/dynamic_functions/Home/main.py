@@ -1,4 +1,5 @@
 import atlantis
+import importlib
 import json
 import logging
 import os
@@ -116,22 +117,89 @@ async def location_list() -> List[Dict[str, str]]:
 @visible
 async def position_list() -> Dict[str, str]:
     """Show current player positions for the active game."""
+    game = _get_current_game()
+    if not game:
+        raise ValueError("No game set. Call game_set() first.")
     game_id = atlantis.get_game_id()
     if not game_id:
-        raise ValueError("No active game in context")
+        raise ValueError("No active game_id in context")
     return get_positions(game_id)
 
 
+GAMES_DIR = os.path.join(os.path.dirname(__file__), '..', 'Games')
+_GAME_SET_FILE = os.path.join(os.path.dirname(__file__), 'current_game.json')
+_GAME_SHARED_KEY = 'current_game'
+
+
+def _get_current_game() -> str:
+    """Return the current game name. Cached in server_shared; falls back to disk on first access."""
+    cached = atlantis.server_shared.get(_GAME_SHARED_KEY)
+    if cached is not None:
+        return cached
+    if os.path.isfile(_GAME_SET_FILE):
+        with open(_GAME_SET_FILE, 'r') as f:
+            name = json.load(f).get('game', '')
+        atlantis.server_shared.set(_GAME_SHARED_KEY, name)
+        return name
+    return ''
+
+
 @visible
-async def game_list() -> list[dict]:
-    """List all currently active games with their game_id, caller, and tick info."""
-    games = atlantis.get_active_games()
-    return [
-        {
-            "game_id": gid,
-            "caller": entry.get("caller", ""),
-            "tick": str(entry["tick_callback"]) if entry.get("tick_callback") else "",
-            "tick_busy": entry.get("tick_busy", False),
-        }
-        for gid, entry in games.items()
-    ]
+async def game_list() -> List[str]:
+    """List available games in the Games folder."""
+    games = []
+    for entry in sorted(os.listdir(GAMES_DIR)):
+        path = os.path.join(GAMES_DIR, entry)
+        if os.path.isdir(path) and not entry.startswith(('.', '_')):
+            games.append(entry)
+    return games
+
+
+@visible
+async def game_set(name: str) -> str:
+    """Lock this MCP server to a specific game (e.g. 'Atlantis' or 'FlowCentral').
+
+    The choice is persisted to disk and cached in server_shared so it
+    survives restarts and never needs to be set again.
+    """
+    # Once set, it's locked
+    current = _get_current_game()
+    if current:
+        if current == name:
+            await atlantis.client_log(f"Game already set to '{name}' (game_id: {atlantis.get_game_id()})")
+            return name
+        raise ValueError(f"Game is already locked to '{current}'. Restart the server to change it.")
+
+    # Validate the game exists
+    available = await game_list()
+    if name not in available:
+        raise ValueError(f"Unknown game '{name}'. Available: {available}")
+
+    # Persist to disk and cache
+    with open(_GAME_SET_FILE, 'w') as f:
+        json.dump({'game': name}, f)
+    atlantis.server_shared.set(_GAME_SHARED_KEY, name)
+
+    await atlantis.client_log(f"Game locked to '{name}' (game_id: {atlantis.get_game_id()})")
+    return name
+
+
+@visible
+async def game_move(location: str = "") -> None:
+    """Move the current player to a location in the active game.
+
+    Delegates to Games/{current_game}/move.move_to().
+    Call game_set() first to lock this server to a game.
+    """
+    game = _get_current_game()
+    if not game:
+        raise ValueError("No game set. Call game_set() first (e.g. game_set('Atlantis')).")
+
+    mod_name = f"dynamic_functions.Games.{game}.move"
+    try:
+        mod = importlib.import_module(mod_name)
+    except ModuleNotFoundError:
+        raise ValueError(f"Game '{game}' has no move module (expected {mod_name})")
+
+    await mod.move_to(location)
+

@@ -6,5 +6,5 @@ logger = logging.getLogger("mcp_server")
 
 @visible
 async def index():
-    """Atlantis game — player movement and location management."""
+    """FlowCentral game — player movement and location management."""
     pass

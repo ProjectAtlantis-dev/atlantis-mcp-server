@@ -17,7 +17,7 @@ GAME_DIR = os.path.dirname(__file__)
 BOTS_DIR = os.path.join(GAME_DIR, "..", "..", "Bots")
 
 
-@game
+
 async def game_callback():
     """FlowCentralLobby scenario — sets up the FlowCentral receptionist roster entry."""
 
@@ -35,7 +35,7 @@ async def game_callback():
         if created_player:
             logger.info(f"FlowCentralLobby first-time player folder created for user: {user_id}")
 
-        todo_write(f"FlowCentral/{user_id}/{game_id}/greeting_todo", [])
+        todo_write("greeting_todo", [])
 
         # Assign the bot inside this game's private role data.
         roster_role = {**get_role("flowcentral_receptionist"), "bot": "atlas"}

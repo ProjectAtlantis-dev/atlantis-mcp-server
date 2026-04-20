@@ -7,7 +7,6 @@ import os
 from dynamic_functions.Data.main import ensure_player_record
 from dynamic_functions.Data.todo import todo_write
 from dynamic_functions.Home.game_common import spawn_bot
-from dynamic_functions.Home.location import enter_location
 from dynamic_functions.Home.roles import get_role
 from dynamic_functions.Home.roster import assign_role
 
@@ -17,7 +16,7 @@ GAME_DIR = os.path.dirname(__file__)
 BOTS_DIR = os.path.join(GAME_DIR, "..", "..", "Bots")
 
 
-@game
+
 async def game_callback():
     """AtlantisLobby scenario — sets up the Atlantis receptionist roster entry."""
 
@@ -35,7 +34,7 @@ async def game_callback():
         if created_player:
             logger.info(f"AtlantisLobby first-time player folder created for user: {user_id}")
 
-        todo_write(f"AtlantisLobby/{user_id}/{game_id}/greeting_todo", [])
+        todo_write("greeting_todo", [])
 
         # Assign the bot inside this game's private role data.
         roster_role = {**get_role("atlantis_receptionist"), "bot": "kitty"}
@@ -49,5 +48,4 @@ async def game_callback():
     finally:
         await atlantis.client_command("/silent off")
 
-    await enter_location("AtlantisLobby", GAME_DIR, game_id=game_id, user_sid=user_id)
     await spawn_bot(role["bot"], BOTS_DIR)

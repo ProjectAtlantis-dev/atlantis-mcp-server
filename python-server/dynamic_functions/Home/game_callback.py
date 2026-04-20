@@ -5,5 +5,5 @@ from dynamic_functions.Games.FlowCentralLobby.game_callback import game_callback
 
 @game
 async def game_callback():
-    """Default game callback — routes to FlowCentralLobby game_callback."""
-    await _flowcentral_callback()
+    """Default game callback handler for this remote"""
+

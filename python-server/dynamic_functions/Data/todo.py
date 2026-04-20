@@ -25,6 +25,17 @@ def _safe(value: str, label: str = "value") -> str:
     return safe
 
 
+def _require_context() -> tuple[str, str]:
+    """Return (game_id, sid) from the atlantis context."""
+    game_id = atlantis.get_game_id()
+    if not game_id:
+        raise ValueError("No active game in context")
+    sid = atlantis.get_caller()
+    if not sid:
+        raise ValueError("No caller in context")
+    return game_id, sid
+
+
 def _todo_dir(game_id: str, sid: str) -> str:
     return os.path.join(game_dir(game_id, create=True), "todos", _safe(sid, "sid"))
 
@@ -58,37 +69,29 @@ def _write_json(path: str, data) -> None:
 # Core API
 # =========================================================================
 
-def todo_read(sid: str, todo_name: str, game_id: str = None) -> List[Dict[str, Any]]:
+def todo_read(todo_name: str) -> List[Dict[str, Any]]:
     """Read a todo list. Returns [] if missing."""
-    game_id = game_id or atlantis.get_game_id()
-    if not game_id:
-        raise ValueError("No active game in context")
+    game_id, sid = _require_context()
     return _read_json(_todo_path(game_id, sid, todo_name), [])
 
 
-def todo_write(sid: str, todo_name: str, items: List[Dict[str, Any]], game_id: str = None) -> None:
+def todo_write(todo_name: str, items: List[Dict[str, Any]]) -> None:
     """Write a todo list."""
-    game_id = game_id or atlantis.get_game_id()
-    if not game_id:
-        raise ValueError("No active game in context")
+    game_id, sid = _require_context()
     _write_json(_todo_path(game_id, sid, todo_name), items)
 
 
-def todo_delete(sid: str, todo_name: str, game_id: str = None) -> None:
+def todo_delete(todo_name: str) -> None:
     """Delete a todo list file if it exists."""
-    game_id = game_id or atlantis.get_game_id()
-    if not game_id:
-        raise ValueError("No active game in context")
+    game_id, sid = _require_context()
     path = _todo_path(game_id, sid, todo_name)
     if os.path.exists(path):
         os.remove(path)
 
 
-def todo_list(sid: str, game_id: str = None) -> List[str]:
-    """List todo names for a player in the current game."""
-    game_id = game_id or atlantis.get_game_id()
-    if not game_id:
-        raise ValueError("No active game in context")
+def todo_list() -> List[str]:
+    """List todo names for the caller in the current game."""
+    game_id, sid = _require_context()
     d = _todo_dir(game_id, sid)
     if not os.path.isdir(d):
         return []
@@ -99,49 +102,48 @@ def todo_list(sid: str, game_id: str = None) -> List[str]:
     )
 
 
-def todo_add(sid: str, todo_name: str, item_id: str, content: str, status: str = "pending", game_id: str = None) -> Dict[str, Any]:
+def todo_add(todo_name: str, item_id: str, content: str, status: str = "pending") -> Dict[str, Any]:
     """Add a single item to a todo list. Returns the validated item."""
     item = _validate({"id": item_id, "content": content, "status": status})
-    items = todo_read(sid, todo_name, game_id=game_id)
-    # Replace if id already exists
+    items = todo_read(todo_name)
     for i, existing in enumerate(items):
         if existing["id"] == item["id"]:
             items[i] = item
-            todo_write(sid, todo_name, items, game_id=game_id)
+            todo_write(todo_name, items)
             return item
     items.append(item)
-    todo_write(sid, todo_name, items, game_id=game_id)
+    todo_write(todo_name, items)
     return item
 
 
-def todo_update_status(sid: str, todo_name: str, item_id: str, status: str, game_id: str = None) -> Dict[str, Any]:
+def todo_update_status(todo_name: str, item_id: str, status: str) -> Dict[str, Any]:
     """Update the status of a single item. Returns the updated item. Raises ValueError if not found."""
     status = status.strip().lower()
     if status not in VALID_STATUSES:
         raise ValueError(f"Invalid status: {status}. Must be one of {VALID_STATUSES}")
-    items = todo_read(sid, todo_name, game_id=game_id)
+    items = todo_read(todo_name)
     for item in items:
         if item["id"] == item_id:
             item["status"] = status
-            todo_write(sid, todo_name, items, game_id=game_id)
+            todo_write(todo_name, items)
             return item
-    raise ValueError(f"Todo item '{item_id}' not found in {sid}/{todo_name}")
+    raise ValueError(f"Todo item '{item_id}' not found in {todo_name}")
 
 
-def todo_remove(sid: str, todo_name: str, item_id: str, game_id: str = None) -> bool:
+def todo_remove(todo_name: str, item_id: str) -> bool:
     """Remove a single item by id. Returns True if found and removed."""
-    items = todo_read(sid, todo_name, game_id=game_id)
+    items = todo_read(todo_name)
     before = len(items)
     items = [i for i in items if i["id"] != item_id]
     if len(items) < before:
-        todo_write(sid, todo_name, items, game_id=game_id)
+        todo_write(todo_name, items)
         return True
     return False
 
 
-def todo_get(sid: str, todo_name: str, item_id: str, game_id: str = None) -> Dict[str, Any] | None:
+def todo_get(todo_name: str, item_id: str) -> Dict[str, Any] | None:
     """Get a single item by id, or None."""
-    for item in todo_read(sid, todo_name, game_id=game_id):
+    for item in todo_read(todo_name):
         if item["id"] == item_id:
             return item
     return None
@@ -214,8 +216,8 @@ TODO_PSEUDO_TOOL = {
     'function': {
         'name': 'todo',
         'description': (
-            'Manage a named task list for a player in the current game. '
-            'Call with "sid" and "todo_name" to read the current list.\n\n'
+            'Manage a named task list for the current caller in the current game. '
+            'Call with "todo_name" to read the current list.\n\n'
             'Writing:\n'
             '- Provide "todos" array to create/update items.\n'
             '- merge=false (default): replace the entire list with a fresh plan.\n'
@@ -227,10 +229,6 @@ TODO_PSEUDO_TOOL = {
         'parameters': {
             'type': 'object',
             'properties': {
-                'sid': {
-                    'type': 'string',
-                    'description': 'Player sid who owns this todo list.'
-                },
                 'todo_name': {
                     'type': 'string',
                     'description': 'Name of the todo list, e.g. "greeting_todo".'
@@ -258,33 +256,30 @@ TODO_PSEUDO_TOOL = {
                     'default': False
                 }
             },
-            'required': ['sid', 'todo_name']
+            'required': ['todo_name']
         }
     }
 }
 
 
 async def handle_todo_tool(arguments: dict) -> str:
-    """Handle the todo pseudo-tool. Requires 'sid' and 'todo_name'."""
-    sid = arguments.get('sid')
+    """Handle the todo pseudo-tool. Requires 'todo_name'."""
     todo_name = arguments.get('todo_name')
-    if not sid:
-        return json.dumps({"error": "todo tool requires a 'sid' argument"})
     if not todo_name:
         return json.dumps({"error": "todo tool requires a 'todo_name' argument"})
 
     todos_arg = arguments.get('todos')
     merge = arguments.get('merge', False)
-    items = todo_read(sid, todo_name)
+    items = todo_read(todo_name)
 
     if todos_arg is not None:
         if not merge:
             items = [_validate(t) for t in todos_arg]
         else:
             items = _merge_items(items, todos_arg)
-        todo_write(sid, todo_name, items)
-        logger.info(f"todo: wrote {len(items)} items to {sid}/{todo_name} (merge={merge})")
+        todo_write(todo_name, items)
+        logger.info(f"todo: wrote {len(items)} items to {todo_name} (merge={merge})")
     else:
-        logger.info(f"todo: read {len(items)} items from {sid}/{todo_name}")
+        logger.info(f"todo: read {len(items)} items from {todo_name}")
 
     return _format_result(items)

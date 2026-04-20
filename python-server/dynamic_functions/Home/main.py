@@ -115,7 +115,7 @@ async def location_list() -> List[Dict[str, str]]:
 
 
 @visible
-async def position_list() -> Dict[str, str]:
+async def position_list() -> List[Dict[str, str]]:
     """Show current player positions for the active game."""
     game = _get_current_game()
     if not game:
@@ -123,25 +123,42 @@ async def position_list() -> Dict[str, str]:
     game_id = atlantis.get_game_id()
     if not game_id:
         raise ValueError("No active game_id in context")
-    return get_positions(game_id)
+    positions = get_positions(game_id)
+    return [{"sid": sid, "location": loc} for sid, loc in positions.items()]
 
 
 GAMES_DIR = os.path.join(os.path.dirname(__file__), '..', 'Games')
-_GAME_SET_FILE = os.path.join(os.path.dirname(__file__), 'current_game.json')
-_GAME_SHARED_KEY = 'current_game'
+_GAME_MAP_FILE = os.path.join(os.path.dirname(__file__), 'game_map.json')
+_GAME_MAP_SHARED_KEY = 'game_map'
+
+
+def _load_game_map() -> dict:
+    """Return the full {game_id: game_name} map. Cached in server_shared; falls back to disk."""
+    cached = atlantis.server_shared.get(_GAME_MAP_SHARED_KEY)
+    if cached is not None:
+        return cached
+    if os.path.isfile(_GAME_MAP_FILE):
+        with open(_GAME_MAP_FILE, 'r') as f:
+            mapping = json.load(f)
+    else:
+        mapping = {}
+    atlantis.server_shared.set(_GAME_MAP_SHARED_KEY, mapping)
+    return mapping
+
+
+def _save_game_map(mapping: dict) -> None:
+    """Persist the game map to disk and cache."""
+    with open(_GAME_MAP_FILE, 'w') as f:
+        json.dump(mapping, f)
+    atlantis.server_shared.set(_GAME_MAP_SHARED_KEY, mapping)
 
 
 def _get_current_game() -> str:
-    """Return the current game name. Cached in server_shared; falls back to disk on first access."""
-    cached = atlantis.server_shared.get(_GAME_SHARED_KEY)
-    if cached is not None:
-        return cached
-    if os.path.isfile(_GAME_SET_FILE):
-        with open(_GAME_SET_FILE, 'r') as f:
-            name = json.load(f).get('game', '')
-        atlantis.server_shared.set(_GAME_SHARED_KEY, name)
-        return name
-    return ''
+    """Return the game name for the current game_id. Empty string if not set."""
+    game_id = str(atlantis.get_game_id() or '')
+    if not game_id:
+        return ''
+    return _load_game_map().get(game_id, '')
 
 
 @visible
@@ -158,10 +175,11 @@ async def game_list() -> List[str]:
 @visible
 async def game_status() -> dict:
     """Show current game lock status, including game_id and locked game folder."""
+    game_id = str(atlantis.get_game_id() or '')
     game = _get_current_game()
     return {
-        "game_id": atlantis.get_game_id(),
-        "game": game if game else "unlocked",
+        "game_id": game_id if game_id else None,
+        "game_name": game if game else "NOT ASSIGNED",
     }
 
 
@@ -172,13 +190,17 @@ async def game_set(name: str) -> str:
     The choice is persisted to disk and cached in server_shared so it
     survives restarts and never needs to be set again.
     """
-    # Once set, it's locked
+    game_id = str(atlantis.get_game_id() or '')
+    if not game_id:
+        raise ValueError("No active game_id in context. Cannot set game without a game session.")
+
+    # Check if this game_id is already mapped
     current = _get_current_game()
     if current:
         if current == name:
-            await atlantis.client_log(f"Game already set to '{name}' (game_id: {atlantis.get_game_id()})")
+            await atlantis.client_log(f"Game already set to '{name}' (game_id: {game_id})")
             return name
-        raise ValueError(f"Game is already locked to '{current}'. Restart the server to change it.")
+        raise ValueError(f"Game ID {game_id} is already locked to '{current}'.")
 
     # Validate the game exists
     available = await game_list()
@@ -186,12 +208,11 @@ async def game_set(name: str) -> str:
         raise ValueError(f"Unknown game '{name}'. Available: {available}")
 
     # Persist to disk and cache
-    with open(_GAME_SET_FILE, 'w') as f:
-        json.dump({'game': name}, f)
-    atlantis.server_shared.set(_GAME_SHARED_KEY, name)
+    mapping = _load_game_map()
+    mapping[game_id] = name
+    _save_game_map(mapping)
 
-    await atlantis.client_log(f"Game locked to '{name}' (game_id: {atlantis.get_game_id()})")
-    return name
+    await atlantis.client_log(f"Game locked: game_id {game_id} → '{name}'")
 
 
 @visible

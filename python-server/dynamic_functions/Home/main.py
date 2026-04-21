@@ -58,15 +58,15 @@ async def bot_list() -> List[Dict[str, str]]:
             cfg = json.load(f)
         image_data = ''
         bot_dir = os.path.join(BOTS_DIR, entry)
-        face_files = [f for f in os.listdir(bot_dir) if 'face' in f.lower() and f.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp'))]
-        if face_files:
-            image_file = face_files[0]
+        image_file = cfg.get('image', '')
+        if image_file:
             image_path = os.path.join(bot_dir, image_file)
-            ext = os.path.splitext(image_file)[1].lower()
-            mime = {'jpg': 'jpeg', 'jpeg': 'jpeg', 'png': 'png', 'gif': 'gif', 'webp': 'webp'}.get(ext.lstrip('.'), 'jpeg')
-            with open(image_path, 'rb') as img:
-                b64 = base64.b64encode(img.read()).decode('ascii')
-            image_data = f'data:image/{mime};base64,{b64}'
+            if os.path.isfile(image_path):
+                ext = os.path.splitext(image_file)[1].lower()
+                mime = {'jpg': 'jpeg', 'jpeg': 'jpeg', 'png': 'png', 'gif': 'gif', 'webp': 'webp'}.get(ext.lstrip('.'), 'jpeg')
+                with open(image_path, 'rb') as img:
+                    b64 = base64.b64encode(img.read()).decode('ascii')
+                image_data = f'data:image/{mime};base64,{b64}'
         # Grab first paragraph of system prompt
         blurb = ''
         prompt_file = cfg.get('systemPrompt', 'system_prompt.md')

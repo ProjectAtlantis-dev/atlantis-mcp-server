@@ -35,6 +35,24 @@ def _load_bot_config(bot_sid: str, bots_dir: str = BOTS_DIR) -> Optional[Tuple[D
     return None
 
 
+def _available_bot_sids(bots_dir: str = BOTS_DIR) -> List[str]:
+    """Return all known bot sids from Bots/ config files."""
+    sids = []
+    if not os.path.isdir(bots_dir):
+        return sids
+    for entry in os.listdir(bots_dir):
+        config_path = os.path.join(bots_dir, entry, "config.json")
+        if os.path.isfile(config_path):
+            try:
+                with open(config_path) as f:
+                    cfg = json.load(f)
+                if "sid" in cfg:
+                    sids.append(cfg["sid"])
+            except (json.JSONDecodeError, OSError):
+                pass
+    return sorted(sids)
+
+
 # =========================================================================
 # Characters — stored in Data/<game_id>/characters.json
 # =========================================================================
@@ -105,6 +123,10 @@ def character_assign(sid: str, role: str) -> str:
     If a character with this sid exists, updates role. Otherwise creates
     a new entry with a fresh UUID.
     """
+    # Validate that sid corresponds to a known bot
+    if _load_bot_config(sid) is None:
+        raise ValueError(f"Unknown bot sid: {sid!r}. Must match a bot in Bots/ (e.g. {_available_bot_sids()})")
+
     roles_dir = os.path.join(_find_game_dir(), "Roles")
     if not os.path.isdir(os.path.join(roles_dir, role)):
         raise ValueError(f"Role folder not found: {role}")

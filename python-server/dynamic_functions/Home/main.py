@@ -409,6 +409,11 @@ async def game_show() -> None:
   #er-wrapper-{uid} {{
     position: relative;
     padding: 24px;
+    width: 100%;
+    box-sizing: border-box;
+  }}
+  #er-wrapper-{uid} .er-entity-{uid} {{
+    min-width: 150px;
   }}
   #er-wrapper-{uid} #er-stage-{uid} {{
     position: relative;
@@ -505,7 +510,8 @@ async def game_show() -> None:
 
     # Now run the layout logic — ELK is available on window
     layout_script = (
-        f'(function() {{'
+        f'(async function() {{'
+        f'  await new Promise(function(r) {{ requestAnimationFrame(function() {{ requestAnimationFrame(r); }}); }});'
         f'  var uid = "{uid}";'
         f'  var rels = {rels_json};'
         f'  var stage = document.getElementById("er-stage-" + uid);'
@@ -514,6 +520,8 @@ async def game_show() -> None:
         f'  if (!window.ELK) {{ console.error("[ER] ELK not loaded"); return; }}'
         f'  var SVG_NS = "http://www.w3.org/2000/svg";'
         f'  var entities = stage.querySelectorAll(".er-entity-{uid}");'
+        f'  var wrapper = document.getElementById("er-wrapper-" + uid);'
+        f'  var availW = wrapper ? wrapper.clientWidth - 48 : 800;'
         f'  var nodes = [];'
         f'  entities.forEach(function(el) {{'
         f'    var r = el.getBoundingClientRect();'
@@ -548,25 +556,27 @@ async def game_show() -> None:
         f'  elk.layout(graph).then(function(g) {{'
         f'    stage.classList.remove("er-measuring-{uid}");'
         f'    stage.classList.add("er-laid-out-{uid}");'
+        f'    var W = Math.ceil(g.width) + 20;'
+        f'    var H = Math.ceil(g.height) + 20;'
+        f'    var useW = Math.max(W, availW);'
+        f'    var scaleX = W > 0 ? useW / W : 1;'
         f'    g.children.forEach(function(n) {{'
         f'      var el = document.getElementById(n.id);'
         f'      if (!el) return;'
-        f'      el.style.left = n.x + "px";'
+        f'      el.style.left = Math.round(n.x * scaleX) + "px";'
         f'      el.style.top = n.y + "px";'
         f'      el.style.width = n.width + "px";'
         f'    }});'
-        f'    var W = Math.ceil(g.width) + 20;'
-        f'    var H = Math.ceil(g.height) + 20;'
-        f'    stage.style.width = W + "px";'
+        f'    stage.style.width = useW + "px";'
         f'    stage.style.height = H + "px";'
-        f'    svg.setAttribute("width", W);'
+        f'    svg.setAttribute("width", useW);'
         f'    svg.setAttribute("height", H);'
-        f'    svg.setAttribute("viewBox", "0 0 " + W + " " + H);'
+        f'    svg.setAttribute("viewBox", "0 0 " + useW + " " + H);'
         f'    while (svg.firstChild) svg.removeChild(svg.firstChild);'
         f'    (g.edges || []).forEach(function(e) {{'
         f'      (e.sections || []).forEach(function(sec) {{'
         f'        var pts = [sec.startPoint].concat(sec.bendPoints || []).concat([sec.endPoint]);'
-        f'        var d = "M " + pts.map(function(p) {{ return p.x + "," + p.y; }}).join(" L ");'
+        f'        var d = "M " + pts.map(function(p) {{ return Math.round(p.x * scaleX) + "," + p.y; }}).join(" L ");'
         f'        var path = document.createElementNS(SVG_NS, "path");'
         f'        path.setAttribute("d", d);'
         f'        path.setAttribute("fill", "none");'
@@ -576,7 +586,7 @@ async def game_show() -> None:
         f'      }});'
         f'      (e.labels || []).forEach(function(lbl) {{'
         f'        var bg = document.createElementNS(SVG_NS, "rect");'
-        f'        bg.setAttribute("x", lbl.x - 2);'
+        f'        bg.setAttribute("x", Math.round(lbl.x * scaleX) - 2);'
         f'        bg.setAttribute("y", lbl.y - 1);'
         f'        bg.setAttribute("width", lbl.width + 4);'
         f'        bg.setAttribute("height", lbl.height + 2);'
@@ -584,7 +594,7 @@ async def game_show() -> None:
         f'        bg.setAttribute("opacity", "0.85");'
         f'        svg.appendChild(bg);'
         f'        var t = document.createElementNS(SVG_NS, "text");'
-        f'        t.setAttribute("x", lbl.x);'
+        f'        t.setAttribute("x", Math.round(lbl.x * scaleX));'
         f'        t.setAttribute("y", lbl.y + lbl.height - 2);'
         f'        t.setAttribute("fill", "#aaa");'
         f'        t.setAttribute("font-size", "10");'

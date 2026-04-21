@@ -230,7 +230,7 @@ def _get_move_module():
 
 
 @visible
-async def game_show() -> str:
+async def game_show() -> None:
     """Render a live ER diagram of game state as HTML tables with SVG connectors.
 
     If no game is set, shows BOT, LOCATION, GAME, and all ROLEs across all games.

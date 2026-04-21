@@ -1,7 +1,7 @@
 """FlowCentral game — player movement between locations.
 
 Positions are persisted in Data/{game_id}/positions.json.
-New players must start in FlowCentralLobby before they can go anywhere else.
+New players must start in Lobby before they can go anywhere else.
 Movement is only allowed along connects_to edges defined in Locations/*.json.
 """
 
@@ -19,8 +19,18 @@ from dynamic_functions.Home.game_common import _load_characters
 
 logger = logging.getLogger("mcp_server")
 
-LOCATIONS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "Locations")
-DEFAULT_LOCATION = "FlowCentralLobby"
+LOCATIONS_DIR = os.path.join(os.path.dirname(__file__), "Locations")
+
+
+def _default_location() -> str:
+    for fname in os.listdir(LOCATIONS_DIR):
+        if not fname.endswith(".json"):
+            continue
+        with open(os.path.join(LOCATIONS_DIR, fname), "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if data.get("default"):
+            return data.get("name", fname[:-5])
+    raise RuntimeError(f"No default location found in {LOCATIONS_DIR}")
 
 
 # =========================================================================
@@ -89,10 +99,11 @@ async def _move_to(sid: str, location: str, is_bot: bool) -> str:
 
     # New player — drop them into the default lobby
     if current is None:
-        location = location or DEFAULT_LOCATION
-        if location != DEFAULT_LOCATION:
+        default_location = _default_location()
+        location = location or default_location
+        if location != default_location:
             raise ValueError(
-                f"New players must start in {DEFAULT_LOCATION} "
+                f"New players must start in {default_location} "
                 f"before moving to {location}"
             )
         dest = _load_location(location)
@@ -102,7 +113,7 @@ async def _move_to(sid: str, location: str, is_bot: bool) -> str:
         set_player_position(game_id, sid, location)
         await _set_location_background(dest)
         await atlantis.client_log(f"🏛️ {sid} has entered {desc} for the first time")
-        logger.info(f"[FlowCentral] New player {sid} entered {DEFAULT_LOCATION}")
+        logger.info(f"[FlowCentral] New player {sid} entered {default_location}")
         return location
 
     if not location:

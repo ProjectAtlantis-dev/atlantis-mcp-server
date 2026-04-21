@@ -8,11 +8,8 @@ from typing import List, Dict, Any
 from dynamic_functions.Home.bot_common import logger, get_base_tools
 from dynamic_functions.Data.main import get_positions
 from dynamic_functions.Home.game_common import (
-    _load_characters, _load_bot_config, BOTS_DIR, GAMES_DIR,
+    _load_characters, _load_bot_config, _bots_dir, _locations_dir, GAMES_DIR,
 )
-
-LOCATIONS_DIR = os.path.join(os.path.dirname(__file__), '..', 'Locations')
-BOTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'Bots')
 
 def _require_game():
     if not atlantis.get_game_id():
@@ -53,14 +50,15 @@ async def bot_list() -> List[Dict[str, str]]:
     """List all bots with their name and image (base64-encoded)."""
     import base64
     bots = []
-    for entry in sorted(os.listdir(BOTS_DIR)):
-        config_path = os.path.join(BOTS_DIR, entry, 'config.json')
+    bots_dir = _bots_dir()
+    for entry in sorted(os.listdir(bots_dir)):
+        config_path = os.path.join(bots_dir, entry, 'config.json')
         if not os.path.isfile(config_path):
             continue
         with open(config_path, 'r') as f:
             cfg = json.load(f)
         image_data = ''
-        bot_dir = os.path.join(BOTS_DIR, entry)
+        bot_dir = os.path.join(bots_dir, entry)
         image_file = cfg.get('image', '')
         if image_file:
             image_path = os.path.join(bot_dir, image_file)
@@ -94,15 +92,16 @@ async def location_list() -> List[Dict[str, str]]:
     """List all locations with their name and image (base64-encoded)."""
     import base64
     locations = []
-    for fname in sorted(os.listdir(LOCATIONS_DIR)):
+    locations_dir = _locations_dir()
+    for fname in sorted(os.listdir(locations_dir)):
         if not fname.endswith('.json'):
             continue
-        with open(os.path.join(LOCATIONS_DIR, fname), 'r') as f:
+        with open(os.path.join(locations_dir, fname), 'r') as f:
             data = json.load(f)
         image_data = ''
         image_file = data.get('image', '')
         if image_file:
-            image_path = os.path.join(LOCATIONS_DIR, image_file)
+            image_path = os.path.join(locations_dir, image_file)
             if os.path.isfile(image_path):
                 ext = os.path.splitext(image_file)[1].lower()
                 mime = {'jpg': 'jpeg', 'jpeg': 'jpeg', 'png': 'png', 'gif': 'gif', 'webp': 'webp'}.get(ext.lstrip('.'), 'jpeg')
@@ -242,27 +241,64 @@ async def game_show() -> str:
 
     # --- Gather data ---
     bot_rows = []
-    if os.path.isdir(BOTS_DIR):
-        for entry in sorted(os.listdir(BOTS_DIR)):
-            cfg_path = os.path.join(BOTS_DIR, entry, "config.json")
-            if not os.path.isfile(cfg_path):
-                continue
-            with open(cfg_path) as f:
-                cfg = json.load(f)
-            bot_rows.append({"sid": cfg.get("sid", entry), "displayName": cfg.get("displayName", entry)})
+    if game_name:
+        # Show bots for the current game
+        bots_dir = _bots_dir()
+        if os.path.isdir(bots_dir):
+            for entry in sorted(os.listdir(bots_dir)):
+                cfg_path = os.path.join(bots_dir, entry, "config.json")
+                if not os.path.isfile(cfg_path):
+                    continue
+                with open(cfg_path) as f:
+                    cfg = json.load(f)
+                bot_rows.append({"game": game_name, "sid": cfg.get("sid", entry), "displayName": cfg.get("displayName", entry)})
+    else:
+        # No game set — show all bots across all games
+        if os.path.isdir(GAMES_DIR):
+            for gname in sorted(os.listdir(GAMES_DIR)):
+                bots_dir = os.path.join(GAMES_DIR, gname, "Bots")
+                if not os.path.isdir(bots_dir):
+                    continue
+                for entry in sorted(os.listdir(bots_dir)):
+                    cfg_path = os.path.join(bots_dir, entry, "config.json")
+                    if not os.path.isfile(cfg_path):
+                        continue
+                    with open(cfg_path) as f:
+                        cfg = json.load(f)
+                    bot_rows.append({"game": gname, "sid": cfg.get("sid", entry), "displayName": cfg.get("displayName", entry)})
 
     loc_rows = []
-    if os.path.isdir(LOCATIONS_DIR):
-        for fname in sorted(os.listdir(LOCATIONS_DIR)):
-            if not fname.endswith(".json"):
-                continue
-            with open(os.path.join(LOCATIONS_DIR, fname)) as f:
-                data = json.load(f)
-            loc_rows.append({
-                "name": data.get("name", fname[:-5]),
-                "description": data.get("description", ""),
-                "connects_to": data.get("connects_to", []),
-            })
+    if game_name:
+        locations_dir = _locations_dir()
+        if os.path.isdir(locations_dir):
+            for fname in sorted(os.listdir(locations_dir)):
+                if not fname.endswith(".json"):
+                    continue
+                with open(os.path.join(locations_dir, fname)) as f:
+                    data = json.load(f)
+                loc_rows.append({
+                    "game": game_name,
+                    "name": data.get("name", fname[:-5]),
+                    "description": data.get("description", ""),
+                    "connects_to": data.get("connects_to", []),
+                })
+    else:
+        if os.path.isdir(GAMES_DIR):
+            for gname in sorted(os.listdir(GAMES_DIR)):
+                locations_dir = os.path.join(GAMES_DIR, gname, "Locations")
+                if not os.path.isdir(locations_dir):
+                    continue
+                for fname in sorted(os.listdir(locations_dir)):
+                    if not fname.endswith(".json"):
+                        continue
+                    with open(os.path.join(locations_dir, fname)) as f:
+                        data = json.load(f)
+                    loc_rows.append({
+                        "game": gname,
+                        "name": data.get("name", fname[:-5]),
+                        "description": data.get("description", ""),
+                        "connects_to": data.get("connects_to", []),
+                    })
 
     # --- ROLE: if game set, show that game's roles; otherwise show all games' roles ---
     role_rows = []
@@ -336,10 +372,10 @@ async def game_show() -> str:
                     game_rows.append([entry])
     tables = []
     tables.append(_table("ent-game", "GAME", ["name"], game_rows))
-    tables.append(_table("ent-bot", "BOT", ["sid", "displayName"],
-        [[b["sid"], b["displayName"]] for b in bot_rows]))
-    tables.append(_table("ent-location", "LOCATION", ["name", "description", "connects_to"],
-        [[l["name"], l["description"], ", ".join(l["connects_to"])] for l in loc_rows]))
+    tables.append(_table("ent-bot", "BOT", ["game", "sid", "displayName"],
+        [[b["game"], b["sid"], b["displayName"]] for b in bot_rows]))
+    tables.append(_table("ent-location", "LOCATION", ["game", "name", "description", "connects_to"],
+        [[l["game"], l["name"], l["description"], ", ".join(l["connects_to"])] for l in loc_rows]))
     tables.append(_table("ent-role", "ROLE", ["game", "name", "title"],
         [[r["game"], r["name"], r["title"]] for r in role_rows]))
     no_game = not game_name

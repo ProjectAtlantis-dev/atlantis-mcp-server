@@ -10,7 +10,17 @@ from dynamic_functions.Data.main import game_dir
 
 logger = logging.getLogger("mcp_server")
 
-BOTS_DIR = os.path.join(os.path.dirname(__file__), "..", "Bots")
+GAMES_DIR = os.path.join(os.path.dirname(__file__), "..", "Games")
+
+
+def _bots_dir() -> str:
+    from dynamic_functions.Home.main import _get_current_game
+    return os.path.join(GAMES_DIR, _get_current_game(), "Bots")
+
+
+def _locations_dir() -> str:
+    from dynamic_functions.Home.main import _get_current_game
+    return os.path.join(GAMES_DIR, _get_current_game(), "Locations")
 
 
 def game_data_dir(game_id: Optional[str] = None, *, create: bool = True) -> str:
@@ -21,7 +31,9 @@ def game_data_dir(game_id: Optional[str] = None, *, create: bool = True) -> str:
     return game_dir(actual_game_id, create=create)
 
 
-def _load_bot_config(bot_sid: str, bots_dir: str = BOTS_DIR) -> Optional[Tuple[Dict[str, Any], str]]:
+def _load_bot_config(bot_sid: str, bots_dir: Optional[str] = None) -> Optional[Tuple[Dict[str, Any], str]]:
+    if bots_dir is None:
+        bots_dir = _bots_dir()
     """Find config.json for a bot by sid under bots_dir. Returns (config, folder_name) or None."""
     for entry in os.listdir(bots_dir):
         config_path = os.path.join(bots_dir, entry, "config.json")
@@ -34,8 +46,10 @@ def _load_bot_config(bot_sid: str, bots_dir: str = BOTS_DIR) -> Optional[Tuple[D
     return None
 
 
-def _available_bot_sids(bots_dir: str = BOTS_DIR) -> List[str]:
+def _available_bot_sids(bots_dir: Optional[str] = None) -> List[str]:
     """Return all known bot sids from Bots/ config files."""
+    if bots_dir is None:
+        bots_dir = _bots_dir()
     sids = []
     if not os.path.isdir(bots_dir):
         return sids
@@ -55,8 +69,6 @@ def _available_bot_sids(bots_dir: str = BOTS_DIR) -> List[str]:
 # =========================================================================
 # Characters — stored in Data/<game_id>/characters.json
 # =========================================================================
-
-GAMES_DIR = os.path.join(os.path.dirname(__file__), "..", "Games")
 
 
 def _current_game_name() -> str:
@@ -225,8 +237,10 @@ def position_query(location: str) -> List[Dict[str, Any]]:
 # Bot spawning
 # =========================================================================
 
-async def spawn_bot(bot_sid: str, bots_dir: str = BOTS_DIR) -> None:
+async def spawn_bot(bot_sid: str, bots_dir: Optional[str] = None) -> None:
     """Spawn a bot: show their face image and announce them."""
+    if bots_dir is None:
+        bots_dir = _bots_dir()
     loaded = _load_bot_config(bot_sid, bots_dir)
     if not loaded:
         logger.warning(f"No config.json found for bot sid: {bot_sid}")

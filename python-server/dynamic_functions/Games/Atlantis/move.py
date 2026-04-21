@@ -14,7 +14,6 @@ from typing import Any, Dict, Optional
 from dynamic_functions.Data.main import (
     get_player_position,
     set_player_position,
-    ensure_location_data,
 )
 from dynamic_functions.Home.game_common import _load_characters
 
@@ -101,7 +100,6 @@ async def _move_to(sid: str, location: str, is_bot: bool) -> str:
             raise ValueError(f"Unknown location: {location}")
         desc = dest.get("description", location)
         set_player_position(game_id, sid, location)
-        ensure_location_data(game_id, location)
         await _set_location_background(dest)
         await atlantis.client_log(f"🏛️ {sid} has entered {desc} for the first time")
         logger.info(f"[Atlantis] New player {sid} entered {DEFAULT_LOCATION}")
@@ -132,7 +130,6 @@ async def _move_to(sid: str, location: str, is_bot: bool) -> str:
     # Move
     current_desc = (_load_location(current) or {}).get("description", current)
     set_player_position(game_id, sid, location)
-    ensure_location_data(game_id, location)
     await _set_location_background(dest)
     await atlantis.client_log(f"🚶 {sid} moved from {current_desc} to {desc}")
     logger.info(f"[Atlantis] {sid} moved from {current} to {location}")

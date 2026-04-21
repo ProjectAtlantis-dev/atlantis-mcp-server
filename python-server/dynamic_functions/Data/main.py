@@ -93,15 +93,6 @@ def set_player_position(game_id: str, sid: str, location: str) -> Dict[str, str]
     return positions
 
 
-def ensure_location_data(game_id: str, location: str) -> Dict[str, Any]:
-    """Ensure Data/{game_id}/{location}.json exists. Creates as {} if missing. Returns contents."""
-    path = os.path.join(game_dir(game_id, create=True), f"{location}.json")
-    data = _read_json(path, None)
-    if data is None:
-        data = {}
-        _write_json(path, data)
-    return data
-
 
 def read_location_data(game_id: str, location: str) -> Optional[Dict[str, Any]]:
     """Read Data/{game_id}/{location}.json, or None if it doesn't exist."""

@@ -3,6 +3,7 @@ import importlib
 import json
 import logging
 import os
+import uuid
 from typing import List, Dict, Any
 
 from dynamic_functions.Home.bot_common import logger, get_base_tools
@@ -345,9 +346,12 @@ async def game_show() -> None:
     def _esc(s):
         return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
+    uid = uuid.uuid4().hex[:8]
+
     def _table(entity_id, title, headers, rows, disabled=False):
         """Return HTML for one entity table."""
-        cls = "er-entity er-disabled" if disabled else "er-entity"
+        scoped_id = f"{entity_id}-{uid}"
+        cls = f"er-entity-{uid} er-disabled-{uid}" if disabled else f"er-entity-{uid}"
         h = "".join(f"<th>{_esc(c)}</th>" for c in headers)
         body = ""
         for row in rows:
@@ -355,8 +359,8 @@ async def game_show() -> None:
         if not rows:
             body = f'<tr><td colspan="{len(headers)}" style="color:#888;font-style:italic">empty</td></tr>'
         return (
-            f'<div class="{cls}" id="{entity_id}">'
-            f'<div class="er-title">{_esc(title)}</div>'
+            f'<div class="{cls}" id="{scoped_id}">'
+            f'<div class="er-title-{uid}">{_esc(title)}</div>'
             f'<table><tr>{h}</tr>{body}</table></div>'
         )
 
@@ -388,34 +392,43 @@ async def game_show() -> None:
 
     # --- Relationships (from -> to, label) ---
     relationships = [
-        ("ent-location", "ent-location", "connects to"),
-        ("ent-game", "ent-role", "has"),
-        ("ent-bot", "ent-character", "sid"),
-        ("ent-role", "ent-character", "role"),
-        ("ent-character", "ent-position", "sid"),
-        ("ent-location", "ent-position", "location"),
+        (f"ent-game-{uid}", f"ent-bot-{uid}", "has"),
+        (f"ent-game-{uid}", f"ent-location-{uid}", "has"),
+        (f"ent-game-{uid}", f"ent-role-{uid}", "has"),
+        (f"ent-location-{uid}", f"ent-location-{uid}", "connects to"),
+        (f"ent-bot-{uid}", f"ent-character-{uid}", "sid"),
+        (f"ent-role-{uid}", f"ent-character-{uid}", "role"),
+        (f"ent-character-{uid}", f"ent-position-{uid}", "sid"),
+        (f"ent-location-{uid}", f"ent-position-{uid}", "location"),
     ]
 
     rels_json = json.dumps(relationships)
 
     html = f"""
 <style>
-  .er-container {{
+  #er-wrapper-{uid} {{
     position: relative;
+    padding: 24px;
+  }}
+  #er-wrapper-{uid} #er-stage-{uid} {{
+    position: relative;
+  }}
+  #er-wrapper-{uid} #er-stage-{uid}.er-measuring-{uid} {{
     display: flex;
     flex-wrap: wrap;
-    gap: 32px;
-    padding: 24px;
+    gap: 24px;
     align-items: flex-start;
   }}
-  .er-entity {{
+  #er-wrapper-{uid} #er-stage-{uid}.er-laid-out-{uid} .er-entity-{uid} {{
+    position: absolute;
+  }}
+  #er-wrapper-{uid} .er-entity-{uid} {{
     background: #1e1e2e;
     border: 1px solid #555;
     border-radius: 6px;
-    min-width: 160px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.3);
   }}
-  .er-title {{
+  #er-wrapper-{uid} .er-title-{uid} {{
     background: #3b3b5c;
     color: #e0e0ff;
     font-weight: bold;
@@ -425,13 +438,13 @@ async def game_show() -> None:
     font-size: 13px;
     letter-spacing: 1px;
   }}
-  .er-entity table {{
+  #er-wrapper-{uid} .er-entity-{uid} table {{
     width: 100%;
     border-collapse: collapse;
     font-size: 12px;
     color: #ccc;
   }}
-  .er-entity th {{
+  #er-wrapper-{uid} .er-entity-{uid} th {{
     background: #2a2a40;
     color: #aaa;
     padding: 4px 8px;
@@ -440,106 +453,151 @@ async def game_show() -> None:
     font-weight: normal;
     font-size: 11px;
   }}
-  .er-entity td {{
+  #er-wrapper-{uid} .er-entity-{uid} td {{
     padding: 3px 8px;
     border-bottom: 1px solid #333;
   }}
-  .er-entity tr:last-child td {{
+  #er-wrapper-{uid} .er-entity-{uid} tr:last-child td {{
     border-bottom: none;
   }}
-  .er-disabled {{
+  #er-wrapper-{uid} .er-disabled-{uid} {{
     opacity: 0.35;
   }}
-  .er-svg {{
+  #er-wrapper-{uid} #er-svg-{uid} {{
     position: absolute;
     top: 0;
     left: 0;
     pointer-events: none;
+    overflow: visible;
   }}
 </style>
-<div class="er-wrapper" style="position:relative">
-  <svg class="er-svg" id="er-svg"></svg>
-  <div class="er-container" id="er-container">
+<div class="er-wrapper" id="er-wrapper-{uid}">
+  <div id="er-stage-{uid}" class="er-measuring-{uid}">
     {''.join(tables)}
+    <svg id="er-svg-{uid}" xmlns="http://www.w3.org/2000/svg"></svg>
   </div>
 </div>
-<script>
-(function() {{
-  const rels = {rels_json};
-  const svg = document.getElementById('er-svg');
-  const container = document.getElementById('er-container');
-
-  function drawLines() {{
-    const cRect = container.getBoundingClientRect();
-    svg.setAttribute('width', container.scrollWidth);
-    svg.setAttribute('height', container.scrollHeight);
-    svg.innerHTML = '';
-
-    rels.forEach(function(rel) {{
-      const fromEl = document.getElementById(rel[0]);
-      const toEl = document.getElementById(rel[1]);
-      if (!fromEl || !toEl) return;
-
-      const fRect = fromEl.getBoundingClientRect();
-      const tRect = toEl.getBoundingClientRect();
-
-      // Connector points: right-center of source, left-center of target
-      let x1 = fRect.right - cRect.left;
-      let y1 = fRect.top + fRect.height / 2 - cRect.top;
-      let x2 = tRect.left - cRect.left;
-      let y2 = tRect.top + tRect.height / 2 - cRect.top;
-
-      // Self-referencing: curve below
-      if (rel[0] === rel[1]) {{
-        const cx = x1 + 40;
-        const cy = Math.max(y1, y2) + 50;
-        x2 = fRect.right - cRect.left;
-        y2 = fRect.top + fRect.height * 0.75 - cRect.top;
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('d', `M ${{x1}} ${{y1}} C ${{cx}} ${{cy}}, ${{cx}} ${{cy}}, ${{x2}} ${{y2}}`);
-        path.setAttribute('stroke', '#888');
-        path.setAttribute('stroke-width', '1.5');
-        path.setAttribute('fill', 'none');
-        path.setAttribute('stroke-dasharray', '6,3');
-        svg.appendChild(path);
-      }} else {{
-        // If target is to the left, flip
-        if (tRect.left < fRect.left) {{
-          x1 = fRect.left - cRect.left;
-          x2 = tRect.right - cRect.left;
-        }}
-        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        line.setAttribute('x1', x1);
-        line.setAttribute('y1', y1);
-        line.setAttribute('x2', x2);
-        line.setAttribute('y2', y2);
-        line.setAttribute('stroke', '#888');
-        line.setAttribute('stroke-width', '1.5');
-        svg.appendChild(line);
-      }}
-
-      // Label at midpoint
-      const lx = (x1 + x2) / 2;
-      const ly = (y1 + y2) / 2 - 6;
-      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      text.setAttribute('x', lx);
-      text.setAttribute('y', ly);
-      text.setAttribute('fill', '#aaa');
-      text.setAttribute('font-size', '10');
-      text.setAttribute('text-anchor', 'middle');
-      text.textContent = rel[2];
-      svg.appendChild(text);
-    }});
-  }}
-
-  // Draw after layout settles
-  setTimeout(drawLines, 100);
-  window.addEventListener('resize', drawLines);
-}})();
-</script>
 """
 
     await atlantis.client_html(html)
+
+    # Load ELK.js library via client_script (not via injected <script> tags)
+    elk_loader = (
+        'if (!window.ELK) {'
+        '  var resolve; var p = new Promise(function(r) { resolve = r; });'
+        '  var xhr = new XMLHttpRequest();'
+        '  xhr.open("GET", "https://cdn.jsdelivr.net/npm/elkjs@0.9.3/lib/elk.bundled.js", true);'
+        '  xhr.onload = function() {'
+        '    if (xhr.status === 200) {'
+        '      var _define = window.define;'
+        '      try { window.define = undefined; (0, eval)(xhr.responseText); }'
+        '      catch(e) { console.error("[ER] ELK eval failed", e); }'
+        '      finally { window.define = _define; }'
+        '    }'
+        '    resolve();'
+        '  };'
+        '  xhr.onerror = function() { console.error("[ER] failed to fetch elkjs"); resolve(); };'
+        '  xhr.send();'
+        '  await p;'
+        '}'
+    )
+    await atlantis.client_script(f'(async function() {{ {elk_loader} }})()')
+
+    # Now run the layout logic — ELK is available on window
+    layout_script = (
+        f'(function() {{'
+        f'  var uid = "{uid}";'
+        f'  var rels = {rels_json};'
+        f'  var stage = document.getElementById("er-stage-" + uid);'
+        f'  var svg = document.getElementById("er-svg-" + uid);'
+        f'  if (!stage || !svg) {{ console.error("[ER] stage/svg not found", uid); return; }}'
+        f'  if (!window.ELK) {{ console.error("[ER] ELK not loaded"); return; }}'
+        f'  var SVG_NS = "http://www.w3.org/2000/svg";'
+        f'  var entities = stage.querySelectorAll(".er-entity-{uid}");'
+        f'  var nodes = [];'
+        f'  entities.forEach(function(el) {{'
+        f'    var r = el.getBoundingClientRect();'
+        f'    nodes.push({{ id: el.id, width: Math.ceil(r.width), height: Math.ceil(r.height) }});'
+        f'  }});'
+        f'  var edges = rels.map(function(rel, i) {{'
+        f'    return {{'
+        f'      id: "e" + i,'
+        f'      sources: [rel[0]],'
+        f'      targets: [rel[1]],'
+        f'      labels: [{{ text: rel[2], width: rel[2].length * 6 + 4, height: 12 }}]'
+        f'    }};'
+        f'  }});'
+        f'  var graph = {{'
+        f'    id: "root",'
+        f'    layoutOptions: {{'
+        f'      "elk.algorithm": "layered",'
+        f'      "elk.direction": "DOWN",'
+        f'      "elk.edgeRouting": "ORTHOGONAL",'
+        f'      "elk.spacing.nodeNode": "60",'
+        f'      "elk.spacing.edgeNode": "25",'
+        f'      "elk.spacing.edgeEdge": "15",'
+        f'      "elk.layered.spacing.nodeNodeBetweenLayers": "80",'
+        f'      "elk.layered.spacing.edgeNodeBetweenLayers": "30",'
+        f'      "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",'
+        f'      "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES"'
+        f'    }},'
+        f'    children: nodes,'
+        f'    edges: edges'
+        f'  }};'
+        f'  var elk = new ELK();'
+        f'  elk.layout(graph).then(function(g) {{'
+        f'    stage.classList.remove("er-measuring-{uid}");'
+        f'    stage.classList.add("er-laid-out-{uid}");'
+        f'    g.children.forEach(function(n) {{'
+        f'      var el = document.getElementById(n.id);'
+        f'      if (!el) return;'
+        f'      el.style.left = n.x + "px";'
+        f'      el.style.top = n.y + "px";'
+        f'      el.style.width = n.width + "px";'
+        f'    }});'
+        f'    var W = Math.ceil(g.width) + 20;'
+        f'    var H = Math.ceil(g.height) + 20;'
+        f'    stage.style.width = W + "px";'
+        f'    stage.style.height = H + "px";'
+        f'    svg.setAttribute("width", W);'
+        f'    svg.setAttribute("height", H);'
+        f'    svg.setAttribute("viewBox", "0 0 " + W + " " + H);'
+        f'    while (svg.firstChild) svg.removeChild(svg.firstChild);'
+        f'    (g.edges || []).forEach(function(e) {{'
+        f'      (e.sections || []).forEach(function(sec) {{'
+        f'        var pts = [sec.startPoint].concat(sec.bendPoints || []).concat([sec.endPoint]);'
+        f'        var d = "M " + pts.map(function(p) {{ return p.x + "," + p.y; }}).join(" L ");'
+        f'        var path = document.createElementNS(SVG_NS, "path");'
+        f'        path.setAttribute("d", d);'
+        f'        path.setAttribute("fill", "none");'
+        f'        path.setAttribute("stroke", "#888");'
+        f'        path.setAttribute("stroke-width", "1.5");'
+        f'        svg.appendChild(path);'
+        f'      }});'
+        f'      (e.labels || []).forEach(function(lbl) {{'
+        f'        var bg = document.createElementNS(SVG_NS, "rect");'
+        f'        bg.setAttribute("x", lbl.x - 2);'
+        f'        bg.setAttribute("y", lbl.y - 1);'
+        f'        bg.setAttribute("width", lbl.width + 4);'
+        f'        bg.setAttribute("height", lbl.height + 2);'
+        f'        bg.setAttribute("fill", "#1e1e2e");'
+        f'        bg.setAttribute("opacity", "0.85");'
+        f'        svg.appendChild(bg);'
+        f'        var t = document.createElementNS(SVG_NS, "text");'
+        f'        t.setAttribute("x", lbl.x);'
+        f'        t.setAttribute("y", lbl.y + lbl.height - 2);'
+        f'        t.setAttribute("fill", "#aaa");'
+        f'        t.setAttribute("font-size", "10");'
+        f'        t.setAttribute("font-family", "sans-serif");'
+        f'        t.textContent = lbl.text;'
+        f'        svg.appendChild(t);'
+        f'      }});'
+        f'    }});'
+        f'  }}).catch(function(err) {{ console.error("[ER] ELK layout failed", err); }});'
+        f'}})()')
+
+    await atlantis.client_script(layout_script)
+
     if not game_name:
         await atlantis.client_log("Game not yet set")
 

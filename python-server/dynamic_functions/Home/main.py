@@ -7,6 +7,9 @@ from typing import List, Dict, Any
 
 from dynamic_functions.Home.bot_common import logger, get_base_tools
 from dynamic_functions.Data.main import get_positions
+from dynamic_functions.Home.game_common import (
+    _load_characters, _load_bot_config, BOTS_DIR, GAMES_DIR,
+)
 
 LOCATIONS_DIR = os.path.join(os.path.dirname(__file__), '..', 'Locations')
 BOTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'Bots')
@@ -225,6 +228,284 @@ def _get_move_module():
         return importlib.import_module(mod_name)
     except ModuleNotFoundError:
         raise ValueError(f"Game '{game}' has no move module (expected {mod_name})")
+
+
+@visible
+async def game_show() -> str:
+    """Render a live ER diagram of game state as HTML tables with SVG connectors.
+
+    If no game is set, shows BOT, LOCATION, GAME, and all ROLEs across all games.
+    CHARACTER and POSITION require an active game.
+    """
+    game_name = _get_current_game()
+    game_id = atlantis.get_game_id()
+
+    # --- Gather data ---
+    bot_rows = []
+    if os.path.isdir(BOTS_DIR):
+        for entry in sorted(os.listdir(BOTS_DIR)):
+            cfg_path = os.path.join(BOTS_DIR, entry, "config.json")
+            if not os.path.isfile(cfg_path):
+                continue
+            with open(cfg_path) as f:
+                cfg = json.load(f)
+            bot_rows.append({"sid": cfg.get("sid", entry), "displayName": cfg.get("displayName", entry)})
+
+    loc_rows = []
+    if os.path.isdir(LOCATIONS_DIR):
+        for fname in sorted(os.listdir(LOCATIONS_DIR)):
+            if not fname.endswith(".json"):
+                continue
+            with open(os.path.join(LOCATIONS_DIR, fname)) as f:
+                data = json.load(f)
+            loc_rows.append({
+                "name": data.get("name", fname[:-5]),
+                "description": data.get("description", ""),
+                "connects_to": data.get("connects_to", []),
+            })
+
+    # --- ROLE: if game set, show that game's roles; otherwise show all games' roles ---
+    role_rows = []
+    if game_name:
+        roles_dir = os.path.join(GAMES_DIR, game_name, "Roles")
+        if os.path.isdir(roles_dir):
+            for rname in sorted(os.listdir(roles_dir)):
+                rjson = os.path.join(roles_dir, rname, "role.json")
+                if not os.path.isfile(rjson):
+                    continue
+                with open(rjson) as f:
+                    rdata = json.load(f)
+                role_rows.append({"game": game_name, "name": rname, "title": rdata.get("title", rname)})
+    else:
+        if os.path.isdir(GAMES_DIR):
+            for gname in sorted(os.listdir(GAMES_DIR)):
+                roles_dir = os.path.join(GAMES_DIR, gname, "Roles")
+                if not os.path.isdir(roles_dir):
+                    continue
+                for rname in sorted(os.listdir(roles_dir)):
+                    rjson = os.path.join(roles_dir, rname, "role.json")
+                    if not os.path.isfile(rjson):
+                        continue
+                    with open(rjson) as f:
+                        rdata = json.load(f)
+                    role_rows.append({"game": gname, "name": rname, "title": rdata.get("title", rname)})
+
+    # --- CHARACTER and POSITION: only available with an active game ---
+    char_rows = []
+    pos_rows = []
+    if game_name and game_id:
+        characters = _load_characters()
+        for ch in characters:
+            char_rows.append({
+                "sid": ch["sid"],
+                "role": ch.get("role", "?"),
+                "isBot": ch.get("isBot", True),
+                "humanName": ch.get("humanName", ""),
+            })
+        positions = get_positions(game_id)
+        pos_rows = [{"sid": sid, "location": loc} for sid, loc in sorted(positions.items())]
+
+    # --- Helper to build an HTML table ---
+    def _esc(s):
+        return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+    def _table(entity_id, title, headers, rows, disabled=False):
+        """Return HTML for one entity table."""
+        cls = "er-entity er-disabled" if disabled else "er-entity"
+        h = "".join(f"<th>{_esc(c)}</th>" for c in headers)
+        body = ""
+        for row in rows:
+            body += "<tr>" + "".join(f"<td>{_esc(v)}</td>" for v in row) + "</tr>"
+        if not rows:
+            body = f'<tr><td colspan="{len(headers)}" style="color:#888;font-style:italic">empty</td></tr>'
+        return (
+            f'<div class="{cls}" id="{entity_id}">'
+            f'<div class="er-title">{_esc(title)}</div>'
+            f'<table><tr>{h}</tr>{body}</table></div>'
+        )
+
+    # --- Build tables ---
+    # GAME: show current game or all available games
+    if game_name:
+        game_rows = [[game_name]]
+    else:
+        game_rows = []
+        if os.path.isdir(GAMES_DIR):
+            for entry in sorted(os.listdir(GAMES_DIR)):
+                if os.path.isdir(os.path.join(GAMES_DIR, entry)) and not entry.startswith(('.', '_')):
+                    game_rows.append([entry])
+    tables = []
+    tables.append(_table("ent-game", "GAME", ["name"], game_rows))
+    tables.append(_table("ent-bot", "BOT", ["sid", "displayName"],
+        [[b["sid"], b["displayName"]] for b in bot_rows]))
+    tables.append(_table("ent-location", "LOCATION", ["name", "description", "connects_to"],
+        [[l["name"], l["description"], ", ".join(l["connects_to"])] for l in loc_rows]))
+    tables.append(_table("ent-role", "ROLE", ["game", "name", "title"],
+        [[r["game"], r["name"], r["title"]] for r in role_rows]))
+    no_game = not game_name
+    tables.append(_table("ent-character", "CHARACTER", ["sid", "role", "isBot", "humanName"],
+        [[c["sid"], c["role"], c["isBot"], c.get("humanName", "")] for c in char_rows],
+        disabled=no_game))
+    tables.append(_table("ent-position", "POSITION", ["sid", "location"],
+        [[p["sid"], p["location"]] for p in pos_rows],
+        disabled=no_game))
+
+    # --- Relationships (from -> to, label) ---
+    relationships = [
+        ("ent-location", "ent-location", "connects to"),
+        ("ent-game", "ent-role", "has"),
+        ("ent-bot", "ent-character", "sid"),
+        ("ent-role", "ent-character", "role"),
+        ("ent-character", "ent-position", "sid"),
+        ("ent-location", "ent-position", "location"),
+    ]
+
+    rels_json = json.dumps(relationships)
+
+    html = f"""
+<style>
+  .er-container {{
+    position: relative;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 32px;
+    padding: 24px;
+    align-items: flex-start;
+  }}
+  .er-entity {{
+    background: #1e1e2e;
+    border: 1px solid #555;
+    border-radius: 6px;
+    min-width: 160px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  }}
+  .er-title {{
+    background: #3b3b5c;
+    color: #e0e0ff;
+    font-weight: bold;
+    padding: 6px 10px;
+    text-align: center;
+    border-radius: 6px 6px 0 0;
+    font-size: 13px;
+    letter-spacing: 1px;
+  }}
+  .er-entity table {{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    color: #ccc;
+  }}
+  .er-entity th {{
+    background: #2a2a40;
+    color: #aaa;
+    padding: 4px 8px;
+    text-align: left;
+    border-bottom: 1px solid #444;
+    font-weight: normal;
+    font-size: 11px;
+  }}
+  .er-entity td {{
+    padding: 3px 8px;
+    border-bottom: 1px solid #333;
+  }}
+  .er-entity tr:last-child td {{
+    border-bottom: none;
+  }}
+  .er-disabled {{
+    opacity: 0.35;
+  }}
+  .er-svg {{
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+  }}
+</style>
+<div class="er-wrapper" style="position:relative">
+  <svg class="er-svg" id="er-svg"></svg>
+  <div class="er-container" id="er-container">
+    {''.join(tables)}
+  </div>
+</div>
+<script>
+(function() {{
+  const rels = {rels_json};
+  const svg = document.getElementById('er-svg');
+  const container = document.getElementById('er-container');
+
+  function drawLines() {{
+    const cRect = container.getBoundingClientRect();
+    svg.setAttribute('width', container.scrollWidth);
+    svg.setAttribute('height', container.scrollHeight);
+    svg.innerHTML = '';
+
+    rels.forEach(function(rel) {{
+      const fromEl = document.getElementById(rel[0]);
+      const toEl = document.getElementById(rel[1]);
+      if (!fromEl || !toEl) return;
+
+      const fRect = fromEl.getBoundingClientRect();
+      const tRect = toEl.getBoundingClientRect();
+
+      // Connector points: right-center of source, left-center of target
+      let x1 = fRect.right - cRect.left;
+      let y1 = fRect.top + fRect.height / 2 - cRect.top;
+      let x2 = tRect.left - cRect.left;
+      let y2 = tRect.top + tRect.height / 2 - cRect.top;
+
+      // Self-referencing: curve below
+      if (rel[0] === rel[1]) {{
+        const cx = x1 + 40;
+        const cy = Math.max(y1, y2) + 50;
+        x2 = fRect.right - cRect.left;
+        y2 = fRect.top + fRect.height * 0.75 - cRect.top;
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', `M ${{x1}} ${{y1}} C ${{cx}} ${{cy}}, ${{cx}} ${{cy}}, ${{x2}} ${{y2}}`);
+        path.setAttribute('stroke', '#888');
+        path.setAttribute('stroke-width', '1.5');
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke-dasharray', '6,3');
+        svg.appendChild(path);
+      }} else {{
+        // If target is to the left, flip
+        if (tRect.left < fRect.left) {{
+          x1 = fRect.left - cRect.left;
+          x2 = tRect.right - cRect.left;
+        }}
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', x1);
+        line.setAttribute('y1', y1);
+        line.setAttribute('x2', x2);
+        line.setAttribute('y2', y2);
+        line.setAttribute('stroke', '#888');
+        line.setAttribute('stroke-width', '1.5');
+        svg.appendChild(line);
+      }}
+
+      // Label at midpoint
+      const lx = (x1 + x2) / 2;
+      const ly = (y1 + y2) / 2 - 6;
+      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      text.setAttribute('x', lx);
+      text.setAttribute('y', ly);
+      text.setAttribute('fill', '#aaa');
+      text.setAttribute('font-size', '10');
+      text.setAttribute('text-anchor', 'middle');
+      text.textContent = rel[2];
+      svg.appendChild(text);
+    }});
+  }}
+
+  // Draw after layout settles
+  setTimeout(drawLines, 100);
+  window.addEventListener('resize', drawLines);
+}})();
+</script>
+"""
+
+    await atlantis.client_html(html)
+    if not game_name:
+        await atlantis.client_log("Game not yet set")
 
 
 @visible

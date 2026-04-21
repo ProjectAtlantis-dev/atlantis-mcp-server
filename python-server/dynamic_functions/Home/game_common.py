@@ -4,7 +4,6 @@ import atlantis
 import json
 import logging
 import os
-import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
 from dynamic_functions.Data.main import game_dir
@@ -127,7 +126,7 @@ def _upsert_character(sid: str, role: str, is_bot: bool, human_name: str = "") -
     _validate_role(role)
     characters = _load_characters()
 
-    record = {"isBot": is_bot}
+    record: Dict[str, Any] = {"isBot": is_bot}
     if is_bot:
         record["sid"] = sid
     else:
@@ -138,18 +137,14 @@ def _upsert_character(sid: str, role: str, is_bot: bool, human_name: str = "") -
     for ch in characters:
         if ch.get("sid") == sid:
             ch.update(record)
-            if "id" not in ch:
-                ch["id"] = str(uuid.uuid4())
             _save_characters(characters)
-            logger.info(f"Updated character {sid}: role={role} isBot={is_bot} id={ch['id']}")
-            return ch["id"]
+            logger.info(f"Updated character {sid}: role={role} isBot={is_bot}")
+            return sid
 
-    char_id = str(uuid.uuid4())
-    record["id"] = char_id
     characters.append(record)
     _save_characters(characters)
-    logger.info(f"Created character {sid}: role={role} isBot={is_bot} id={char_id}")
-    return char_id
+    logger.info(f"Created character {sid}: role={role} isBot={is_bot}")
+    return sid
 
 
 @visible

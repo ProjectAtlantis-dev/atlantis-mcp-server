@@ -7,7 +7,6 @@ from dynamic_functions.Home.bot_common import (
     fetch_transcript,
 )
 from dynamic_functions.Home.game_common import spawn_bot, _load_bot_config
-from dynamic_functions.Home.roster import get_role_for_bot
 
 
 @session

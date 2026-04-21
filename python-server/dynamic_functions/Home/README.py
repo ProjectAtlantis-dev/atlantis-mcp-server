@@ -16,3 +16,16 @@ async def README():
     md_path = Path(__file__).parent / "MULTIX.md"
     return md_path.read_text()
 
+
+@text("md")
+@visible
+async def README_GAME():
+    """
+    Game entity relationship diagram
+    """
+
+    await atlantis.client_log("README_GAME running")
+
+    md_path = Path(__file__).parent / "GAME.md"
+    return md_path.read_text()
+

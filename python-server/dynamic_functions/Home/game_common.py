@@ -115,43 +115,115 @@ def role_list() -> List[str]:
     )
 
 
-@visible
-def character_assign(sid: str, role: str) -> str:
-    """Upsert a character in the game's characters.json. Returns the UUID.
-
-    Role must be a folder name under Games/<game>/Roles/.
-    If a character with this sid exists, updates role. Otherwise creates
-    a new entry with a fresh UUID.
-    """
-    # Validate that sid corresponds to a known bot
-    if _load_bot_config(sid) is None:
-        raise ValueError(f"Unknown bot sid: {sid!r}. Must match a bot in Bots/ (e.g. {_available_bot_sids()})")
-
+def _validate_role(role: str) -> None:
+    """Raise if role folder doesn't exist under the current game."""
     roles_dir = os.path.join(_find_game_dir(), "Roles")
     if not os.path.isdir(os.path.join(roles_dir, role)):
         raise ValueError(f"Role folder not found: {role}")
 
+
+def _upsert_character(sid: str, role: str, is_bot: bool, human_name: str = "") -> str:
+    """Shared upsert logic for bot and human characters. Returns the UUID."""
+    _validate_role(role)
     characters = _load_characters()
+
+    record = {"isBot": is_bot}
+    if is_bot:
+        record["sid"] = sid
+    else:
+        record["sid"] = sid
+        record["humanName"] = human_name
+    record["role"] = role
 
     for ch in characters:
         if ch.get("sid") == sid:
-            ch["role"] = role
+            ch.update(record)
             if "id" not in ch:
                 ch["id"] = str(uuid.uuid4())
             _save_characters(characters)
-            logger.info(f"Updated character {sid}: role={role} id={ch['id']}")
+            logger.info(f"Updated character {sid}: role={role} isBot={is_bot} id={ch['id']}")
             return ch["id"]
 
     char_id = str(uuid.uuid4())
-    characters.append({"id": char_id, "sid": sid, "role": role})
+    record["id"] = char_id
+    characters.append(record)
     _save_characters(characters)
-    logger.info(f"Assigned character {sid}: role={role} id={char_id}")
+    logger.info(f"Created character {sid}: role={role} isBot={is_bot} id={char_id}")
     return char_id
+
+
+@visible
+def character_bot(sid: str, role: str) -> str:
+    """Assign a bot character. Returns the UUID.
+
+    sid must match a bot in Bots/. Role must be a folder under Games/<game>/Roles/.
+    If a character with this sid exists, updates it. Otherwise creates a new entry.
+    """
+    if _load_bot_config(sid) is None:
+        raise ValueError(f"Unknown bot sid: {sid!r}. Must match a bot in Bots/ (e.g. {_available_bot_sids()})")
+    return _upsert_character(sid, role, is_bot=True)
+
+
+@visible
+def character_human(sid: str, role: str, human_name: str) -> str:
+    """Assign a human character. Returns the UUID.
+
+    sid is a unique identifier for the human player. human_name is their display name.
+    Role must be a folder under Games/<game>/Roles/.
+    If a character with this sid exists, updates it. Otherwise creates a new entry.
+    """
+    if not human_name or not human_name.strip():
+        raise ValueError("human_name is required for human characters")
+    return _upsert_character(sid, role, is_bot=False, human_name=human_name.strip())
 
 @visible
 def character_list() -> List[Dict[str, Any]]:
-    """Return all characters for the current game."""
-    return _load_characters()
+    """Return all characters for the current game.
+
+    Each entry includes id, sid, role, isBot, and a resolved displayName.
+    Bot characters pull displayName from Bots/ config; human characters
+    use humanName.
+    """
+    characters = _load_characters()
+    result = []
+    for ch in characters:
+        entry = dict(ch)
+        if ch.get("isBot", True):
+            loaded = _load_bot_config(ch["sid"])
+            entry["displayName"] = loaded[0].get("displayName", ch["sid"]) if loaded else ch["sid"]
+        else:
+            entry["displayName"] = ch.get("humanName", ch["sid"])
+        result.append(entry)
+    return result
+
+
+@visible
+def position_query(location: str) -> List[Dict[str, Any]]:
+    """Return all characters at a given location.
+
+    Each entry includes id, sid, role, isBot, displayName, and location.
+    """
+    from dynamic_functions.Data.main import get_players_at
+
+    game_id = atlantis.get_game_id()
+    if not game_id:
+        raise ValueError("No active game in context")
+
+    sids_at = get_players_at(game_id, location)
+    characters = _load_characters()
+    result = []
+    for ch in characters:
+        if ch["sid"] not in sids_at:
+            continue
+        entry = dict(ch)
+        entry["location"] = location
+        if ch.get("isBot", True):
+            loaded = _load_bot_config(ch["sid"])
+            entry["displayName"] = loaded[0].get("displayName", ch["sid"]) if loaded else ch["sid"]
+        else:
+            entry["displayName"] = ch.get("humanName", ch["sid"])
+        result.append(entry)
+    return result
 
 
 # =========================================================================

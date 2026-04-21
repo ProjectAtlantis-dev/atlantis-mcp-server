@@ -184,7 +184,7 @@ async def game_status() -> dict:
 
 
 @visible
-async def game_set(name: str) -> str:
+async def game_set(name: str) -> None:
     """Lock this MCP server to a specific game (e.g. 'Atlantis' or 'FlowCentral').
 
     The choice is persisted to disk and cached in server_shared so it
@@ -199,7 +199,7 @@ async def game_set(name: str) -> str:
     if current:
         if current == name:
             await atlantis.client_log(f"Game already set to '{name}' (game_id: {game_id})")
-            return name
+            return
         raise ValueError(f"Game ID {game_id} is already locked to '{current}'.")
 
     # Validate the game exists
@@ -215,22 +215,42 @@ async def game_set(name: str) -> str:
     await atlantis.client_log(f"Game locked: game_id {game_id} → '{name}'")
 
 
-@visible
-async def game_move(location: str = "") -> None:
-    """Move the current player to a location in the active game.
-
-    Delegates to Games/{current_game}/move.move_to().
-    Call game_set() first to lock this server to a game.
-    """
+def _get_move_module():
+    """Return the move module for the current game."""
     game = _get_current_game()
     if not game:
         raise ValueError("No game set. Call game_set() first (e.g. game_set('Atlantis')).")
-
     mod_name = f"dynamic_functions.Games.{game}.move"
     try:
-        mod = importlib.import_module(mod_name)
+        return importlib.import_module(mod_name)
     except ModuleNotFoundError:
         raise ValueError(f"Game '{game}' has no move module (expected {mod_name})")
 
-    await mod.move_to(location)
+
+@visible
+async def game_move_bot(sid: str, location: str = "") -> str:
+    """Move a bot character to a location in the active game.
+
+    sid must be a registered bot character (via character_bot()).
+    Location is optional for first-time entry (spawns in default lobby).
+
+    Delegates to Games/{current_game}/move.move_bot().
+    Call game_set() first to lock this server to a game.
+    """
+    mod = _get_move_module()
+    return await mod.move_bot(sid, location or "")
+
+
+@visible
+async def game_move_human(sid: str, location: str = "") -> str:
+    """Move a human character to a location in the active game.
+
+    sid must be a registered human character (via character_human()).
+    Location is optional for first-time entry (spawns in default lobby).
+
+    Delegates to Games/{current_game}/move.move_human().
+    Call game_set() first to lock this server to a game.
+    """
+    mod = _get_move_module()
+    return await mod.move_human(sid, location or "")
 

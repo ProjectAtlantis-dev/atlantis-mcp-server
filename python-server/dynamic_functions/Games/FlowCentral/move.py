@@ -16,6 +16,7 @@ from dynamic_functions.Data.main import (
     set_player_position,
     ensure_location_data,
 )
+from dynamic_functions.Home.game_common import _load_characters
 
 logger = logging.getLogger("mcp_server")
 
@@ -62,29 +63,28 @@ async def _set_location_background(location_data: Dict[str, Any]) -> None:
 # Core logic
 # =========================================================================
 
-@visible
-async def move_to(location: str = "") -> None:
-    """Move a player to a location.
+def _find_character(sid: str, is_bot: bool) -> dict:
+    """Look up a character by sid and verify its isBot flag."""
+    for ch in _load_characters():
+        if ch.get("sid") == sid:
+            if ch.get("isBot", True) != is_bot:
+                kind = "bot" if is_bot else "human"
+                raise ValueError(f"Character {sid!r} is not a {kind}")
+            return ch
+    kind = "character_bot()" if is_bot else "character_human()"
+    raise ValueError(f"No character found for sid: {sid!r}. Register with {kind} first.")
 
-    For first-time players, call with no arguments — the player will be
-    placed in the default lobby.
 
-    Args:
-        location: Destination location name. Omit (or empty) to enter the
-                  default lobby for first-time players.
+async def _move_to(sid: str, location: str, is_bot: bool) -> str:
+    """Shared movement logic for bot and human characters."""
+    location = location or ""
+    _find_character(sid, is_bot)
 
-    Raises:
-        ValueError: if location is unknown, player hasn't been through
-                    the lobby, or the destination isn't reachable from
-                    the current position.
-    """
     game_id = atlantis.get_game_id()
     if not game_id:
         raise ValueError("No active game in context")
-
-    sid = atlantis.get_caller()
     if not sid:
-        raise ValueError("Could not determine caller identity")
+        raise ValueError("sid is required")
 
     current = get_player_position(game_id, sid)
 
@@ -105,7 +105,7 @@ async def move_to(location: str = "") -> None:
         await _set_location_background(dest)
         await atlantis.client_log(f"🏛️ {sid} has entered {desc} for the first time")
         logger.info(f"[FlowCentral] New player {sid} entered {DEFAULT_LOCATION}")
-        return
+        return location
 
     if not location:
         raise ValueError("location is required for players who have already entered")
@@ -119,7 +119,7 @@ async def move_to(location: str = "") -> None:
     # Already there
     if current == location:
         await atlantis.client_log(f"📍 {sid} is already in {desc}")
-        return
+        return location
 
     # Check adjacency
     reachable = _connects_to(current)
@@ -136,3 +136,24 @@ async def move_to(location: str = "") -> None:
     await _set_location_background(dest)
     await atlantis.client_log(f"🚶 {sid} moved from {current_desc} to {desc}")
     logger.info(f"[FlowCentral] {sid} moved from {current} to {location}")
+    return location
+
+
+@visible
+async def move_bot(sid: str, location: str = "") -> str:
+    """Move a bot character to a location. Returns the destination.
+
+    sid must be a registered bot character (via character_bot()).
+    For first-time entry, omit location to spawn in the default lobby.
+    """
+    return await _move_to(sid, location, is_bot=True)
+
+
+@visible
+async def move_human(sid: str, location: str = "") -> str:
+    """Move a human character to a location. Returns the destination.
+
+    sid must be a registered human character (via character_human()).
+    For first-time entry, omit location to spawn in the default lobby.
+    """
+    return await _move_to(sid, location, is_bot=False)

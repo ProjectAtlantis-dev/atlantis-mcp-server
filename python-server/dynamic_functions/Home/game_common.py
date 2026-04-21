@@ -172,13 +172,16 @@ def character_bot(sid: str, role: str) -> str:
 
 
 @visible
-def character_human(sid: str, role: str, human_name: str) -> str:
+def character_human(role: str, human_name: str) -> str:
     """Assign a human character. Returns the UUID.
 
-    sid is a unique identifier for the human player. human_name is their display name.
+    Uses the caller's identity as the sid. human_name is their display name.
     Role must be a folder under Games/<game>/Roles/.
     If a character with this sid exists, updates it. Otherwise creates a new entry.
     """
+    sid = atlantis.get_caller()
+    if not sid:
+        raise ValueError("Unable to determine caller identity")
     if not human_name or not human_name.strip():
         raise ValueError("human_name is required for human characters")
     return _upsert_character(sid, role, is_bot=False, human_name=human_name.strip())

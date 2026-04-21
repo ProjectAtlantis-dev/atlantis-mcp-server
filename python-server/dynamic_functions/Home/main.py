@@ -348,10 +348,14 @@ async def game_show() -> None:
 
     uid = uuid.uuid4().hex[:8]
 
-    def _table(entity_id, title, headers, rows, disabled=False):
+    def _table(entity_id, title, headers, rows, disabled=False, variant=None):
         """Return HTML for one entity table."""
         scoped_id = f"{entity_id}-{uid}"
-        cls = f"er-entity-{uid} er-disabled-{uid}" if disabled else f"er-entity-{uid}"
+        cls = f"er-entity-{uid}"
+        if variant:
+            cls += f" er-variant-{variant}-{uid}"
+        if disabled:
+            cls += f" er-disabled-{uid}"
         h = "".join(f"<th>{_esc(c)}</th>" for c in headers)
         body = ""
         for row in rows:
@@ -376,19 +380,27 @@ async def game_show() -> None:
                     game_rows.append([entry])
     tables = []
     tables.append(_table("ent-game", "GAME", ["name"], game_rows))
-    tables.append(_table("ent-bot", "BOT", ["game", "sid", "displayName"],
-        [[b["game"], b["sid"], b["displayName"]] for b in bot_rows]))
-    tables.append(_table("ent-location", "LOCATION", ["game", "name", "description", "connects_to"],
-        [[l["game"], l["name"], l["description"], ", ".join(l["connects_to"])] for l in loc_rows]))
-    tables.append(_table("ent-role", "ROLE", ["game", "name", "title"],
-        [[r["game"], r["name"], r["title"]] for r in role_rows]))
+    if game_name:
+        tables.append(_table("ent-bot", "BOT", ["sid", "displayName"],
+            [[b["sid"], b["displayName"]] for b in bot_rows]))
+        tables.append(_table("ent-location", "LOCATION", ["name", "description", "connects_to"],
+            [[l["name"], l["description"], ", ".join(l["connects_to"])] for l in loc_rows]))
+        tables.append(_table("ent-role", "ROLE", ["name", "title"],
+            [[r["name"], r["title"]] for r in role_rows]))
+    else:
+        tables.append(_table("ent-bot", "BOT", ["game", "sid", "displayName"],
+            [[b["game"], b["sid"], b["displayName"]] for b in bot_rows]))
+        tables.append(_table("ent-location", "LOCATION", ["game", "name", "description", "connects_to"],
+            [[l["game"], l["name"], l["description"], ", ".join(l["connects_to"])] for l in loc_rows]))
+        tables.append(_table("ent-role", "ROLE", ["game", "name", "title"],
+            [[r["game"], r["name"], r["title"]] for r in role_rows]))
     no_game = not game_name
     tables.append(_table("ent-character", "CHARACTER", ["sid", "role", "isBot", "humanName"],
         [[c["sid"], c["role"], c["isBot"], c.get("humanName", "")] for c in char_rows],
-        disabled=no_game))
+        disabled=no_game, variant="runtime"))
     tables.append(_table("ent-position", "POSITION", ["sid", "location"],
         [[p["sid"], p["location"]] for p in pos_rows],
-        disabled=no_game))
+        disabled=no_game, variant="runtime"))
 
     # --- Relationships (from -> to, label) ---
     relationships = [
@@ -464,6 +476,18 @@ async def game_show() -> None:
   }}
   #er-wrapper-{uid} .er-entity-{uid} tr:last-child td {{
     border-bottom: none;
+  }}
+  #er-wrapper-{uid} .er-variant-runtime-{uid} {{
+    background: #1e2e22;
+    border-color: #4a7a5a;
+  }}
+  #er-wrapper-{uid} .er-variant-runtime-{uid} .er-title-{uid} {{
+    background: #2f5c42;
+    color: #d0ffe0;
+  }}
+  #er-wrapper-{uid} .er-variant-runtime-{uid} th {{
+    background: #223a2c;
+    color: #a8c8b0;
   }}
   #er-wrapper-{uid} .er-disabled-{uid} {{
     opacity: 0.35;
@@ -565,7 +589,7 @@ async def game_show() -> None:
         f'      if (!el) return;'
         f'      el.style.left = Math.round(n.x * scaleX) + "px";'
         f'      el.style.top = n.y + "px";'
-        f'      el.style.width = n.width + "px";'
+        f'      el.style.width = Math.round(n.width * scaleX) + "px";'
         f'    }});'
         f'    stage.style.width = useW + "px";'
         f'    stage.style.height = H + "px";'
@@ -610,6 +634,8 @@ async def game_show() -> None:
 
     if not game_name:
         await atlantis.client_log("Game not yet set")
+
+    await atlantis.client_log("Rendered")
 
 
 @visible

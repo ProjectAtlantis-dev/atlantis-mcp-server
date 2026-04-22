@@ -7,10 +7,11 @@ import os
 import uuid
 from typing import Any, Dict, List, Optional
 
-from dynamic_functions.Home.game_common import (
-    _load_location, _locations_dir, _connects_to, _load_characters,
+from dynamic_functions.Home.common import (
+    _load_location, _locations_dir, _connects_to,
     _load_bot_config, location_thumb,
 )
+from dynamic_functions.Home.character import _load_characters
 from dynamic_functions.Data.main import get_player_position, get_players_at
 
 
@@ -22,7 +23,7 @@ def _require_game():
 def _location_image_b64(loc_name: str) -> str:
     """Return a data-URI for a location's thumbnail, or empty string.
 
-    Uses disk-persisted thumbnails from game_common.location_thumb()
+    Uses disk-persisted thumbnails from common.location_thumb()
     so we never base64-encode multi-MB originals.
     """
     thumb = location_thumb(loc_name)

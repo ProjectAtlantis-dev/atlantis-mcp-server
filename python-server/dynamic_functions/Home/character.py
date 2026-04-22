@@ -71,7 +71,7 @@ def _find_character(sid: str, is_bot: bool) -> dict:
                 kind = "bot" if is_bot else "human"
                 raise ValueError(f"Character {sid!r} is not a {kind}")
             return ch
-    kind = "character_bot()" if is_bot else "character_human()"
+    kind = "character_bot()" if is_bot else "character_self() or character_human()"
     raise ValueError(f"No character found for sid: {sid!r}. Register with {kind} first.")
 
 

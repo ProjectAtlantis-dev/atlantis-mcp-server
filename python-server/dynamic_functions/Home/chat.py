@@ -1,202 +1,52 @@
-"""Bot-owned chat dispatch and default chat-completions handler."""
+"""Chat entry point — determine room occupants and next speaker."""
 
-import inspect
-import os
-import time as _t
-from dataclasses import dataclass
-from importlib import import_module
-from typing import Any, Callable, Dict, List, Optional
+import atlantis
+import logging
 
-from openai import OpenAI
+from dynamic_functions.Home.common import get_player_position, get_players_at
+from dynamic_functions.Home.location import position_query
 
-from dynamic_functions.Home.bot_common import (
-    TranscriptToolT,
-    ToolLookupInfo,
-    get_base_tools,
-    logger,
-)
-from dynamic_functions.Home.turn import run_turn
+logger = logging.getLogger("mcp_server")
 
 
-ProcedureInjectionProvider = Callable[["BotChatContext"], Any]
-ChatHandler = Callable[["BotChatContext"], Any]
+@chat
+async def chat():
+    """Main chat callback. Figures out who's in the room and who speaks next."""
+    caller = atlantis.get_caller()
+    if not caller:
+        logger.warning("Chat fired without a caller identity")
+        return
 
+    # Where is the caller?
+    location = get_player_position(caller)
+    if not location:
+        await atlantis.client_log(f"📍 {caller} has no position — nowhere to chat")
+        return
 
-@dataclass
-class BotChatContext:
-    """Everything a bot runtime needs to decide how to handle a chat turn."""
+    # Who else is here?
+    occupants = position_query(location)
+    if not occupants:
+        await atlantis.client_log(f"📍 {caller} is alone in {location}")
+        return
 
-    session_id: str
-    request_id: str
-    game_id: Optional[str]
-    caller: str
-    bot_sid: str
-    bot_cfg: Dict[str, Any]
-    role: Dict[str, Any]
-    raw_transcript: List[Dict[str, Any]]
-    transcript: List[Dict[str, Any]]
-    procedure_injection_provider: Optional[ProcedureInjectionProvider] = None
+    # Build a list of everyone in the room (with display names)
+    names = []
+    bots = []
+    for ch in occupants:
+        display = ch.get("displayName", ch["sid"])
+        names.append(display)
+        if ch.get("isBot") and ch["sid"] != caller:
+            bots.append(ch)
 
-
-    @property
-    def location(self) -> str:
-        return str(self.role.get("location", ""))
-
-    @property
-    def role_title(self) -> str:
-        return str(self.role.get("title", "Assistant"))
-
-    @property
-    def bot_display_name(self) -> str:
-        return str(self.bot_cfg.get("displayName", self.bot_sid))
-
-    async def build_procedure_injections(self) -> List[Dict[str, Any]]:
-        if not self.procedure_injection_provider:
-            return []
-
-        result = self.procedure_injection_provider(self)
-        if inspect.isawaitable(result):
-            result = await result
-        return list(result or [])
-
-
-async def dispatch_chat(context: BotChatContext) -> Optional[str]:
-    """Route chat handling to the bot's configured handler, or the default runtime."""
-    handler_path = context.bot_cfg.get("chatHandler")
-    handler = _load_chat_handler(handler_path) if handler_path else handle_chat_completions
-
-    result = handler(context)
-    if inspect.isawaitable(result):
-        return await result
-    return result
-
-
-async def handle_chat_completions(context: BotChatContext) -> Optional[str]:
-    """Default bot runtime for streaming chat-completions providers."""
-    bot_cfg = context.bot_cfg
-    bot_sid = str(bot_cfg["sid"])
-    bot_display_name = context.bot_display_name
-
-    if _last_chat_sid(context.raw_transcript) == bot_sid:
-        logger.warning(f"Last chat was from {bot_display_name} - skipping")
-        return None
-
-    t0 = _t.monotonic()
-    system_prompt = await _build_system_prompt(context)
-    logger.info(f"System prompt built in {_t.monotonic() - t0:.2f}s ({len(system_prompt)} chars)")
-
-    injections = await context.build_procedure_injections()
-    for injection in injections:
-        context.transcript.append(injection)
-    if injections:
-        logger.info(f"Injected {len(injections)} procedure message(s) from role {context.role.get('id')}")
-
-    converted_tools, tool_lookup = await _build_tools(context)
-    client = _build_chat_completions_client(bot_cfg)
-
-    allowed_apps = context.role.get("allowedApps")
-    logger.info(
-        f"=== HANDING OFF TO {bot_display_name} "
-        f"({context.role_title} at {context.location}) === "
-        f"session={context.session_id} allowed_apps={allowed_apps}"
+    await atlantis.client_log(
+        f"🏠 Room [{location}]: {', '.join(names)}"
     )
 
-    return await run_turn(
-        client=client,
-        model=str(bot_cfg["model"]),
-        bot_sid=bot_sid,
-        bot_display_name=bot_display_name,
-        system_prompt=system_prompt,
-        transcript=context.transcript,
-        converted_tools=converted_tools,
-        tool_lookup=tool_lookup,
-        sessionId=context.session_id,
-        requestId=context.request_id,
-        allowed_apps=allowed_apps,
-    )
-
-
-def _load_chat_handler(handler_path: str) -> ChatHandler:
-    module_name, attr_name = _split_dotted_callable(handler_path)
-    handler = getattr(import_module(module_name), attr_name)
-    if not callable(handler):
-        raise TypeError(f"Configured chatHandler is not callable: {handler_path}")
-    return handler
-
-
-def _split_dotted_callable(path: str) -> tuple[str, str]:
-    normalized = path.replace(":", ".")
-    if "." not in normalized:
-        raise ValueError(f"chatHandler must be a dotted callable path: {path}")
-    return normalized.rsplit(".", 1)
-
-
-def _last_chat_sid(raw_transcript: List[Dict[str, Any]]) -> Optional[str]:
-    for msg in reversed(raw_transcript):
-        if msg.get("type") == "chat" and msg.get("sid") != "system":
-            return msg.get("sid")
-    return None
-
-
-async def _build_system_prompt(context: BotChatContext) -> str:
-    bot_cfg = context.bot_cfg
-    bot_dir = bot_cfg.get("_botDir", "")
-
-    # Read base prompt from markdown file
-    prompt_file = bot_cfg.get("systemPrompt", "system_prompt.md")
-    prompt_path = os.path.join(bot_dir, prompt_file) if bot_dir else prompt_file
-    if not os.path.isfile(prompt_path):
-        raise ValueError(f"System prompt not found: {prompt_path}")
-    with open(prompt_path, "r", encoding="utf-8") as f:
-        base_prompt = f.read().strip()
-    if not base_prompt:
-        raise ValueError(f"System prompt is empty: {prompt_path}")
-
-    # Apply prompt builder (adds datetime, interaction context, etc.)
-    prompt_builder_path = bot_cfg.get("promptBuilder")
-    if not prompt_builder_path:
-        # Default: look for prompt.py next to system_prompt.md
-        prompt_py = os.path.join(bot_dir, "prompt.py") if bot_dir else None
-        if prompt_py and os.path.isfile(prompt_py):
-            # Derive module path from bot dir
-            rel = os.path.relpath(prompt_py, os.path.join(bot_dir, "..", ".."))
-            module_name = rel.replace(os.sep, ".").replace(".py", "")
-            prompt_builder_path = f"dynamic_functions.{module_name}.build_system_prompt"
-
-    if prompt_builder_path:
-        module_name, attr_name = _split_dotted_callable(str(prompt_builder_path))
-        build_system_prompt = getattr(import_module(module_name), attr_name)
-        system_prompt = build_system_prompt(
-            base_prompt,
-            context.caller,
+    # Next to speak: first bot in the room that isn't the caller
+    if bots:
+        next_up = bots[0]
+        await atlantis.client_log(
+            f"🎤 Next to speak: {next_up.get('displayName', next_up['sid'])}"
         )
-        if inspect.isawaitable(system_prompt):
-            system_prompt = await system_prompt
-        return str(system_prompt)
-
-    return base_prompt
-
-
-async def _build_tools(context: BotChatContext) -> tuple[List[TranscriptToolT], Dict[str, ToolLookupInfo]]:
-    tool_builder_path = context.bot_cfg.get("toolBuilder")
-    if not tool_builder_path:
-        return get_base_tools()
-
-    module_name, attr_name = _split_dotted_callable(str(tool_builder_path))
-    builder = getattr(import_module(module_name), attr_name)
-    result = builder(context)
-    if inspect.isawaitable(result):
-        result = await result
-    return result
-
-
-def _build_chat_completions_client(bot_cfg: Dict[str, Any]) -> OpenAI:
-    api_key_env = str(bot_cfg["apiKeyEnv"])
-    api_key = os.getenv(api_key_env)
-    if not api_key:
-        raise ValueError(f"{api_key_env} environment variable is not set")
-
-    return OpenAI(
-        api_key=api_key,
-        base_url=bot_cfg["baseUrl"],
-    )
+    else:
+        await atlantis.client_log("🎤 No bots present — waiting for player input")

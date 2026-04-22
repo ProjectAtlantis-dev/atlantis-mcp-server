@@ -156,7 +156,8 @@ async def look(location: str = "") -> str:
     image independent of where any characters are.
     If no location is given, uses the caller's current position.
     """
-    from dynamic_functions.Home.common import _load_location, _set_location_background, set_camera
+    from dynamic_functions.Home.common import _load_location, _set_location_background
+    from dynamic_functions.Home.camera import set_camera
 
     _get_current_game()  # guard: requires game to be set
 

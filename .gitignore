@@ -51,6 +51,7 @@ python-server/dynamic_functions/.gitignore
 python-server/dynamic_servers/*
 !python-server/dynamic_servers/weather.json
 python-server/runServer?*
+python-server/*.bat
 
 log/
 

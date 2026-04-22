@@ -9,7 +9,7 @@ from dynamic_functions.Home.bot_common import logger, get_base_tools
 from dynamic_functions.Data.main import get_positions
 from dynamic_functions.Home.game_common import (
     _load_characters, _load_bot_config, _bots_dir, _locations_dir, GAMES_DIR,
-    move_character,
+    move_character, _default_location, location_thumb, bot_thumb,
 )
 
 def _require_game():
@@ -59,20 +59,18 @@ async def bot_list() -> List[Dict[str, str]]:
         with open(config_path, 'r') as f:
             cfg = json.load(f)
         image_data = ''
-        bot_dir = os.path.join(bots_dir, entry)
-        image_file = cfg.get('image', '')
-        if image_file:
-            image_path = os.path.join(bot_dir, image_file)
-            if os.path.isfile(image_path):
-                ext = os.path.splitext(image_file)[1].lower()
-                mime = {'jpg': 'jpeg', 'jpeg': 'jpeg', 'png': 'png', 'gif': 'gif', 'webp': 'webp'}.get(ext.lstrip('.'), 'jpeg')
-                with open(image_path, 'rb') as img:
-                    b64 = base64.b64encode(img.read()).decode('ascii')
-                image_data = f'data:image/{mime};base64,{b64}'
+        sid = cfg.get('sid', entry.lower())
+        thumb = bot_thumb(sid)
+        if thumb:
+            ext = os.path.splitext(thumb)[1].lower()
+            mime = {'jpg': 'jpeg', 'jpeg': 'jpeg', 'png': 'png', 'gif': 'gif', 'webp': 'webp'}.get(ext.lstrip('.'), 'jpeg')
+            with open(thumb, 'rb') as img:
+                b64 = base64.b64encode(img.read()).decode('ascii')
+            image_data = f'data:image/{mime};base64,{b64}'
         # Grab first paragraph of system prompt
         blurb = ''
         prompt_file = cfg.get('systemPrompt', 'system_prompt.md')
-        prompt_path = os.path.join(bot_dir, prompt_file)
+        prompt_path = os.path.join(bots_dir, entry, prompt_file)
         if os.path.isfile(prompt_path):
             with open(prompt_path, 'r') as pf:
                 text = pf.read().strip()
@@ -100,15 +98,14 @@ async def location_list() -> List[Dict[str, str]]:
         with open(os.path.join(locations_dir, fname), 'r') as f:
             data = json.load(f)
         image_data = ''
-        image_file = data.get('image', '')
-        if image_file:
-            image_path = os.path.join(locations_dir, image_file)
-            if os.path.isfile(image_path):
-                ext = os.path.splitext(image_file)[1].lower()
-                mime = {'jpg': 'jpeg', 'jpeg': 'jpeg', 'png': 'png', 'gif': 'gif', 'webp': 'webp'}.get(ext.lstrip('.'), 'jpeg')
-                with open(image_path, 'rb') as img:
-                    b64 = base64.b64encode(img.read()).decode('ascii')
-                image_data = f'data:image/{mime};base64,{b64}'
+        loc_name = data.get('name', fname[:-5])
+        thumb = location_thumb(loc_name)
+        if thumb:
+            ext = os.path.splitext(thumb)[1].lower()
+            mime = {'jpg': 'jpeg', 'jpeg': 'jpeg', 'png': 'png', 'gif': 'gif', 'webp': 'webp'}.get(ext.lstrip('.'), 'jpeg')
+            with open(thumb, 'rb') as img:
+                b64 = base64.b64encode(img.read()).decode('ascii')
+            image_data = f'data:image/{mime};base64,{b64}'
         locations.append({
             'name': data.get('name', fname[:-5]),
             'description': data.get('description', data.get('name', fname[:-5])),
@@ -645,5 +642,20 @@ async def game_move_human(sid: str, location: str = "") -> str:
     Location is optional for first-time entry (spawns in default lobby).
     Call game_set() first to lock this server to a game.
     """
-    return await move_character(sid, location or "", is_bot=False, set_bg=True)
+    return await move_character(sid, location or "", is_bot=False, set_bg=False)
+
+
+@visible
+async def go(location: str = "") -> str:
+    """Move the caller's character to a location in the active game.
+
+    Uses the caller's identity as the sid (must be registered via character_self()/character_human()).
+    Location is optional for first-time entry (spawns in default lobby).
+    Call game_set() first to lock this server to a game.
+    Updates the background image to match the new location.
+    """
+    sid = atlantis.get_caller()
+    if not sid:
+        raise ValueError("Unable to determine caller identity")
+    return await move_character(sid, location or _default_location(), is_bot=False, set_bg=True)
 

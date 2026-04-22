@@ -6,9 +6,7 @@ logger = logging.getLogger("mcp_server")
 
 @visible
 async def index():
-    """
-    Folder for Games
-    """
+    """Interactive agent games — chat-driven worlds with bots, roles, and locations."""
     logger.info(f"Executing placeholder function: index...")
 
     await atlantis.client_log("index running")

@@ -1,5 +1,4 @@
 import atlantis
-import importlib
 import json
 import logging
 import os
@@ -10,6 +9,7 @@ from dynamic_functions.Home.bot_common import logger, get_base_tools
 from dynamic_functions.Data.main import get_positions
 from dynamic_functions.Home.game_common import (
     _load_characters, _load_bot_config, _bots_dir, _locations_dir, GAMES_DIR,
+    move_character,
 )
 
 def _require_game():
@@ -216,18 +216,6 @@ async def game_set(name: str) -> None:
     _save_game_map(mapping)
 
     await atlantis.client_log(f"Game locked: game_id {game_id} → '{name}'")
-
-
-def _get_move_module():
-    """Return the move module for the current game."""
-    game = _get_current_game()
-    if not game:
-        raise ValueError("No game set. Call game_set() first (e.g. game_set('Atlantis')).")
-    mod_name = f"dynamic_functions.Games.{game}.move"
-    try:
-        return importlib.import_module(mod_name)
-    except ModuleNotFoundError:
-        raise ValueError(f"Game '{game}' has no move module (expected {mod_name})")
 
 
 @visible
@@ -644,12 +632,9 @@ async def game_move_bot(sid: str, location: str = "") -> str:
 
     sid must be a registered bot character (via character_bot()).
     Location is optional for first-time entry (spawns in default lobby).
-
-    Delegates to Games/{current_game}/move.move_bot().
     Call game_set() first to lock this server to a game.
     """
-    mod = _get_move_module()
-    return await mod.move_bot(sid, location or "")
+    return await move_character(sid, location or "", is_bot=True, set_bg=False)
 
 
 @visible
@@ -658,10 +643,7 @@ async def game_move_human(sid: str, location: str = "") -> str:
 
     sid must be a registered human character (via character_human()).
     Location is optional for first-time entry (spawns in default lobby).
-
-    Delegates to Games/{current_game}/move.move_human().
     Call game_set() first to lock this server to a game.
     """
-    mod = _get_move_module()
-    return await mod.move_human(sid, location or "")
+    return await move_character(sid, location or "", is_bot=False, set_bg=True)
 

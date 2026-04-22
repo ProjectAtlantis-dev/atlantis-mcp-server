@@ -6,9 +6,7 @@ logger = logging.getLogger("mcp_server")
 
 @visible
 async def index():
-    """
-    Folder for Bots
-    """
+    """FlowCentral bot roster — Atlas."""
     logger.info(f"Executing placeholder function: index...")
 
     await atlantis.client_log("index running")

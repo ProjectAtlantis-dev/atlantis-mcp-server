@@ -3673,6 +3673,8 @@ class ServiceClient:
                     visibility_str += f" {GREY_COLOR}[@location]{RESET_COLOR}"
                 if 'copy' in decorators:
                     visibility_str += f" {CYAN_COLOR}[@copy]{RESET_COLOR}"
+                if 'exclude' in decorators:
+                    visibility_str += f" {RED}[@exclude]{RESET_COLOR}"
 
             # Add index indicator if function is marked as index
             if is_index:
@@ -3978,7 +3980,7 @@ class ServiceClient:
             if self.description:
                 logger.info(f"{BOLD}{BRIGHT_WHITE}DESCRIPTION : {self.description}{RESET}")
             if self.image:
-                logger.info(f"{BOLD}{BRIGHT_WHITE}IMAGE       : {self.image}{RESET}")
+                logger.info(f"{BOLD}{BRIGHT_WHITE}IMAGE       : <set>{RESET}")
             logger.info(f"{BOLD}{BRIGHT_WHITE}OWNER       : {atlantis._owner}{RESET}")
             logger.info(f"{BOLD}{BRIGHT_WHITE}OWNER USERS : {atlantis._owner_usernames}{RESET}")
             logger.info(f"{BOLD}{BRIGHT_WHITE}LOGIN       : {self.email}{RESET}")

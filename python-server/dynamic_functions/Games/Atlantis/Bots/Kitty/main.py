@@ -6,5 +6,5 @@ logger = logging.getLogger("mcp_server")
 
 @visible
 async def index():
-    """FlowCentral — agent world hosted by Atlas."""
+    """Kitty — Atlantis bot persona (catgirl)."""
     pass

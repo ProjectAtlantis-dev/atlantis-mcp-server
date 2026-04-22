@@ -249,6 +249,20 @@ def copy(func):
     setattr(func, '_is_copyable', True)
     return func
 
+# --- Exclude Decorator Definition ---
+def exclude(func):
+    """
+    Decorator that marks a function as excluded from the tool list sent to the cloud.
+    Does nothing at runtime — purely a marker that appears in the function's
+    decorator annotations so the cloud can filter it out.
+
+    Usage: @exclude
+           def my_excluded_function():
+               ...
+    """
+    setattr(func, '_is_excluded', True)
+    return func
+
 class DynamicFunctionManager:
     def __init__(self, functions_dir):
         # Install decorator identities into builtins so they're available to any module
@@ -268,6 +282,7 @@ class DynamicFunctionManager:
         builtins.price = price
         builtins.copy = copy
         builtins.dynamic = dynamic
+        builtins.exclude = exclude
 
         # State that was previously global
         self.functions_dir = functions_dir

@@ -76,17 +76,51 @@ def _find_character(sid: str, is_bot: bool) -> dict:
 
 
 @visible
-def role_list() -> List[str]:
-    """Return available role names (subfolder names under Games/<game>/Roles/)."""
-    roles_dir = os.path.join(_find_game_dir(), "Roles")
+def _load_role_json(roles_dir: str, role_name: str) -> dict:
+    """Read a role's role.json, returning {} if missing."""
+    rjson = os.path.join(roles_dir, role_name, "role.json")
+    if os.path.isfile(rjson):
+        with open(rjson) as f:
+            return json.load(f)
+    return {}
+
+
+def _collect_roles(roles_dir: str) -> List[Dict[str, str]]:
+    """Scan a single Roles/ directory and return role entries."""
+    roles = []
     if not os.path.isdir(roles_dir):
-        return []
-    return sorted(
-        d for d in os.listdir(roles_dir)
-        if os.path.isdir(os.path.join(roles_dir, d))
-        and not d.startswith(".")
-        and d != "__pycache__"
-    )
+        return roles
+    for d in sorted(os.listdir(roles_dir)):
+        if os.path.isdir(os.path.join(roles_dir, d)) and not d.startswith(".") and d != "__pycache__":
+            rdata = _load_role_json(roles_dir, d)
+            roles.append({
+                "name": d,
+                "title": rdata.get("title", d),
+                "greeting": rdata.get("greeting", ""),
+            })
+    return roles
+
+
+@visible
+def role_list():
+    """Return available roles.
+
+    If a game is set, returns roles for that game.
+    Otherwise returns roles across all games with a 'game' column.
+    """
+    from dynamic_functions.Home.game import _get_current_game
+    game_name = _get_current_game()
+
+    if game_name:
+        return _collect_roles(os.path.join(_find_game_dir(), "Roles"))
+
+    # No game set — scan all games
+    roles = []
+    if os.path.isdir(GAMES_DIR):
+        for gname in sorted(os.listdir(GAMES_DIR)):
+            for role in _collect_roles(os.path.join(GAMES_DIR, gname, "Roles")):
+                roles.append({"game": gname, **role})
+    return roles
 
 
 def _validate_role(role: str) -> None:
@@ -129,6 +163,7 @@ def character_bot(sid: str, role: str) -> str:
     sid must match a bot in Bots/. Role must be a folder under Games/<game>/Roles/.
     If a character with this sid exists, updates it. Otherwise creates a new entry.
     """
+    _current_game_name()  # guard: requires game to be set
     from dynamic_functions.Home.common import _load_bot_config, _available_bot_sids
     if _load_bot_config(sid) is None:
         raise ValueError(f"Unknown bot sid: {sid!r}. Must match a bot in Bots/ (e.g. {_available_bot_sids()})")
@@ -143,6 +178,7 @@ def character_human(sid: str, role: str, human_name: str) -> str:
     Role must be a folder under Games/<game>/Roles/.
     If a character with this sid exists, updates it. Otherwise creates a new entry.
     """
+    _current_game_name()  # guard: requires game to be set
     if not sid:
         raise ValueError("sid is required for human characters")
     if not human_name or not human_name.strip():
@@ -157,6 +193,7 @@ def character_self(role: str, human_name: str) -> str:
     human_name is the caller's display name. Role must be a folder under Games/<game>/Roles/.
     If a character with this sid exists, updates it. Otherwise creates a new entry.
     """
+    _current_game_name()  # guard: requires game to be set
     sid = atlantis.get_caller()
     if not sid:
         raise ValueError("Unable to determine caller identity")
@@ -171,6 +208,7 @@ def character_list() -> List[Dict[str, Any]]:
     Bot characters pull displayName from Bots/ config; human characters
     use humanName.
     """
+    _current_game_name()  # guard: requires game to be set
     from dynamic_functions.Home.common import _load_bot_config
     characters = _load_characters()
     result = []

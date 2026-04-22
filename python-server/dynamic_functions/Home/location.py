@@ -8,7 +8,7 @@ from typing import Any, List, Dict
 
 from dynamic_functions.Data.main import get_positions, get_players_at
 from dynamic_functions.Home.common import (
-    _locations_dir, location_thumb, move_character, _default_location,
+    _locations_dir, location_thumb, _ensure_thumb, move_character, _default_location, GAMES_DIR,
 )
 from dynamic_functions.Home.character import _load_characters
 
@@ -18,30 +18,61 @@ def _get_current_game():
     return _get_current_game()
 
 
-@visible
-async def location_list() -> List[Dict[str, str]]:
-    """List all locations with their name and image (base64-encoded)."""
+def _thumb_for_image(image_path: str) -> str:
+    """Return thumbnail path for a location image, without relying on current game."""
+    if not image_path or not os.path.isfile(image_path):
+        return ''
+    return _ensure_thumb(image_path)
+
+
+def _collect_locations(locations_dir: str) -> List[Dict[str, str]]:
+    """Scan a single Locations/ directory and return location entries."""
     locations = []
-    locations_dir = _locations_dir()
+    if not os.path.isdir(locations_dir):
+        return locations
     for fname in sorted(os.listdir(locations_dir)):
         if not fname.endswith('.json'):
             continue
         with open(os.path.join(locations_dir, fname), 'r') as f:
             data = json.load(f)
         image_data = ''
-        loc_name = data.get('name', fname[:-5])
-        thumb = location_thumb(loc_name)
-        if thumb:
-            ext = os.path.splitext(thumb)[1].lower()
-            mime = {'jpg': 'jpeg', 'jpeg': 'jpeg', 'png': 'png', 'gif': 'gif', 'webp': 'webp'}.get(ext.lstrip('.'), 'jpeg')
-            with open(thumb, 'rb') as img:
-                b64 = base64.b64encode(img.read()).decode('ascii')
-            image_data = f'data:image/{mime};base64,{b64}'
+        image_file = data.get('image', '')
+        if image_file:
+            thumb = _thumb_for_image(os.path.join(locations_dir, image_file))
+            if thumb:
+                ext = os.path.splitext(thumb)[1].lower()
+                mime = {'jpg': 'jpeg', 'jpeg': 'jpeg', 'png': 'png', 'gif': 'gif', 'webp': 'webp'}.get(ext.lstrip('.'), 'jpeg')
+                with open(thumb, 'rb') as img:
+                    b64 = base64.b64encode(img.read()).decode('ascii')
+                image_data = f'data:image/{mime};base64,{b64}'
         locations.append({
             'name': data.get('name', fname[:-5]),
             'description': data.get('description', data.get('name', fname[:-5])),
+            'connects_to': data.get('connects_to', []),
             'image': image_data,
         })
+    return locations
+
+
+@visible
+async def location_list() -> List[Dict[str, str]]:
+    """List all locations with their name and image (base64-encoded).
+
+    If a game is set, lists locations for that game only.
+    Otherwise lists locations across all games.
+    """
+    game_name = _get_current_game()
+
+    if game_name:
+        return _collect_locations(_locations_dir())
+
+    # No game set — scan all games, prefix with game name
+    locations = []
+    if os.path.isdir(GAMES_DIR):
+        for gname in sorted(os.listdir(GAMES_DIR)):
+            lpath = os.path.join(GAMES_DIR, gname, "Locations")
+            for loc in _collect_locations(lpath):
+                locations.append({'game': gname, **loc})
     return locations
 
 

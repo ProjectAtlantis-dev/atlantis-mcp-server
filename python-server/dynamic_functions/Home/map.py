@@ -12,7 +12,7 @@ from dynamic_functions.Home.common import (
     _load_bot_config, location_thumb,
 )
 from dynamic_functions.Home.character import _load_characters
-from dynamic_functions.Data.main import get_player_position, get_players_at
+from dynamic_functions.Home.common import get_player_position, get_players_at
 
 
 def _require_game():
@@ -43,9 +43,9 @@ def _character_display_name(ch: dict) -> str:
     return ch.get("humanName", ch["sid"])
 
 
-def _characters_at(game_id: str, location: str) -> List[str]:
+def _characters_at(location: str) -> List[str]:
     """Return display names of characters at a location."""
-    sids = get_players_at(game_id, location)
+    sids = get_players_at(location)
     if not sids:
         return []
     characters = _load_characters()
@@ -68,13 +68,11 @@ async def map(location: str = "") -> None:
                   Defaults to the caller's current position.
     """
     _require_game()
-    game_id = atlantis.get_game_id()
-
     # Determine center location
     if not location:
         sid = atlantis.get_caller()
         if sid:
-            location = get_player_position(game_id, sid)
+            location = get_player_position(sid)
         if not location:
             raise ValueError(
                 "Cannot determine current location. Either pass a location name "
@@ -96,7 +94,7 @@ async def map(location: str = "") -> None:
         if not loc_data:
             continue
         is_current = loc_name == location
-        chars = _characters_at(game_id, loc_name)
+        chars = _characters_at(loc_name)
         image_b64 = _location_image_b64(loc_name)
         nodes.append({
             "name": loc_name,

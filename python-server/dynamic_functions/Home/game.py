@@ -6,7 +6,7 @@ import os
 import uuid
 from typing import List, Dict, Any
 
-from dynamic_functions.Data.main import get_positions
+from dynamic_functions.Home.common import get_positions
 from dynamic_functions.Home.common import GAMES_DIR
 from dynamic_functions.Home.character import _load_characters, role_list
 from dynamic_functions.Home.bot import bot_list
@@ -128,7 +128,7 @@ async def game_show() -> None:
                 "isBot": ch.get("isBot", True),
                 "humanName": ch.get("humanName", ""),
             })
-        positions = get_positions(game_id)
+        positions = get_positions()
         pos_rows = [{"sid": sid, "location": loc} for sid, loc in sorted(positions.items())]
 
     # --- Helper to build an HTML table ---

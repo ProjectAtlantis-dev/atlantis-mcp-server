@@ -33,12 +33,10 @@ class BotChatContext:
     bot_sid: str
     bot_cfg: Dict[str, Any]
     role: Dict[str, Any]
-    user_profile: Optional[Dict[str, Any]]
-    interaction: Dict[str, Any]
     raw_transcript: List[Dict[str, Any]]
     transcript: List[Dict[str, Any]]
     procedure_injection_provider: Optional[ProcedureInjectionProvider] = None
-    skip_post_turn_record: bool = False
+
 
     @property
     def location(self) -> str:
@@ -51,11 +49,6 @@ class BotChatContext:
     @property
     def bot_display_name(self) -> str:
         return str(self.bot_cfg.get("displayName", self.bot_sid))
-
-    @property
-    def guest(self) -> Optional[Dict[str, Any]]:
-        """Scenario compatibility for check-in modules that still say guest."""
-        return self.user_profile
 
     async def build_procedure_injections(self) -> List[Dict[str, Any]]:
         if not self.procedure_injection_provider:
@@ -86,7 +79,6 @@ async def handle_chat_completions(context: BotChatContext) -> Optional[str]:
 
     if _last_chat_sid(context.raw_transcript) == bot_sid:
         logger.warning(f"Last chat was from {bot_display_name} - skipping")
-        context.skip_post_turn_record = True
         return None
 
     t0 = _t.monotonic()
@@ -174,26 +166,15 @@ async def _build_system_prompt(context: BotChatContext) -> str:
     if prompt_builder_path:
         module_name, attr_name = _split_dotted_callable(str(prompt_builder_path))
         build_system_prompt = getattr(import_module(module_name), attr_name)
-        prompt_caller, first_name, interaction_count, last_interaction = _interaction_prompt_context(context)
         system_prompt = build_system_prompt(
             base_prompt,
-            prompt_caller,
-            interaction_count,
-            last_interaction,
-            first_name=first_name,
+            context.caller,
         )
         if inspect.isawaitable(system_prompt):
             system_prompt = await system_prompt
         return str(system_prompt)
 
     return base_prompt
-
-
-def _interaction_prompt_context(context: BotChatContext) -> tuple[str, str, int, str]:
-    interaction_count = int(context.interaction.get("prior_interaction_count") or 0)
-    last_interaction = str(context.interaction.get("last_interaction_at") or "")
-    first_name = str(context.user_profile.get("first_name", "")) if context.user_profile else ""
-    return context.caller, first_name, interaction_count, last_interaction
 
 
 async def _build_tools(context: BotChatContext) -> tuple[List[TranscriptToolT], Dict[str, ToolLookupInfo]]:

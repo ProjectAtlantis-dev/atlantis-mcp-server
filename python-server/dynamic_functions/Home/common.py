@@ -6,7 +6,7 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
-from dynamic_functions.Data.main import get_player_position, set_player_position
+from dynamic_functions.Data.main import game_dir
 from dynamic_functions.Home.character import (
     _current_game_name, _find_game_dir, game_data_dir,
     _load_characters, _find_character,
@@ -61,6 +61,77 @@ def _available_bot_sids(bots_dir: Optional[str] = None) -> List[str]:
             except (json.JSONDecodeError, OSError):
                 pass
     return sorted(sids)
+
+
+# =========================================================================
+# Positions — {sid: location_name}, persisted per game
+# =========================================================================
+
+
+def _positions_path() -> str:
+    return os.path.join(game_data_dir(), "positions.json")
+
+
+def get_positions() -> Dict[str, str]:
+    """Return the full sid -> location dict for the active game."""
+    path = _positions_path()
+    if not os.path.isfile(path):
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def set_positions(positions: Dict[str, str]) -> None:
+    """Persist the full positions dict for the active game."""
+    path = _positions_path()
+    tmp = f"{path}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(positions, f, indent=2)
+    os.replace(tmp, path)
+
+
+def get_player_position(sid: str) -> Optional[str]:
+    """Return a player's current location in the active game, or None."""
+    return get_positions().get(sid)
+
+
+def set_player_position(sid: str, location: str) -> None:
+    """Set a player's location and persist."""
+    positions = get_positions()
+    positions[sid] = location
+    set_positions(positions)
+
+
+def get_players_at(location: str) -> List[str]:
+    """Return list of sids at a location in the active game."""
+    return [s for s, loc in get_positions().items() if loc == location]
+
+
+# =========================================================================
+# Camera — per-game location that determines the background image
+# =========================================================================
+
+
+def _camera_path() -> str:
+    return os.path.join(game_data_dir(), "camera.json")
+
+
+def get_camera() -> str:
+    """Return the current camera location for the active game, or empty string."""
+    path = _camera_path()
+    if not os.path.isfile(path):
+        return ""
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f).get("location", "")
+
+
+def set_camera(location: str) -> None:
+    """Persist the camera location for the active game."""
+    path = _camera_path()
+    tmp = f"{path}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump({"location": location}, f)
+    os.replace(tmp, path)
 
 
 # =========================================================================
@@ -215,24 +286,20 @@ async def _set_location_background(location_data: Dict[str, Any]) -> None:
         logger.warning(f"Location image not found: {image_path}")
 
 
-async def move_character(sid: str, location: str, is_bot: bool, set_bg: bool = True) -> str:
+async def move_character(sid: str, location: str, is_bot: bool) -> str:
     """Shared movement logic for bot and human characters.
 
-    Positions are persisted in Data/{game_id}/positions.json.
     New players must start in the default lobby before moving elsewhere.
     Movement is only allowed along connects_to edges defined in Locations/*.json.
     """
     location = location or ""
     _find_character(sid, is_bot)
 
-    game_id = atlantis.get_game_id()
-    if not game_id:
-        raise ValueError("No active game in context")
     if not sid:
         raise ValueError("sid is required")
 
     game_name = _current_game_name()
-    current = get_player_position(game_id, sid)
+    current = get_player_position(sid)
 
     # New player — drop them into the default lobby
     if current is None:
@@ -247,12 +314,11 @@ async def move_character(sid: str, location: str, is_bot: bool, set_bg: bool = T
         if not dest:
             raise ValueError(f"Unknown location: {location}")
         desc = dest.get("description", location)
-        set_player_position(game_id, sid, location)
-        if set_bg:
-            await _set_location_background(dest)
+        set_player_position(sid, location)
         await atlantis.client_log(f"\U0001f3db\ufe0f {sid} has entered {desc} for the first time")
         logger.info(f"[{game_name}] New player {sid} entered {default_location}")
         return location
+
 
     if not location:
         raise ValueError("location is required for players who have already entered")
@@ -278,12 +344,11 @@ async def move_character(sid: str, location: str, is_bot: bool, set_bg: bool = T
 
     # Move
     current_desc = (_load_location(current) or {}).get("description", current)
-    set_player_position(game_id, sid, location)
-    if set_bg:
-        await _set_location_background(dest)
+    set_player_position(sid, location)
     await atlantis.client_log(f"\U0001f6b6 {sid} moved from {current_desc} to {desc}")
     logger.info(f"[{game_name}] {sid} moved from {current} to {location}")
     return location
+
 
 
 # =========================================================================

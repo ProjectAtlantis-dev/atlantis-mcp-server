@@ -6,9 +6,9 @@ import json
 import os
 from typing import Any, List, Dict
 
-from dynamic_functions.Data.main import get_positions, get_players_at
 from dynamic_functions.Home.common import (
     _locations_dir, location_thumb, _ensure_thumb, move_character, _default_location, GAMES_DIR,
+    get_positions, get_player_position, get_players_at,
 )
 from dynamic_functions.Home.character import _load_characters
 
@@ -82,10 +82,7 @@ async def position_list() -> List[Dict[str, str]]:
     game = _get_current_game()
     if not game:
         raise ValueError("No game set. Call game_set() first.")
-    game_id = atlantis.get_game_id()
-    if not game_id:
-        raise ValueError("No active game_id in context")
-    positions = get_positions(game_id)
+    positions = get_positions()
     return [{"sid": sid, "location": loc} for sid, loc in positions.items()]
 
 
@@ -97,11 +94,8 @@ def position_query(location: str) -> List[Dict[Any, Any]]:
     """
     from dynamic_functions.Home.common import _load_bot_config
 
-    game_id = atlantis.get_game_id()
-    if not game_id:
-        raise ValueError("No active game in context")
-
-    sids_at = get_players_at(game_id, location)
+    _get_current_game()  # guard: requires game to be set
+    sids_at = get_players_at(location)
     characters = _load_characters()
     result = []
     for ch in characters:
@@ -126,7 +120,7 @@ async def move_bot(sid: str, location: str = "") -> str:
     Location is optional for first-time entry (spawns in default lobby).
     Call game_set() first to lock this server to a game.
     """
-    return await move_character(sid, location or "", is_bot=True, set_bg=False)
+    return await move_character(sid, location or "", is_bot=True)
 
 
 @visible
@@ -137,7 +131,7 @@ async def move_human(sid: str, location: str = "") -> str:
     Location is optional for first-time entry (spawns in default lobby).
     Call game_set() first to lock this server to a game.
     """
-    return await move_character(sid, location or "", is_bot=False, set_bg=False)
+    return await move_character(sid, location or "", is_bot=False)
 
 
 @visible
@@ -147,9 +141,36 @@ async def go(location: str = "") -> str:
     Uses the caller's identity as the sid (must be registered via character_self()/character_human()).
     Location is optional for first-time entry (spawns in default lobby).
     Call game_set() first to lock this server to a game.
-    Updates the background image to match the new location.
     """
     sid = atlantis.get_caller()
     if not sid:
         raise ValueError("Unable to determine caller identity")
-    return await move_character(sid, location or _default_location(), is_bot=False, set_bg=True)
+    return await move_character(sid, location or _default_location(), is_bot=False)
+
+
+@visible
+async def look(location: str = "") -> str:
+    """Move the camera to a location, setting the background image.
+
+    The camera is a per-game concept — it determines the background
+    image independent of where any characters are.
+    If no location is given, uses the caller's current position.
+    """
+    from dynamic_functions.Home.common import _load_location, _set_location_background, set_camera
+
+    _get_current_game()  # guard: requires game to be set
+
+    if not location:
+        sid = atlantis.get_caller()
+        if sid:
+            location = get_player_position(sid) or ""
+    if not location:
+        raise ValueError("No location specified and caller has no current position.")
+
+    dest = _load_location(location)
+    if not dest:
+        raise ValueError(f"Unknown location: {location}")
+
+    set_camera(location)
+    await _set_location_background(dest)
+    return location

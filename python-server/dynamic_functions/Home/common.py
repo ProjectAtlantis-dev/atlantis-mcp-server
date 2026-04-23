@@ -290,6 +290,11 @@ async def move_character(sid: str, location: str, is_bot: bool) -> str:
         set_player_position(sid, location)
         await atlantis.client_log(f"\U0001f3db\ufe0f {sid} has entered {desc} for the first time")
         logger.info(f"[{game_name}] New player {sid} entered {default_location}")
+        # If the owner moved, update the camera and background
+        if atlantis.is_owner(sid):
+            from dynamic_functions.Home.camera import camera_set
+            camera_set(location)
+            await _set_location_background(dest)
         return location
 
 
@@ -320,6 +325,11 @@ async def move_character(sid: str, location: str, is_bot: bool) -> str:
     set_player_position(sid, location)
     await atlantis.client_log(f"\U0001f6b6 {sid} moved from {current_desc} to {desc}")
     logger.info(f"[{game_name}] {sid} moved from {current} to {location}")
+    # If the owner moved, update the camera and background
+    if atlantis.is_owner(sid):
+        from dynamic_functions.Home.camera import camera_set
+        camera_set(location)
+        await _set_location_background(dest)
     return location
 
 

@@ -142,6 +142,9 @@ async def go(location: str = "") -> str:
     Location is optional for first-time entry (spawns in default lobby).
     Call game_set() first to lock this server to a game.
     """
+    if not _get_current_game():
+        raise ValueError("No game set. Call game_set() first.")
+
     sid = atlantis.get_caller()
     if not sid:
         raise ValueError("Unable to determine caller identity")

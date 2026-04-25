@@ -3,7 +3,7 @@
 import atlantis
 import logging
 
-from dynamic_functions.Home.common import get_player_position, get_players_at
+from dynamic_functions.Home.location import get_player_position, get_players_at
 from dynamic_functions.Home.location import position_query
 
 logger = logging.getLogger("mcp_server")

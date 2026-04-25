@@ -6,8 +6,8 @@ import os
 import uuid
 from typing import List, Dict, Any
 
-from dynamic_functions.Home.common import get_positions
 from dynamic_functions.Home.common import GAMES_DIR
+from dynamic_functions.Home.location import get_positions
 from dynamic_functions.Home.character import _load_characters, role_list
 from dynamic_functions.Home.bot import bot_list
 from dynamic_functions.Home.location import location_list

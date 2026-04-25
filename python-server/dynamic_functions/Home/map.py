@@ -7,12 +7,12 @@ import os
 import uuid
 from typing import Any, Dict, List, Optional
 
-from dynamic_functions.Home.common import (
-    _load_location, _locations_dir, _connects_to,
-    _load_bot_config, location_thumb,
-)
+from dynamic_functions.Home.common import _load_bot_config
 from dynamic_functions.Home.character import _load_characters
-from dynamic_functions.Home.common import get_player_position, get_players_at
+from dynamic_functions.Home.location import (
+    _load_location, _locations_dir, _connects_to,
+    location_thumb, get_player_position, get_players_at,
+)
 
 
 def _require_game():

@@ -42,6 +42,7 @@ yarn-error.log
 python-server/dynamic_functions/*
 
 python-server/dynamic_functions copy/*
+python-server/dynamic_functions.TEST/
 
 !python-server/dynamic_functions/Home
 !python-server/dynamic_functions/Bots

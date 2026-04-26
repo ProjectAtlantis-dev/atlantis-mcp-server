@@ -128,7 +128,7 @@ async def game() -> None:
       }}
       button.disabled = true;
       button.textContent = "Entering...";
-      await sendChatter(window._accessToken, "%**Home**game_welcome_click", {{
+      await sendChatter(window._accessToken, "$**Home**game_welcome_click", {{
         message: "enter_game"
       }});
     }});

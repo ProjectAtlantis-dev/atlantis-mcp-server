@@ -1,4 +1,4 @@
-# Chatter Callbacks: Browser → Dynamic Function
+# Onclick Callbacks: Browser → Dynamic Function
 
 This document explains how to wire a UI element in a dynamic function so that a user action in the browser (button click, drop, etc.) calls back into a Python function on the MCP server.
 
@@ -65,7 +65,7 @@ sendButton.addEventListener('click', async function() {
 
         await sendChatter(
             window._accessToken,
-            '%**InWork**process_video_upload',
+            '$**InWork**process_video_upload',
             data
         );
     };
@@ -80,7 +80,7 @@ A globally-available browser function provided by the atlantis runtime. Its thre
 | Arg | Meaning |
 |-----|---------|
 | `accessToken` | `window._accessToken` — a per-session UUID minted by the nodejs server when the websocket connects, stashed on `window` for the browser to send back as auth. |
-| `target` | A routing string of the form `'%**<Subdir>**<function_name>'`. The `**...**` segments name the subdirectory under `dynamic_functions/`; the trailing segment is the function. Example: `'%**InWork**process_video_upload'` → `dynamic_functions/InWork/process_video_upload`. |
+| `target` | A routing string of the form `'$**<Subdir>**<function_name>'`. The `$` prefix starts lookup at the root of the current MCP server, which is usually what browser callbacks want. The `**...**` segments name the subdirectory under `dynamic_functions/`; the trailing segment is the function. Example: `'$**InWork**process_video_upload'` → `dynamic_functions/InWork/process_video_upload`. |
 | `data` | A plain JS object. Each key becomes a kwarg passed to the Python function. **Key names must match the Python parameter names exactly.** |
 
 ### 4. The Python callback function
@@ -157,7 +157,7 @@ async def render_button():
     miniscript = f'''
     //js
     document.getElementById('btn_{UPLOAD_ID}').addEventListener('click', async () => {{
-        await sendChatter(window._accessToken, '%**MySubdir**handle_click', {{
+        await sendChatter(window._accessToken, '$**MySubdir**handle_click', {{
             message: 'hello from the browser'
         }});
     }});
@@ -169,7 +169,7 @@ async def handle_click(message: str):
     await atlantis.client_log(f"got: {message}")
 ```
 
-Drop both functions in `dynamic_functions/MySubdir/` and the routing string `'%**MySubdir**handle_click'` will resolve to `handle_click`.
+Drop both functions in `dynamic_functions/MySubdir/` and the routing string `'$**MySubdir**handle_click'` will resolve to `handle_click` from the current MCP server root.
 
 ---
 

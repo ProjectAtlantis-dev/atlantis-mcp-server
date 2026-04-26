@@ -569,7 +569,8 @@ class DynamicAdditionServer(Server):
                 # Cloud clients get it wrapped in a 'notifications/message' structure, sent via 'mcp_notification' event
                 cloud_notification_params = {
                     "messageType": message_type,
-                    "isPrivate": is_private,       # If False, cloud should broadcast to all clients
+                    # Cloud-side routing hint only; the local server still targets client_id_for_routing.
+                    "isPrivate": is_private,
                     "requestId": request_id,       # Original MCP request_id for cloud client context
                     "correlationId": correlation_id, # The ID for awaiting the response
                     "command": command,            # The actual command string

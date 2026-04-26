@@ -370,7 +370,7 @@ async def client_log(message: Any, level: str = "INFO", message_type: str = "tex
 
     Args:
         is_private: If True (default), send only to requesting client.
-                   If False, broadcast to all connected clients (used by client_script).
+                   If False, pass a cloud-side routing hint.
 
     Calls the underlying log function directly; async dispatch is handled internally.
     """
@@ -410,7 +410,7 @@ async def client_log(message: Any, level: str = "INFO", message_type: str = "tex
                 level=level,
                 logger_name=caller_name,  # Pass the caller function name
                 seq_num=current_seq_to_send, # Pass the obtained sequence number
-                is_private=is_private  # For broadcast control (scripts only)
+                is_private=is_private
             )
             # task is the asyncio.Task returned by utils.client_log
 
@@ -431,6 +431,15 @@ async def client_log(message: Any, level: str = "INFO", message_type: str = "tex
     else:
         logger.warning(f"client_log called but no logger in context. Message: {message}")
         return None # Or raise an error
+
+async def client_description(message: Any, level: str = "INFO", is_private: bool = True):
+    """Sends a description message back to the requesting client for the current context."""
+    return await client_log(
+        message,
+        level=level,
+        message_type="description",
+        is_private=is_private
+    )
 
 async def tool_result(name: str, result: Any):
     """Sends a tool call result back to the requesting client to be added to the transcript.
@@ -892,7 +901,7 @@ async def client_command(command: str, data: Any = None, message_type: str = "co
         data: Optional JSON-serializable data associated with the command.
         message_type: The message type for the protocol (default "command").
         is_private: If True (default), send only to requesting client.
-                   If False, cloud should broadcast to all connected clients.
+                   If False, pass a cloud-side routing hint.
 
     Returns:
         The result returned by the client for the command.
@@ -971,7 +980,7 @@ async def client_script(content: str, is_private: bool = True):
     Args:
         content: The Javascript content to send
         is_private: If True (default), script only runs on the requesting client.
-                   If False, script broadcasts to all connected clients.
+                   If False, pass a cloud-side routing hint.
     """
     # Use client_command for awaitable response with proper message_type
     result = await client_command("script", content, message_type="script", is_private=is_private)

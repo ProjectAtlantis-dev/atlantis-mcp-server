@@ -88,6 +88,36 @@ async def game() -> None:
     font-size: 15px;
     line-height: 1.5;
   }}
+  #game-welcome-{uid} form {{
+    display: grid;
+    gap: 12px;
+    max-width: 420px;
+  }}
+  #game-welcome-{uid} label {{
+    color: #fffaf0;
+    font-size: 13px;
+    font-weight: 700;
+  }}
+  #game-welcome-{uid} input {{
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 42px;
+    padding: 0 12px;
+    color: #fffaf0;
+    background: rgba(7, 15, 22, 0.58);
+    border: 1px solid rgba(238, 186, 85, 0.42);
+    border-radius: 6px;
+    font: inherit;
+  }}
+  #game-welcome-{uid} input:focus {{
+    outline: 2px solid rgba(238, 186, 85, 0.45);
+    outline-offset: 2px;
+  }}
+  #game-welcome-{uid} .game-error {{
+    min-height: 18px;
+    color: #ffb4a8;
+    font-size: 13px;
+  }}
   #game-welcome-{uid} button {{
     min-height: 40px;
     padding: 0 16px;
@@ -107,30 +137,57 @@ async def game() -> None:
 <section id="game-welcome-{uid}" aria-label="Game welcome">
   <div class="game-kicker">Project Atlantis</div>
   <h2>Welcome to {game_name}</h2>
-  <p>This modal is rendered through atlantis.client_modal, and the button calls back into a Home dynamic function.</p>
-  <button id="game-welcome-button-{uid}" type="button">Enter game</button>
+  <p>Choose the character name you want to use in this session.</p>
+  <form id="game-welcome-form-{uid}">
+    <label for="game-character-name-{uid}">Character name</label>
+    <input id="game-character-name-{uid}" name="character_name" type="text" autocomplete="name" maxlength="80" required autofocus>
+    <div id="game-welcome-error-{uid}" class="game-error" aria-live="polite"></div>
+    <button id="game-welcome-button-{uid}" type="submit">Enter game</button>
+  </form>
 </section>
 """
-    modal_id = await atlantis.client_modal(html, title="Welcome to Game")
+    modal_id = await atlantis.client_modal(html, title="Welcome")
     atlantis.session_shared.set("game_welcome_modal_id", modal_id)
 
     script = f"""
 (function() {{
   function bindWelcomeButton() {{
+    var form = document.getElementById("game-welcome-form-{uid}");
     var button = document.getElementById("game-welcome-button-{uid}");
-    if (!button) {{
-      console.error("[GAME] welcome button not found");
+    var input = document.getElementById("game-character-name-{uid}");
+    var error = document.getElementById("game-welcome-error-{uid}");
+    if (!form || !button || !input) {{
+      console.error("[GAME] welcome form controls not found");
       return;
     }}
-    button.addEventListener("click", async function() {{
+    function focusCharacterName() {{
+      input.focus({{ preventScroll: true }});
+      input.select();
+    }}
+    focusCharacterName();
+    setTimeout(focusCharacterName, 120);
+    form.addEventListener("submit", async function(event) {{
+      event.preventDefault();
       if (!window._accessToken) {{
         console.error("[GAME] window._accessToken is empty or undefined");
         return;
       }}
+      var characterName = input.value.trim();
+      if (!characterName) {{
+        if (error) {{
+          error.textContent = "Type a character name to continue.";
+        }}
+        input.focus();
+        return;
+      }}
+      if (error) {{
+        error.textContent = "";
+      }}
       button.disabled = true;
       button.textContent = "Entering...";
       await sendChatter(window._accessToken, "$**Home**game_welcome_click", {{
-        message: "enter_game"
+        message: "enter_game",
+        character_name: characterName
       }});
     }});
   }}
@@ -143,13 +200,21 @@ async def game() -> None:
 
 
 @visible
-async def game_welcome_click(message: str) -> None:
+async def game_welcome_click(message: str, character_name: str) -> dict:
     """Callback target for the welcome modal button."""
+    character_name = character_name.strip()
+    if not character_name:
+        raise ValueError("character_name is required")
     modal_id = atlantis.session_shared.get("game_welcome_modal_id")
     if modal_id:
         await atlantis.client_modal_close(modal_id)
         atlantis.session_shared.remove("game_welcome_modal_id")
-    await atlantis.client_log(f"Game welcome button clicked: {message}")
+    payload = {
+        "message": message,
+        "character_name": character_name,
+    }
+    await atlantis.client_log(f"Game welcome button clicked: {message}; character_name={character_name}")
+    return payload
 
 
 @visible

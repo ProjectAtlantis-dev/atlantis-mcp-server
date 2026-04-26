@@ -146,25 +146,60 @@ if (!window._accessToken) {
 
 ---
 
+## Modal callbacks
+
+The same `sendChatter` pattern works inside modal HTML rendered with `atlantis.client_modal(...)` or `atlantis.client_html(..., modal=True)`.
+
+`client_modal()` returns the client `modalId`. Store it somewhere request/session scoped if the callback should close the modal later:
+
+```python
+modal_id = await atlantis.client_modal(html, title="Welcome")
+atlantis.session_shared.set("welcome_modal_id", modal_id)
+await atlantis.client_script(script)
+```
+
+Then the callback can close the modal after it handles the event:
+
+```python
+async def handle_welcome_click(character_name: str):
+    modal_id = atlantis.session_shared.get("welcome_modal_id")
+    if modal_id:
+        await atlantis.client_modal_close(modal_id)
+        atlantis.session_shared.remove("welcome_modal_id")
+    await atlantis.client_log(f"entered as {character_name}")
+```
+
+Two details matter:
+
+- Render the modal first, then send a script that binds event listeners to elements inside it.
+- Use a per-render id suffix in modal DOM ids, because a user can open more than one modal or re-render the same tool.
+
+See `dynamic_functions/Home/game.py` for the current welcome-modal pattern.
+
+---
+
 ## Minimum viable example
 
 ```python
 import atlantis
 
+@visible
 async def render_button():
     UPLOAD_ID = "abc123"  # in practice, generate per-render
     html = f'<button id="btn_{UPLOAD_ID}">Click me</button>'
-    miniscript = f'''
-    //js
+    await atlantis.client_html(html)
+
+    script = f'''
     document.getElementById('btn_{UPLOAD_ID}').addEventListener('click', async () => {{
         await sendChatter(window._accessToken, '$**MySubdir**handle_click', {{
             message: 'hello from the browser'
         }});
     }});
     '''
-    return await atlantis.html_response(html, miniscript)
+    await atlantis.client_script(script)
 
 
+@visible
 async def handle_click(message: str):
     await atlantis.client_log(f"got: {message}")
 ```

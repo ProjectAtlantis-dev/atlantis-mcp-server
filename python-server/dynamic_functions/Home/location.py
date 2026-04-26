@@ -155,7 +155,9 @@ async def move_character(sid: str, location: str, is_bot: bool) -> str:
     Movement is only allowed along connects_to edges defined in Locations/*.json.
     """
     location = location or ""
-    _find_character(sid, is_bot)
+    character = _find_character(sid, is_bot)
+    human_name = character.get("humanName", "")
+    display = f"{human_name} ({sid})" if human_name else sid
 
     if not sid:
         raise ValueError("sid is required")
@@ -177,7 +179,7 @@ async def move_character(sid: str, location: str, is_bot: bool) -> str:
             raise ValueError(f"Unknown location: {location}")
         desc = dest.get("description", location)
         set_player_position(sid, location)
-        await atlantis.client_log(f"\U0001f3db\ufe0f {sid} has entered {desc} for the first time")
+        await atlantis.client_log(f"\U0001f3db\ufe0f New player {display} has entered {desc} for the first time")
         logger.info(f"[{game_name}] New player {sid} entered {default_location}")
         # If the owner moved, update the camera and background
         if atlantis.is_owner(sid):
@@ -198,7 +200,7 @@ async def move_character(sid: str, location: str, is_bot: bool) -> str:
 
     # Already there
     if current == location:
-        await atlantis.client_log(f"\U0001f4cd {sid} is already in {desc}")
+        await atlantis.client_log(f"\U0001f4cd {display} is already in {desc}")
         return location
 
     # Check adjacency
@@ -212,7 +214,7 @@ async def move_character(sid: str, location: str, is_bot: bool) -> str:
     # Move
     current_desc = (_load_location(current) or {}).get("description", current)
     set_player_position(sid, location)
-    await atlantis.client_log(f"\U0001f6b6 {sid} moved from {current_desc} to {desc}")
+    await atlantis.client_log(f"\U0001f6b6 {display} moved from {current_desc} to {desc}")
     logger.info(f"[{game_name}] {sid} moved from {current} to {location}")
     # If the owner moved, update the camera and background
     if atlantis.is_owner(sid):

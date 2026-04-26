@@ -72,7 +72,7 @@ def _find_character(sid: str, is_bot: bool) -> dict:
                 raise ValueError(f"Character {sid!r} is not a {kind}")
             return ch
     kind = "character_bot()" if is_bot else "character_self() or character_human()"
-    raise ValueError(f"No character found for sid: {sid!r}. Register with {kind} first.")
+    raise ValueError(f"No character found for sid: {sid!r}. Register role with {kind} first.")
 
 
 @visible
@@ -130,8 +130,8 @@ def _validate_role(role: str) -> None:
         raise ValueError(f"Role folder not found: {role}")
 
 
-def _upsert_character(sid: str, role: str, is_bot: bool, human_name: str = "") -> str:
-    """Shared upsert logic for bot and human characters. Returns the UUID."""
+async def _upsert_character(sid: str, role: str, is_bot: bool, human_name: str = "") -> None:
+    """Shared upsert logic for bot and human characters."""
     _validate_role(role)
     characters = _load_characters()
 
@@ -143,22 +143,31 @@ def _upsert_character(sid: str, role: str, is_bot: bool, human_name: str = "") -
         record["humanName"] = human_name
     record["role"] = role
 
+    is_self = (not is_bot) and atlantis.get_caller() == sid
+    if is_bot:
+        subject, verb = f"Bot {sid}", "is"
+    elif is_self:
+        subject, verb = "You", "are"
+    else:
+        subject, verb = f"User {sid}", "is"
+    suffix = f" named {human_name}" if (human_name and not is_bot) else ""
+    message = f"{subject} {verb} now roleplaying as {role}{suffix}"
+
     for ch in characters:
         if ch.get("sid") == sid:
             ch.update(record)
             _save_characters(characters)
-            logger.info(f"Updated character {sid}: role={role} isBot={is_bot}")
-            return sid
+            await atlantis.client_log(message)
+            return
 
     characters.append(record)
     _save_characters(characters)
-    logger.info(f"Created character {sid}: role={role} isBot={is_bot}")
-    return sid
+    await atlantis.client_log(message)
 
 
 @visible
-def character_bot(sid: str, role: str) -> str:
-    """Assign a bot character. Returns the UUID.
+async def character_bot(sid: str, role: str) -> None:
+    """Assign a bot character.
 
     sid must match a bot in Bots/. Role must be a folder under Games/<game>/Roles/.
     If a character with this sid exists, updates it. Otherwise creates a new entry.
@@ -167,12 +176,12 @@ def character_bot(sid: str, role: str) -> str:
     from dynamic_functions.Home.common import _load_bot_config, _available_bot_sids
     if _load_bot_config(sid) is None:
         raise ValueError(f"Unknown bot sid: {sid!r}. Must match a bot in Bots/ (e.g. {_available_bot_sids()})")
-    return _upsert_character(sid, role, is_bot=True)
+    await _upsert_character(sid, role, is_bot=True)
 
 
 @visible
-def character_human(sid: str, role: str, human_name: str) -> str:
-    """Assign a human character. Returns the UUID.
+async def character_human(sid: str, role: str, human_name: str) -> None:
+    """Assign a human character.
 
     sid identifies the human. human_name is their display name.
     Role must be a folder under Games/<game>/Roles/.
@@ -183,12 +192,12 @@ def character_human(sid: str, role: str, human_name: str) -> str:
         raise ValueError("sid is required for human characters")
     if not human_name or not human_name.strip():
         raise ValueError("human_name is required for human characters")
-    return _upsert_character(sid, role, is_bot=False, human_name=human_name.strip())
+    await _upsert_character(sid, role, is_bot=False, human_name=human_name.strip())
 
 
 @visible
-def character_self(role: str, human_name: str) -> str:
-    """Assign a human character using the caller's identity as the sid. Returns the UUID.
+async def character_self(role: str, human_name: str) -> None:
+    """Assign a human character using the caller's identity as the sid.
 
     human_name is the caller's display name. Role must be a folder under Games/<game>/Roles/.
     If a character with this sid exists, updates it. Otherwise creates a new entry.
@@ -197,7 +206,7 @@ def character_self(role: str, human_name: str) -> str:
     sid = atlantis.get_caller()
     if not sid:
         raise ValueError("Unable to determine caller identity")
-    return character_human(sid, role, human_name)
+    await character_human(sid, role, human_name)
 
 
 @visible

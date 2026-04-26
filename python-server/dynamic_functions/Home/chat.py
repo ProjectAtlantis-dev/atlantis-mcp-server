@@ -12,7 +12,7 @@ logger = logging.getLogger("mcp_server")
 
 @chat
 async def chat():
-    """Main chat callback. Figures out who's in the room and who speaks next."""
+    """Chat"""
     caller = atlantis.get_caller()
     if not caller:
         logger.warning("Chat fired without a caller identity")

@@ -1,6 +1,7 @@
 """Game state management — list, status, set, and the ER diagram viewer."""
 
 import atlantis
+import html as html_lib
 import json
 import os
 import uuid
@@ -45,6 +46,105 @@ def _get_current_game() -> str:
     if not game_id:
         return ''
     return _load_game_map().get(game_id, '')
+
+
+@visible
+async def game() -> None:
+    """Show the welcome modal for the current game session."""
+    uid = uuid.uuid4().hex[:8]
+    game_name = html_lib.escape(_get_current_game() or "Game")
+    html = f"""
+<style>
+  #game-welcome-{uid} {{
+    box-sizing: border-box;
+    width: 100%;
+    min-width: min(100%, 320px);
+    padding: 28px;
+    color: #f7f4ea;
+    background:
+      linear-gradient(135deg, rgba(20, 34, 48, 0.96), rgba(47, 55, 45, 0.96)),
+      radial-gradient(circle at 18% 20%, rgba(238, 186, 85, 0.22), transparent 34%);
+    border: 1px solid rgba(238, 186, 85, 0.42);
+    border-radius: 8px;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }}
+  #game-welcome-{uid} .game-kicker {{
+    color: #eeba55;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: uppercase;
+  }}
+  #game-welcome-{uid} h2 {{
+    margin: 10px 0 8px;
+    color: #fffaf0;
+    font-size: 30px;
+    line-height: 1.1;
+  }}
+  #game-welcome-{uid} p {{
+    max-width: 560px;
+    margin: 0 0 22px;
+    color: #d8d3c6;
+    font-size: 15px;
+    line-height: 1.5;
+  }}
+  #game-welcome-{uid} button {{
+    min-height: 40px;
+    padding: 0 16px;
+    color: #162230;
+    background: #eeba55;
+    border: 0;
+    border-radius: 6px;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+  }}
+  #game-welcome-{uid} button:disabled {{
+    cursor: default;
+    opacity: 0.65;
+  }}
+</style>
+<section id="game-welcome-{uid}" aria-label="Game welcome">
+  <div class="game-kicker">Project Atlantis</div>
+  <h2>Welcome to {game_name}</h2>
+  <p>This modal is rendered through atlantis.client_html with modal metadata, and the button calls back into a Home dynamic function.</p>
+  <button id="game-welcome-button-{uid}" type="button">Enter game</button>
+</section>
+"""
+    await atlantis.client_html(html, modal=True, title="Welcome to Game")
+
+    script = f"""
+(function() {{
+  function bindWelcomeButton() {{
+    var button = document.getElementById("game-welcome-button-{uid}");
+    if (!button) {{
+      console.error("[GAME] welcome button not found");
+      return;
+    }}
+    button.addEventListener("click", async function() {{
+      if (!window._accessToken) {{
+        console.error("[GAME] window._accessToken is empty or undefined");
+        return;
+      }}
+      button.disabled = true;
+      button.textContent = "Entering...";
+      await sendChatter(window._accessToken, "%**Home**game_welcome_click", {{
+        message: "enter_game"
+      }});
+    }});
+  }}
+  requestAnimationFrame(function() {{
+    requestAnimationFrame(bindWelcomeButton);
+  }});
+}})()
+"""
+    await atlantis.client_script(script)
+
+
+@visible
+async def game_welcome_click(message: str) -> None:
+    """Callback target for the welcome modal button."""
+    await atlantis.client_log(f"Game welcome button clicked: {message}")
 
 
 @visible

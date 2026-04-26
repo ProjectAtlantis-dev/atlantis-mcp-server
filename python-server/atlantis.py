@@ -890,7 +890,13 @@ async def stream_end(stream_id_param: str):
         raise
 
 
-async def client_command(command: str, data: Any = None, message_type: str = "command", is_private: bool = True) -> Any:
+async def _client_command(
+    command: str,
+    data: Any = None,
+    message_type: str = "command",
+    is_private: bool = True,
+    notification_params: Optional[dict[str, Any]] = None
+) -> Any:
     """Sends a command message to the client and waits for a specific acknowledgment and result.
 
     This function is for commands that require the server to wait for completion
@@ -900,8 +906,8 @@ async def client_command(command: str, data: Any = None, message_type: str = "co
         command: The command string identifier.
         data: Optional JSON-serializable data associated with the command.
         message_type: The message type for the protocol (default "command").
-        is_private: If True (default), send only to requesting client.
-                   If False, pass a cloud-side routing hint.
+        is_private: If True, send only to requesting client.
+        notification_params: Internal-only params flattened beside messageType/data.
 
     Returns:
         The result returned by the client for the command.
@@ -953,7 +959,8 @@ async def client_command(command: str, data: Any = None, message_type: str = "co
             session_id=session_id,  # Pass session_id for unique request tracking
             shell_path=shell_path,  # Pass shell_path for unique request tracking
             message_type=message_type,  # Pass message_type for the protocol
-            is_private=is_private  # Pass is_private for broadcast control
+            is_private=is_private,  # Pass is_private for broadcast control
+            message_params=notification_params
         )
         logger.debug(f"📡 Result for '{command}': type={type(result).__name__}")
 
@@ -964,14 +971,30 @@ async def client_command(command: str, data: Any = None, message_type: str = "co
         # Just re-raise to let the dynamic function manager handle final logging
         raise
 
-async def client_html(content: str):
+
+async def client_command(command: str, data: Any = None, message_type: str = "command", is_private: bool = True) -> Any:
+    """Sends a command message to the client and waits for acknowledgment."""
+    return await _client_command(command, data=data, message_type=message_type, is_private=is_private)
+
+
+async def client_html(content: str, modal: bool = False, title: Optional[str] = None):
     """Sends HTML content back to the requesting client for rendering
 
     Args:
         content: The HTML content to send
+        modal: If True, render the HTML in a client modal.
+        title: Optional modal title.
     """
+    # Internal carrier only: these keys are flattened into notifications/message.params
+    # beside messageType and data; no wrapper is exposed or sent to clients.
+    notification_params: dict[str, Any] = {}
+    if modal:
+        notification_params["modal"] = True
+    if title is not None:
+        notification_params["title"] = title
+
     # Use client_command for awaitable response with proper message_type
-    result = await client_command("html", content, message_type="html")
+    result = await _client_command("html", content, message_type="html", notification_params=notification_params or None)
     return result
 
 async def client_script(content: str, is_private: bool = True):

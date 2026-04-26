@@ -470,7 +470,8 @@ class DynamicAdditionServer(Server):
                                       session_id: Optional[str] = None, # Session ID for request isolation
                                       shell_path: Optional[str] = None, # Shell path in command tree for request isolation
                                       message_type: str = "command", # Message type for the protocol (default "command" for backwards compat)
-                                      is_private: bool = True # If False, cloud should broadcast to all clients
+                                      is_private: bool = True, # If False, cloud should broadcast to all clients
+                                      message_params: Optional[Dict[str, Any]] = None # Flattened into notifications/message.params, not nested
                                       ) -> Any:
         """Sends a command to a specific client and waits for a response with a correlation ID.
 
@@ -544,6 +545,9 @@ class DynamicAdditionServer(Server):
                 "requestId": request_id # Original request_id for client context
             }
         }
+        if message_params:
+            # Extra metadata such as modal/title must be direct siblings of data.
+            payload["params"].update(message_params)
         payload_json = json.dumps(payload)
 
         global client_connections # Access the global client connection tracking
@@ -576,6 +580,9 @@ class DynamicAdditionServer(Server):
                     "command": command,            # The actual command string
                     "data": command_data           # Associated data for the command
                 }
+                if message_params:
+                    # Extra metadata such as modal/title must be direct siblings of data.
+                    cloud_notification_params.update(message_params)
 
                 # Add seqNum if provided
                 if seq_num is not None:

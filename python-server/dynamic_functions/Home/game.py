@@ -4,6 +4,7 @@ import atlantis
 import html as html_lib
 import json
 import os
+import shlex
 import uuid
 from typing import List, Dict, Any
 
@@ -200,7 +201,7 @@ async def game() -> None:
 
 
 @visible
-async def game_welcome_click(message: str, character_name: str) -> dict:
+async def game_welcome_click(message: str, character_name: str) -> None:
     """Callback target for the welcome modal button."""
     character_name = character_name.strip()
     if not character_name:
@@ -209,12 +210,10 @@ async def game_welcome_click(message: str, character_name: str) -> dict:
     if modal_id:
         await atlantis.client_modal_close(modal_id)
         atlantis.session_shared.remove("game_welcome_modal_id")
-    payload = {
-        "message": message,
-        "character_name": character_name,
-    }
-    await atlantis.client_log(f"Game welcome button clicked: {message}; character_name={character_name}")
-    return payload
+    await atlantis.client_command(
+        f"@character_self {shlex.quote('Guest')} {shlex.quote(character_name)}"
+    )
+    #await atlantis.client_log(f"Game welcome button clicked: {message}; character_name={character_name}")
 
 
 @visible

@@ -45,7 +45,6 @@ python-server/dynamic_functions copy/*
 python-server/dynamic_functions.TEST/
 
 !python-server/dynamic_functions/Home
-!python-server/dynamic_functions/Bots
 !python-server/dynamic_functions/Games
 !python-server/dynamic_functions/Data
 python-server/dynamic_functions/.gitignore
@@ -53,6 +52,7 @@ python-server/dynamic_functions/.gitignore
 python-server/dynamic_servers/*
 !python-server/dynamic_servers/weather.json
 python-server/runServer?*
+python-server/*.bat
 
 log/
 

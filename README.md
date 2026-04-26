@@ -115,7 +115,7 @@ The runtime split is basically:
 3. `_handle_tools_call()` delegates Python tool execution to `DynamicFunctionManager.py` and proxied MCP tool execution to `DynamicServerManager.py`.
 4. Dynamic functions call back into the host through `atlantis.py` and `utils.py`.
 
-For dynamic function authoring details, see [Dynamic Functions Documentation](python-server/README.dynamic_functions.md). For auth and trust boundaries, see [Security Model](python-server/README_SECURITY.md).
+For dynamic function authoring details, see [Dynamic Functions Documentation](python-server/README.dynamic_functions.md). For wiring browser callbacks (button clicks, uploads) into Python functions, see [Chatter Callbacks](python-server/README.chatter_callbacks.md). For auth and trust boundaries, see [Security Model](python-server/README_SECURITY.md).
 
 ## Features
 
@@ -123,7 +123,7 @@ For dynamic function authoring details, see [Dynamic Functions Documentation](py
 
 Dynamic functions give users the ability to create and maintain custom functions-as-tools, which are kept in the `dynamic_functions/` folder. Functions are loaded on start and automatically reloaded when modified.
 
-For detailed information about creating and using dynamic functions, see the [Dynamic Functions Documentation](python-server/README.dynamic_functions.md).
+For detailed information about creating and using dynamic functions, see the [Dynamic Functions Documentation](python-server/README.dynamic_functions.md). For an example of wiring a UI button back into a Python callback, see [Chatter Callbacks](python-server/README.chatter_callbacks.md).
 
 #### Dynamic MCP Servers
 

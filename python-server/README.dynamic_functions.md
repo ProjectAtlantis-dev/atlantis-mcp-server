@@ -334,6 +334,12 @@ def _clean_data(data: str):
 - Only add `@visible` to functions that should be MCP tools
 - Internal functions can still be called by visible functions
 
+### Browser Callbacks (sendChatter)
+
+A dynamic function can render HTML+JS in the browser and wire UI events (button clicks, file uploads, etc.) back into another Python function via `sendChatter`. The browser-side payload keys map 1:1 to the target function's parameter names.
+
+For the full pattern — access token lifecycle, routing string format (`'%**Subdir**function_name'`), naming contract, and a copy-pasteable minimum example — see [Chatter Callbacks](README.chatter_callbacks.md). The canonical worked example is `dynamic_functions/InWork/create_video_with_image.py` (UI render + `process_video_upload` callback in one file).
+
 ### Chat Function
 
 Chat bots use the `@chat` decorator to handle conversations. The bot receives the transcript and can call tools on behalf of the user.

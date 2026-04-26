@@ -15,25 +15,6 @@ from datetime import datetime, timezone
 
 logger = logging.getLogger("mcp_server")
 
-
-def _summarize_notification_params(params: Optional[dict[str, Any]]) -> str:
-    """Return a compact log summary without dumping HTML content."""
-    if not params:
-        return "none"
-    parts = [f"keys={sorted(params.keys())}"]
-    if "modal" in params:
-        parts.append(f"modal={params.get('modal')}")
-    if params.get("title") is not None:
-        title = str(params["title"])
-        if len(title) > 80:
-            title = title[:77] + "..."
-        parts.append(f"title={title!r}")
-    if params.get("action") is not None:
-        parts.append(f"action={params.get('action')!r}")
-    if params.get("modalId") is not None:
-        parts.append(f"modalId={params.get('modalId')!r}")
-    return ", ".join(parts)
-
 # --- Context Variables ---
 # client_log_func: Holds the partially bound client_log function for the current request
 _client_log_var: contextvars.ContextVar[Optional[Callable]] = contextvars.ContextVar("_client_log_var", default=None)
@@ -944,8 +925,6 @@ async def _client_command(
     shell_path = _shell_path_var.get()  # Where in the command tree
 
     logger.info(f"📡 client_command '{command}' (entry={entry_point_name}, user={user})")
-    if notification_params:
-        logger.info(f"📎 notification params for '{command}': {_summarize_notification_params(notification_params)}")
     if isinstance(data, (dict, list)):
         logger.debug(f"   📦 data: {format_json_log(data, colored=True)}")
     elif data is not None:
@@ -1014,17 +993,11 @@ async def client_html(content: str, modal: bool = False, title: Optional[str] = 
     if title is not None:
         notification_params["title"] = title
 
-    logger.info(
-        f"🧩 client_html chars={len(content)} modal={modal} "
-        f"params={_summarize_notification_params(notification_params or None)}"
-    )
-
     # Use client_command for awaitable response with proper message_type
     result = await _client_command("html", content, message_type="html", notification_params=notification_params or None)
     if modal:
         if not isinstance(result, dict) or not result.get("modalId"):
             raise RuntimeError(f"Expected modal html ack with modalId, got: {result!r}")
-        logger.info(f"🪟 client_html modal ack modalId={result.get('modalId')!r}")
     return result
 
 
@@ -1040,14 +1013,9 @@ async def client_modal(content: str, title: Optional[str] = None) -> str:
     if title is not None:
         notification_params["title"] = title
 
-    logger.info(
-        f"🪟 client_modal open chars={len(content)} "
-        f"params={_summarize_notification_params(notification_params)}"
-    )
     result = await _client_command("html", content, message_type="html", notification_params=notification_params)
     if not isinstance(result, dict) or not result.get("modalId"):
         raise RuntimeError(f"Expected modal html ack with modalId, got: {result!r}")
-    logger.info(f"🪟 client_modal open ack modalId={result.get('modalId')!r}")
     return result["modalId"]
 
 
@@ -1062,7 +1030,6 @@ async def client_modal_close(modal_id: str) -> Any:
         "action": "close",
         "modalId": modal_id,
     }
-    logger.info(f"🪟 client_modal close params={_summarize_notification_params(notification_params)}")
     return await _client_command("html", None, message_type="html", notification_params=notification_params)
 
 

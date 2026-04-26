@@ -40,7 +40,11 @@ logger = logging.getLogger("mcp_server")
 
 
 def _summarize_notification_params(params: Optional[Dict[str, Any]]) -> str:
-    """Return a compact log summary for extra notification metadata."""
+    """Return a compact log summary for extra notification metadata.
+
+    Caveat: this is only for HTML notification metadata, where full payload logs
+    get noisy. For normal structured logging, prefer format_json_log().
+    """
     if not params:
         return "none"
     parts = [f"keys={sorted(params.keys())}"]

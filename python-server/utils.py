@@ -319,8 +319,13 @@ async def execute_client_command_awaitable(
 
     try:
         logger.info(f"🚀 Utils: Relaying dedicated awaitable command '{command}' to server for client {client_id_for_routing}, seq_num={seq_num}")
+        if message_params:
+            logger.info(f"   📎 Extra notification params: keys={sorted(message_params.keys())}")
         if isinstance(command_data, dict):
             logger.info(f"   📦 Command data type: {type(command_data)}, data:\n{format_json_log(command_data)}")
+        elif isinstance(command_data, str):
+            preview = command_data[:160] + "..." if len(command_data) > 160 else command_data
+            logger.info(f"   📦 Command data type: {type(command_data)}, chars={len(command_data)}, preview: {preview}")
         else:
             logger.info(f"   📦 Command data type: {type(command_data)}, data: {command_data}")
         # This specifically calls the method designed for awaitable command-response cycles

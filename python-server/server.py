@@ -38,6 +38,26 @@ COL_WIDTH_FILEPATH = 70
 
 logger = logging.getLogger("mcp_server")
 
+
+def _summarize_notification_params(params: Optional[Dict[str, Any]]) -> str:
+    """Return a compact log summary for extra notification metadata."""
+    if not params:
+        return "none"
+    parts = [f"keys={sorted(params.keys())}"]
+    if "modal" in params:
+        parts.append(f"modal={params.get('modal')}")
+    if params.get("title") is not None:
+        title = str(params["title"])
+        if len(title) > 80:
+            title = title[:77] + "..."
+        parts.append(f"title={title!r}")
+    if params.get("action") is not None:
+        parts.append(f"action={params.get('action')!r}")
+    if params.get("modalId") is not None:
+        parts.append(f"modalId={params.get('modalId')!r}")
+    return ", ".join(parts)
+
+
 from mcp.server import Server
 
 from mcp.client.websocket import websocket_client
@@ -548,6 +568,10 @@ class DynamicAdditionServer(Server):
         if message_params:
             # Extra metadata such as modal/title must be direct siblings of data.
             payload["params"].update(message_params)
+            logger.info(
+                f"📎 Flattened local notification params for '{command}': "
+                f"{_summarize_notification_params(message_params)}"
+            )
         payload_json = json.dumps(payload)
 
         global client_connections # Access the global client connection tracking
@@ -583,6 +607,10 @@ class DynamicAdditionServer(Server):
                 if message_params:
                     # Extra metadata such as modal/title must be direct siblings of data.
                     cloud_notification_params.update(message_params)
+                    logger.info(
+                        f"📎 Flattened cloud notification params for '{command}': "
+                        f"{_summarize_notification_params(message_params)}"
+                    )
 
                 # Add seqNum if provided
                 if seq_num is not None:
@@ -618,7 +646,11 @@ class DynamicAdditionServer(Server):
                     logger.info(f"🔧 CLOUD TOOL CALL: {command}")
                     logger.debug(f"🔧 cloud_notification_params:\n{format_json_log(cloud_notification_params)}")
                 await connection.send_message('mcp_notification', cloud_wrapper_payload)
-                logger.info(f"☁️ Sent '{command}' to cloud (correlationId: {correlation_id})")
+                logger.info(
+                    f"☁️ Sent '{command}' to cloud "
+                    f"(messageType={message_type}, correlationId={correlation_id}, "
+                    f"dataChars={len(str(command_data)) if command_data is not None else 0})"
+                )
             else:
                 self.awaitable_requests.pop(correlation_id, None) # Clean up future
                 logger.error(f"❌ Cannot send awaitable command '{command}': Client '{client_id_for_routing}' has no valid/active connection.")

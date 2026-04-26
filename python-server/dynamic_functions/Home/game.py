@@ -107,11 +107,12 @@ async def game() -> None:
 <section id="game-welcome-{uid}" aria-label="Game welcome">
   <div class="game-kicker">Project Atlantis</div>
   <h2>Welcome to {game_name}</h2>
-  <p>This modal is rendered through atlantis.client_html with modal metadata, and the button calls back into a Home dynamic function.</p>
+  <p>This modal is rendered through atlantis.client_modal, and the button calls back into a Home dynamic function.</p>
   <button id="game-welcome-button-{uid}" type="button">Enter game</button>
 </section>
 """
-    await atlantis.client_html(html, modal=True, title="Welcome to Game")
+    modal_id = await atlantis.client_modal(html, title="Welcome to Game")
+    atlantis.session_shared.set("game_welcome_modal_id", modal_id)
 
     script = f"""
 (function() {{
@@ -144,6 +145,10 @@ async def game() -> None:
 @visible
 async def game_welcome_click(message: str) -> None:
     """Callback target for the welcome modal button."""
+    modal_id = atlantis.session_shared.get("game_welcome_modal_id")
+    if modal_id:
+        await atlantis.client_modal_close(modal_id)
+        atlantis.session_shared.remove("game_welcome_modal_id")
     await atlantis.client_log(f"Game welcome button clicked: {message}")
 
 

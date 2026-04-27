@@ -60,4 +60,6 @@ log/
 python-server/**/*.json
 python-server/**/*.log
 
-python-server/dynamic_functions/Data/players/*/
+
+python-server/dynamic_functions copy 2/
+python-server/dynamic_functions copy/

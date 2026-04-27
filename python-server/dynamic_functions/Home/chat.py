@@ -10,7 +10,7 @@ from dynamic_functions.Home.bot_common import analyze_participants, fetch_transc
 logger = logging.getLogger("mcp_server")
 
 
-@chat
+
 async def chat():
     """Chat"""
     caller = atlantis.get_caller()

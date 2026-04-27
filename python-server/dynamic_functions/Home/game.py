@@ -49,8 +49,14 @@ def _get_current_game() -> str:
     return _load_game_map().get(game_id, '')
 
 
-@visible
+@game
 async def game() -> None:
+    """Enter"""
+    await game_set('Atlantis')
+    await game_entry()
+
+
+async def game_entry() -> None:
     """Show the welcome modal for the current game session."""
     uid = uuid.uuid4().hex[:8]
     game_name = html_lib.escape(_get_current_game() or "Game")

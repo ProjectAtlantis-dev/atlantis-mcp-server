@@ -111,7 +111,8 @@ def set_positions(positions: Dict[str, str]) -> None:
     os.replace(tmp, path)
 
 
-def get_player_position(sid: str) -> Optional[str]:
+@visible
+def position_get(sid: str) -> Optional[str]:
     """Return a player's current location in the active game, or None."""
     return get_positions().get(sid)
 
@@ -163,7 +164,7 @@ async def move_character(sid: str, location: str, is_bot: bool) -> str:
         raise ValueError("sid is required")
 
     game_name = _current_game_name()
-    current = get_player_position(sid)
+    current = position_get(sid)
 
     # New player — drop them into the default lobby
     if current is None:
@@ -385,7 +386,7 @@ async def look(location: str = "") -> str:
     if not location:
         sid = atlantis.get_caller()
         if sid:
-            location = get_player_position(sid) or ""
+            location = position_get(sid) or ""
     if not location:
         raise ValueError("No location specified and caller has no current position.")
 

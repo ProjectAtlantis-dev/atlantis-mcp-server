@@ -9,8 +9,8 @@ import uuid
 from typing import List, Dict, Any
 
 from dynamic_functions.Home.common import GAMES_DIR
-from dynamic_functions.Home.location import get_positions
-from dynamic_functions.Home.character import _load_characters, role_list
+from dynamic_functions.Home.location import get_positions, position_get, set_player_position
+from dynamic_functions.Home.character import _load_characters, role_list, character_bot
 from dynamic_functions.Home.bot import bot_list
 from dynamic_functions.Home.location import location_list
 
@@ -219,7 +219,11 @@ async def game_welcome_click(message: str, character_name: str) -> None:
     await atlantis.client_command(
         f"@character_self {shlex.quote('Guest')} {shlex.quote(character_name)}"
     )
-    #await atlantis.client_log(f"Game welcome button clicked: {message}; character_name={character_name}")
+    await atlantis.client_command("@go")
+
+    if not position_get("kitty"):
+        await character_bot("kitty", "Receptionist")
+        set_player_position("kitty", "Lobby")
 
 
 @visible

@@ -11,7 +11,7 @@ from dynamic_functions.Home.common import _load_bot_config
 from dynamic_functions.Home.character import _load_characters
 from dynamic_functions.Home.location import (
     _load_location, _locations_dir, _connects_to,
-    location_thumb, get_player_position, get_players_at,
+    location_thumb, position_get, get_players_at,
 )
 
 
@@ -72,7 +72,7 @@ async def map(location: str = "") -> None:
     if not location:
         sid = atlantis.get_caller()
         if sid:
-            location = get_player_position(sid)
+            location = position_get(sid)
         if not location:
             raise ValueError(
                 "Cannot determine current location. Either pass a location name "

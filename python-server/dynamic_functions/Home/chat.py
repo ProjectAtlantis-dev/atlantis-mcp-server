@@ -3,7 +3,7 @@
 import atlantis
 import logging
 
-from dynamic_functions.Home.location import get_player_position, get_players_at
+from dynamic_functions.Home.location import position_get, get_players_at
 from dynamic_functions.Home.location import position_query
 from dynamic_functions.Home.bot_common import analyze_participants, fetch_transcript
 
@@ -32,7 +32,7 @@ async def chat():
         return
 
     # Where is the most recent speaker?
-    location = get_player_position(speaker_sid)
+    location = position_get(speaker_sid)
     if not location:
         await atlantis.client_log(f"📍 {speaker_sid} has no position — nowhere to chat")
         return

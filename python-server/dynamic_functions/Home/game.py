@@ -70,9 +70,9 @@ async def game_entry() -> None:
     padding: 28px;
     color: #f7f4ea;
     background:
-      linear-gradient(135deg, rgba(20, 34, 48, 0.96), rgba(47, 55, 45, 0.96)),
-      radial-gradient(circle at 18% 20%, rgba(238, 186, 85, 0.22), transparent 34%);
-    border: 1px solid rgba(238, 186, 85, 0.42);
+      linear-gradient(to bottom, rgba(20, 34, 48, 0.96), rgba(20, 50, 60, 0.96)),
+      radial-gradient(circle at 18% 20%, rgba(20, 255, 208, 0.22), transparent 34%);
+    border: 1px solid rgba(20, 255, 208, 0.42);
     border-radius: 8px;
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }}
@@ -84,10 +84,10 @@ async def game_entry() -> None:
     text-transform: uppercase;
   }}
   #game-welcome-{uid} h2 {{
-    margin: 10px 0 8px;
-    color: #fffaf0;
+    margin: 10px 0 28px;
     font-size: 30px;
     line-height: 1.1;
+    color: #fffaf0;
   }}
   #game-welcome-{uid} p {{
     max-width: 560px;
@@ -113,12 +113,12 @@ async def game_entry() -> None:
     padding: 0 12px;
     color: #fffaf0;
     background: rgba(7, 15, 22, 0.58);
-    border: 1px solid rgba(238, 186, 85, 0.42);
+    border: 1px solid rgba(20, 255, 208, 0.42);
     border-radius: 6px;
     font: inherit;
   }}
   #game-welcome-{uid} input:focus {{
-    outline: 2px solid rgba(238, 186, 85, 0.45);
+    outline: 2px solid rgba(20, 255, 208, 0.45);
     outline-offset: 2px;
   }}
   #game-welcome-{uid} .game-error {{
@@ -129,13 +129,17 @@ async def game_entry() -> None:
   #game-welcome-{uid} button {{
     min-height: 40px;
     padding: 0 16px;
-    color: #162230;
-    background: #eeba55;
+    color: #fffaf0;
+    background: linear-gradient(to bottom, #1a8a78, #143a52);
     border: 0;
     border-radius: 6px;
     font: inherit;
     font-weight: 700;
     cursor: pointer;
+    transition: background 0.18s ease;
+  }}
+  #game-welcome-{uid} button:hover {{
+    background: linear-gradient(to bottom, #22b89e, #1a527a);
   }}
   #game-welcome-{uid} button:disabled {{
     cursor: default;
@@ -143,14 +147,12 @@ async def game_entry() -> None:
   }}
 </style>
 <section id="game-welcome-{uid}" aria-label="Game welcome">
-  <div class="game-kicker">Project Atlantis</div>
-  <h2>Welcome to {game_name}</h2>
-  <p>Choose the character name you want to use in this session.</p>
+  <h2>Welcome to Project Atlantis</h2>
   <form id="game-welcome-form-{uid}">
-    <label for="game-character-name-{uid}">Character name</label>
+    <label for="game-character-name-{uid}">Enter your character name</label>
     <input id="game-character-name-{uid}" name="character_name" type="text" autocomplete="name" maxlength="80" required autofocus>
     <div id="game-welcome-error-{uid}" class="game-error" aria-live="polite"></div>
-    <button id="game-welcome-button-{uid}" type="submit">Enter game</button>
+    <button id="game-welcome-button-{uid}" type="submit">Enter</button>
   </form>
 </section>
 """

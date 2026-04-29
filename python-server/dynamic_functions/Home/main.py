@@ -3,7 +3,7 @@
 import atlantis
 from typing import List, Dict, Any
 
-from dynamic_functions.Home.bot_common import logger, get_base_tools
+from dynamic_functions.Home.chat_common import logger, get_base_tools
 
 
 def _require_game():

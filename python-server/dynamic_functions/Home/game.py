@@ -9,9 +9,9 @@ import uuid
 from typing import List, Dict, Any
 
 from dynamic_functions.Home.common import GAMES_DIR
-from dynamic_functions.Home.location import get_positions, position_get, set_player_position
-from dynamic_functions.Home.character import _load_characters, role_list, character_bot
-from dynamic_functions.Home.bot import bot_list
+from dynamic_functions.Home.location import get_positions
+from dynamic_functions.Home.character import _load_characters, role_list
+from dynamic_functions.Home.bot import bot_list, bot_spawn
 from dynamic_functions.Home.location import location_list
 
 
@@ -53,6 +53,7 @@ def _get_current_game() -> str:
 async def game() -> None:
     """Enter"""
     await game_set('Atlantis')
+    await bot_spawn('kitty', 'Receptionist', 'Lobby')
     await game_entry()
 
 
@@ -221,10 +222,6 @@ async def game_welcome_click(message: str, character_name: str) -> None:
     )
     await atlantis.client_command("@go")
 
-    if not position_get("kitty"):
-        await character_bot("kitty", "Receptionist")
-        set_player_position("kitty", "Lobby")
-
 
 @visible
 async def game_list() -> List[str]:
@@ -349,19 +346,19 @@ async def game_show() -> None:
     tables = []
     tables.append(_table("ent-game", "GAME", ["name"], game_rows))
     if game_name:
-        tables.append(_table("ent-bot", "BOT", ["sid", "name"],
-            [[b["sid"], b["name"]] for b in bot_rows]))
-        tables.append(_table("ent-location", "LOCATION", ["name", "description", "connects_to"],
-            [[l["name"], l["description"], ", ".join(l["connects_to"])] for l in loc_rows]))
-        tables.append(_table("ent-role", "ROLE", ["name", "title"],
-            [[r["name"], r["title"]] for r in role_rows]))
+        tables.append(_table("ent-bot", "BOT", ["sid", "name", "model", "updated"],
+            [[b["sid"], b["name"], b["model"], b["updated"]] for b in bot_rows]))
+        tables.append(_table("ent-location", "LOCATION", ["name", "description", "connects_to", "updated"],
+            [[l["name"], l["description"], ", ".join(l["connects_to"]), l["updated"]] for l in loc_rows]))
+        tables.append(_table("ent-role", "ROLE", ["name", "title", "updated"],
+            [[r["name"], r["title"], r["updated"]] for r in role_rows]))
     else:
-        tables.append(_table("ent-bot", "BOT", ["game", "sid", "name"],
-            [[b["game"], b["sid"], b["name"]] for b in bot_rows]))
-        tables.append(_table("ent-location", "LOCATION", ["game", "name", "description", "connects_to"],
-            [[l["game"], l["name"], l["description"], ", ".join(l["connects_to"])] for l in loc_rows]))
-        tables.append(_table("ent-role", "ROLE", ["game", "name", "title"],
-            [[r["game"], r["name"], r["title"]] for r in role_rows]))
+        tables.append(_table("ent-bot", "BOT", ["game", "sid", "name", "model", "updated"],
+            [[b["game"], b["sid"], b["name"], b["model"], b["updated"]] for b in bot_rows]))
+        tables.append(_table("ent-location", "LOCATION", ["game", "name", "description", "connects_to", "updated"],
+            [[l["game"], l["name"], l["description"], ", ".join(l["connects_to"]), l["updated"]] for l in loc_rows]))
+        tables.append(_table("ent-role", "ROLE", ["game", "name", "title", "updated"],
+            [[r["game"], r["name"], r["title"], r["updated"]] for r in role_rows]))
     no_game = not game_name
     tables.append(_table("ent-character", "CHARACTER", ["sid", "role", "isBot", "humanName"],
         [[c["sid"], c["role"], c["isBot"], c.get("humanName", "")] for c in char_rows],

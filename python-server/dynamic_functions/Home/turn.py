@@ -6,13 +6,13 @@ import time as _t
 from openai import OpenAI
 from typing import List, Dict, Any, Optional, cast
 
-from dynamic_functions.Home.bot_common import (
+from dynamic_functions.Home.chat_common import (
     logger,
     TranscriptToolT, ToolLookupInfo, ToolSchemaT,
     _repair_json, coerce_args_to_schema, convert_tools_for_llm,
     handle_dir_tool, handle_search_tool,
 )
-from dynamic_functions.Data.todo import handle_todo_tool
+from dynamic_functions.Home.todo import handle_todo_tool
 from utils import format_json_log
 
 

@@ -3,6 +3,7 @@
 import base64
 import json
 import os
+from datetime import datetime
 from typing import List, Dict
 
 from dynamic_functions.Home.common import _bots_dir, _load_bot_config, _ensure_thumb, GAMES_DIR
@@ -43,12 +44,35 @@ def _collect_bots(bots_dir: str) -> List[Dict[str, str]]:
             with open(thumb, 'rb') as img:
                 b64 = base64.b64encode(img.read()).decode('ascii')
             image_data = f'data:image/{mime};base64,{b64}'
+        provider = cfg.get('provider', '')
+        model = cfg.get('model', '')
+        model_label = f"{provider}: {model}" if provider and model else (model or provider)
+        bot_dir = os.path.join(bots_dir, entry)
+        latest = max(
+            (os.path.getmtime(os.path.join(bot_dir, f)) for f in os.listdir(bot_dir)
+             if os.path.isfile(os.path.join(bot_dir, f))),
+            default=os.path.getmtime(config_path),
+        )
         bots.append({
             'sid': cfg.get('sid', entry.lower()),
             'name': cfg.get('displayName', entry),
+            'model': model_label,
             'image': image_data,
+            'updated': datetime.fromtimestamp(latest).strftime('%Y-%m-%d %H:%M'),
         })
     return bots
+
+
+@visible
+async def bot_spawn(sid: str, role: str, location: str) -> None:
+    """One-time setup: register a bot character and place it at a location.
+
+    Idempotent — safe to call on every game entry.
+    """
+    from dynamic_functions.Home.character import character_bot
+    from dynamic_functions.Home.location import set_player_position
+    await character_bot(sid, role)
+    set_player_position(sid, location)
 
 
 @visible

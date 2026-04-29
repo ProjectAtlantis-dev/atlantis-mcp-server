@@ -4,11 +4,75 @@ import atlantis
 import json
 import logging
 import os
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("mcp_server")
 
 GAMES_DIR = os.path.join(os.path.dirname(__file__), "..", "Games")
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "Data")
+
+
+# ---------------------------------------------------------------------------
+# Game-scoped data I/O — all stateful data lives under Data/{game_id}/
+# ---------------------------------------------------------------------------
+
+def _safe_id(value: str, label: str = "id") -> str:
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", str(value or "").strip())
+    if not safe:
+        raise ValueError(f"Cannot use an empty {label}")
+    return safe
+
+
+def game_dir(game_id: str, *, create: bool = False) -> str:
+    """Return the data directory for a game."""
+    path = os.path.join(DATA_DIR, _safe_id(game_id, "game_id"))
+    if create:
+        os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _read_json(path: str, default=None):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            raw = f.read()
+            return json.loads(raw) if raw.strip() else default
+    except FileNotFoundError:
+        return default
+
+
+def _write_json(path: str, data) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = f"{path}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+    os.replace(tmp, path)
+
+
+def read_location_data(game_id: str, location: str) -> Optional[Dict[str, Any]]:
+    """Read Data/{game_id}/{location}.json, or None if it doesn't exist."""
+    path = os.path.join(game_dir(game_id), f"{location}.json")
+    return _read_json(path, None)
+
+
+def write_location_data(game_id: str, location: str, data: Dict[str, Any]) -> None:
+    """Write Data/{game_id}/{location}.json."""
+    path = os.path.join(game_dir(game_id, create=True), f"{location}.json")
+    _write_json(path, data)
+
+
+def list_games() -> list[str]:
+    """List all game_ids that have data."""
+    if not os.path.isdir(DATA_DIR):
+        return []
+    return sorted(
+        d for d in os.listdir(DATA_DIR)
+        if os.path.isdir(os.path.join(DATA_DIR, d))
+        and not d.startswith(".")
+        and d != "__pycache__"
+        and d != "players"  # ignore legacy
+    )
 
 
 def _bots_dir() -> str:
@@ -133,34 +197,4 @@ def thumbify(image_path: str) -> str:
         raise ValueError(f"Image not found: {image_path}")
     return _ensure_thumb(image_path)
 
-
-# =========================================================================
-# Bot spawning
-# =========================================================================
-
-
-async def spawn_bot(bot_sid: str, bots_dir: Optional[str] = None) -> None:
-    """Spawn a bot: show their face image and announce them."""
-    if bots_dir is None:
-        bots_dir = _bots_dir()
-    loaded = _load_bot_config(bot_sid, bots_dir)
-    if not loaded:
-        logger.warning(f"No config.json found for bot sid: {bot_sid}")
-        return
-    cfg, folder = loaded
-
-    display_name = cfg.get("displayName", folder)
-
-    bot_dir = os.path.join(bots_dir, folder)
-    face_candidates = [f for f in os.listdir(bot_dir) if "face" in f.lower() and f.lower().endswith((".jpg", ".png", ".webp"))]
-    if face_candidates:
-        face_path = os.path.join(bot_dir, face_candidates[0])
-        await atlantis.client_image(face_path)
-        logger.info(f"Spawned {display_name}: showed face image")
-
-    # Say hello as a chat message so the bot shows up in the transcript.
-    greeting = cfg.get("greeting", f"Hi, I'm {display_name}.")
-    stream_id = await atlantis.stream_start(bot_sid, display_name)
-    await atlantis.stream(greeting, stream_id)
-    await atlantis.stream_end(stream_id)
 

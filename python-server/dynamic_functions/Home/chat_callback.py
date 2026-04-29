@@ -15,7 +15,7 @@ import atlantis
 import time as _t
 from importlib import import_module
 
-from dynamic_functions.Home.bot_common import (
+from dynamic_functions.Home.chat_common import (
     logger,
     fetch_transcript,
 )

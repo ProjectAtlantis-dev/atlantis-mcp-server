@@ -11,7 +11,7 @@ import os
 import re
 from typing import Any, Dict, List
 
-from dynamic_functions.Data.main import game_dir
+from dynamic_functions.Home.common import game_dir
 
 logger = logging.getLogger("mcp_server")
 

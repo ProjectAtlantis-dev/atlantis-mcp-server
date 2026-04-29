@@ -5,7 +5,7 @@ import logging
 
 from dynamic_functions.Home.location import position_get, get_players_at
 from dynamic_functions.Home.location import position_query
-from dynamic_functions.Home.bot_common import analyze_participants, fetch_transcript
+from dynamic_functions.Home.chat_common import analyze_participants, fetch_transcript
 
 logger = logging.getLogger("mcp_server")
 

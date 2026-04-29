@@ -5,6 +5,7 @@ import base64
 import json
 import logging
 import os
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from dynamic_functions.Home.character import (
@@ -244,12 +245,17 @@ def _collect_locations(locations_dir: str) -> List[Dict[str, str]]:
     for fname in sorted(os.listdir(locations_dir)):
         if not fname.endswith('.json'):
             continue
-        with open(os.path.join(locations_dir, fname), 'r') as f:
+        json_path = os.path.join(locations_dir, fname)
+        with open(json_path, 'r') as f:
             data = json.load(f)
         image_data = ''
         image_file = data.get('image', '')
+        mtimes = [os.path.getmtime(json_path)]
         if image_file:
-            thumb = _thumb_for_image(os.path.join(locations_dir, image_file))
+            image_path = os.path.join(locations_dir, image_file)
+            if os.path.isfile(image_path):
+                mtimes.append(os.path.getmtime(image_path))
+            thumb = _thumb_for_image(image_path)
             if thumb:
                 ext = os.path.splitext(thumb)[1].lower()
                 mime = {'jpg': 'jpeg', 'jpeg': 'jpeg', 'png': 'png', 'gif': 'gif', 'webp': 'webp'}.get(ext.lstrip('.'), 'jpeg')
@@ -261,6 +267,7 @@ def _collect_locations(locations_dir: str) -> List[Dict[str, str]]:
             'description': data.get('description', data.get('name', fname[:-5])),
             'connects_to': data.get('connects_to', []),
             'image': image_data,
+            'updated': datetime.fromtimestamp(max(mtimes)).strftime('%Y-%m-%d %H:%M'),
         })
     return locations
 

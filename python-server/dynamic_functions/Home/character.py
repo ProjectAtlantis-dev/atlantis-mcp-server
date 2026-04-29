@@ -4,9 +4,10 @@ import atlantis
 import json
 import logging
 import os
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from dynamic_functions.Data.main import game_dir
+from dynamic_functions.Home.common import game_dir
 
 logger = logging.getLogger("mcp_server")
 
@@ -91,12 +92,17 @@ def _collect_roles(roles_dir: str) -> List[Dict[str, str]]:
     if not os.path.isdir(roles_dir):
         return roles
     for d in sorted(os.listdir(roles_dir)):
-        if os.path.isdir(os.path.join(roles_dir, d)) and not d.startswith(".") and d != "__pycache__":
+        role_dir = os.path.join(roles_dir, d)
+        if os.path.isdir(role_dir) and not d.startswith(".") and d != "__pycache__":
             rdata = _load_role_json(roles_dir, d)
+            mtimes = [os.path.getmtime(os.path.join(role_dir, f)) for f in os.listdir(role_dir)
+                      if os.path.isfile(os.path.join(role_dir, f))]
+            updated = datetime.fromtimestamp(max(mtimes)).strftime('%Y-%m-%d %H:%M') if mtimes else ''
             roles.append({
                 "name": d,
                 "title": rdata.get("title", d),
                 "greeting": rdata.get("greeting", ""),
+                "updated": updated,
             })
     return roles
 

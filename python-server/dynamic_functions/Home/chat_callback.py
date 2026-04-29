@@ -34,7 +34,7 @@ _RESET = "\033[0m"
 # Chat callback
 # =========================================================================
 
-
+@chat
 async def chat_callback():
     """Main chat callback — routes to the right bot via player data."""
     session_id = atlantis.get_session_id() or "unknown"

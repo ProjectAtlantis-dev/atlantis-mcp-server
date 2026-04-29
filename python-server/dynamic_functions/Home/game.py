@@ -16,29 +16,6 @@ from dynamic_functions.Home.location import location_list
 
 
 GAMES_DIR = os.path.join(os.path.dirname(__file__), '..', 'Games')
-_GAME_MAP_FILE = os.path.join(os.path.dirname(__file__), 'game_map.json')
-_GAME_MAP_SHARED_KEY = 'game_map'
-
-
-def _load_game_map() -> dict:
-    """Return the full {game_id: game_name} map. Cached in server_shared; falls back to disk."""
-    cached = atlantis.server_shared.get(_GAME_MAP_SHARED_KEY)
-    if cached is not None:
-        return cached
-    if os.path.isfile(_GAME_MAP_FILE):
-        with open(_GAME_MAP_FILE, 'r') as f:
-            mapping = json.load(f)
-    else:
-        mapping = {}
-    atlantis.server_shared.set(_GAME_MAP_SHARED_KEY, mapping)
-    return mapping
-
-
-def _save_game_map(mapping: dict) -> None:
-    """Persist the game map to disk and cache."""
-    with open(_GAME_MAP_FILE, 'w') as f:
-        json.dump(mapping, f)
-    atlantis.server_shared.set(_GAME_MAP_SHARED_KEY, mapping)
 
 
 def _get_current_game() -> str:
@@ -46,7 +23,9 @@ def _get_current_game() -> str:
     game_id = str(atlantis.get_game_id() or '')
     if not game_id:
         return ''
-    return _load_game_map().get(game_id, '')
+    from dynamic_functions.Home.common import game_dir, _read_json
+    meta = _read_json(os.path.join(game_dir(game_id), 'game.json'), {})
+    return meta.get('name', '')
 
 
 @game
@@ -54,6 +33,7 @@ async def game() -> None:
     """Enter"""
     await game_set('Atlantis')
     await bot_spawn('kitty', 'Receptionist', 'Lobby')
+    await atlantis.client_command('/callback set chat chat_callback')
     await game_entry()
 
 
@@ -258,25 +238,21 @@ async def game_set(name: str) -> None:
     if not game_id:
         raise ValueError("No active game_id in context. Cannot set game without a game session.")
 
-    # Check if this game_id is already mapped
-    current = _get_current_game()
-    if current:
-        if current == name:
-            await atlantis.client_log(f"Game already set to '{name}' (game_id: {game_id})")
-            return
-        raise ValueError(f"Game ID {game_id} is already locked to '{current}'.")
-
     # Validate the game exists
     available = await game_list()
     if name not in available:
         raise ValueError(f"Unknown game '{name}'. Available: {available}")
 
-    # Persist to disk and cache
-    mapping = _load_game_map()
-    mapping[game_id] = name
-    _save_game_map(mapping)
+    # Check if already set to the same game
+    current = _get_current_game()
+    if current == name:
+        return
 
-    await atlantis.client_log(f"Game locked: game_id {game_id} \u2192 '{name}'")
+    # Persist to Data/{game_id}/game.json
+    from dynamic_functions.Home.common import game_dir, _write_json
+    _write_json(os.path.join(game_dir(game_id, create=True), 'game.json'), {'name': name})
+
+    await atlantis.client_log(f"Game set: game_id {game_id} \u2192 '{name}'")
 
 
 @visible

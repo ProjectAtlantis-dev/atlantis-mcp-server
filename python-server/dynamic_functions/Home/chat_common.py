@@ -486,7 +486,9 @@ async def fetch_transcript(caller: str = "") -> Tuple[List[Dict[str, Any]], List
     if raw_transcript[0].get('role') == 'system':
         logger.info("Found system message in transcript - will use our own system prompt instead")
 
-    transcript_dump_file = os.path.join(os.path.dirname(__file__), 'raw_transcript.json')
+    from dynamic_functions.Home.common import game_dir
+    _gid = str(atlantis.get_game_id() or 'unknown')
+    transcript_dump_file = os.path.join(game_dir(_gid, create=True), 'raw_transcript.json')
     try:
         with open(transcript_dump_file, 'w') as f:
             json.dump(raw_transcript, f, indent=2, default=str)

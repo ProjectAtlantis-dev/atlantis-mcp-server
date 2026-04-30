@@ -70,9 +70,10 @@ async def bot_spawn(sid: str, role: str, location: str) -> None:
     Idempotent — safe to call on every game entry.
     """
     from dynamic_functions.Home.character import character_bot
-    from dynamic_functions.Home.location import set_player_position
+    from dynamic_functions.Home.location import move_character, position_get
     await character_bot(sid, role)
-    set_player_position(sid, location)
+    if position_get(sid) is None:
+        await move_character(sid, location, is_bot=True)
 
 
 @visible

@@ -182,6 +182,10 @@ async def move_character(sid: str, location: str, is_bot: bool) -> str:
         desc = dest.get("description", location)
         set_player_position(sid, location)
         await atlantis.client_log(f"\U0001f3db\ufe0f New player {display} has entered {desc} for the first time")
+        await atlantis.client_description(
+            "Someone has entered.",
+            location=location,
+        )
         logger.info(f"[{game_name}] New player {sid} entered {default_location}")
         # If the owner moved, update the camera and background
         if atlantis.is_owner(sid):
@@ -217,6 +221,10 @@ async def move_character(sid: str, location: str, is_bot: bool) -> str:
     current_desc = (_load_location(current) or {}).get("description", current)
     set_player_position(sid, location)
     await atlantis.client_log(f"\U0001f6b6 {display} moved from {current_desc} to {desc}")
+    await atlantis.client_description(
+        "Someone has entered.",
+        location=location,
+    )
     logger.info(f"[{game_name}] {sid} moved from {current} to {location}")
     # If the owner moved, update the camera and background
     if atlantis.is_owner(sid):

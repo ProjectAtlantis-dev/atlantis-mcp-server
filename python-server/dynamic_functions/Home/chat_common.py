@@ -535,8 +535,15 @@ async def fetch_transcript(caller: str = "") -> Tuple[List[Dict[str, Any]], List
 
             transcript.append({'role': role_for_llm, 'content': [{'type': 'text', 'text': msg_content_full}]})
             logger.info(f"       -> INCLUDED as role={role_for_llm} (sid={msg_sid})")
+        elif msg_type == 'description':
+            msg_content_full = msg.get('content', '')
+            if not msg_content_full or not str(msg_content_full).strip():
+                logger.info(f"       -> SKIPPED (blank description)")
+                continue
+            transcript.append({'role': 'user', 'content': [{'type': 'text', 'text': f"[scene: {msg_content_full}]"}]})
+            logger.info(f"       -> INCLUDED as description")
         else:
-            logger.info(f"       -> SKIPPED (type != 'chat')")
+            logger.info(f"       -> SKIPPED (type != 'chat'|'description')")
     logger.info(f"=== END FILTERING: {len(transcript)} messages included ===")
 
     return raw_transcript, transcript

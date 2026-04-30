@@ -9,7 +9,7 @@ import uuid
 from typing import List, Dict, Any
 
 from dynamic_functions.Home.common import GAMES_DIR
-from dynamic_functions.Home.location import get_positions
+from dynamic_functions.Home.location import get_positions, _default_location
 from dynamic_functions.Home.character import _load_characters, role_list
 from dynamic_functions.Home.bot import bot_list, bot_spawn
 from dynamic_functions.Home.location import location_list
@@ -32,7 +32,8 @@ def _get_current_game() -> str:
 async def game() -> None:
     """Enter"""
     await game_set('Atlantis')
-    await bot_spawn('kitty', 'Receptionist', 'Lobby')
+    default_location = _default_location()
+    await bot_spawn('kitty', 'Receptionist', default_location)
     await atlantis.client_command('/callback set chat chat_callback')
     await game_entry()
 

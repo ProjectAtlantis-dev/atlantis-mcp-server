@@ -165,7 +165,8 @@ async def client_log(
     entry_point_name: Optional[str] = None,
     message_type: str = "text",
     stream_id: Optional[str] = None,
-    is_private: bool = True
+    is_private: bool = True,
+    location: Optional[str] = None
     ):
     """
     Send a log message to the client.
@@ -251,7 +252,8 @@ async def client_log(
                         entry_point_name,
                         message_type,
                         stream_id,
-                        is_private
+                        is_private,
+                        location
                     )
 
                 except Exception as task_e:

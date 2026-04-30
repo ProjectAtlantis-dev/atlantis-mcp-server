@@ -353,7 +353,7 @@ async def get_and_increment_seq_num(context_name: str = "operation") -> int:
 
 # --- Accessor Functions ---
 
-async def client_log(message: Any, level: str = "INFO", message_type: str = "text", is_private: bool = True):
+async def client_log(message: Any, level: str = "INFO", message_type: str = "text", is_private: bool = True, location: Optional[str] = None):
     """Sends a log message back to the requesting client for the current context.
     Includes a sequence number and automatically determines the calling function name.
     Also includes the original entry point function name.
@@ -410,7 +410,8 @@ async def client_log(message: Any, level: str = "INFO", message_type: str = "tex
                 level=level,
                 logger_name=caller_name,  # Pass the caller function name
                 seq_num=current_seq_to_send, # Pass the obtained sequence number
-                is_private=is_private
+                is_private=is_private,
+                location=location
             )
             # task is the asyncio.Task returned by utils.client_log
 
@@ -432,13 +433,14 @@ async def client_log(message: Any, level: str = "INFO", message_type: str = "tex
         logger.warning(f"client_log called but no logger in context. Message: {message}")
         return None # Or raise an error
 
-async def client_description(message: Any, level: str = "INFO", is_private: bool = True):
+async def client_description(message: Any, level: str = "INFO", is_private: bool = True, location: Optional[str] = None):
     """Sends a description message back to the requesting client for the current context."""
     return await client_log(
         message,
         level=level,
         message_type="description",
-        is_private=is_private
+        is_private=is_private,
+        location=location
     )
 
 async def tool_result(name: str, result: Any):

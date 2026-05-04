@@ -7,7 +7,7 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from dynamic_functions.Home.common import game_dir
+from dynamic_functions.Home.common import require_game_dir
 
 logger = logging.getLogger("mcp_server")
 
@@ -32,12 +32,12 @@ def _find_game_dir() -> str:
     return path
 
 
-def game_data_dir(game_id: Optional[str] = None, *, create: bool = True) -> str:
+def game_data_dir(game_id: Optional[str] = None) -> str:
     """Return the data directory for the current game."""
     actual_game_id = game_id if game_id is not None else atlantis.get_game_id()
     if not actual_game_id:
         raise RuntimeError("game_data_dir requires an active game")
-    return game_dir(actual_game_id, create=create)
+    return require_game_dir(actual_game_id)
 
 
 def _characters_path() -> str:

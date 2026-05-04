@@ -11,7 +11,7 @@ import os
 import re
 from typing import Any, Dict, List
 
-from dynamic_functions.Home.common import game_dir
+from dynamic_functions.Home.common import require_game_dir
 
 logger = logging.getLogger("mcp_server")
 
@@ -37,7 +37,7 @@ def _require_context() -> tuple[str, str]:
 
 
 def _todo_dir(game_id: str, sid: str) -> str:
-    return os.path.join(game_dir(game_id, create=True), "todos", _safe(sid, "sid"))
+    return os.path.join(require_game_dir(game_id), "todos", _safe(sid, "sid"))
 
 
 def _todo_path(game_id: str, sid: str, todo_name: str) -> str:

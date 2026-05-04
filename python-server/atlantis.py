@@ -125,106 +125,74 @@ class _SessionSharedContainer:
 server_shared = _SharedContainer()
 session_shared = _SessionSharedContainer(server_shared)
 
-# --- Active Games & Global Tick ---
-# Server-wide registry of currently active games. Populated automatically by
-# DynamicFunctionManager whenever a tool call arrives carrying a game_id, so
-# individual dynamic functions don't need to call game_activate themselves.
+# --- Game Ticks ---
+# Tick support is explicit: a game_id must already exist under Data/{game_id}
+# before it can be registered. Home.game_new() is the only game creation path.
 #
 # Shape: {game_id: {
 #     "ctx": contextvars.Context,   — snapshot for running callbacks in game context
-#     "caller": str,                — user who started the game
-#     "tick_callback": Optional[Callable],  — async fn to call each tick (None = no tick)
-#     "tick_busy": bool,            — True while a tick is in-flight (prevents pile-up)
+#     "caller": str,                — user who registered the tick
+#     "tick_callback": Callable,    — async fn to call each tick
+#     "tick_busy": bool,            — True while a tick is in-flight
 # }}
-_active_games: dict = {}
+_active_game_ticks: dict = {}
 
-# Single global tick loop — one asyncio.Task, iterates all active games each interval.
+# Single global tick loop — one asyncio.Task, iterates all registered game ticks.
 _tick_task: Optional[asyncio.Task] = None
-_tick_interval: float = 1.0  # seconds between tick sweeps
+_tick_interval: float = 1.0
 
 
-def get_active_games() -> dict:
-    """Return the live server-wide dict of active games."""
-    return _active_games
+def _require_valid_game_id(game_id: Optional[str] = None) -> str:
+    """Return an existing game_id from context or fail."""
+    gid = game_id if game_id is not None else _game_id_var.get()
+    if not gid:
+        raise RuntimeError("A valid game_id is required")
+    from dynamic_functions.Home.common import require_game_dir
+    require_game_dir(gid)
+    return gid
+
+
+def get_active_game_ticks() -> dict:
+    """Return the live server-wide dict of registered game ticks."""
+    return _active_game_ticks
 
 
 def set_tick_interval(seconds: float) -> None:
     """Change the global tick interval. Takes effect on the next sleep cycle."""
     global _tick_interval
-    _tick_interval = max(0.1, seconds)  # floor at 100ms
+    _tick_interval = max(0.1, seconds)
     logger.info(f"tick interval set to {_tick_interval}s")
 
 
-def ensure_active_game() -> bool:
-    """Auto-register the current game (from contextvars) if not already active.
-
-    Must be called *after* set_context() so that contextvars.copy_context()
-    captures the game's request context for later use by background loops
-    (e.g. the tick fan-out).
-
-    Automatically starts the global tick loop if it isn't running.
-
-    Returns True if a new game was registered, False otherwise.
-    """
-    game_id = _game_id_var.get()
-    if not game_id:
-        return False
-    if game_id in _active_games:
-        game_ids = list(_active_games.keys())
-        logger.info(f"ensure_active_game: game={game_id} already active ({len(game_ids)} active game(s): {game_ids})")
-        return False
-    _active_games[game_id] = {
-        "ctx": contextvars.copy_context(),
-        "caller": _user_var.get() or "",
-        "tick_callback": None,
-        "tick_busy": False,
-    }
-    logger.info(f"ensure_active_game: registered game={game_id} (active games: {len(_active_games)})")
-    _ensure_tick_loop()
-    return True
-
-
-def deactivate_game(game_id: Optional[str] = None) -> bool:
-    """Remove a game from the active set. Defaults to the current contextvar.
-
-    Stops the global tick loop when the last game is removed.
-    """
+def deactivate_game_tick(game_id: Optional[str] = None) -> bool:
+    """Remove a game from the tick registry."""
     gid = game_id if game_id is not None else _game_id_var.get()
-    if gid and gid in _active_games:
-        del _active_games[gid]
-        logger.info(f"deactivate_game: removed game={gid} (remaining: {len(_active_games)})")
-        if not _active_games:
+    if gid and gid in _active_game_ticks:
+        del _active_game_ticks[gid]
+        logger.info(f"deactivate_game_tick: removed game={gid} (remaining: {len(_active_game_ticks)})")
+        if not _active_game_ticks:
             _stop_tick_loop()
         return True
     return False
 
 
 def register_tick(callback: Callable) -> None:
-    """Register a tick callback for the current game.
-
-    Must be called from within a game context (i.e. game_id contextvar is set).
-    The callback should be an async function with no arguments.
-    """
-    game_id = _game_id_var.get()
-    if not game_id:
-        raise RuntimeError("register_tick() called without a game_id in context")
-    if game_id not in _active_games:
-        raise RuntimeError(f"register_tick() called for game {game_id} which is not in the active set")
-    _active_games[game_id]["tick_callback"] = callback
-    logger.info(f"register_tick: callback registered for game={game_id}")
+    """Register a tick callback for the current valid game_id."""
+    gid = _require_valid_game_id()
+    _active_game_ticks[gid] = {
+        "ctx": contextvars.copy_context(),
+        "caller": _user_var.get() or "",
+        "tick_callback": callback,
+        "tick_busy": False,
+    }
+    logger.info(f"register_tick: callback registered for game={gid}")
     _ensure_tick_loop()
 
 
 def unregister_tick(game_id: Optional[str] = None) -> None:
-    """Remove the tick callback for a game. Defaults to the current contextvar."""
-    gid = game_id if game_id is not None else _game_id_var.get()
-    if gid and gid in _active_games:
-        _active_games[gid]["tick_callback"] = None
-        _active_games[gid]["tick_busy"] = False
-        logger.info(f"unregister_tick: callback removed for game={gid}")
+    """Remove the tick callback for a game."""
+    deactivate_game_tick(game_id)
 
-
-# --- Tick loop internals ---
 
 async def _run_one_tick(gid: str, entry: dict) -> None:
     """Run a single game's tick callback inside its saved context."""
@@ -232,30 +200,25 @@ async def _run_one_tick(gid: str, entry: dict) -> None:
     try:
         cb = entry["tick_callback"]
         ctx = entry["ctx"]
-        # ctx.run() restores the contextvars snapshot (game_id, user, session, etc.)
-        # but it's synchronous — we need to run the async callback inside it.
-        # Use a wrapper that ctx.run() calls, which returns a coroutine we then await.
         coro = ctx.run(cb)
         await coro
     except asyncio.CancelledError:
-        raise  # let cancellation propagate
+        raise
     except Exception as e:
         logger.error(f"tick error for game {gid}: {e}")
     finally:
-        # Guard: game may have been deactivated during the tick
-        if gid in _active_games:
+        if gid in _active_game_ticks:
             entry["tick_busy"] = False
 
 
 async def _tick_loop() -> None:
-    """Single global tick loop. Gathers all non-busy game ticks each interval."""
+    """Single global tick loop for explicitly registered game ticks."""
     logger.info("tick loop started")
     try:
-        while _active_games:
+        while _active_game_ticks:
             tasks = []
-            for gid, entry in list(_active_games.items()):
-                cb = entry.get("tick_callback")
-                if cb and not entry.get("tick_busy"):
+            for gid, entry in list(_active_game_ticks.items()):
+                if not entry.get("tick_busy"):
                     tasks.append(_run_one_tick(gid, entry))
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
@@ -274,15 +237,15 @@ def _ensure_tick_loop() -> None:
     """Start the global tick loop if it isn't already running."""
     global _tick_task
     if _tick_task is not None and not _tick_task.done():
-        game_ids = list(_active_games.keys())
-        logger.info(f"tick loop already running ({len(game_ids)} active game(s): {game_ids})")
+        game_ids = list(_active_game_ticks.keys())
+        logger.info(f"tick loop already running ({len(game_ids)} game tick(s): {game_ids})")
         return
     try:
         loop = asyncio.get_running_loop()
         _tick_task = loop.create_task(_tick_loop(), name="atlantis_tick_loop")
         logger.info("tick loop task created")
-    except RuntimeError:
-        logger.warning("_ensure_tick_loop: no running event loop, tick loop not started")
+    except RuntimeError as exc:
+        raise RuntimeError("Cannot start tick loop without a running event loop") from exc
 
 
 def _stop_tick_loop() -> None:

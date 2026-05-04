@@ -6,6 +6,7 @@ import json
 import os
 import shlex
 import uuid
+from datetime import datetime, timezone
 from typing import List, Dict, Any
 
 from dynamic_functions.Home.common import GAMES_DIR
@@ -18,6 +19,14 @@ from dynamic_functions.Home.location import location_list
 GAMES_DIR = os.path.join(os.path.dirname(__file__), '..', 'Games')
 
 
+def _game_data_exists(game_id: str) -> bool:
+    """Return True when a game_id has been explicitly created under Data/."""
+    if not game_id:
+        return False
+    from dynamic_functions.Home.common import game_dir
+    return os.path.isdir(game_dir(game_id))
+
+
 def _get_current_game() -> str:
     """Return the game name for the current game_id. Empty string if not set."""
     game_id = str(atlantis.get_game_id() or '')
@@ -28,6 +37,7 @@ def _get_current_game() -> str:
     return meta.get('name', '')
 
 
+@public
 @game
 async def game() -> None:
     """Enter"""
@@ -207,6 +217,46 @@ async def game_welcome_click(message: str, character_name: str) -> None:
 
 
 @visible
+async def game_new(name: str = "Atlantis") -> Dict[str, Any]:
+    """Create a new game_id and initialize its Data/{game_id}/ folder.
+
+    This is the explicit creation path for game-scoped runtime state. Other
+    game tools should only operate on game_ids that already exist here.
+    """
+    available = await game_list()
+    if name not in available:
+        raise ValueError(f"Unknown game '{name}'. Available: {available}")
+
+    from dynamic_functions.Home.common import create_game_dir, game_dir, _write_json
+
+    for _ in range(10):
+        game_id = uuid.uuid4().hex
+        data_dir = game_dir(game_id)
+        if not os.path.exists(data_dir):
+            break
+    else:
+        raise RuntimeError("Unable to allocate a unique game_id")
+
+    data_dir = create_game_dir(game_id)
+    created_at = datetime.now(timezone.utc).isoformat()
+    join_password = uuid.uuid4().hex
+    _write_json(os.path.join(data_dir, 'game.json'), {
+        'id': game_id,
+        'name': name,
+        'join_password': join_password,
+        'created_at': created_at,
+    })
+    await atlantis.client_log(f"Game created: {game_id}")
+    return {
+        "game_id": game_id,
+        "game_name": name,
+        "join_password": join_password,
+        "data_dir": data_dir,
+        "created_at": created_at,
+    }
+
+
+@visible
 async def game_list() -> List[str]:
     """List available games in the Games folder."""
     games = []
@@ -225,6 +275,7 @@ async def game_status() -> dict:
     return {
         "game_id": game_id if game_id else None,
         "game_name": game if game else "NOT ASSIGNED",
+        "valid": _game_data_exists(game_id),
     }
 
 
@@ -238,6 +289,8 @@ async def game_set(name: str) -> None:
     game_id = str(atlantis.get_game_id() or '')
     if not game_id:
         raise ValueError("No active game_id in context. Cannot set game without a game session.")
+    if not _game_data_exists(game_id):
+        raise ValueError(f"Unknown game_id '{game_id}'. Create a game first with game_new().")
 
     # Validate the game exists
     available = await game_list()
@@ -249,9 +302,15 @@ async def game_set(name: str) -> None:
     if current == name:
         return
 
-    # Persist to Data/{game_id}/game.json
-    from dynamic_functions.Home.common import game_dir, _write_json
-    _write_json(os.path.join(game_dir(game_id, create=True), 'game.json'), {'name': name})
+    # Persist to Data/{game_id}/game.json. The Data/{game_id}/ folder must
+    # already exist; game_new() is the only creation path.
+    from dynamic_functions.Home.common import require_game_dir, _read_json, _write_json
+    meta_path = os.path.join(require_game_dir(game_id), 'game.json')
+    meta = _read_json(meta_path, {})
+    if not isinstance(meta, dict):
+        meta = {}
+    meta.update({'id': game_id, 'name': name})
+    _write_json(meta_path, meta)
 
     await atlantis.client_log(f"Game set: game_id {game_id} \u2192 '{name}'")
 

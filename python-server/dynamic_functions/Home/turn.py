@@ -137,9 +137,11 @@ async def run_turn(
             logger.info(f"Sending to {model}: {len(api_messages)} messages, {len(converted_tools)} tools")
 
             # Debug dump
-            from dynamic_functions.Home.common import game_dir
-            _gid = str(atlantis.get_game_id() or 'unknown')
-            api_dump_file = os.path.join(game_dir(_gid, create=True), 'api_payload.json')
+            from dynamic_functions.Home.common import require_game_dir
+            _gid = atlantis.get_game_id()
+            if not _gid:
+                raise RuntimeError("Cannot write API payload without an active game_id")
+            api_dump_file = os.path.join(require_game_dir(_gid), 'api_payload.json')
             try:
                 with open(api_dump_file, 'w') as f:
                     json.dump({'model': model, 'messages': api_messages, 'tools': converted_tools, 'turn': turn_count}, f, indent=2, default=str)

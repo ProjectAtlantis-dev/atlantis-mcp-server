@@ -46,6 +46,7 @@ async def _handle_chat(caller: str):
 
     location = position_get(speaker_sid)
     if not location:
+        # this should be a client_error
         await atlantis.client_log(f"📍 {speaker_sid} has no position — nowhere to chat")
         return
 

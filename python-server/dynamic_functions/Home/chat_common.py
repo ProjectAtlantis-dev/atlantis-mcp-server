@@ -471,8 +471,8 @@ async def fetch_transcript(caller: str = "") -> Tuple[List[Dict[str, Any]], List
     """
     logger.info("fetch_transcript: /silent on")
     await atlantis.client_command("/silent on")
-    logger.info("fetch_transcript: /transcript get")
-    raw_transcript = await atlantis.client_command("/transcript get")
+    logger.info("fetch_transcript: /transcript chat")
+    raw_transcript = await atlantis.client_command("/transcript chat")
     logger.info(f"fetch_transcript: received {len(raw_transcript)} entries")
     await atlantis.client_command("/silent off")
     logger.info("fetch_transcript: /silent off")
@@ -486,9 +486,11 @@ async def fetch_transcript(caller: str = "") -> Tuple[List[Dict[str, Any]], List
     if raw_transcript[0].get('role') == 'system':
         logger.info("Found system message in transcript - will use our own system prompt instead")
 
-    from dynamic_functions.Home.common import game_dir
-    _gid = str(atlantis.get_game_id() or 'unknown')
-    transcript_dump_file = os.path.join(game_dir(_gid, create=True), 'raw_transcript.json')
+    from dynamic_functions.Home.common import require_game_dir
+    _gid = atlantis.get_game_id()
+    if not _gid:
+        raise RuntimeError("Cannot write raw transcript without an active game_id")
+    transcript_dump_file = os.path.join(require_game_dir(_gid), 'raw_transcript.json')
     try:
         with open(transcript_dump_file, 'w') as f:
             json.dump(raw_transcript, f, indent=2, default=str)
@@ -557,5 +559,3 @@ def get_base_tools() -> Tuple[List[TranscriptToolT], Dict[str, ToolLookupInfo]]:
     tools = [SEARCH_PSEUDO_TOOL, DIR_PSEUDO_TOOL, TODO_PSEUDO_TOOL]
     lookup: Dict[str, ToolLookupInfo] = {}
     return tools, lookup
-
-

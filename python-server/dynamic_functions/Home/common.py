@@ -33,7 +33,7 @@ def require_game_dir(game_id: str) -> str:
     """Return an existing game data directory or fail."""
     path = game_dir(game_id)
     if not os.path.isdir(path):
-        raise RuntimeError(f"Unknown game_id '{game_id}'. Create a game first with game_new().")
+        raise RuntimeError(f"Unknown game '{game_id}'. Create a game first with game_new().")
     return path
 
 

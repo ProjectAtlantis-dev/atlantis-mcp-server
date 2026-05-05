@@ -165,7 +165,8 @@ from state import (
     logger, # Use the configured logger from state
     HOST, PORT,
     FUNCTIONS_DIR, SERVERS_DIR, is_shutting_down,
-    SERVER_REQUEST_TIMEOUT
+    SERVER_REQUEST_TIMEOUT,
+    load_or_create_server_uuid
 )
 from lobster import (
     apply_cloud_welcome,
@@ -421,6 +422,7 @@ class DynamicAdditionServer(Server):
         self.service_connections = {} # Store active Service connections (e.g. cloud)
         self.awaitable_requests: Dict[str, asyncio.Future] = {} # For tracking awaitable commands
         self.awaitable_request_timeout: float = SERVER_REQUEST_TIMEOUT # Timeout for these commands
+        self.server_uuid: Optional[str] = None
 
         # DEBUG: Track command counts per execution context to detect infinite loops/duplicates
         # Unique execution context: client_id + user + session_id + shell_path
@@ -3535,13 +3537,14 @@ class ServiceClient:
             logger.warning(f"⚠️ Could not read image '{image_path}': {e}")
             return ""
 
-    def __init__(self, appName:str, server_url: str, namespace: str, email: str, api_key: str, serviceName: str, mcp_server: 'DynamicAdditionServer', port: int, description: str = "", image: str = ""):
+    def __init__(self, appName:str, server_url: str, namespace: str, email: str, api_key: str, serviceName: str, server_uuid: str, mcp_server: 'DynamicAdditionServer', port: int, description: str = "", image: str = ""):
         self.server_url = server_url
         self.namespace = namespace
         self.email = email
         self.api_key = api_key
         self.appName = appName
         self.serviceName = serviceName
+        self.server_uuid = server_uuid
         self.description = description
         self.image = self._encode_image(image)
         self.mcp_server = mcp_server
@@ -3917,6 +3920,7 @@ class ServiceClient:
                     "email": self.email,
                     "apiKey": self.api_key,
                     "serviceName": self.serviceName,
+                    "serverUuid": self.server_uuid,
                     "appName": self.appName,
                     "remoteType": "python",
                     "hostname": hostname,
@@ -4017,7 +4021,12 @@ class ServiceClient:
             logger.info("Connected to server, waiting for welcome")
             self.is_connected = True
             # Emit the client event upon successful connection
-            await self.send_message('client', {'status': 'connected'})
+            await self.send_message('client', {
+                'status': 'connected',
+                'serverUuid': self.server_uuid,
+                'serviceName': self.serviceName,
+                'remoteType': 'python',
+            })
 
         # Connection established event
         @self.sio.event(namespace=self.namespace)
@@ -4036,6 +4045,7 @@ class ServiceClient:
             logger.info(f"{BOLD}{CYAN}=================================================={RESET}")
             logger.info("") # Blank line after
             logger.info(f"{BOLD}{BRIGHT_WHITE}REMOTE NAME : {self.serviceName}{RESET}")
+            logger.info(f"{BOLD}{BRIGHT_WHITE}SERVER UUID : {self.server_uuid}{RESET}")
             logger.info(f"{BOLD}{BRIGHT_WHITE}APP NAME    : {self.appName}{RESET}")
             if self.description:
                 logger.info(f"{BOLD}{BRIGHT_WHITE}DESCRIPTION : {self.description}{RESET}")
@@ -4569,6 +4579,7 @@ async def handle_health_check(request: Request) -> JSONResponse:
     return JSONResponse({
         "status": "healthy",
         "version": SERVER_VERSION,
+        "serverUuid": mcp_server.server_uuid,
         "endpoints": {
             "websocket": "/mcp",
             "http": "/mcp",
@@ -4635,6 +4646,8 @@ if __name__ == "__main__":
         sys.exit(1)
 
     _load_registered_clients() # Load clients at startup
+    mcp_server.server_uuid = load_or_create_server_uuid()
+    logger.info(f"🆔 Persistent server UUID: {mcp_server.server_uuid}")
 
     # Update cloud server settings if provided
     if args.cloud_host != CLOUD_SERVER_HOST or args.cloud_port != CLOUD_SERVER_PORT:
@@ -4747,6 +4760,7 @@ if __name__ == "__main__":
                     email=args.email,
                     api_key=args.api_key,
                     serviceName=args.service_name,
+                    server_uuid=mcp_server.server_uuid,
                     appName = args.app_name,
                     mcp_server=mcp_server,
                     port=PORT, # Pass the listening port

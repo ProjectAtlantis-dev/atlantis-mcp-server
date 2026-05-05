@@ -221,15 +221,12 @@ async def game_welcome_click(message: str, character_name: str) -> None:
 
 
 @public
-async def game_new(name: str = "Atlantis") -> Dict[str, Any]:
+async def game_new() -> Dict[str, Any]:
     """Create a new game_id and initialize its Data/{game_id}/ folder.
 
     This is the explicit creation path for game-scoped runtime state. Other
     game tools should only operate on game_ids that already exist here.
     """
-    if name != GAME_NAME:
-        raise ValueError(f"Unknown game '{name}'. Available: {[GAME_NAME]}")
-
     from dynamic_functions.Home.common import create_game_dir, game_dir, _write_json
 
     for _ in range(10):
@@ -245,14 +242,14 @@ async def game_new(name: str = "Atlantis") -> Dict[str, Any]:
     join_password = uuid.uuid4().hex
     _write_json(os.path.join(data_dir, 'game.json'), {
         'id': game_id,
-        'name': name,
+        'name': GAME_NAME,
         'join_password': join_password,
         'created_at': created_at,
     })
     await atlantis.client_log(f"Game created: {game_id}")
     return {
         "game_id": game_id,
-        "game_name": name,
+        "game_name": GAME_NAME,
         "join_password": join_password,
         "data_dir": data_dir,
         "created_at": created_at,

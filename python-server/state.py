@@ -2,6 +2,7 @@
 import logging
 import os
 import sys
+import uuid
 from ColoredFormatter import ColoredFormatter, ContextFilter
 
 # --- REMOVED basicConfig ---
@@ -76,6 +77,27 @@ PORT = 8000
 
 SERVER_REQUEST_TIMEOUT = 3600.0 # Seconds to wait for proxied server requests and awaitable client commands (1 hour for long-running cloud jobs)
 
+SERVER_UUID_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "server_uuid")
+
+
+def load_or_create_server_uuid():
+    """Return the stable UUID for this server, creating it on first startup."""
+    if os.path.exists(SERVER_UUID_PATH):
+        with open(SERVER_UUID_PATH, 'r') as f:
+            server_uuid = f.read().strip()
+
+        try:
+            uuid.UUID(server_uuid)
+            return server_uuid
+        except ValueError:
+            logger.warning(f"⚠️ Invalid server UUID in {SERVER_UUID_PATH}; generating a replacement")
+
+    server_uuid = str(uuid.uuid4())
+    temp_path = f"{SERVER_UUID_PATH}.tmp"
+    with open(temp_path, 'w') as f:
+        f.write(f"{server_uuid}\n")
+    os.replace(temp_path, SERVER_UUID_PATH)
+    return server_uuid
+
 # Flags to track server state
 is_shutting_down = False
-

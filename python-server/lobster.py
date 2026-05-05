@@ -355,6 +355,7 @@ async def lobster_initialize(
             "name": server.name,
             "version": server_version,
             "pid": os.getpid(),
+            "serverUuid": server.server_uuid,
             "remoteName": server.cloud_client.serviceName if server.cloud_client else server.name,
         },
     }

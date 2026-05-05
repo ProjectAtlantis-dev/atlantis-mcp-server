@@ -1,4 +1,4 @@
-"""Game state management — list, status, set, and the ER diagram viewer."""
+"""Game state management — creation, status, and the ER diagram viewer."""
 
 import atlantis
 import html as html_lib
@@ -17,6 +17,7 @@ from dynamic_functions.Home.location import location_list
 
 
 GAMES_DIR = os.path.join(os.path.dirname(__file__), '..', 'Games')
+GAME_NAME = "Atlantis"
 
 
 def _game_data_exists(game_id: str) -> bool:
@@ -28,20 +29,23 @@ def _game_data_exists(game_id: str) -> bool:
 
 
 def _get_current_game() -> str:
-    """Return the game name for the current game_id. Empty string if not set."""
+    """Return the game name for the current game_id. Empty string if no game session is active."""
     game_id = str(atlantis.get_game_id() or '')
     if not game_id:
         return ''
+    if not _game_data_exists(game_id):
+        return ''
     from dynamic_functions.Home.common import game_dir, _read_json
     meta = _read_json(os.path.join(game_dir(game_id), 'game.json'), {})
-    return meta.get('name', '')
+    if isinstance(meta, dict):
+        return meta.get('name') or GAME_NAME
+    return GAME_NAME
 
 
 @public
 @game
 async def game() -> None:
     """Enter"""
-    await game_set('Atlantis')
     default_location = _default_location()
     await bot_spawn('kitty', 'Receptionist', default_location)
     await atlantis.client_command('/callback set chat chat_callback')
@@ -216,16 +220,15 @@ async def game_welcome_click(message: str, character_name: str) -> None:
     await atlantis.client_command("@go")
 
 
-@visible
+@public
 async def game_new(name: str = "Atlantis") -> Dict[str, Any]:
     """Create a new game_id and initialize its Data/{game_id}/ folder.
 
     This is the explicit creation path for game-scoped runtime state. Other
     game tools should only operate on game_ids that already exist here.
     """
-    available = await game_list()
-    if name not in available:
-        raise ValueError(f"Unknown game '{name}'. Available: {available}")
+    if name != GAME_NAME:
+        raise ValueError(f"Unknown game '{name}'. Available: {[GAME_NAME]}")
 
     from dynamic_functions.Home.common import create_game_dir, game_dir, _write_json
 
@@ -258,68 +261,29 @@ async def game_new(name: str = "Atlantis") -> Dict[str, Any]:
 
 @visible
 async def game_list() -> List[str]:
-    """List available games in the Games folder."""
-    games = []
-    for entry in sorted(os.listdir(GAMES_DIR)):
-        path = os.path.join(GAMES_DIR, entry)
-        if os.path.isdir(path) and not entry.startswith(('.', '_')):
-            games.append(entry)
-    return games
+    """List available game definitions."""
+    if os.path.isdir(os.path.join(GAMES_DIR, "Bots")) and os.path.isdir(os.path.join(GAMES_DIR, "Locations")):
+        return [GAME_NAME]
+    return []
 
 
 @visible
 async def game_status() -> dict:
-    """Show current game lock status, including game_id and locked game folder."""
+    """Show current game session status."""
     game_id = str(atlantis.get_game_id() or '')
     game = _get_current_game()
     return {
         "game_id": game_id if game_id else None,
-        "game_name": game if game else "NOT ASSIGNED",
+        "game_name": game if game else "NOT ACTIVE",
         "valid": _game_data_exists(game_id),
     }
-
-
-@visible
-async def game_set(name: str) -> None:
-    """Lock this MCP server to a specific game (e.g. 'Atlantis' or 'FlowCentral').
-
-    The choice is persisted to disk and cached in server_shared so it
-    survives restarts and never needs to be set again.
-    """
-    game_id = str(atlantis.get_game_id() or '')
-    if not game_id:
-        raise ValueError("No active game_id in context. Cannot set game without a game session.")
-    if not _game_data_exists(game_id):
-        raise ValueError(f"Unknown game_id '{game_id}'. Create a game first with game_new().")
-
-    # Validate the game exists
-    available = await game_list()
-    if name not in available:
-        raise ValueError(f"Unknown game '{name}'. Available: {available}")
-
-    # Check if already set to the same game
-    current = _get_current_game()
-    if current == name:
-        return
-
-    # Persist to Data/{game_id}/game.json. The Data/{game_id}/ folder must
-    # already exist; game_new() is the only creation path.
-    from dynamic_functions.Home.common import require_game_dir, _read_json, _write_json
-    meta_path = os.path.join(require_game_dir(game_id), 'game.json')
-    meta = _read_json(meta_path, {})
-    if not isinstance(meta, dict):
-        meta = {}
-    meta.update({'id': game_id, 'name': name})
-    _write_json(meta_path, meta)
-
-    await atlantis.client_log(f"Game set: game_id {game_id} \u2192 '{name}'")
 
 
 @visible
 async def game_show() -> None:
     """Render a live ER diagram of game state as HTML tables with SVG connectors.
 
-    If no game is set, shows BOT, LOCATION, GAME, and all ROLEs across all games.
+    If no game session is active, shows BOT, LOCATION, GAME, and all ROLE definitions.
     CHARACTER and POSITION require an active game.
     """
     game_name = _get_current_game()

@@ -43,7 +43,7 @@ import utils  # Utility module for dynamic functions
 PARENT_PACKAGE_NAME = "dynamic_functions"
 
 # Visibility decorators that allow remote function calls
-VISIBILITY_DECORATORS = ['visible', 'public', 'protected', 'tick', 'chat', 'text', 'session', 'game', 'index', 'price', 'location', 'app', 'copy', 'dynamic']
+VISIBILITY_DECORATORS = ['visible', 'public', 'protected', 'tick', 'chat', 'text', 'button', 'session', 'game', 'index', 'price', 'location', 'app', 'copy', 'dynamic']
 
 # --- Identity Decorator Definition ---
 def _mcp_identity_decorator(f):
@@ -70,6 +70,21 @@ def text(content_type: Optional[str] = None):
     def decorator(func):
         setattr(func, '_text_content_type', content_type)
         return func
+    return decorator
+
+# --- Button Decorator Definition ---
+def button(title: str):
+    """Decorator that marks a function as a UI button with a display title.
+
+    Usage: @button("Start Game")
+    """
+    if not isinstance(title, str):
+        raise TypeError("@button title must be a string")
+
+    def decorator(func):
+        setattr(func, '_button_title', title)
+        return func
+
     return decorator
 
 # --- App Decorator Definition ---
@@ -102,7 +117,7 @@ def location(name: str):
 # Make the app and location decorators available for dynamic functions to import/use.
 # This is a simplified way; a more robust way might involve adding it to a shared module
 # that dynamic functions can import from, or injecting it into their global scope upon loading.
-# For now, this definition here allows _code_validate_syntax to recognize them by name 'app' and 'location'.
+# For now, this definition here allows _code_validate_syntax to recognize decorators by name.
 
 # --- Shared Module Decorator Definition ---
 def shared(func_or_module):
@@ -276,6 +291,7 @@ class DynamicFunctionManager:
         builtins.game = _mcp_identity_decorator
         builtins.app = app
         builtins.location = location
+        builtins.button = button
         builtins.tick = tick
         builtins.protected = protected
         builtins.index = index
@@ -850,10 +866,11 @@ class DynamicFunctionManager:
                     docstring = ast.get_docstring(func_def_node)
                     input_schema = {"type": "object"} # Default empty schema
 
-                    # Extract decorators, app_name, location_name, protection_name, is_index, is_copyable, text_content_type, and price
+                    # Extract decorators, app_name, location_name, button_title, protection_name, is_index, is_copyable, text_content_type, and price
                     decorator_names = []
                     app_name_from_decorator = None # Initialize app_name
                     location_name_from_decorator = None # Initialize location_name
+                    button_title_from_decorator = None # Initialize button_title
                     text_content_type_from_decorator = None # Initialize text_content_type
                     protection_name_from_decorator = None # Initialize protection_name
                     is_index_from_decorator = False # Initialize is_index
@@ -945,6 +962,27 @@ class DynamicFunctionManager:
                                             logger.error(f"❌ @protected decorator used on {func_def_node.name} but 'name' argument was not found or not a string.")
                                         # Add 'protected' to decorator_names so visibility check works
                                         decorator_names.append('protected')
+                                    elif decorator_func_name == 'button':
+                                        # Extract required title argument from @button(title="...") or @button("...")
+                                        if decorator_node.keywords:
+                                            for kw in decorator_node.keywords:
+                                                if kw.arg == 'title' and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
+                                                    if button_title_from_decorator is not None:
+                                                        logger.error(f"❌ Multiple @button title specifications for {func_def_node.name}. Using first one: {button_title_from_decorator}")
+                                                    else:
+                                                        button_title_from_decorator = kw.value.value
+                                        if not button_title_from_decorator and decorator_node.args:
+                                            if len(decorator_node.args) == 1 and isinstance(decorator_node.args[0], ast.Constant) and isinstance(decorator_node.args[0].value, str):
+                                                if button_title_from_decorator is not None:
+                                                    logger.error(f"❌ Multiple @button title specifications for {func_def_node.name}. Using first one: {button_title_from_decorator}")
+                                                else:
+                                                    button_title_from_decorator = decorator_node.args[0].value
+                                            else:
+                                                logger.error(f"❌ @button decorator for {func_def_node.name} has unexpected positional arguments. Expected a single string.")
+
+                                        if button_title_from_decorator is None:
+                                            logger.error(f"❌ @button decorator used on {func_def_node.name} but 'title' argument was not found or not a string.")
+                                        decorator_names.append('button')
                                     elif decorator_func_name == 'price':
                                         # Extract pricePerCall and pricePerSec arguments from @price(pricePerCall=..., pricePerSec=...)
                                         # or positional @price(0.01, 0.001)
@@ -1005,6 +1043,7 @@ class DynamicFunctionManager:
                         "decorators": decorator_names, # Add extracted decorators here
                         "app_name": app_name_from_decorator, # Add extracted app_name
                         "location_name": location_name_from_decorator, # Add extracted location_name
+                        "button_title": button_title_from_decorator, # Add extracted button title
                         "protection_name": protection_name_from_decorator, # Add extracted protection_name
                         "is_index": is_index_from_decorator, # Add extracted is_index flag
                         "is_copyable": is_copyable_from_decorator, # Add extracted is_copyable flag
@@ -1200,21 +1239,25 @@ async def {name}():
                                 # NEW OPT-IN VISIBILITY: Check if function has a visibility decorator or is internal
                                 decorators_from_info = func_info.get("decorators", [])
                                 protection_name = func_info.get("protection_name")
+                                button_title = func_info.get("button_title")
                                 is_internal = func_name.startswith('_function') or func_name.startswith('_server') or func_name.startswith('_admin')
                                 is_visible = any(dec in decorators_from_info for dec in VISIBILITY_DECORATORS) if decorators_from_info else False
 
                                 # Check if @protected has a valid protection name (required parameter)
                                 has_invalid_protected = "protected" in decorators_from_info and not protection_name
+                                has_invalid_button = "button" in decorators_from_info and not button_title
 
-                                # Skip if not visible and not internal OR if protected without valid name
-                                if (not is_visible and not is_internal) or has_invalid_protected:
+                                # Skip if not visible and not internal OR if decorators have invalid required args
+                                if (not is_visible and not is_internal) or has_invalid_protected or has_invalid_button:
                                     if has_invalid_protected:
                                         skip_reason = "invalid @protected (missing required protection name)"
+                                    elif has_invalid_button:
+                                        skip_reason = "invalid @button (missing required title string)"
                                     else:
                                         skip_reason = "missing visibility decorator (e.g. @visible, @public, @chat, @text, ...)"
 
-                                    # Use error level for invalid @protected, info level for others
-                                    log_level = logger.error if has_invalid_protected else logger.info
+                                    # Use error level for invalid required decorator args, info level for others
+                                    log_level = logger.error if (has_invalid_protected or has_invalid_button) else logger.info
                                     log_level(f"🙈 SKIPPING NON-VISIBLE FUNCTION: {CYAN}{func_name}{RESET} -> {rel_path} ({skip_reason})")
                                     # Determine app_path for tracking (slash notation)
                                     app_name_from_decorator = func_info.get('app_name')
@@ -1230,7 +1273,7 @@ async def {name}():
                                         'app': track_app_path,  # Store slash path
                                         'file': rel_path,
                                         'reason': skip_reason,
-                                        'is_error': has_invalid_protected,  # True if error condition, False if intentional hiding
+                                        'is_error': has_invalid_protected or has_invalid_button,  # True if error condition, False if intentional hiding
                                         'decorators': decorators_from_info
                                     })
                                     continue
@@ -2007,6 +2050,8 @@ async def {name}():
                         module.__dict__['app'] = app
                         # Add location decorator which takes parameters
                         module.__dict__['location'] = location
+                        # Add button decorator which takes parameters
+                        module.__dict__['button'] = button
                         # Add visible decorator
                         module.__dict__['visible'] = visible
                         # Add tick decorator

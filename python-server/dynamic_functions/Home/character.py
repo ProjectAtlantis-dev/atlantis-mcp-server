@@ -15,20 +15,20 @@ GAMES_DIR = os.path.join(os.path.dirname(__file__), "..", "Games")
 
 
 def _current_game_name() -> str:
-    """Return the current game name, but only if it has been locked via game_set()."""
+    """Return the current game name, but only if a game session is active."""
     from dynamic_functions.Home.main import _get_current_game
     name = _get_current_game()
     if not name:
-        raise RuntimeError("No game locked. Call game_set() first.")
+        raise RuntimeError("No active game session.")
     return name
 
 
 def _find_game_dir() -> str:
-    """Resolve the current game's definition folder under Games/."""
-    name = _current_game_name()
-    path = os.path.join(GAMES_DIR, name)
+    """Resolve the game definition folder."""
+    _current_game_name()
+    path = GAMES_DIR
     if not os.path.isdir(path):
-        raise RuntimeError(f"Game folder not found: {name}")
+        raise RuntimeError(f"Game folder not found: {path}")
     return path
 
 
@@ -111,8 +111,8 @@ def _collect_roles(roles_dir: str) -> List[Dict[str, str]]:
 def role_list():
     """Return available roles.
 
-    If a game is set, returns roles for that game.
-    Otherwise returns roles across all games with a 'game' column.
+    If a game session is active, returns roles for that session.
+    Otherwise returns the static role definitions.
     """
     from dynamic_functions.Home.game import _get_current_game
     game_name = _get_current_game()
@@ -120,13 +120,7 @@ def role_list():
     if game_name:
         return _collect_roles(os.path.join(_find_game_dir(), "Roles"))
 
-    # No game set — scan all games
-    roles = []
-    if os.path.isdir(GAMES_DIR):
-        for gname in sorted(os.listdir(GAMES_DIR)):
-            for role in _collect_roles(os.path.join(GAMES_DIR, gname, "Roles")):
-                roles.append({"game": gname, **role})
-    return roles
+    return _collect_roles(os.path.join(GAMES_DIR, "Roles"))
 
 
 def _validate_role(role: str) -> None:
@@ -175,10 +169,10 @@ async def _upsert_character(sid: str, role: str, is_bot: bool, human_name: str =
 async def character_bot(sid: str, role: str) -> None:
     """Assign a bot character.
 
-    sid must match a bot in Bots/. Role must be a folder under Games/<game>/Roles/.
+    sid must match a bot in Bots/. Role must be a folder under Games/Roles/.
     If a character with this sid exists, updates it. Otherwise creates a new entry.
     """
-    _current_game_name()  # guard: requires game to be set
+    _current_game_name()  # guard: requires an active game session
     from dynamic_functions.Home.common import _load_bot_config, _available_bot_sids
     if _load_bot_config(sid) is None:
         raise ValueError(f"Unknown bot sid: {sid!r}. Must match a bot in Bots/ (e.g. {_available_bot_sids()})")
@@ -190,10 +184,10 @@ async def character_human(sid: str, role: str, human_name: str) -> None:
     """Assign a human character.
 
     sid identifies the human. human_name is their display name.
-    Role must be a folder under Games/<game>/Roles/.
+    Role must be a folder under Games/Roles/.
     If a character with this sid exists, updates it. Otherwise creates a new entry.
     """
-    _current_game_name()  # guard: requires game to be set
+    _current_game_name()  # guard: requires an active game session
     if not sid:
         raise ValueError("sid is required for human characters")
     if not human_name or not human_name.strip():
@@ -205,10 +199,10 @@ async def character_human(sid: str, role: str, human_name: str) -> None:
 async def character_self(role: str, human_name: str) -> None:
     """Assign a human character using the caller's identity as the sid.
 
-    human_name is the caller's display name. Role must be a folder under Games/<game>/Roles/.
+    human_name is the caller's display name. Role must be a folder under Games/Roles/.
     If a character with this sid exists, updates it. Otherwise creates a new entry.
     """
-    _current_game_name()  # guard: requires game to be set
+    _current_game_name()  # guard: requires an active game session
     sid = atlantis.get_caller()
     if not sid:
         raise ValueError("Unable to determine caller identity")
@@ -223,7 +217,7 @@ def character_list() -> List[Dict[str, Any]]:
     Bot characters pull displayName from Bots/ config; human characters
     use humanName.
     """
-    _current_game_name()  # guard: requires game to be set
+    _current_game_name()  # guard: requires an active game session
     from dynamic_functions.Home.common import _load_bot_config
     characters = _load_characters()
     result = []

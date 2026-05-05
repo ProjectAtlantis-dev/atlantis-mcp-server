@@ -61,7 +61,7 @@ async def map(location: str = "") -> None:
     """Show a visual map of the current location and its immediately adjacent locations.
 
     Each location is rendered as a card with its image, name, and any characters present.
-    The current location is highlighted. Requires an active game (call game_set() first).
+    The current location is highlighted. Requires an active game session.
 
     Args:
         location: Override which location to center the map on.

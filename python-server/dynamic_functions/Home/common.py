@@ -88,8 +88,7 @@ def list_games() -> list[str]:
 
 
 def _bots_dir() -> str:
-    from dynamic_functions.Home.main import _get_current_game
-    return os.path.join(GAMES_DIR, _get_current_game(), "Bots")
+    return os.path.join(GAMES_DIR, "Bots")
 
 
 def _load_bot_config(bot_sid: str, bots_dir: Optional[str] = None) -> Optional[Tuple[Dict[str, Any], str]]:

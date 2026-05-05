@@ -80,8 +80,7 @@ async def bot_spawn(sid: str, role: str, location: str) -> None:
 async def bot_list() -> List[Dict[str, str]]:
     """List all bots with their name and image (base64-encoded).
 
-    If a game is set, lists bots for that game only.
-    Otherwise lists bots across all games.
+    If no game session is active, still lists the static bot definitions.
     """
     from dynamic_functions.Home.game import _get_current_game
     game_name = _get_current_game()
@@ -89,11 +88,4 @@ async def bot_list() -> List[Dict[str, str]]:
     if game_name:
         return _collect_bots(_bots_dir())
 
-    # No game set — scan all games, prefix each entry with game name
-    bots = []
-    if os.path.isdir(GAMES_DIR):
-        for gname in sorted(os.listdir(GAMES_DIR)):
-            gpath = os.path.join(GAMES_DIR, gname, "Bots")
-            for bot in _collect_bots(gpath):
-                bots.append({'game': gname, **bot})
-    return bots
+    return _collect_bots(_bots_dir())

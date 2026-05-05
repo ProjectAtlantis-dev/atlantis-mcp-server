@@ -21,8 +21,7 @@ logger = logging.getLogger("mcp_server")
 # =========================================================================
 
 def _locations_dir() -> str:
-    from dynamic_functions.Home.main import _get_current_game
-    return os.path.join(GAMES_DIR, _get_current_game(), "Locations")
+    return os.path.join(GAMES_DIR, "Locations")
 
 
 # =========================================================================
@@ -293,22 +292,14 @@ def _get_current_game():
 async def location_list() -> List[Dict[str, str]]:
     """List all locations with their name and image (base64-encoded).
 
-    If a game is set, lists locations for that game only.
-    Otherwise lists locations across all games.
+    If no game session is active, still lists the static location definitions.
     """
     game_name = _get_current_game()
 
     if game_name:
         return _collect_locations(_locations_dir())
 
-    # No game set — scan all games, prefix with game name
-    locations = []
-    if os.path.isdir(GAMES_DIR):
-        for gname in sorted(os.listdir(GAMES_DIR)):
-            lpath = os.path.join(GAMES_DIR, gname, "Locations")
-            for loc in _collect_locations(lpath):
-                locations.append({'game': gname, **loc})
-    return locations
+    return _collect_locations(_locations_dir())
 
 
 @visible
@@ -316,7 +307,7 @@ async def position_list() -> List[Dict[str, str]]:
     """Show current player positions for the active game."""
     game = _get_current_game()
     if not game:
-        raise ValueError("No game set. Call game_set() first.")
+        raise ValueError("No active game session.")
     positions = get_positions()
     return [{"sid": sid, "location": loc} for sid, loc in positions.items()]
 
@@ -329,7 +320,7 @@ def position_query(location: str) -> List[Dict[Any, Any]]:
     """
     from dynamic_functions.Home.common import _load_bot_config
 
-    _get_current_game()  # guard: requires game to be set
+    _get_current_game()  # guard: requires an active game session
     sids_at = get_players_at(location)
     characters = _load_characters()
     result = []
@@ -353,7 +344,7 @@ async def move_bot(sid: str, location: str = "") -> str:
 
     sid must be a registered bot character (via character_bot()).
     Location is optional for first-time entry (spawns in default lobby).
-    Call game_set() first to lock this server to a game.
+    Requires an active game session.
     """
     return await move_character(sid, location or "", is_bot=True)
 
@@ -364,7 +355,7 @@ async def move_human(sid: str, location: str = "") -> str:
 
     sid must be a registered human character (via character_human()).
     Location is optional for first-time entry (spawns in default lobby).
-    Call game_set() first to lock this server to a game.
+    Requires an active game session.
     """
     return await move_character(sid, location or "", is_bot=False)
 
@@ -375,10 +366,10 @@ async def go(location: str = "") -> str:
 
     Uses the caller's identity as the sid (must be registered via character_self()/character_human()).
     Location is optional for first-time entry (spawns in default lobby).
-    Call game_set() first to lock this server to a game.
+    Requires an active game session.
     """
     if not _get_current_game():
-        raise ValueError("No game set. Call game_set() first.")
+        raise ValueError("No active game session.")
 
     sid = atlantis.get_caller()
     if not sid:
@@ -396,7 +387,7 @@ async def look(location: str = "") -> str:
     """
     from dynamic_functions.Home.camera import set_camera
 
-    _get_current_game()  # guard: requires game to be set
+    _get_current_game()  # guard: requires an active game session
 
     if not location:
         sid = atlantis.get_caller()

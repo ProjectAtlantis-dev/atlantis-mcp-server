@@ -987,6 +987,11 @@ class DynamicAdditionServer(Server):
                             if location_name_from_info is not None:
                                 tool_annotations["location_name"] = location_name_from_info
 
+                            # Add button title to annotations if present in function_info
+                            button_title_from_info = func_info.get("button_title")
+                            if button_title_from_info is not None:
+                                tool_annotations["button_title"] = button_title_from_info
+
                             # Add protection_name to annotations if present in function_info
                             protection_name_from_info = func_info.get("protection_name")
                             if protection_name_from_info is not None:
@@ -3637,6 +3642,7 @@ class ServiceClient:
             last_modified = getattr(tool.annotations, 'lastModified', None) if hasattr(tool, 'annotations') else None
             decorators = getattr(tool.annotations, 'decorators', []) if hasattr(tool, 'annotations') else []
             protection_name = getattr(tool.annotations, 'protection_name', None) if hasattr(tool, 'annotations') else None
+            button_title = getattr(tool.annotations, 'button_title', None) if hasattr(tool, 'annotations') else None
             is_index = getattr(tool.annotations, 'is_index', False) if hasattr(tool, 'annotations') else False
             price_per_call = getattr(tool.annotations, 'price_per_call', None) if hasattr(tool, 'annotations') else None
             price_per_sec = getattr(tool.annotations, 'price_per_sec', None) if hasattr(tool, 'annotations') else None
@@ -3720,6 +3726,11 @@ class ServiceClient:
                     visibility_str += f" {CYAN_COLOR}[@app]{RESET_COLOR}"
                 if 'location' in decorators:
                     visibility_str += f" {GREY_COLOR}[@location]{RESET_COLOR}"
+                if 'button' in decorators:
+                    if button_title:
+                        visibility_str += f" {CYAN_COLOR}[@button(\"{button_title}\")]{RESET_COLOR}"
+                    else:
+                        visibility_str += f" {CYAN_COLOR}[@button]{RESET_COLOR}"
                 if 'copy' in decorators:
                     visibility_str += f" {CYAN_COLOR}[@copy]{RESET_COLOR}"
                 if 'exclude' in decorators:

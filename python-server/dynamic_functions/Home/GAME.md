@@ -14,7 +14,7 @@ erDiagram
         string image
     }
     GAME {
-        string name PK
+        string key PK
     }
     ROLE {
         string name PK

@@ -15,11 +15,6 @@ from dynamic_functions.Home.location import (
 )
 
 
-def _require_game():
-    from dynamic_functions.Home.game import require_game_key
-    require_game_key()
-
-
 def _location_image_b64(loc_name: str) -> str:
     """Get a location thumbnail data URI"""
     thumb = location_thumb(loc_name)
@@ -55,7 +50,8 @@ def _characters_at(location: str) -> List[str]:
 @visible
 async def map(location: str = "") -> None:
     """Show nearby locations as a map"""
-    _require_game()
+    from dynamic_functions.Home.game import require_game_key
+    require_game_key()
     # Find center location
     resolved_location: Optional[str] = location or None
     if not resolved_location:

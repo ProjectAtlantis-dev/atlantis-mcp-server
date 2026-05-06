@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from dynamic_functions.Home.character import (
-    _current_game_name, _find_character, _load_characters,
+    _require_active_game, _find_character, _load_characters,
 )
 from dynamic_functions.Home.common import _ensure_thumb, GAME_DIR
 
@@ -155,7 +155,7 @@ async def move_character(sid: str, location: str, is_bot: bool) -> str:
     if not sid:
         raise ValueError("sid is required")
 
-    game_name = _current_game_name()
+    _require_active_game()
     current = position_get(sid)
 
     # New players start in the default lobby
@@ -177,7 +177,7 @@ async def move_character(sid: str, location: str, is_bot: bool) -> str:
             "Someone has entered.",
             location=location,
         )
-        logger.info(f"[{game_name}] New player {sid} entered {default_location}")
+        logger.info(f"[game] New player {sid} entered {default_location}")
         # Owner movement updates camera and background
         if atlantis.is_owner(sid):
             from dynamic_functions.Home.camera import camera_set
@@ -216,7 +216,7 @@ async def move_character(sid: str, location: str, is_bot: bool) -> str:
         "Someone has entered.",
         location=location,
     )
-    logger.info(f"[{game_name}] {sid} moved from {current} to {location}")
+    logger.info(f"[game] {sid} moved from {current} to {location}")
     # Owner movement updates camera and background
     if atlantis.is_owner(sid):
         from dynamic_functions.Home.camera import camera_set
@@ -241,10 +241,12 @@ def _collect_locations(locations_dir: str) -> List[Dict[str, str]]:
     locations = []
     if not os.path.isdir(locations_dir):
         return locations
-    for fname in sorted(os.listdir(locations_dir)):
-        if not fname.endswith('.json'):
+    for entry in sorted(os.listdir(locations_dir)):
+        if not entry.endswith('.json'):
             continue
-        json_path = os.path.join(locations_dir, fname)
+        json_path = os.path.join(locations_dir, entry)
+        if not os.path.isfile(json_path):
+            continue
         with open(json_path, 'r') as f:
             data = json.load(f)
         image_data = ''
@@ -262,18 +264,13 @@ def _collect_locations(locations_dir: str) -> List[Dict[str, str]]:
                     b64 = base64.b64encode(img.read()).decode('ascii')
                 image_data = f'data:image/{mime};base64,{b64}'
         locations.append({
-            'name': data.get('name', fname[:-5]),
-            'description': data.get('description', data.get('name', fname[:-5])),
+            'name': data.get('name', entry[:-5]),
+            'description': data.get('description', data.get('name', entry[:-5])),
             'connects_to': data.get('connects_to', []),
             'image': image_data,
             'updated': datetime.fromtimestamp(max(mtimes)).strftime('%Y-%m-%d %H:%M'),
         })
     return locations
-
-
-def _get_current_game():
-    from dynamic_functions.Home.main import _get_current_game
-    return _get_current_game()
 
 
 # =========================================================================
@@ -283,18 +280,13 @@ def _get_current_game():
 @visible
 async def location_list() -> List[Dict[str, str]]:
     """List locations"""
-    game_name = _get_current_game()
-
-    if game_name:
-        return _collect_locations(_locations_dir())
-
     return _collect_locations(_locations_dir())
 
 
 @visible
 async def position_list() -> List[Dict[str, str]]:
     """List player positions"""
-    _current_game_name()
+    _require_active_game()
     positions = get_positions()
     return [{"sid": sid, "location": loc} for sid, loc in positions.items()]
 
@@ -304,7 +296,7 @@ def position_query(location: str) -> List[Dict[Any, Any]]:
     """List characters at a location"""
     from dynamic_functions.Home.common import _load_bot_config
 
-    _current_game_name()
+    _require_active_game()
     sids_at = get_players_at(location)
     characters = _load_characters()
     result = []
@@ -337,7 +329,7 @@ async def move_human(sid: str, location: str = "") -> str:
 @visible
 async def go(location: str = "") -> str:
     """Move the caller's character"""
-    _current_game_name()
+    _require_active_game()
 
     sid = atlantis.get_caller()
     if not sid:
@@ -350,7 +342,7 @@ async def look(location: str = "") -> str:
     """Move the camera to a location"""
     from dynamic_functions.Home.camera import set_camera
 
-    _current_game_name()
+    _require_active_game()
 
     if not location:
         sid = atlantis.get_caller()

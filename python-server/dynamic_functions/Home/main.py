@@ -6,17 +6,6 @@ from typing import List, Dict, Any
 from dynamic_functions.Home.chat_common import logger, get_base_tools
 
 
-def _require_game():
-    from dynamic_functions.Home.game import require_game_key
-    require_game_key()
-
-
-# Preserve lazy imports from other modules
-def _get_current_game() -> str:
-    from dynamic_functions.Home.game import _get_current_game as _impl
-    return _impl()
-
-
 @visible
 async def index():
     """Multix CLI readme"""

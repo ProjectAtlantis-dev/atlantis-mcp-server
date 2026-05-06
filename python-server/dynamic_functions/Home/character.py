@@ -11,24 +11,16 @@ from dynamic_functions.Home.common import GAME_DIR, require_game_dir
 
 logger = logging.getLogger("mcp_server")
 
-def _current_game_name() -> str:
-    """Get the active game name"""
+
+def _roles_dir() -> str:
+    return os.path.join(GAME_DIR, "Roles")
+
+
+def _require_active_game() -> None:
+    """Require an active game session."""
     from dynamic_functions.Home.game import require_game_key
-    require_game_key()
-    from dynamic_functions.Home.main import _get_current_game
-    name = _get_current_game()
-    if not name:
-        raise RuntimeError("Active game session is invalid. Create one with game_new() first.")
-    return name
-
-
-def _find_game_dir() -> str:
-    """Get the game definition folder"""
-    _current_game_name()
-    path = GAME_DIR
-    if not os.path.isdir(path):
-        raise RuntimeError(f"Game folder not found: {path}")
-    return path
+    game_key = require_game_key()
+    require_game_dir(game_key)
 
 
 def game_data_dir(game_key: Optional[str] = None) -> str:
@@ -92,37 +84,37 @@ def _collect_roles(roles_dir: str) -> List[Dict[str, str]]:
     roles = []
     if not os.path.isdir(roles_dir):
         return roles
-    for d in sorted(os.listdir(roles_dir)):
-        role_dir = os.path.join(roles_dir, d)
-        if os.path.isdir(role_dir) and not d.startswith(".") and d != "__pycache__":
-            rdata = _load_role_json(roles_dir, d)
-            mtimes = [os.path.getmtime(os.path.join(role_dir, f)) for f in os.listdir(role_dir)
-                      if os.path.isfile(os.path.join(role_dir, f))]
-            updated = datetime.fromtimestamp(max(mtimes)).strftime('%Y-%m-%d %H:%M') if mtimes else ''
-            roles.append({
-                "name": d,
-                "title": rdata.get("title", d),
-                "greeting": rdata.get("greeting", ""),
-                "updated": updated,
-            })
+    for entry in sorted(os.listdir(roles_dir)):
+        entry_dir = os.path.join(roles_dir, entry)
+        if not os.path.isdir(entry_dir):
+            continue
+        if entry.startswith(".") or entry == "__pycache__":
+            continue
+        role_data = _load_role_json(roles_dir, entry)
+        mtimes = [
+            os.path.getmtime(os.path.join(entry_dir, filename))
+            for filename in os.listdir(entry_dir)
+            if os.path.isfile(os.path.join(entry_dir, filename))
+        ]
+        updated = datetime.fromtimestamp(max(mtimes)).strftime('%Y-%m-%d %H:%M') if mtimes else ''
+        roles.append({
+            "name": entry,
+            "title": role_data.get("title", entry),
+            "greeting": role_data.get("greeting", ""),
+            "updated": updated,
+        })
     return roles
 
 
 @visible
-def role_list():
+async def role_list() -> List[Dict[str, str]]:
     """List available roles"""
-    from dynamic_functions.Home.game import _get_current_game
-    game_name = _get_current_game()
-
-    if game_name:
-        return _collect_roles(os.path.join(_find_game_dir(), "Roles"))
-
-    return _collect_roles(os.path.join(GAME_DIR, "Roles"))
+    return _collect_roles(_roles_dir())
 
 
 def _validate_role(role: str) -> None:
     """Validate a role folder"""
-    roles_dir = os.path.join(_find_game_dir(), "Roles")
+    roles_dir = _roles_dir()
     if not os.path.isdir(os.path.join(roles_dir, role)):
         raise ValueError(f"Role folder not found: {role}")
 
@@ -165,7 +157,7 @@ async def _upsert_character(sid: str, role: str, is_bot: bool, human_name: str =
 @visible
 async def character_bot(sid: str, role: str) -> None:
     """Assign a role to a bot"""
-    _current_game_name()  # requires an active game session
+    _require_active_game()  # requires an active game session
     from dynamic_functions.Home.common import _load_bot_config, _available_bot_sids
     if _load_bot_config(sid) is None:
         raise ValueError(f"Unknown bot sid: {sid!r}. Must match a bot in Bots/ (e.g. {_available_bot_sids()})")
@@ -175,7 +167,7 @@ async def character_bot(sid: str, role: str) -> None:
 @visible
 async def character_human(sid: str, role: str, human_name: str) -> None:
     """Assign a role to a human"""
-    _current_game_name()  # requires an active game session
+    _require_active_game()  # requires an active game session
     if not sid:
         raise ValueError("sid is required for human characters")
     if not human_name or not human_name.strip():
@@ -186,7 +178,7 @@ async def character_human(sid: str, role: str, human_name: str) -> None:
 @visible
 async def character_self(role: str, human_name: str) -> None:
     """Assign a role to the caller"""
-    _current_game_name()  # requires an active game session
+    _require_active_game()  # requires an active game session
     sid = atlantis.get_caller()
     if not sid:
         raise ValueError("Unable to determine caller identity")
@@ -196,7 +188,7 @@ async def character_self(role: str, human_name: str) -> None:
 @visible
 def character_list() -> List[Dict[str, Any]]:
     """List game characters"""
-    _current_game_name()  # requires an active game session
+    _require_active_game()  # requires an active game session
     from dynamic_functions.Home.common import _load_bot_config
     characters = _load_characters()
     result = []

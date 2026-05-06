@@ -30,7 +30,12 @@ def _collect_bots(bots_dir: str) -> List[Dict[str, str]]:
     if not os.path.isdir(bots_dir):
         return bots
     for entry in sorted(os.listdir(bots_dir)):
-        config_path = os.path.join(bots_dir, entry, 'config.json')
+        entry_dir = os.path.join(bots_dir, entry)
+        if not os.path.isdir(entry_dir):
+            continue
+        if entry.startswith(".") or entry == "__pycache__":
+            continue
+        config_path = os.path.join(entry_dir, 'config.json')
         if not os.path.isfile(config_path):
             continue
         with open(config_path, 'r') as f:
@@ -47,10 +52,9 @@ def _collect_bots(bots_dir: str) -> List[Dict[str, str]]:
         provider = cfg.get('provider', '')
         model = cfg.get('model', '')
         model_label = f"{provider}: {model}" if provider and model else (model or provider)
-        bot_dir = os.path.join(bots_dir, entry)
         latest = max(
-            (os.path.getmtime(os.path.join(bot_dir, f)) for f in os.listdir(bot_dir)
-             if os.path.isfile(os.path.join(bot_dir, f))),
+            (os.path.getmtime(os.path.join(entry_dir, f)) for f in os.listdir(entry_dir)
+             if os.path.isfile(os.path.join(entry_dir, f))),
             default=os.path.getmtime(config_path),
         )
         bots.append({
@@ -76,10 +80,4 @@ async def bot_spawn(sid: str, role: str, location: str) -> None:
 @visible
 async def bot_list() -> List[Dict[str, str]]:
     """List bots"""
-    from dynamic_functions.Home.game import _get_current_game
-    game_name = _get_current_game()
-
-    if game_name:
-        return _collect_bots(_bots_dir())
-
     return _collect_bots(_bots_dir())

@@ -45,7 +45,7 @@ python-server/dynamic_functions copy/*
 python-server/dynamic_functions.TEST/
 
 !python-server/dynamic_functions/Home
-!python-server/dynamic_functions/Games
+!python-server/dynamic_functions/Game
 !python-server/dynamic_functions/Data
 python-server/dynamic_functions/.gitignore
 

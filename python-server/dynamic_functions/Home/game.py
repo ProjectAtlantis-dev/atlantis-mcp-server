@@ -7,16 +7,15 @@ import os
 import shlex
 import uuid
 from datetime import datetime, timezone
-from typing import List, Dict, Any
+from typing import Dict, Any
 
-from dynamic_functions.Home.common import GAMES_DIR
+from dynamic_functions.Home.common import GAME_DIR
 from dynamic_functions.Home.location import get_positions, _default_location
 from dynamic_functions.Home.character import _load_characters, role_list
 from dynamic_functions.Home.bot import bot_list, bot_spawn
 from dynamic_functions.Home.location import location_list
 
 
-GAMES_DIR = os.path.join(os.path.dirname(__file__), '..', 'Games')
 GAME_NAME = "Atlantis"
 SESSION_GAME_KEY = "game_key"
 
@@ -279,14 +278,6 @@ async def game_new() -> Dict[str, Any]:
 
 
 @visible
-async def game_list() -> List[str]:
-    """List available games"""
-    if os.path.isdir(os.path.join(GAMES_DIR, "Bots")) and os.path.isdir(os.path.join(GAMES_DIR, "Locations")):
-        return [GAME_NAME]
-    return []
-
-
-@visible
 async def game_status() -> dict:
     """Show current game status"""
     game_key = game_key_optional()
@@ -356,9 +347,9 @@ async def game_show() -> None:
         game_rows = [[game_name]]
     else:
         game_rows = []
-        if os.path.isdir(GAMES_DIR):
-            for entry in sorted(os.listdir(GAMES_DIR)):
-                if os.path.isdir(os.path.join(GAMES_DIR, entry)) and not entry.startswith(('.', '_')):
+        if os.path.isdir(GAME_DIR):
+            for entry in sorted(os.listdir(GAME_DIR)):
+                if os.path.isdir(os.path.join(GAME_DIR, entry)) and not entry.startswith(('.', '_')):
                     game_rows.append([entry])
     tables = []
     tables.append(_table("ent-game", "GAME", ["name"], game_rows))

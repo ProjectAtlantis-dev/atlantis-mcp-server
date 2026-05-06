@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("mcp_server")
 
-GAMES_DIR = os.path.join(os.path.dirname(__file__), "..", "Games")
+GAME_DIR = os.path.join(os.path.dirname(__file__), "..", "Game")
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "Data")
 
 
@@ -74,21 +74,8 @@ def write_location_data(game_key: str, location: str, data: Dict[str, Any]) -> N
     _write_json(path, data)
 
 
-def list_games() -> list[str]:
-    """List game keys with data"""
-    if not os.path.isdir(DATA_DIR):
-        return []
-    return sorted(
-        d for d in os.listdir(DATA_DIR)
-        if os.path.isdir(os.path.join(DATA_DIR, d))
-        and not d.startswith(".")
-        and d != "__pycache__"
-        and d != "players"  # ignore legacy data
-    )
-
-
 def _bots_dir() -> str:
-    return os.path.join(GAMES_DIR, "Bots")
+    return os.path.join(GAME_DIR, "Bots")
 
 
 def _load_bot_config(bot_sid: str, bots_dir: Optional[str] = None) -> Optional[Tuple[Dict[str, Any], str]]:

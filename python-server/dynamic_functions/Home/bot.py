@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 from typing import List, Dict
 
-from dynamic_functions.Home.common import _bots_dir, _load_bot_config, _ensure_thumb, GAMES_DIR
+from dynamic_functions.Home.common import _bots_dir, _load_bot_config, _ensure_thumb
 
 
 def _bot_thumb_in(bot_sid: str, bots_dir: str) -> str:

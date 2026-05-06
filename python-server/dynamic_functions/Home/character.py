@@ -7,12 +7,9 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from dynamic_functions.Home.common import require_game_dir
+from dynamic_functions.Home.common import GAME_DIR, require_game_dir
 
 logger = logging.getLogger("mcp_server")
-
-GAMES_DIR = os.path.join(os.path.dirname(__file__), "..", "Games")
-
 
 def _current_game_name() -> str:
     """Get the active game name"""
@@ -28,7 +25,7 @@ def _current_game_name() -> str:
 def _find_game_dir() -> str:
     """Get the game definition folder"""
     _current_game_name()
-    path = GAMES_DIR
+    path = GAME_DIR
     if not os.path.isdir(path):
         raise RuntimeError(f"Game folder not found: {path}")
     return path
@@ -120,7 +117,7 @@ def role_list():
     if game_name:
         return _collect_roles(os.path.join(_find_game_dir(), "Roles"))
 
-    return _collect_roles(os.path.join(GAMES_DIR, "Roles"))
+    return _collect_roles(os.path.join(GAME_DIR, "Roles"))
 
 
 def _validate_role(role: str) -> None:

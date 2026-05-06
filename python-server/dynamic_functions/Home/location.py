@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 from dynamic_functions.Home.character import (
     _current_game_name, _find_character, _load_characters,
 )
-from dynamic_functions.Home.common import _ensure_thumb, GAMES_DIR
+from dynamic_functions.Home.common import _ensure_thumb, GAME_DIR
 
 logger = logging.getLogger("mcp_server")
 
@@ -21,7 +21,7 @@ logger = logging.getLogger("mcp_server")
 # =========================================================================
 
 def _locations_dir() -> str:
-    return os.path.join(GAMES_DIR, "Locations")
+    return os.path.join(GAME_DIR, "Locations")
 
 
 # =========================================================================

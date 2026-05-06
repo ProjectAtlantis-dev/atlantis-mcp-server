@@ -1,4 +1,4 @@
-"""Bot listing tools."""
+"""Bot tools"""
 
 import base64
 import json
@@ -10,7 +10,7 @@ from dynamic_functions.Home.common import _bots_dir, _load_bot_config, _ensure_t
 
 
 def _bot_thumb_in(bot_sid: str, bots_dir: str) -> str:
-    """Return thumbnail path for a bot within a specific bots_dir."""
+    """Get a bot thumbnail path"""
     loaded = _load_bot_config(bot_sid, bots_dir)
     if not loaded:
         return ''
@@ -25,7 +25,7 @@ def _bot_thumb_in(bot_sid: str, bots_dir: str) -> str:
 
 
 def _collect_bots(bots_dir: str) -> List[Dict[str, str]]:
-    """Scan a single Bots/ directory and return bot entries."""
+    """List bots from a directory"""
     bots = []
     if not os.path.isdir(bots_dir):
         return bots
@@ -65,10 +65,7 @@ def _collect_bots(bots_dir: str) -> List[Dict[str, str]]:
 
 @visible
 async def bot_spawn(sid: str, role: str, location: str) -> None:
-    """One-time setup: register a bot character and place it at a location.
-
-    Idempotent — safe to call on every game entry.
-    """
+    """Spawn a bot and place it at a location"""
     from dynamic_functions.Home.character import character_bot
     from dynamic_functions.Home.location import move_character, position_get
     await character_bot(sid, role)
@@ -78,10 +75,7 @@ async def bot_spawn(sid: str, role: str, location: str) -> None:
 
 @visible
 async def bot_list() -> List[Dict[str, str]]:
-    """List all bots with their name and image (base64-encoded).
-
-    If no game session is active, still lists the static bot definitions.
-    """
+    """List bots"""
     from dynamic_functions.Home.game import _get_current_game
     game_name = _get_current_game()
 

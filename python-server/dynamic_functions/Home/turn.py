@@ -17,7 +17,7 @@ from utils import format_json_log
 
 
 async def _close_streams(talk_id, think_id):
-    """Close any open stream IDs, ignoring errors."""
+    """Close open stream IDs"""
     for sid in [think_id, talk_id]:
         if sid:
             try:
@@ -35,7 +35,7 @@ async def _execute_tool(
     transcript: List[Dict[str, Any]],
     allowed_apps: Optional[List[str]] = None,
 ) -> bool:
-    """Execute a single tool call and append result to transcript. Returns True if handled."""
+    """Execute a tool call"""
 
     # Pseudo-tools
     if tool_key == 'dir':
@@ -57,7 +57,7 @@ async def _execute_tool(
         transcript.append({'role': 'tool', 'tool_call_id': call_id, 'content': result})
         return True
 
-    # Real tool via lookup
+    # Real tools
     if tool_key not in tool_lookup:
         raise ValueError(f"Unknown tool: {tool_key} (available: {list(tool_lookup.keys())})")
 
@@ -67,7 +67,7 @@ async def _execute_tool(
 
     logger.info(f"TOOL: {tool_key} searchTerm='{search_term}' args={format_json_log(arguments)}")
 
-    # Coerce args to match schema
+    # Coerce args to schema
     for ct in converted_tools:
         if ct['function']['name'] == tool_key:
             tool_schema = ct['function']['parameters']
@@ -92,7 +92,7 @@ async def _execute_tool(
 
 
 def _parse_tool_arguments(raw_args: str, tool_key: str) -> Dict[str, Any]:
-    """Parse tool call arguments JSON, attempting repair if needed."""
+    """Parse tool arguments JSON"""
     if not raw_args:
         return {}
     try:
@@ -119,7 +119,7 @@ async def run_turn(
     requestId: str,
     allowed_apps: Optional[List[str]] = None,
 ) -> Optional[str]:
-    """Stream a multi-turn LLM conversation with tool calls. Returns accumulated text."""
+    """Run a streaming tool-calling turn"""
 
     stream_talk_id = None
     stream_think_id = None
@@ -136,11 +136,10 @@ async def run_turn(
 
             logger.info(f"Sending to {model}: {len(api_messages)} messages, {len(converted_tools)} tools")
 
-            # Debug dump
+            # Write debug payload
             from dynamic_functions.Home.common import require_game_dir
-            _gid = atlantis.get_game_key()
-            if not _gid:
-                raise RuntimeError("Cannot write API payload without an active game_key")
+            from dynamic_functions.Home.game import require_game_key
+            _gid = require_game_key()
             api_dump_file = os.path.join(require_game_dir(_gid), 'api_payload.json')
             try:
                 with open(api_dump_file, 'w') as f:
@@ -211,16 +210,16 @@ async def run_turn(
 
             logger.info(f"Stream done: turn={turn_count} chunks={streamed_count} tool_calls={len(tool_calls_accumulator)}")
 
-            # No tool calls — we're done
+            # Stop when no tools are requested
             if not tool_calls_accumulator:
                 break
 
-            # Close streams before tool execution
+            # Close streams before tools
             await _close_streams(stream_talk_id, stream_think_id)
             stream_talk_id = None
             stream_think_id = None
 
-            # Record assistant message with tool calls
+            # Record assistant tool calls
             transcript.append({
                 'role': 'assistant',
                 'content': accumulated_text or None,
@@ -230,7 +229,7 @@ async def run_turn(
                 ]
             })
 
-            # Execute each tool call
+            # Execute tool calls
             any_executed = False
             for tc in tool_calls_accumulator.values():
                 try:

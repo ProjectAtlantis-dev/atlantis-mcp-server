@@ -1,4 +1,4 @@
-"""Camera — per-game location that determines the background image."""
+"""Camera tools"""
 
 import json
 import os
@@ -12,7 +12,7 @@ def _camera_path() -> str:
 
 @visible
 def camera_get() -> str:
-    """Return the current camera location for the active game, or empty string."""
+    """Get the camera location"""
     path = _camera_path()
     if not os.path.isfile(path):
         return ""
@@ -21,7 +21,7 @@ def camera_get() -> str:
 
 @visible
 def camera_set(location: str) -> None:
-    """Persist the camera location for the active game."""
+    """Set the camera location"""
     path = _camera_path()
     tmp = f"{path}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -29,5 +29,5 @@ def camera_set(location: str) -> None:
     os.replace(tmp, path)
 
 
-# Alias for convenience
+# Alias
 set_camera = camera_set

@@ -1,4 +1,4 @@
-"""Game state management — creation, status, and the ER diagram viewer."""
+"""Game state tools"""
 
 import atlantis
 import html as html_lib
@@ -18,10 +18,35 @@ from dynamic_functions.Home.location import location_list
 
 GAMES_DIR = os.path.join(os.path.dirname(__file__), '..', 'Games')
 GAME_NAME = "Atlantis"
+SESSION_GAME_KEY = "game_key"
+
+
+def game_key_optional() -> str:
+    """Return the active Home game_key for this session, or an empty string."""
+    try:
+        game_key = atlantis.session_shared.get(SESSION_GAME_KEY, "")
+    except RuntimeError:
+        return ""
+    return str(game_key or "")
+
+
+def require_game_key() -> str:
+    """Return the active Home game_key or fail with the standard game message."""
+    game_key = game_key_optional()
+    if not game_key:
+        raise RuntimeError("No active game session. Create one with game_new() first.")
+    return game_key
+
+
+def set_current_game_key(game_key: str) -> str:
+    """Store the active Home game_key for this session."""
+    if not game_key:
+        raise ValueError("game_key is required")
+    return atlantis.session_shared.set(SESSION_GAME_KEY, str(game_key))
 
 
 def _game_data_exists(game_key: str) -> bool:
-    """Return True when a game_key has been explicitly created under Data/."""
+    """Check whether game data exists"""
     if not game_key:
         return False
     from dynamic_functions.Home.common import game_dir
@@ -29,8 +54,8 @@ def _game_data_exists(game_key: str) -> bool:
 
 
 def _get_current_game() -> str:
-    """Return the game name for the current game_key. Empty string if no game session is active."""
-    game_key = str(atlantis.get_game_key() or '')
+    """Get the active game name"""
+    game_key = game_key_optional()
     if not game_key:
         return ''
     if not _game_data_exists(game_key):
@@ -53,7 +78,7 @@ async def game() -> None:
 
 
 async def game_entry() -> None:
-    """Show the welcome modal for the current game session."""
+    """Show the game welcome modal"""
     uid = uuid.uuid4().hex[:8]
     game_name = html_lib.escape(_get_current_game() or "Game")
     html = f"""
@@ -206,7 +231,7 @@ async def game_entry() -> None:
 
 @visible
 async def game_welcome_click(message: str, character_name: str) -> None:
-    """Callback target for the welcome modal button."""
+    """Handle the welcome modal button"""
     character_name = character_name.strip()
     if not character_name:
         raise ValueError("character_name is required")
@@ -222,11 +247,7 @@ async def game_welcome_click(message: str, character_name: str) -> None:
 
 @public
 async def game_new() -> Dict[str, Any]:
-    """Create a new game_key and initialize its Data/{game_key}/ folder.
-
-    This is the explicit creation path for game-scoped runtime state. Other
-    game tools should only operate on game_keys that already exist here.
-    """
+    """Create a new game session"""
     from dynamic_functions.Home.common import create_game_dir, game_dir, _write_json
 
     for _ in range(10):
@@ -246,6 +267,7 @@ async def game_new() -> Dict[str, Any]:
         'join_password': join_password,
         'created_at': created_at,
     })
+    set_current_game_key(game_key)
     await atlantis.client_log(f"Game created: {game_key}")
     return {
         "game_key": game_key,
@@ -258,7 +280,7 @@ async def game_new() -> Dict[str, Any]:
 
 @visible
 async def game_list() -> List[str]:
-    """List available game definitions."""
+    """List available games"""
     if os.path.isdir(os.path.join(GAMES_DIR, "Bots")) and os.path.isdir(os.path.join(GAMES_DIR, "Locations")):
         return [GAME_NAME]
     return []
@@ -266,8 +288,8 @@ async def game_list() -> List[str]:
 
 @visible
 async def game_status() -> dict:
-    """Show current game session status."""
-    game_key = str(atlantis.get_game_key() or '')
+    """Show current game status"""
+    game_key = game_key_optional()
     game = _get_current_game()
     return {
         "game_key": game_key if game_key else None,
@@ -278,20 +300,16 @@ async def game_status() -> dict:
 
 @visible
 async def game_show() -> None:
-    """Render a live ER diagram of game state as HTML tables with SVG connectors.
-
-    If no game session is active, shows BOT, LOCATION, GAME, and all ROLE definitions.
-    CHARACTER and POSITION require an active game.
-    """
+    """Show the game state diagram"""
     game_name = _get_current_game()
-    game_key = atlantis.get_game_key()
+    game_key = game_key_optional()
 
-    # --- Gather data via list functions ---
+    # Gather data
     bot_rows = await bot_list()
     loc_rows = await location_list()
     role_rows = role_list()
 
-    # --- CHARACTER and POSITION: only available with an active game ---
+    # Load runtime tables for active games
     char_rows = []
     pos_rows = []
     if game_name and game_key:
@@ -306,14 +324,14 @@ async def game_show() -> None:
         positions = get_positions()
         pos_rows = [{"sid": sid, "location": loc} for sid, loc in sorted(positions.items())]
 
-    # --- Helper to build an HTML table ---
+    # Build an HTML table
     def _esc(s):
         return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
     uid = uuid.uuid4().hex[:8]
 
     def _table(entity_id, title, headers, rows, disabled=False, variant=None):
-        """Return HTML for one entity table."""
+        """Build one entity table"""
         scoped_id = f"{entity_id}-{uid}"
         cls = f"er-entity-{uid}"
         if variant:
@@ -332,8 +350,8 @@ async def game_show() -> None:
             f'<table><tr>{h}</tr>{body}</table></div>'
         )
 
-    # --- Build tables ---
-    # GAME: show current game or all available games
+    # Build tables
+    # Show current game or available games
     if game_name:
         game_rows = [[game_name]]
     else:
@@ -352,12 +370,12 @@ async def game_show() -> None:
         tables.append(_table("ent-role", "ROLE", ["name", "title", "updated"],
             [[r["name"], r["title"], r["updated"]] for r in role_rows]))
     else:
-        tables.append(_table("ent-bot", "BOT", ["game", "sid", "name", "model", "updated"],
-            [[b.get("game", GAME_NAME), b["sid"], b["name"], b["model"], b["updated"]] for b in bot_rows]))
-        tables.append(_table("ent-location", "LOCATION", ["game", "name", "description", "connects_to", "updated"],
-            [[l.get("game", GAME_NAME), l["name"], l["description"], ", ".join(l["connects_to"]), l["updated"]] for l in loc_rows]))
-        tables.append(_table("ent-role", "ROLE", ["game", "name", "title", "updated"],
-            [[r.get("game", GAME_NAME), r["name"], r["title"], r["updated"]] for r in role_rows]))
+        tables.append(_table("ent-bot", "BOT", ["sid", "name", "model", "updated"],
+            [[b["sid"], b["name"], b["model"], b["updated"]] for b in bot_rows]))
+        tables.append(_table("ent-location", "LOCATION", ["name", "description", "connects_to", "updated"],
+            [[l["name"], l["description"], ", ".join(l["connects_to"]), l["updated"]] for l in loc_rows]))
+        tables.append(_table("ent-role", "ROLE", ["name", "title", "updated"],
+            [[r["name"], r["title"], r["updated"]] for r in role_rows]))
     no_game = not game_name
     tables.append(_table("ent-character", "CHARACTER", ["sid", "role", "isBot", "humanName"],
         [[c["sid"], c["role"], c["isBot"], c.get("humanName", "")] for c in char_rows],
@@ -366,7 +384,7 @@ async def game_show() -> None:
         [[p["sid"], p["location"]] for p in pos_rows],
         disabled=no_game, variant="runtime"))
 
-    # --- Relationships (from -> to, label) ---
+    # Relationships
     relationships = [
         (f"ent-game-{uid}", f"ent-bot-{uid}", "has"),
         (f"ent-game-{uid}", f"ent-location-{uid}", "has"),
@@ -474,7 +492,7 @@ async def game_show() -> None:
 
     await atlantis.client_html(html)
 
-    # Load ELK.js library via client_script (not via injected <script> tags)
+    # Load ELK with client_script
     elk_loader = (
         'if (!window.ELK) {'
         '  var resolve; var p = new Promise(function(r) { resolve = r; });'
@@ -496,7 +514,7 @@ async def game_show() -> None:
     )
     await atlantis.client_script(f'(async function() {{ {elk_loader} }})()')
 
-    # Now run the layout logic — ELK is available on window
+    # Run the ELK layout
     layout_script = (
         f'(async function() {{'
         f'  await new Promise(function(r) {{ requestAnimationFrame(function() {{ requestAnimationFrame(r); }}); }});'
@@ -595,8 +613,5 @@ async def game_show() -> None:
         f'}})()')
 
     await atlantis.client_script(layout_script)
-
-    if not game_name:
-        await atlantis.client_log("Game not yet set")
 
     await atlantis.client_log("Rendered")

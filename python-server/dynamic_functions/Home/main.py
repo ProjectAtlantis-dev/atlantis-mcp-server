@@ -1,4 +1,4 @@
-"""Home app entry point — index and tool inventory."""
+"""Home app tools"""
 
 import atlantis
 from typing import List, Dict, Any
@@ -7,11 +7,11 @@ from dynamic_functions.Home.chat_common import logger, get_base_tools
 
 
 def _require_game():
-    if not atlantis.get_game_key():
-        raise RuntimeError("No active game — this tool requires a running game session.")
+    from dynamic_functions.Home.game import require_game_key
+    require_game_key()
 
 
-# Re-export so existing lazy imports from other modules keep working.
+# Preserve lazy imports from other modules
 def _get_current_game() -> str:
     from dynamic_functions.Home.game import _get_current_game as _impl
     return _impl()
@@ -25,7 +25,7 @@ async def index():
 
 @visible
 async def show_tools() -> List[Dict[str, Any]]:
-    """Show the current runtime tool inventory for this session."""
+    """Show the runtime tool inventory"""
     tools, lookup = get_base_tools()
     simple: List[Dict[str, Any]] = []
     for t in tools:

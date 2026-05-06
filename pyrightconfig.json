@@ -6,8 +6,11 @@
     "**/node_modules",
     "**/__pycache__",
     "**/venv",
-    "**/.venv",
-    "**/dynamic_functions/**"
+    "**/.venv"
+  ],
+  "stubPath": "typings",
+  "extraPaths": [
+    "python-server"
   ],
   "pythonVersion": "3.13",
   "pythonPlatform": "Darwin",

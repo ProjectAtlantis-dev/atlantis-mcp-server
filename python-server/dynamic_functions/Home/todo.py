@@ -1,8 +1,4 @@
-"""Game-scoped todo list storage.
-
-Todos live at Data/{game_key}/todos/{sid}/{todo_name}.json.
-The game_key comes from atlantis context; callers supply sid and todo_name.
-"""
+"""Game todo storage"""
 
 import atlantis
 import json
@@ -26,10 +22,9 @@ def _safe(value: str, label: str = "value") -> str:
 
 
 def _require_context() -> tuple[str, str]:
-    """Return (game_key, sid) from the atlantis context."""
-    game_key = atlantis.get_game_key()
-    if not game_key:
-        raise ValueError("No active game in context")
+    """Get the active game and caller"""
+    from dynamic_functions.Home.game import require_game_key
+    game_key = require_game_key()
     sid = atlantis.get_caller()
     if not sid:
         raise ValueError("No caller in context")
@@ -70,19 +65,19 @@ def _write_json(path: str, data) -> None:
 # =========================================================================
 
 def todo_read(todo_name: str) -> List[Dict[str, Any]]:
-    """Read a todo list. Returns [] if missing."""
+    """Read a todo list"""
     game_key, sid = _require_context()
     return _read_json(_todo_path(game_key, sid, todo_name), [])
 
 
 def todo_write(todo_name: str, items: List[Dict[str, Any]]) -> None:
-    """Write a todo list."""
+    """Write a todo list"""
     game_key, sid = _require_context()
     _write_json(_todo_path(game_key, sid, todo_name), items)
 
 
 def todo_delete(todo_name: str) -> None:
-    """Delete a todo list file if it exists."""
+    """Delete a todo list"""
     game_key, sid = _require_context()
     path = _todo_path(game_key, sid, todo_name)
     if os.path.exists(path):
@@ -90,7 +85,7 @@ def todo_delete(todo_name: str) -> None:
 
 
 def todo_list() -> List[str]:
-    """List todo names for the caller in the current game."""
+    """List todo names"""
     game_key, sid = _require_context()
     d = _todo_dir(game_key, sid)
     if not os.path.isdir(d):
@@ -103,7 +98,7 @@ def todo_list() -> List[str]:
 
 
 def todo_add(todo_name: str, item_id: str, content: str, status: str = "pending") -> Dict[str, Any]:
-    """Add a single item to a todo list. Returns the validated item."""
+    """Add an item to a todo list"""
     item = _validate({"id": item_id, "content": content, "status": status})
     items = todo_read(todo_name)
     for i, existing in enumerate(items):
@@ -117,7 +112,7 @@ def todo_add(todo_name: str, item_id: str, content: str, status: str = "pending"
 
 
 def todo_update_status(todo_name: str, item_id: str, status: str) -> Dict[str, Any]:
-    """Update the status of a single item. Returns the updated item. Raises ValueError if not found."""
+    """Update an item status"""
     status = status.strip().lower()
     if status not in VALID_STATUSES:
         raise ValueError(f"Invalid status: {status}. Must be one of {VALID_STATUSES}")
@@ -131,7 +126,7 @@ def todo_update_status(todo_name: str, item_id: str, status: str) -> Dict[str, A
 
 
 def todo_remove(todo_name: str, item_id: str) -> bool:
-    """Remove a single item by id. Returns True if found and removed."""
+    """Remove an item by id"""
     items = todo_read(todo_name)
     before = len(items)
     items = [i for i in items if i["id"] != item_id]
@@ -142,7 +137,7 @@ def todo_remove(todo_name: str, item_id: str) -> bool:
 
 
 def todo_get(todo_name: str, item_id: str) -> Dict[str, Any] | None:
-    """Get a single item by id, or None."""
+    """Get an item by id"""
     for item in todo_read(todo_name):
         if item["id"] == item_id:
             return item
@@ -208,7 +203,7 @@ def _format_result(items: List[Dict[str, Any]]) -> str:
 
 
 # =========================================================================
-# Pseudo-tool definition & handler — dispatched from Home/turn.py
+# Pseudo-tool definition and handler
 # =========================================================================
 
 TODO_PSEUDO_TOOL = {
@@ -263,7 +258,7 @@ TODO_PSEUDO_TOOL = {
 
 
 async def handle_todo_tool(arguments: dict) -> str:
-    """Handle the todo pseudo-tool. Requires 'todo_name'."""
+    """Handle the todo pseudo-tool"""
     todo_name = arguments.get('todo_name')
     if not todo_name:
         return json.dumps({"error": "todo tool requires a 'todo_name' argument"})

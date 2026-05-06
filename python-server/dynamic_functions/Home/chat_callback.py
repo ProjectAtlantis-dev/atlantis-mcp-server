@@ -1,4 +1,4 @@
-"""Game chat callback — figure out who spoke, where, and which bot heard it."""
+"""Game chat callback"""
 
 import atlantis
 import logging
@@ -14,7 +14,7 @@ _BUSY_KEY = "chat_busy"
 
 @chat
 async def chat_callback():
-    """chatty kathy"""
+    """Handle game chat"""
     session_id = atlantis.get_session_id() or "unknown"
     request_id = atlantis.get_request_id() or "unknown"
     caller = atlantis.get_caller()
@@ -46,7 +46,7 @@ async def _handle_chat(caller: str):
 
     location = position_get(speaker_sid)
     if not location:
-        # this should be a client_error
+        # should be a client_error
         await atlantis.client_log(f"📍 {speaker_sid} has no position — nowhere to chat")
         return
 

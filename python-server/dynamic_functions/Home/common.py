@@ -1,4 +1,4 @@
-"""Shared helpers for game callbacks — bot config loading, thumbnails, and spawning."""
+"""Shared game helpers"""
 
 import atlantis
 import json
@@ -14,7 +14,7 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "Data")
 
 
 # ---------------------------------------------------------------------------
-# Game-scoped data I/O — all stateful data lives under Data/{game_key}/
+# Game data I/O
 # ---------------------------------------------------------------------------
 
 def _safe_id(value: str, label: str = "id") -> str:
@@ -25,12 +25,12 @@ def _safe_id(value: str, label: str = "id") -> str:
 
 
 def game_dir(game_key: str) -> str:
-    """Return the data directory path for a game_key."""
+    """Get a game data directory path"""
     return os.path.join(DATA_DIR, _safe_id(game_key, "game_key"))
 
 
 def require_game_dir(game_key: str) -> str:
-    """Return an existing game data directory or fail."""
+    """Get an existing game data directory"""
     path = game_dir(game_key)
     if not os.path.isdir(path):
         raise RuntimeError(f"Unknown game '{game_key}'. Create a game first with game_new().")
@@ -38,7 +38,7 @@ def require_game_dir(game_key: str) -> str:
 
 
 def create_game_dir(game_key: str) -> str:
-    """Create and return the data directory for a newly minted game_key."""
+    """Create a game data directory"""
     path = os.path.join(DATA_DIR, _safe_id(game_key, "game_key"))
     os.makedirs(path, exist_ok=False)
     return path
@@ -63,19 +63,19 @@ def _write_json(path: str, data) -> None:
 
 
 def read_location_data(game_key: str, location: str) -> Optional[Dict[str, Any]]:
-    """Read Data/{game_key}/{location}.json, or None if it doesn't exist."""
+    """Read location data"""
     path = os.path.join(game_dir(game_key), f"{location}.json")
     return _read_json(path, None)
 
 
 def write_location_data(game_key: str, location: str, data: Dict[str, Any]) -> None:
-    """Write Data/{game_key}/{location}.json."""
+    """Write location data"""
     path = os.path.join(require_game_dir(game_key), f"{location}.json")
     _write_json(path, data)
 
 
 def list_games() -> list[str]:
-    """List all game_keys that have data."""
+    """List game keys with data"""
     if not os.path.isdir(DATA_DIR):
         return []
     return sorted(
@@ -83,7 +83,7 @@ def list_games() -> list[str]:
         if os.path.isdir(os.path.join(DATA_DIR, d))
         and not d.startswith(".")
         and d != "__pycache__"
-        and d != "players"  # ignore legacy
+        and d != "players"  # ignore legacy data
     )
 
 
@@ -94,7 +94,7 @@ def _bots_dir() -> str:
 def _load_bot_config(bot_sid: str, bots_dir: Optional[str] = None) -> Optional[Tuple[Dict[str, Any], str]]:
     if bots_dir is None:
         bots_dir = _bots_dir()
-    """Find config.json for a bot by sid under bots_dir. Returns (config, folder_name) or None."""
+    """Find a bot config by sid"""
     for entry in os.listdir(bots_dir):
         config_path = os.path.join(bots_dir, entry, "config.json")
         if os.path.isfile(config_path):
@@ -107,7 +107,7 @@ def _load_bot_config(bot_sid: str, bots_dir: Optional[str] = None) -> Optional[T
 
 
 def _available_bot_sids(bots_dir: Optional[str] = None) -> List[str]:
-    """Return all known bot sids from Bots/ config files."""
+    """List known bot sids"""
     if bots_dir is None:
         bots_dir = _bots_dir()
     sids = []
@@ -136,23 +136,17 @@ THUMB_SUFFIX = "_thumb.jpg"
 
 
 def _thumb_path_for(image_path: str) -> str:
-    """Return the expected thumbnail path for a given source image."""
+    """Get a thumbnail path for an image"""
     base, _ = os.path.splitext(image_path)
     return base + THUMB_SUFFIX
 
 
 def _ensure_thumb(image_path: str) -> str:
-    """Return the path to a thumbnail for *image_path*, creating it if needed.
-
-    The thumb is a JPEG scaled to THUMB_WIDTH px wide (aspect preserved),
-    stored alongside the original with a '_thumb.jpg' suffix.
-    Regenerated when the source file is newer than the existing thumb.
-    Returns the original path if thumbnail generation fails.
-    """
+    """Create or reuse a thumbnail"""
     logger.info(f"[thumb] _ensure_thumb called: {image_path}")
     thumb = _thumb_path_for(image_path)
     try:
-        # Skip if thumb is already up-to-date
+        # Reuse current thumbnails
         if os.path.isfile(thumb) and os.path.getmtime(thumb) >= os.path.getmtime(image_path):
             logger.info(f"[thumb] cache hit: {thumb}")
             return thumb
@@ -163,7 +157,7 @@ def _ensure_thumb(image_path: str) -> str:
         ratio = THUMB_WIDTH / img.width
         new_h = int(img.height * ratio)
         img = img.resize((THUMB_WIDTH, new_h), _PILImage.LANCZOS)
-        img = img.convert("RGB")  # ensure JPEG-compatible
+        img = img.convert("RGB")  # JPEG-compatible
         img.save(thumb, "JPEG", quality=THUMB_QUALITY)
         logger.info(f"[thumb] generated: {thumb} ({os.path.getsize(thumb)} bytes)")
         return thumb
@@ -173,11 +167,7 @@ def _ensure_thumb(image_path: str) -> str:
 
 
 def bot_thumb(bot_sid: str) -> str:
-    """Return the filesystem path to a bot's thumbnail image.
-
-    Auto-generates the thumb if it doesn't exist. Returns empty string
-    if the bot has no image.
-    """
+    """Get a bot thumbnail path"""
     logger.info(f"[thumb] bot_thumb called: {bot_sid!r}")
     loaded = _load_bot_config(bot_sid)
     if not loaded:
@@ -198,12 +188,7 @@ def bot_thumb(bot_sid: str) -> str:
 
 @visible
 def thumbify(image_path: str) -> str:
-    """Generate a thumbnail for any image and return the thumb path.
-
-    The thumbnail is a 360px-wide JPEG stored alongside the original
-    with a '_thumb.jpg' suffix. Regenerated only when the source is newer.
-    Returns the thumbnail path on success, or the original path on failure.
-    """
+    """Create a thumbnail for an image"""
     if not os.path.isfile(image_path):
         raise ValueError(f"Image not found: {image_path}")
     return _ensure_thumb(image_path)

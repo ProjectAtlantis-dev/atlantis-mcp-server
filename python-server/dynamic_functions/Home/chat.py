@@ -1,4 +1,4 @@
-"""Chat entry point — determine room occupants and next speaker."""
+"""Chat tools"""
 
 import atlantis
 import logging
@@ -31,19 +31,19 @@ async def chat():
         await atlantis.client_log("No chat speaker found in transcript")
         return
 
-    # Where is the most recent speaker?
+    # Find the speaker location
     location = position_get(speaker_sid)
     if not location:
         await atlantis.client_log(f"📍 {speaker_sid} has no position — nowhere to chat")
         return
 
-    # Who else is here?
+    # Find room occupants
     occupants = position_query(location)
     if not occupants:
         await atlantis.client_log(f"📍 {speaker_sid} is alone in {location}")
         return
 
-    # Build a list of everyone in the room (with display names)
+    # Build room participant lists
     names = []
     bots = []
     for ch in occupants:
@@ -56,7 +56,7 @@ async def chat():
         f"🏠 Room [{location}]: {', '.join(names)}"
     )
 
-    # Next to speak: first bot in the room that isn't the caller
+    # Pick the next bot speaker
     if bots:
         next_up = bots[0]
         await atlantis.client_log(

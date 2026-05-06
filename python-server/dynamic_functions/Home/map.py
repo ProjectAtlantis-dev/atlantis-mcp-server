@@ -1,4 +1,4 @@
-"""Interactive location map — shows current location and adjacent locations with images."""
+"""Location map tool"""
 
 import atlantis
 import base64
@@ -16,16 +16,12 @@ from dynamic_functions.Home.location import (
 
 
 def _require_game():
-    if not atlantis.get_game_key():
-        raise RuntimeError("No active game — this tool requires a running game session.")
+    from dynamic_functions.Home.game import require_game_key
+    require_game_key()
 
 
 def _location_image_b64(loc_name: str) -> str:
-    """Return a data-URI for a location's thumbnail, or empty string.
-
-    Uses disk-persisted thumbnails from common.location_thumb()
-    so we never base64-encode multi-MB originals.
-    """
+    """Get a location thumbnail data URI"""
     thumb = location_thumb(loc_name)
     if not thumb:
         return ""
@@ -44,7 +40,7 @@ def _character_display_name(ch: dict) -> str:
 
 
 def _characters_at(location: str) -> List[str]:
-    """Return display names of characters at a location."""
+    """List character display names at a location"""
     sids = get_players_at(location)
     if not sids:
         return []
@@ -58,26 +54,20 @@ def _characters_at(location: str) -> List[str]:
 
 @visible
 async def map(location: str = "") -> None:
-    """Show a visual map of the current location and its immediately adjacent locations.
-
-    Each location is rendered as a card with its image, name, and any characters present.
-    The current location is highlighted. Requires an active game session.
-
-    Args:
-        location: Override which location to center the map on.
-                  Defaults to the caller's current position.
-    """
+    """Show nearby locations as a map"""
     _require_game()
-    # Determine center location
-    if not location:
+    # Find center location
+    resolved_location: Optional[str] = location or None
+    if not resolved_location:
         sid = atlantis.get_caller()
         if sid:
-            location = position_get(sid)
-        if not location:
+            resolved_location = position_get(sid)
+        if not resolved_location:
             raise ValueError(
                 "Cannot determine current location. Either pass a location name "
                 "or move your character first with go()."
             )
+    location = resolved_location
 
     center_loc = _load_location(location)
     if not center_loc:
@@ -102,19 +92,19 @@ async def map(location: str = "") -> None:
             "image": image_b64,
             "is_current": is_current,
             "characters": chars,
-            # Show which exits this adjacent location has (beyond back to center)
+            # Show exits beyond the center
             "further_connects": [
                 c for c in loc_data.get("connects_to", [])
                 if c != location and c not in adjacent_names
             ],
         })
 
-    # Build edges: center connects to each adjacent
+    # Connect center to adjacent nodes
     edges = []
     for adj_name in adjacent_names:
         edges.append((location, adj_name))
 
-    # Also show edges between adjacent locations if they connect to each other
+    # Connect adjacent nodes to each other
     for i, a in enumerate(adjacent_names):
         for b in adjacent_names[i + 1:]:
             a_connects = _connects_to(a)
@@ -123,7 +113,7 @@ async def map(location: str = "") -> None:
 
     uid = uuid.uuid4().hex[:8]
 
-    # --- Build HTML ---
+    # Build HTML
     def _esc(s):
         return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
@@ -143,7 +133,7 @@ async def map(location: str = "") -> None:
         else:
             img_html = f'<div class="map-img-placeholder-{uid}">🗺️</div>'
 
-        # Characters present
+        # Characters
         chars_html = ""
         if node["characters"]:
             chars_list = ", ".join(_esc(c) for c in node["characters"])
@@ -154,7 +144,7 @@ async def map(location: str = "") -> None:
         if is_current:
             label = f"📍 {label}"
 
-        # Further exits hint
+        # Further exits
         further_html = ""
         if node["further_connects"]:
             dirs = ", ".join(_esc(c) for c in node["further_connects"])
@@ -171,7 +161,7 @@ async def map(location: str = "") -> None:
 
     nodes_html = "".join(_node_html(n) for n in nodes)
 
-    # Edges as JSON for the layout script
+    # Serialize edges for layout
     edges_json = json.dumps([
         (f"map-node-{src}-{uid}", f"map-node-{dst}-{uid}")
         for src, dst in edges
@@ -357,7 +347,7 @@ async def map(location: str = "") -> None:
         f'        path.setAttribute("stroke-dasharray", "6,4");'
         f'        path.setAttribute("opacity", "0.6");'
         f'        svg.appendChild(path);'
-        # Arrowhead at endpoint
+        # Draw arrowhead
         f'        var last = pts[pts.length - 1];'
         f'        var prev = pts.length > 1 ? pts[pts.length - 2] : last;'
         f'        var angle = Math.atan2(last.y - prev.y, last.x - prev.x);'

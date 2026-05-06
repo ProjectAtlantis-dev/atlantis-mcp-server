@@ -16,7 +16,7 @@ logger = logging.getLogger("mcp_client")
 
 
 class ToolT(TypedDict, total=False):
-    """Tool record from the cloud"""
+    """Cloud tool record"""
     remote_id: int
     tool_id: int
     perm_id: int
@@ -113,13 +113,7 @@ def get_consolidated_full_name(tool: ToolT) -> str:
 
 
 def analyze_participants(raw_transcript: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Build a participant summary from the raw transcript.
-
-    Returns {
-        'participants': {sid: {'who': str, 'last_spoke': str, 'message_count': int}},
-        'last_speaker': str or None,  # sid of whoever spoke last
-    }
-    """
+    """Summarize transcript participants"""
     participants: Dict[str, Any] = {}
     last_speaker: Optional[str] = None
 
@@ -150,7 +144,7 @@ def analyze_participants(raw_transcript: List[Dict[str, Any]]) -> Dict[str, Any]
 
 
 def _repair_json(raw: str) -> Optional[Dict[str, Any]]:
-    """Try to fix common LLM JSON mistakes before giving up."""
+    """Repair common LLM JSON mistakes"""
     s = raw.strip()
     s = re.sub(r'\bTrue\b', 'true', s)
     s = re.sub(r'\bFalse\b', 'false', s)
@@ -403,7 +397,7 @@ async def handle_dir_tool(
 
 
 def _filter_by_allowed_apps(results: List[Dict[str, Any]], allowed_apps: Optional[List[str]] = None) -> List[Dict[str, Any]]:
-    """Filter search results to only include tools from allowed app prefixes."""
+    """Filter results by app prefix"""
     if not allowed_apps:
         return results
     filtered = []
@@ -464,11 +458,7 @@ async def handle_search_tool(
 
 
 async def fetch_transcript(caller: str = "") -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """
-    Fetch raw transcript from server and transform it into OpenAI-compatible format.
-    Pass caller sid to correctly assign 'user' vs 'assistant' roles.
-    Returns (raw_transcript, processed_transcript) so caller can handle skip logic.
-    """
+    """Fetch and format the chat transcript"""
     logger.info("fetch_transcript: /silent on")
     await atlantis.client_command("/silent on")
     logger.info("fetch_transcript: /transcript chat")
@@ -487,9 +477,8 @@ async def fetch_transcript(caller: str = "") -> Tuple[List[Dict[str, Any]], List
         logger.info("Found system message in transcript - will use our own system prompt instead")
 
     from dynamic_functions.Home.common import require_game_dir
-    _gid = atlantis.get_game_key()
-    if not _gid:
-        raise RuntimeError("Cannot write raw transcript without an active game_key")
+    from dynamic_functions.Home.game import require_game_key
+    _gid = require_game_key()
     transcript_dump_file = os.path.join(require_game_dir(_gid), 'raw_transcript.json')
     try:
         with open(transcript_dump_file, 'w') as f:
@@ -532,7 +521,7 @@ async def fetch_transcript(caller: str = "") -> Tuple[List[Dict[str, Any]], List
                 logger.warning(f"       -> SKIPPED (oversized: {len(msg_content_full)} chars > {MAX_ENTRY_SIZE})")
                 continue
 
-            # Caller sid is the user, everything else is a bot
+            # Caller sid is the user
             role_for_llm = 'user' if (caller and msg_sid == caller) else 'assistant' if caller else 'user'
 
             transcript.append({'role': role_for_llm, 'content': [{'type': 'text', 'text': msg_content_full}]})
@@ -552,10 +541,7 @@ async def fetch_transcript(caller: str = "") -> Tuple[List[Dict[str, Any]], List
 
 
 def get_base_tools() -> Tuple[List[TranscriptToolT], Dict[str, ToolLookupInfo]]:
-    """Return a fresh set of base pseudo-tools and an empty lookup.
-
-    Tools are discovered via /search at runtime — never cached in session_shared.
-    """
+    """Create base pseudo-tools and lookup state"""
     tools = [SEARCH_PSEUDO_TOOL, DIR_PSEUDO_TOOL, TODO_PSEUDO_TOOL]
     lookup: Dict[str, ToolLookupInfo] = {}
     return tools, lookup

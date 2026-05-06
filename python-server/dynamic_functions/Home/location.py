@@ -1,4 +1,4 @@
-"""Location listing, position queries, movement tools, and all underlying location infrastructure."""
+"""Location tools"""
 
 import atlantis
 import base64
@@ -29,7 +29,7 @@ def _locations_dir() -> str:
 # =========================================================================
 
 def _load_location(name: str) -> Optional[Dict[str, Any]]:
-    """Load a location JSON by name, or return None."""
+    """Load a location by name"""
     path = os.path.join(_locations_dir(), f"{name}.json")
     if not os.path.exists(path):
         return None
@@ -45,7 +45,7 @@ def _connects_to(location_name: str) -> List[str]:
 
 
 def _default_location() -> str:
-    """Return the name of the default (lobby) location for the current game."""
+    """Get the default location"""
     loc_dir = _locations_dir()
     for fname in os.listdir(loc_dir):
         if not fname.endswith(".json"):
@@ -62,11 +62,7 @@ def _default_location() -> str:
 # =========================================================================
 
 def location_thumb(loc_name: str) -> str:
-    """Return the filesystem path to a location's thumbnail image.
-
-    Auto-generates the thumb if it doesn't exist. Returns empty string
-    if the location has no image.
-    """
+    """Get a location thumbnail path"""
     logger.info(f"[thumb] location_thumb called: {loc_name!r}")
     loc = _load_location(loc_name)
     if not loc:
@@ -94,7 +90,7 @@ def _positions_path() -> str:
 
 
 def get_positions() -> Dict[str, str]:
-    """Return the full sid -> location dict for the active game."""
+    """Get all player positions"""
     path = _positions_path()
     if not os.path.isfile(path):
         return {}
@@ -103,7 +99,7 @@ def get_positions() -> Dict[str, str]:
 
 
 def set_positions(positions: Dict[str, str]) -> None:
-    """Persist the full positions dict for the active game."""
+    """Save all player positions"""
     path = _positions_path()
     tmp = f"{path}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -113,19 +109,19 @@ def set_positions(positions: Dict[str, str]) -> None:
 
 @visible
 def position_get(sid: str) -> Optional[str]:
-    """Return a player's current location in the active game, or None."""
+    """Get a player's location"""
     return get_positions().get(sid)
 
 
 def set_player_position(sid: str, location: str) -> None:
-    """Set a player's location and persist."""
+    """Set a player's location"""
     positions = get_positions()
     positions[sid] = location
     set_positions(positions)
 
 
 def get_players_at(location: str) -> List[str]:
-    """Return list of sids at a location in the active game."""
+    """List players at a location"""
     return [s for s, loc in get_positions().items() if loc == location]
 
 
@@ -134,7 +130,7 @@ def get_players_at(location: str) -> List[str]:
 # =========================================================================
 
 async def _set_location_background(location_data: Dict[str, Any]) -> None:
-    """Set the client background to the location's image, if one exists."""
+    """Set the location background"""
     image_name = location_data.get("image")
     if not image_name:
         return
@@ -150,11 +146,7 @@ async def _set_location_background(location_data: Dict[str, Any]) -> None:
 # =========================================================================
 
 async def move_character(sid: str, location: str, is_bot: bool) -> str:
-    """Shared movement logic for bot and human characters.
-
-    New players must start in the default lobby before moving elsewhere.
-    Movement is only allowed along connects_to edges defined in Locations/*.json.
-    """
+    """Move a bot or human character"""
     location = location or ""
     character = _find_character(sid, is_bot)
     human_name = character.get("humanName", "")
@@ -166,7 +158,7 @@ async def move_character(sid: str, location: str, is_bot: bool) -> str:
     game_name = _current_game_name()
     current = position_get(sid)
 
-    # New player — drop them into the default lobby
+    # New players start in the default lobby
     if current is None:
         default_location = _default_location()
         location = location or default_location
@@ -186,7 +178,7 @@ async def move_character(sid: str, location: str, is_bot: bool) -> str:
             location=location,
         )
         logger.info(f"[{game_name}] New player {sid} entered {default_location}")
-        # If the owner moved, update the camera and background
+        # Owner movement updates camera and background
         if atlantis.is_owner(sid):
             from dynamic_functions.Home.camera import camera_set
             camera_set(location)
@@ -203,12 +195,12 @@ async def move_character(sid: str, location: str, is_bot: bool) -> str:
 
     desc = dest.get("description", location)
 
-    # Already there
+    # No-op when already there
     if current == location:
         await atlantis.client_log(f"\U0001f4cd {display} is already in {desc}")
         return location
 
-    # Check adjacency
+    # Enforce adjacency
     reachable = _connects_to(current)
     if location not in reachable:
         raise ValueError(
@@ -216,7 +208,7 @@ async def move_character(sid: str, location: str, is_bot: bool) -> str:
             f"Reachable: {reachable}"
         )
 
-    # Move
+    # Apply movement
     current_desc = (_load_location(current) or {}).get("description", current)
     set_player_position(sid, location)
     await atlantis.client_log(f"\U0001f6b6 {display} moved from {current_desc} to {desc}")
@@ -225,7 +217,7 @@ async def move_character(sid: str, location: str, is_bot: bool) -> str:
         location=location,
     )
     logger.info(f"[{game_name}] {sid} moved from {current} to {location}")
-    # If the owner moved, update the camera and background
+    # Owner movement updates camera and background
     if atlantis.is_owner(sid):
         from dynamic_functions.Home.camera import camera_set
         camera_set(location)
@@ -238,14 +230,14 @@ async def move_character(sid: str, location: str, is_bot: bool) -> str:
 # =========================================================================
 
 def _thumb_for_image(image_path: str) -> str:
-    """Return thumbnail path for a location image, without relying on current game."""
+    """Get a thumbnail path for a location image"""
     if not image_path or not os.path.isfile(image_path):
         return ''
     return _ensure_thumb(image_path)
 
 
 def _collect_locations(locations_dir: str) -> List[Dict[str, str]]:
-    """Scan a single Locations/ directory and return location entries."""
+    """List locations from a directory"""
     locations = []
     if not os.path.isdir(locations_dir):
         return locations
@@ -290,10 +282,7 @@ def _get_current_game():
 
 @visible
 async def location_list() -> List[Dict[str, str]]:
-    """List all locations with their name and image (base64-encoded).
-
-    If no game session is active, still lists the static location definitions.
-    """
+    """List locations"""
     game_name = _get_current_game()
 
     if game_name:
@@ -304,23 +293,18 @@ async def location_list() -> List[Dict[str, str]]:
 
 @visible
 async def position_list() -> List[Dict[str, str]]:
-    """Show current player positions for the active game."""
-    game = _get_current_game()
-    if not game:
-        raise ValueError("No active game session.")
+    """List player positions"""
+    _current_game_name()
     positions = get_positions()
     return [{"sid": sid, "location": loc} for sid, loc in positions.items()]
 
 
 @visible
 def position_query(location: str) -> List[Dict[Any, Any]]:
-    """Return all characters at a given location.
-
-    Each entry includes id, sid, role, isBot, displayName, and location.
-    """
+    """List characters at a location"""
     from dynamic_functions.Home.common import _load_bot_config
 
-    _get_current_game()  # guard: requires an active game session
+    _current_game_name()
     sids_at = get_players_at(location)
     characters = _load_characters()
     result = []
@@ -340,36 +324,20 @@ def position_query(location: str) -> List[Dict[Any, Any]]:
 
 @visible
 async def move_bot(sid: str, location: str = "") -> str:
-    """Move a bot character to a location in the active game.
-
-    sid must be a registered bot character (via character_bot()).
-    Location is optional for first-time entry (spawns in default lobby).
-    Requires an active game session.
-    """
+    """Move a bot character"""
     return await move_character(sid, location or "", is_bot=True)
 
 
 @visible
 async def move_human(sid: str, location: str = "") -> str:
-    """Move a human character to a location in the active game.
-
-    sid must be a registered human character (via character_human()).
-    Location is optional for first-time entry (spawns in default lobby).
-    Requires an active game session.
-    """
+    """Move a human character"""
     return await move_character(sid, location or "", is_bot=False)
 
 
 @visible
 async def go(location: str = "") -> str:
-    """Move the caller's character to a location in the active game.
-
-    Uses the caller's identity as the sid (must be registered via character_self()/character_human()).
-    Location is optional for first-time entry (spawns in default lobby).
-    Requires an active game session.
-    """
-    if not _get_current_game():
-        raise ValueError("No active game session.")
+    """Move the caller's character"""
+    _current_game_name()
 
     sid = atlantis.get_caller()
     if not sid:
@@ -379,15 +347,10 @@ async def go(location: str = "") -> str:
 
 @visible
 async def look(location: str = "") -> str:
-    """Move the camera to a location, setting the background image.
-
-    The camera is a per-game concept — it determines the background
-    image independent of where any characters are.
-    If no location is given, uses the caller's current position.
-    """
+    """Move the camera to a location"""
     from dynamic_functions.Home.camera import set_camera
 
-    _get_current_game()  # guard: requires an active game session
+    _current_game_name()
 
     if not location:
         sid = atlantis.get_caller()

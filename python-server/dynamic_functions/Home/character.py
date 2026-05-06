@@ -1,4 +1,4 @@
-"""Character management — creation, listing, roles, and queries."""
+"""Character tools"""
 
 import atlantis
 import json
@@ -15,16 +15,18 @@ GAMES_DIR = os.path.join(os.path.dirname(__file__), "..", "Games")
 
 
 def _current_game_name() -> str:
-    """Return the current game name, but only if a game session is active."""
+    """Get the active game name"""
+    from dynamic_functions.Home.game import require_game_key
+    require_game_key()
     from dynamic_functions.Home.main import _get_current_game
     name = _get_current_game()
     if not name:
-        raise RuntimeError("No active game session.")
+        raise RuntimeError("Active game session is invalid. Create one with game_new() first.")
     return name
 
 
 def _find_game_dir() -> str:
-    """Resolve the game definition folder."""
+    """Get the game definition folder"""
     _current_game_name()
     path = GAMES_DIR
     if not os.path.isdir(path):
@@ -33,10 +35,12 @@ def _find_game_dir() -> str:
 
 
 def game_data_dir(game_key: Optional[str] = None) -> str:
-    """Return the data directory for the current game."""
-    actual_game_key = game_key if game_key is not None else atlantis.get_game_key()
-    if not actual_game_key:
-        raise RuntimeError("game_data_dir requires an active game")
+    """Get the game data directory"""
+    if game_key is None:
+        from dynamic_functions.Home.game import require_game_key
+        actual_game_key = require_game_key()
+    else:
+        actual_game_key = game_key
     return require_game_dir(actual_game_key)
 
 
@@ -65,7 +69,7 @@ def _save_characters(characters: List[Dict[str, Any]]) -> None:
 
 
 def _find_character(sid: str, is_bot: bool) -> dict:
-    """Look up a character by sid and verify its isBot flag."""
+    """Find a character by sid"""
     for ch in _load_characters():
         if ch.get("sid") == sid:
             if ch.get("isBot", True) != is_bot:
@@ -78,7 +82,7 @@ def _find_character(sid: str, is_bot: bool) -> dict:
 
 @visible
 def _load_role_json(roles_dir: str, role_name: str) -> dict:
-    """Read a role's role.json, returning {} if missing."""
+    """Read a role config"""
     rjson = os.path.join(roles_dir, role_name, "role.json")
     if os.path.isfile(rjson):
         with open(rjson) as f:
@@ -87,7 +91,7 @@ def _load_role_json(roles_dir: str, role_name: str) -> dict:
 
 
 def _collect_roles(roles_dir: str) -> List[Dict[str, str]]:
-    """Scan a single Roles/ directory and return role entries."""
+    """List roles from a directory"""
     roles = []
     if not os.path.isdir(roles_dir):
         return roles
@@ -109,11 +113,7 @@ def _collect_roles(roles_dir: str) -> List[Dict[str, str]]:
 
 @visible
 def role_list():
-    """Return available roles.
-
-    If a game session is active, returns roles for that session.
-    Otherwise returns the static role definitions.
-    """
+    """List available roles"""
     from dynamic_functions.Home.game import _get_current_game
     game_name = _get_current_game()
 
@@ -124,14 +124,14 @@ def role_list():
 
 
 def _validate_role(role: str) -> None:
-    """Raise if role folder doesn't exist under the current game."""
+    """Validate a role folder"""
     roles_dir = os.path.join(_find_game_dir(), "Roles")
     if not os.path.isdir(os.path.join(roles_dir, role)):
         raise ValueError(f"Role folder not found: {role}")
 
 
 async def _upsert_character(sid: str, role: str, is_bot: bool, human_name: str = "") -> None:
-    """Shared upsert logic for bot and human characters."""
+    """Create or update a character"""
     _validate_role(role)
     characters = _load_characters()
 
@@ -167,12 +167,8 @@ async def _upsert_character(sid: str, role: str, is_bot: bool, human_name: str =
 
 @visible
 async def character_bot(sid: str, role: str) -> None:
-    """Assign a bot character.
-
-    sid must match a bot in Bots/. Role must be a folder under Games/Roles/.
-    If a character with this sid exists, updates it. Otherwise creates a new entry.
-    """
-    _current_game_name()  # guard: requires an active game session
+    """Assign a role to a bot"""
+    _current_game_name()  # requires an active game session
     from dynamic_functions.Home.common import _load_bot_config, _available_bot_sids
     if _load_bot_config(sid) is None:
         raise ValueError(f"Unknown bot sid: {sid!r}. Must match a bot in Bots/ (e.g. {_available_bot_sids()})")
@@ -181,13 +177,8 @@ async def character_bot(sid: str, role: str) -> None:
 
 @visible
 async def character_human(sid: str, role: str, human_name: str) -> None:
-    """Assign a human character.
-
-    sid identifies the human. human_name is their display name.
-    Role must be a folder under Games/Roles/.
-    If a character with this sid exists, updates it. Otherwise creates a new entry.
-    """
-    _current_game_name()  # guard: requires an active game session
+    """Assign a role to a human"""
+    _current_game_name()  # requires an active game session
     if not sid:
         raise ValueError("sid is required for human characters")
     if not human_name or not human_name.strip():
@@ -197,12 +188,8 @@ async def character_human(sid: str, role: str, human_name: str) -> None:
 
 @visible
 async def character_self(role: str, human_name: str) -> None:
-    """Assign a human character using the caller's identity as the sid.
-
-    human_name is the caller's display name. Role must be a folder under Games/Roles/.
-    If a character with this sid exists, updates it. Otherwise creates a new entry.
-    """
-    _current_game_name()  # guard: requires an active game session
+    """Assign a role to the caller"""
+    _current_game_name()  # requires an active game session
     sid = atlantis.get_caller()
     if not sid:
         raise ValueError("Unable to determine caller identity")
@@ -211,13 +198,8 @@ async def character_self(role: str, human_name: str) -> None:
 
 @visible
 def character_list() -> List[Dict[str, Any]]:
-    """Return all characters for the current game.
-
-    Each entry includes id, sid, role, isBot, and a resolved displayName.
-    Bot characters pull displayName from Bots/ config; human characters
-    use humanName.
-    """
-    _current_game_name()  # guard: requires an active game session
+    """List game characters"""
+    _current_game_name()  # requires an active game session
     from dynamic_functions.Home.common import _load_bot_config
     characters = _load_characters()
     result = []

@@ -32,12 +32,12 @@ def _find_game_dir() -> str:
     return path
 
 
-def game_data_dir(game_id: Optional[str] = None) -> str:
+def game_data_dir(game_key: Optional[str] = None) -> str:
     """Return the data directory for the current game."""
-    actual_game_id = game_id if game_id is not None else atlantis.get_game_id()
-    if not actual_game_id:
+    actual_game_key = game_key if game_key is not None else atlantis.get_game_key()
+    if not actual_game_key:
         raise RuntimeError("game_data_dir requires an active game")
-    return require_game_dir(actual_game_id)
+    return require_game_dir(actual_game_key)
 
 
 def _characters_path() -> str:

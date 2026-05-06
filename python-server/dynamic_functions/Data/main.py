@@ -5,5 +5,5 @@ from dynamic_functions.Home.common import list_games
 
 @visible
 async def index():
-    """Game data management — all state organized by game_id."""
+    """Game data management — all state organized by game_key."""
     pass

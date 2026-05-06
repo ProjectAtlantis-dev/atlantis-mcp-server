@@ -7,7 +7,7 @@ from dynamic_functions.Home.chat_common import logger, get_base_tools
 
 
 def _require_game():
-    if not atlantis.get_game_id():
+    if not atlantis.get_game_key():
         raise RuntimeError("No active game — this tool requires a running game session.")
 
 

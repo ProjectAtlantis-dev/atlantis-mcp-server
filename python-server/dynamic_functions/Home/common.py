@@ -14,7 +14,7 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "Data")
 
 
 # ---------------------------------------------------------------------------
-# Game-scoped data I/O — all stateful data lives under Data/{game_id}/
+# Game-scoped data I/O — all stateful data lives under Data/{game_key}/
 # ---------------------------------------------------------------------------
 
 def _safe_id(value: str, label: str = "id") -> str:
@@ -24,22 +24,22 @@ def _safe_id(value: str, label: str = "id") -> str:
     return safe
 
 
-def game_dir(game_id: str) -> str:
-    """Return the data directory path for a game_id."""
-    return os.path.join(DATA_DIR, _safe_id(game_id, "game_id"))
+def game_dir(game_key: str) -> str:
+    """Return the data directory path for a game_key."""
+    return os.path.join(DATA_DIR, _safe_id(game_key, "game_key"))
 
 
-def require_game_dir(game_id: str) -> str:
+def require_game_dir(game_key: str) -> str:
     """Return an existing game data directory or fail."""
-    path = game_dir(game_id)
+    path = game_dir(game_key)
     if not os.path.isdir(path):
-        raise RuntimeError(f"Unknown game '{game_id}'. Create a game first with game_new().")
+        raise RuntimeError(f"Unknown game '{game_key}'. Create a game first with game_new().")
     return path
 
 
-def create_game_dir(game_id: str) -> str:
-    """Create and return the data directory for a newly minted game_id."""
-    path = os.path.join(DATA_DIR, _safe_id(game_id, "game_id"))
+def create_game_dir(game_key: str) -> str:
+    """Create and return the data directory for a newly minted game_key."""
+    path = os.path.join(DATA_DIR, _safe_id(game_key, "game_key"))
     os.makedirs(path, exist_ok=False)
     return path
 
@@ -62,20 +62,20 @@ def _write_json(path: str, data) -> None:
     os.replace(tmp, path)
 
 
-def read_location_data(game_id: str, location: str) -> Optional[Dict[str, Any]]:
-    """Read Data/{game_id}/{location}.json, or None if it doesn't exist."""
-    path = os.path.join(game_dir(game_id), f"{location}.json")
+def read_location_data(game_key: str, location: str) -> Optional[Dict[str, Any]]:
+    """Read Data/{game_key}/{location}.json, or None if it doesn't exist."""
+    path = os.path.join(game_dir(game_key), f"{location}.json")
     return _read_json(path, None)
 
 
-def write_location_data(game_id: str, location: str, data: Dict[str, Any]) -> None:
-    """Write Data/{game_id}/{location}.json."""
-    path = os.path.join(require_game_dir(game_id), f"{location}.json")
+def write_location_data(game_key: str, location: str, data: Dict[str, Any]) -> None:
+    """Write Data/{game_key}/{location}.json."""
+    path = os.path.join(require_game_dir(game_key), f"{location}.json")
     _write_json(path, data)
 
 
 def list_games() -> list[str]:
-    """List all game_ids that have data."""
+    """List all game_keys that have data."""
     if not os.path.isdir(DATA_DIR):
         return []
     return sorted(

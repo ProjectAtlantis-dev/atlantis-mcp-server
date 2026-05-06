@@ -138,9 +138,9 @@ async def run_turn(
 
             # Debug dump
             from dynamic_functions.Home.common import require_game_dir
-            _gid = atlantis.get_game_id()
+            _gid = atlantis.get_game_key()
             if not _gid:
-                raise RuntimeError("Cannot write API payload without an active game_id")
+                raise RuntimeError("Cannot write API payload without an active game_key")
             api_dump_file = os.path.join(require_game_dir(_gid), 'api_payload.json')
             try:
                 with open(api_dump_file, 'w') as f:

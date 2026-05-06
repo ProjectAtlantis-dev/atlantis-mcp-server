@@ -20,23 +20,23 @@ GAMES_DIR = os.path.join(os.path.dirname(__file__), '..', 'Games')
 GAME_NAME = "Atlantis"
 
 
-def _game_data_exists(game_id: str) -> bool:
-    """Return True when a game_id has been explicitly created under Data/."""
-    if not game_id:
+def _game_data_exists(game_key: str) -> bool:
+    """Return True when a game_key has been explicitly created under Data/."""
+    if not game_key:
         return False
     from dynamic_functions.Home.common import game_dir
-    return os.path.isdir(game_dir(game_id))
+    return os.path.isdir(game_dir(game_key))
 
 
 def _get_current_game() -> str:
-    """Return the game name for the current game_id. Empty string if no game session is active."""
-    game_id = str(atlantis.get_game_id() or '')
-    if not game_id:
+    """Return the game name for the current game_key. Empty string if no game session is active."""
+    game_key = str(atlantis.get_game_key() or '')
+    if not game_key:
         return ''
-    if not _game_data_exists(game_id):
+    if not _game_data_exists(game_key):
         return ''
     from dynamic_functions.Home.common import game_dir, _read_json
-    meta = _read_json(os.path.join(game_dir(game_id), 'game.json'), {})
+    meta = _read_json(os.path.join(game_dir(game_key), 'game.json'), {})
     if isinstance(meta, dict):
         return meta.get('name') or GAME_NAME
     return GAME_NAME
@@ -222,33 +222,33 @@ async def game_welcome_click(message: str, character_name: str) -> None:
 
 @public
 async def game_new() -> Dict[str, Any]:
-    """Create a new game_id and initialize its Data/{game_id}/ folder.
+    """Create a new game_key and initialize its Data/{game_key}/ folder.
 
     This is the explicit creation path for game-scoped runtime state. Other
-    game tools should only operate on game_ids that already exist here.
+    game tools should only operate on game_keys that already exist here.
     """
     from dynamic_functions.Home.common import create_game_dir, game_dir, _write_json
 
     for _ in range(10):
-        game_id = uuid.uuid4().hex
-        data_dir = game_dir(game_id)
+        game_key = uuid.uuid4().hex
+        data_dir = game_dir(game_key)
         if not os.path.exists(data_dir):
             break
     else:
-        raise RuntimeError("Unable to allocate a unique game_id")
+        raise RuntimeError("Unable to allocate a unique game_key")
 
-    data_dir = create_game_dir(game_id)
+    data_dir = create_game_dir(game_key)
     created_at = datetime.now(timezone.utc).isoformat()
     join_password = uuid.uuid4().hex
     _write_json(os.path.join(data_dir, 'game.json'), {
-        'id': game_id,
+        'key': game_key,
         'name': GAME_NAME,
         'join_password': join_password,
         'created_at': created_at,
     })
-    await atlantis.client_log(f"Game created: {game_id}")
+    await atlantis.client_log(f"Game created: {game_key}")
     return {
-        "game_id": game_id,
+        "game_key": game_key,
         "game_name": GAME_NAME,
         "join_password": join_password,
         "data_dir": data_dir,
@@ -267,12 +267,12 @@ async def game_list() -> List[str]:
 @visible
 async def game_status() -> dict:
     """Show current game session status."""
-    game_id = str(atlantis.get_game_id() or '')
+    game_key = str(atlantis.get_game_key() or '')
     game = _get_current_game()
     return {
-        "game_id": game_id if game_id else None,
+        "game_key": game_key if game_key else None,
         "game_name": game if game else "NOT ACTIVE",
-        "valid": _game_data_exists(game_id),
+        "valid": _game_data_exists(game_key),
     }
 
 
@@ -284,7 +284,7 @@ async def game_show() -> None:
     CHARACTER and POSITION require an active game.
     """
     game_name = _get_current_game()
-    game_id = atlantis.get_game_id()
+    game_key = atlantis.get_game_key()
 
     # --- Gather data via list functions ---
     bot_rows = await bot_list()
@@ -294,7 +294,7 @@ async def game_show() -> None:
     # --- CHARACTER and POSITION: only available with an active game ---
     char_rows = []
     pos_rows = []
-    if game_name and game_id:
+    if game_name and game_key:
         characters = _load_characters()
         for ch in characters:
             char_rows.append({
@@ -353,11 +353,11 @@ async def game_show() -> None:
             [[r["name"], r["title"], r["updated"]] for r in role_rows]))
     else:
         tables.append(_table("ent-bot", "BOT", ["game", "sid", "name", "model", "updated"],
-            [[b["game"], b["sid"], b["name"], b["model"], b["updated"]] for b in bot_rows]))
+            [[b.get("game", GAME_NAME), b["sid"], b["name"], b["model"], b["updated"]] for b in bot_rows]))
         tables.append(_table("ent-location", "LOCATION", ["game", "name", "description", "connects_to", "updated"],
-            [[l["game"], l["name"], l["description"], ", ".join(l["connects_to"]), l["updated"]] for l in loc_rows]))
+            [[l.get("game", GAME_NAME), l["name"], l["description"], ", ".join(l["connects_to"]), l["updated"]] for l in loc_rows]))
         tables.append(_table("ent-role", "ROLE", ["game", "name", "title", "updated"],
-            [[r["game"], r["name"], r["title"], r["updated"]] for r in role_rows]))
+            [[r.get("game", GAME_NAME), r["name"], r["title"], r["updated"]] for r in role_rows]))
     no_game = not game_name
     tables.append(_table("ent-character", "CHARACTER", ["sid", "role", "isBot", "humanName"],
         [[c["sid"], c["role"], c["isBot"], c.get("humanName", "")] for c in char_rows],

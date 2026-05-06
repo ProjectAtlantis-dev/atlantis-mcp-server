@@ -1,7 +1,7 @@
 """Game-scoped todo list storage.
 
-Todos live at Data/{game_id}/todos/{sid}/{todo_name}.json.
-The game_id comes from atlantis context; callers supply sid and todo_name.
+Todos live at Data/{game_key}/todos/{sid}/{todo_name}.json.
+The game_key comes from atlantis context; callers supply sid and todo_name.
 """
 
 import atlantis
@@ -26,25 +26,25 @@ def _safe(value: str, label: str = "value") -> str:
 
 
 def _require_context() -> tuple[str, str]:
-    """Return (game_id, sid) from the atlantis context."""
-    game_id = atlantis.get_game_id()
-    if not game_id:
+    """Return (game_key, sid) from the atlantis context."""
+    game_key = atlantis.get_game_key()
+    if not game_key:
         raise ValueError("No active game in context")
     sid = atlantis.get_caller()
     if not sid:
         raise ValueError("No caller in context")
-    return game_id, sid
+    return game_key, sid
 
 
-def _todo_dir(game_id: str, sid: str) -> str:
-    return os.path.join(require_game_dir(game_id), "todos", _safe(sid, "sid"))
+def _todo_dir(game_key: str, sid: str) -> str:
+    return os.path.join(require_game_dir(game_key), "todos", _safe(sid, "sid"))
 
 
-def _todo_path(game_id: str, sid: str, todo_name: str) -> str:
+def _todo_path(game_key: str, sid: str, todo_name: str) -> str:
     name = _safe(todo_name, "todo_name")
     if not name.endswith(".json"):
         name += ".json"
-    return os.path.join(_todo_dir(game_id, sid), name)
+    return os.path.join(_todo_dir(game_key, sid), name)
 
 
 def _read_json(path: str, default):
@@ -71,28 +71,28 @@ def _write_json(path: str, data) -> None:
 
 def todo_read(todo_name: str) -> List[Dict[str, Any]]:
     """Read a todo list. Returns [] if missing."""
-    game_id, sid = _require_context()
-    return _read_json(_todo_path(game_id, sid, todo_name), [])
+    game_key, sid = _require_context()
+    return _read_json(_todo_path(game_key, sid, todo_name), [])
 
 
 def todo_write(todo_name: str, items: List[Dict[str, Any]]) -> None:
     """Write a todo list."""
-    game_id, sid = _require_context()
-    _write_json(_todo_path(game_id, sid, todo_name), items)
+    game_key, sid = _require_context()
+    _write_json(_todo_path(game_key, sid, todo_name), items)
 
 
 def todo_delete(todo_name: str) -> None:
     """Delete a todo list file if it exists."""
-    game_id, sid = _require_context()
-    path = _todo_path(game_id, sid, todo_name)
+    game_key, sid = _require_context()
+    path = _todo_path(game_key, sid, todo_name)
     if os.path.exists(path):
         os.remove(path)
 
 
 def todo_list() -> List[str]:
     """List todo names for the caller in the current game."""
-    game_id, sid = _require_context()
-    d = _todo_dir(game_id, sid)
+    game_key, sid = _require_context()
+    d = _todo_dir(game_key, sid)
     if not os.path.isdir(d):
         return []
     return sorted(

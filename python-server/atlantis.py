@@ -28,7 +28,7 @@ _entry_point_name_var: contextvars.ContextVar[Optional[str]] = contextvars.Conte
 
 _user_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_user_var", default=None)
 _session_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_session_id_var", default=None)
-_game_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_game_id_var", default=None)
+_game_key_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_game_key_var", default=None)
 _command_seq_var: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar("_command_seq_var", default=None)
 _shell_path_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_shell_path_var", default=None)
 
@@ -126,10 +126,10 @@ server_shared = _SharedContainer()
 session_shared = _SessionSharedContainer(server_shared)
 
 # --- Game Ticks ---
-# Tick support is explicit: a game_id must already exist under Data/{game_id}
+# Tick support is explicit: a game_key must already exist under Data/{game_key}
 # before it can be registered. Home.game_new() is the only game creation path.
 #
-# Shape: {game_id: {
+# Shape: {game_key: {
 #     "ctx": contextvars.Context,   — snapshot for running callbacks in game context
 #     "caller": str,                — user who registered the tick
 #     "tick_callback": Callable,    — async fn to call each tick
@@ -142,11 +142,11 @@ _tick_task: Optional[asyncio.Task] = None
 _tick_interval: float = 1.0
 
 
-def _require_valid_game_id(game_id: Optional[str] = None) -> str:
-    """Return an existing game_id from context or fail."""
-    gid = game_id if game_id is not None else _game_id_var.get()
+def _require_valid_game_key(game_key: Optional[str] = None) -> str:
+    """Return an existing game_key from context or fail."""
+    gid = game_key if game_key is not None else _game_key_var.get()
     if not gid:
-        raise RuntimeError("A valid game_id is required")
+        raise RuntimeError("A valid game_key is required")
     from dynamic_functions.Home.common import require_game_dir
     require_game_dir(gid)
     return gid
@@ -164,9 +164,9 @@ def set_tick_interval(seconds: float) -> None:
     logger.info(f"tick interval set to {_tick_interval}s")
 
 
-def deactivate_game_tick(game_id: Optional[str] = None) -> bool:
+def deactivate_game_tick(game_key: Optional[str] = None) -> bool:
     """Remove a game from the tick registry."""
-    gid = game_id if game_id is not None else _game_id_var.get()
+    gid = game_key if game_key is not None else _game_key_var.get()
     if gid and gid in _active_game_ticks:
         del _active_game_ticks[gid]
         logger.info(f"deactivate_game_tick: removed game={gid} (remaining: {len(_active_game_ticks)})")
@@ -177,8 +177,8 @@ def deactivate_game_tick(game_id: Optional[str] = None) -> bool:
 
 
 def register_tick(callback: Callable) -> None:
-    """Register a tick callback for the current valid game_id."""
-    gid = _require_valid_game_id()
+    """Register a tick callback for the current valid game_key."""
+    gid = _require_valid_game_key()
     _active_game_ticks[gid] = {
         "ctx": contextvars.copy_context(),
         "caller": _user_var.get() or "",
@@ -189,9 +189,9 @@ def register_tick(callback: Callable) -> None:
     _ensure_tick_loop()
 
 
-def unregister_tick(game_id: Optional[str] = None) -> None:
+def unregister_tick(game_key: Optional[str] = None) -> None:
     """Remove the tick callback for a game."""
-    deactivate_game_tick(game_id)
+    deactivate_game_tick(game_key)
 
 
 async def _run_one_tick(gid: str, entry: dict) -> None:
@@ -237,8 +237,8 @@ def _ensure_tick_loop() -> None:
     """Start the global tick loop if it isn't already running."""
     global _tick_task
     if _tick_task is not None and not _tick_task.done():
-        game_ids = list(_active_game_ticks.keys())
-        logger.info(f"tick loop already running ({len(game_ids)} game tick(s): {game_ids})")
+        game_keys = list(_active_game_ticks.keys())
+        logger.info(f"tick loop already running ({len(game_keys)} game tick(s): {game_keys})")
         return
     try:
         loop = asyncio.get_running_loop()
@@ -428,9 +428,9 @@ def get_session_id() -> Optional[str]:
     """Returns the session_id for this function call"""
     return _session_id_var.get()
 
-def get_game_id() -> Optional[str]:
-    """Returns the game_id for this function call (a game may span multiple sessions)"""
-    return _game_id_var.get()
+def get_game_key() -> Optional[str]:
+    """Returns the game_key for this function call (a game may span multiple sessions)"""
+    return _game_key_var.get()
 
 def get_caller() -> Optional[str]:
     """Returns the username who called this function"""
@@ -484,7 +484,7 @@ def set_context(
         entry_point_name: str,
         user: Optional[str] = None,
         session_id: Optional[str] = None,
-        game_id: Optional[str] = None,
+        game_key: Optional[str] = None,
         command_seq: Optional[int] = None,
         shell_path: Optional[str] = None):
     """Sets all context variables and returns a tuple of their tokens for resetting."""
@@ -503,9 +503,9 @@ def set_context(
     actual_session_id = session_id if session_id is not None else None # Explicitly use None if session_id is not provided
     session_id_token = _session_id_var.set(actual_session_id)
 
-    # Handle optional game_id context (a game may span multiple sessions)
-    actual_game_id = game_id if game_id is not None else None
-    game_id_token = _game_id_var.set(actual_game_id)
+    # Handle optional game_key context (a game may span multiple sessions)
+    actual_game_key = game_key if game_key is not None else None
+    game_key_token = _game_key_var.set(actual_game_key)
 
     # Handle optional command_seq context
     # Ensure _command_seq_var is always set, even if to None, to get a valid token for reset_context
@@ -516,20 +516,20 @@ def set_context(
     actual_shell_path = shell_path if shell_path is not None else None
     shell_path_token = _shell_path_var.set(actual_shell_path)
 
-    return (client_log_token, request_id_token, client_id_token, entry_point_token, user_token, session_id_token, game_id_token, command_seq_token, shell_path_token)
+    return (client_log_token, request_id_token, client_id_token, entry_point_token, user_token, session_id_token, game_key_token, command_seq_token, shell_path_token)
 
 # use sendChatter to send commands directly from browser
 
 def reset_context(tokens: tuple):
     """Resets the context variables using the provided tuple of tokens."""
-    # Expected order: client_log, request_id, client_id, entry_point, user, session_id, game_id, command_seq, shell_path
+    # Expected order: client_log, request_id, client_id, entry_point, user, session_id, game_key, command_seq, shell_path
     if not isinstance(tokens, tuple) or len(tokens) != 9:
         logger.error(f"reset_context expected a tuple of 9 tokens, got {tokens}")
         # Add more robust error handling or logging as needed
         return
 
     # Unpack tokens
-    client_log_token, request_id_token, client_id_token, entry_point_token, user_token, session_id_token, game_id_token, command_seq_token, shell_path_token = tokens
+    client_log_token, request_id_token, client_id_token, entry_point_token, user_token, session_id_token, game_key_token, command_seq_token, shell_path_token = tokens
 
     # Reset each context variable if its token is present (not strictly necessary with .set(None) giving a token)
     _client_log_var.reset(client_log_token)
@@ -538,7 +538,7 @@ def reset_context(tokens: tuple):
     _entry_point_name_var.reset(entry_point_token)
     _user_var.reset(user_token) # user_token will be valid even if user was None
     _session_id_var.reset(session_id_token) # session_id_token will be valid even if session_id was None
-    _game_id_var.reset(game_id_token) # game_id_token will be valid even if game_id was None
+    _game_key_var.reset(game_key_token) # game_key_token will be valid even if game_key was None
     _command_seq_var.reset(command_seq_token) # command_seq_token will be valid even if command_seq was None
     _shell_path_var.reset(shell_path_token) # shell_path_token will be valid even if shell_path was None
 

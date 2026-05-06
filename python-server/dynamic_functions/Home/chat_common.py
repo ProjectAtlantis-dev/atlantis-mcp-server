@@ -487,9 +487,9 @@ async def fetch_transcript(caller: str = "") -> Tuple[List[Dict[str, Any]], List
         logger.info("Found system message in transcript - will use our own system prompt instead")
 
     from dynamic_functions.Home.common import require_game_dir
-    _gid = atlantis.get_game_id()
+    _gid = atlantis.get_game_key()
     if not _gid:
-        raise RuntimeError("Cannot write raw transcript without an active game_id")
+        raise RuntimeError("Cannot write raw transcript without an active game_key")
     transcript_dump_file = os.path.join(require_game_dir(_gid), 'raw_transcript.json')
     try:
         with open(transcript_dump_file, 'w') as f:

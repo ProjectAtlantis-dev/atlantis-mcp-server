@@ -57,7 +57,7 @@ await atlantis.client_image("/path/to/image.png")
 
 caller = atlantis.get_caller()
 session_id = atlantis.get_session_id()
-game_id = atlantis.get_game_id()
+game_key = atlantis.get_game_key()
 ```
 
 `atlantis.server_shared` persists server-wide objects across dynamic-function reloads. `atlantis.session_shared` stores values scoped to the current session and raises if there is no session context.

@@ -21,6 +21,7 @@ erDiagram
         string title
         string systemPrompt
         string greeting
+        string defaultLocation FK
     }
     CHARACTER {
         string sid PK
@@ -36,6 +37,7 @@ erDiagram
     LOCATION ||--o{ LOCATION : "connects to"
     GAME ||--o{ ROLE : has
     BOT ||--o{ CHARACTER : sid
+    LOCATION ||--o{ ROLE : defaultLocation
     ROLE ||--o{ CHARACTER : role
     CHARACTER ||--o| POSITION : sid
     LOCATION ||--o{ POSITION : location

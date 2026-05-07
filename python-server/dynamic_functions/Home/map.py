@@ -48,10 +48,10 @@ def _characters_at(location: str) -> List[str]:
 
 
 @visible
-async def map(location: str = "") -> None:
+async def map(game_key: str, location: str = "") -> None:
     """Show nearby locations as a map"""
-    from dynamic_functions.Home.game import require_game_key
-    require_game_key()
+    from dynamic_functions.Home.game import activate_game
+    activate_game(game_key)
     # Find center location
     resolved_location: Optional[str] = location or None
     if not resolved_location:

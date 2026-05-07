@@ -7,20 +7,28 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from dynamic_functions.Home.common import GAME_DIR, require_game_dir
+from dynamic_functions.Home.common import home_path, require_game_dir
 
 logger = logging.getLogger("mcp_server")
 
 
 def _roles_dir() -> str:
-    return os.path.join(GAME_DIR, "Roles")
+    return home_path("Game", "Roles")
 
 
-def _require_active_game() -> None:
-    """Require an active game session."""
+def _require_active_game(game_key: Optional[str] = None) -> str:
+    """Internal: activate game_key when given, else fall back to session.
+
+    Visible/public tools must pass game_key explicitly. Internal helpers
+    (move_character, etc.) call without args to use the already-pinned session.
+    """
+    if game_key is not None:
+        from dynamic_functions.Home.game import activate_game
+        return activate_game(game_key)
     from dynamic_functions.Home.game import require_game_key
-    game_key = require_game_key()
-    require_game_dir(game_key)
+    gk = require_game_key()
+    require_game_dir(gk)
+    return gk
 
 
 def game_data_dir(game_key: Optional[str] = None) -> str:
@@ -101,6 +109,7 @@ def _collect_roles(roles_dir: str) -> List[Dict[str, str]]:
             "name": entry,
             "title": role_data.get("title", entry),
             "greeting": role_data.get("greeting", ""),
+            "defaultLocation": role_data.get("defaultLocation", ""),
             "updated": updated,
         })
     return roles
@@ -110,6 +119,13 @@ def _collect_roles(roles_dir: str) -> List[Dict[str, str]]:
 async def role_list() -> List[Dict[str, str]]:
     """List available roles"""
     return _collect_roles(_roles_dir())
+
+
+def role_default_location(role: str) -> Optional[str]:
+    """Return a role-specific default location from role.json, if set."""
+    role_data = _load_role_json(_roles_dir(), role)
+    location = role_data.get("defaultLocation", "")
+    return str(location).strip() or None
 
 
 def _validate_role(role: str) -> None:
@@ -155,9 +171,9 @@ async def _upsert_character(sid: str, role: str, is_bot: bool, human_name: str =
 
 
 @visible
-async def character_bot(sid: str, role: str) -> None:
+async def character_bot(game_key: str, sid: str, role: str) -> None:
     """Assign a role to a bot"""
-    _require_active_game()  # requires an active game session
+    _require_active_game(game_key)
     from dynamic_functions.Home.common import _load_bot_config, _available_bot_sids
     if _load_bot_config(sid) is None:
         raise ValueError(f"Unknown bot sid: {sid!r}. Must match a bot in Bots/ (e.g. {_available_bot_sids()})")
@@ -165,9 +181,9 @@ async def character_bot(sid: str, role: str) -> None:
 
 
 @visible
-async def character_human(sid: str, role: str, human_name: str) -> None:
+async def character_human(game_key: str, sid: str, role: str, human_name: str) -> None:
     """Assign a role to a human"""
-    _require_active_game()  # requires an active game session
+    _require_active_game(game_key)
     if not sid:
         raise ValueError("sid is required for human characters")
     if not human_name or not human_name.strip():
@@ -176,19 +192,19 @@ async def character_human(sid: str, role: str, human_name: str) -> None:
 
 
 @visible
-async def character_self(role: str, human_name: str) -> None:
+async def character_self(game_key: str, role: str, human_name: str) -> None:
     """Assign a role to the caller"""
-    _require_active_game()  # requires an active game session
+    _require_active_game(game_key)
     sid = atlantis.get_caller()
     if not sid:
         raise ValueError("Unable to determine caller identity")
-    await character_human(sid, role, human_name)
+    await character_human(game_key, sid, role, human_name)
 
 
 @visible
-def character_list() -> List[Dict[str, Any]]:
+def character_list(game_key: str) -> List[Dict[str, Any]]:
     """List game characters"""
-    _require_active_game()  # requires an active game session
+    _require_active_game(game_key)
     from dynamic_functions.Home.common import _load_bot_config
     characters = _load_characters()
     result = []

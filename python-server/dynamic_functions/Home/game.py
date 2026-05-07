@@ -7,8 +7,7 @@ import shlex
 import uuid
 from typing import Dict, Any
 
-from dynamic_functions.Home.common import GAME_DIR, game_dir
-from dynamic_functions.Home.location import get_positions, _default_location
+from dynamic_functions.Home.location import get_positions
 from dynamic_functions.Home.character import _load_characters, role_list
 from dynamic_functions.Home.bot import bot_list, bot_spawn
 from dynamic_functions.Home.location import location_list
@@ -25,12 +24,27 @@ def require_game_key() -> str:
     return game_key
 
 
+def activate_game(game_key: str) -> str:
+    """Validate game_key, pin it to the session, and return it.
+
+    Visible/public tools call this at entry so callers must pass game_key
+    explicitly instead of relying on hidden session state.
+    """
+    from dynamic_functions.Home.common import require_game_dir
+    game_key = str(game_key or "").strip()
+    if not game_key:
+        raise ValueError("game_key is required")
+    require_game_dir(game_key)
+    atlantis.session_shared.set(SESSION_GAME_KEY, game_key)
+    return game_key
+
+
 @public
 @game
-async def game() -> None:
+async def game_run(game_key: str) -> None:
     """Enter"""
-    default_location = _default_location()
-    await bot_spawn('kitty', 'Receptionist', default_location)
+    activate_game(game_key)
+    await bot_spawn(game_key, 'kitty', 'Receptionist')
     await atlantis.client_command('/callback set chat chat_callback')
     await game_entry()
 
@@ -192,16 +206,18 @@ async def game_welcome_click(message: str, character_name: str) -> None:
     character_name = character_name.strip()
     if not character_name:
         raise ValueError("character_name is required")
+    game_key = require_game_key()
     modal_id = atlantis.session_shared.get("game_welcome_modal_id")
     if modal_id:
         await atlantis.client_modal_close(modal_id)
         atlantis.session_shared.remove("game_welcome_modal_id")
     await atlantis.client_command(
-        f"@character_self {shlex.quote('Guest')} {shlex.quote(character_name)}"
+        f"@character_self {shlex.quote(game_key)} {shlex.quote('Guest')} {shlex.quote(character_name)}"
     )
-    await atlantis.client_command("@go")
+    await atlantis.client_command(f"@go {shlex.quote(game_key)}")
 
 
+@button("New Game")
 @public
 async def game_new() -> Dict[str, Any]:
     """Create a new game session"""
@@ -226,53 +242,37 @@ async def game_new() -> Dict[str, Any]:
     return {
         "game_key": game_key,
         "join_password": join_password,
-        "data_dir": data_dir,
     }
 
 
 @visible
-async def game_status() -> dict:
+async def game_status(game_key: str) -> dict:
     """Show current game status"""
-    try:
-        game_key = require_game_key()
-    except RuntimeError:
-        game_key = ""
-    valid = bool(game_key and os.path.isdir(game_dir(game_key)))
-    return {
-        "game_key": game_key if game_key else None,
-        "active": valid,
-        "valid": valid,
-    }
+    game_key = activate_game(game_key)
+    return {"game_key": game_key}
 
 
 @visible
-async def game_show() -> None:
+async def game_show(game_key: str) -> None:
     """Show the game state diagram"""
-    try:
-        game_key = require_game_key()
-    except RuntimeError:
-        game_key = ""
-    active_game = bool(game_key and os.path.isdir(game_dir(game_key)))
+    game_key = activate_game(game_key)
 
-    # Gather data
     bot_rows = await bot_list()
     loc_rows = await location_list()
     role_rows = await role_list()
 
-    # Load runtime tables for active games
     char_rows = []
     pos_rows = []
-    if active_game and game_key:
-        characters = _load_characters()
-        for ch in characters:
-            char_rows.append({
-                "sid": ch["sid"],
-                "role": ch.get("role", "?"),
-                "isBot": ch.get("isBot", True),
-                "humanName": ch.get("humanName", ""),
-            })
-        positions = get_positions()
-        pos_rows = [{"sid": sid, "location": loc} for sid, loc in sorted(positions.items())]
+    characters = _load_characters()
+    for ch in characters:
+        char_rows.append({
+            "sid": ch["sid"],
+            "role": ch.get("role", "?"),
+            "isBot": ch.get("isBot", True),
+            "humanName": ch.get("humanName", ""),
+        })
+    positions = get_positions()
+    pos_rows = [{"sid": sid, "location": loc} for sid, loc in sorted(positions.items())]
 
     # Build an HTML table
     def _esc(s):
@@ -300,46 +300,26 @@ async def game_show() -> None:
             f'<table><tr>{h}</tr>{body}</table></div>'
         )
 
-    # Build tables
-    # Show current game or available games
-    if active_game:
-        game_rows = [[game_key]]
-    else:
-        game_rows = []
-        if os.path.isdir(GAME_DIR):
-            for entry in sorted(os.listdir(GAME_DIR)):
-                if os.path.isdir(os.path.join(GAME_DIR, entry)) and not entry.startswith(('.', '_')):
-                    game_rows.append([entry])
     tables = []
-    tables.append(_table("ent-game", "GAME", ["key"], game_rows))
-    if active_game:
-        tables.append(_table("ent-bot", "BOT", ["sid", "name", "model", "updated"],
-            [[b["sid"], b["name"], b["model"], b["updated"]] for b in bot_rows]))
-        tables.append(_table("ent-location", "LOCATION", ["name", "description", "connects_to", "updated"],
-            [[l["name"], l["description"], ", ".join(l["connects_to"]), l["updated"]] for l in loc_rows]))
-        tables.append(_table("ent-role", "ROLE", ["name", "title", "updated"],
-            [[r["name"], r["title"], r["updated"]] for r in role_rows]))
-    else:
-        tables.append(_table("ent-bot", "BOT", ["sid", "name", "model", "updated"],
-            [[b["sid"], b["name"], b["model"], b["updated"]] for b in bot_rows]))
-        tables.append(_table("ent-location", "LOCATION", ["name", "description", "connects_to", "updated"],
-            [[l["name"], l["description"], ", ".join(l["connects_to"]), l["updated"]] for l in loc_rows]))
-        tables.append(_table("ent-role", "ROLE", ["name", "title", "updated"],
-            [[r["name"], r["title"], r["updated"]] for r in role_rows]))
-    no_game = not active_game
+    tables.append(_table("ent-game", "GAME", ["key"], [[game_key]]))
+    tables.append(_table("ent-bot", "BOT", ["sid", "displayName", "model", "updated"],
+        [[b["sid"], b["displayName"], b["model"], b["updated"]] for b in bot_rows]))
+    tables.append(_table("ent-location", "LOCATION", ["name", "description", "connects_to", "updated"],
+        [[l["name"], l["description"], ", ".join(l["connects_to"]), l["updated"]] for l in loc_rows]))
+    tables.append(_table("ent-role", "ROLE", ["name", "title", "defaultLocation", "updated"],
+        [[r["name"], r["title"], r.get("defaultLocation", ""), r["updated"]] for r in role_rows]))
     tables.append(_table("ent-character", "CHARACTER", ["sid", "role", "isBot", "humanName"],
         [[c["sid"], c["role"], c["isBot"], c.get("humanName", "")] for c in char_rows],
-        disabled=no_game, variant="runtime"))
+        variant="runtime"))
     tables.append(_table("ent-position", "POSITION", ["sid", "location"],
         [[p["sid"], p["location"]] for p in pos_rows],
-        disabled=no_game, variant="runtime"))
+        variant="runtime"))
 
     # Relationships
     relationships = [
-        (f"ent-game-{uid}", f"ent-bot-{uid}", "has"),
-        (f"ent-game-{uid}", f"ent-location-{uid}", "has"),
         (f"ent-game-{uid}", f"ent-role-{uid}", "has"),
         (f"ent-location-{uid}", f"ent-location-{uid}", "connects to"),
+        (f"ent-location-{uid}", f"ent-role-{uid}", "defaultLocation"),
         (f"ent-bot-{uid}", f"ent-character-{uid}", "sid"),
         (f"ent-role-{uid}", f"ent-character-{uid}", "role"),
         (f"ent-character-{uid}", f"ent-position-{uid}", "sid"),

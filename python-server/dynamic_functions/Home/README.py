@@ -17,7 +17,7 @@ async def README():
 
 @text("md")
 @visible
-async def README_GAME():
+async def GAME():
     """Show the game diagram docs"""
 
     await atlantis.client_log("README_GAME running")

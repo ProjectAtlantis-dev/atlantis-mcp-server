@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 from dynamic_functions.Home.character import (
     _require_active_game, _find_character, _load_characters,
 )
-from dynamic_functions.Home.common import _ensure_thumb, GAME_DIR
+from dynamic_functions.Home.common import _ensure_thumb, home_path
 
 logger = logging.getLogger("mcp_server")
 
@@ -21,7 +21,7 @@ logger = logging.getLogger("mcp_server")
 # =========================================================================
 
 def _locations_dir() -> str:
-    return os.path.join(GAME_DIR, "Locations")
+    return home_path("Game", "Locations")
 
 
 # =========================================================================
@@ -55,6 +55,19 @@ def _default_location() -> str:
         if data.get("default"):
             return data.get("name", fname[:-5])
     raise RuntimeError(f"No default location found in {loc_dir}")
+
+
+def _entry_location(sid: str, is_bot: bool) -> str:
+    """Get the first location for a character based on the character's role."""
+    from dynamic_functions.Home.character import role_default_location
+
+    character = _find_character(sid, is_bot)
+    role = character.get("role", "")
+    if role:
+        role_location = role_default_location(role)
+        if role_location:
+            return role_location
+    return _default_location()
 
 
 # =========================================================================
@@ -108,8 +121,9 @@ def set_positions(positions: Dict[str, str]) -> None:
 
 
 @visible
-def position_get(sid: str) -> Optional[str]:
+def position_get(game_key: str, sid: str) -> Optional[str]:
     """Get a player's location"""
+    _require_active_game(game_key)
     return get_positions().get(sid)
 
 
@@ -158,13 +172,13 @@ async def move_character(sid: str, location: str, is_bot: bool) -> str:
     _require_active_game()
     current = position_get(sid)
 
-    # New players start in the default lobby
+    # New characters start in their configured entry location.
     if current is None:
-        default_location = _default_location()
-        location = location or default_location
-        if location != default_location:
+        entry_location = _entry_location(sid, is_bot)
+        location = location or entry_location
+        if location != entry_location:
             raise ValueError(
-                f"New players must start in {default_location} "
+                f"New characters must start in {entry_location} "
                 f"before moving to {location}"
             )
         dest = _load_location(location)
@@ -177,11 +191,11 @@ async def move_character(sid: str, location: str, is_bot: bool) -> str:
             "Someone has entered.",
             location=location,
         )
-        logger.info(f"[game] New player {sid} entered {default_location}")
+        logger.info(f"[game] New player {sid} entered {entry_location}")
         # Owner movement updates camera and background
         if atlantis.is_owner(sid):
-            from dynamic_functions.Home.camera import camera_set
-            camera_set(location)
+            from dynamic_functions.Home.camera import set_camera
+            set_camera(location)
             await _set_location_background(dest)
         return location
 
@@ -284,19 +298,19 @@ async def location_list() -> List[Dict[str, str]]:
 
 
 @visible
-async def position_list() -> List[Dict[str, str]]:
+async def position_list(game_key: str) -> List[Dict[str, str]]:
     """List player positions"""
-    _require_active_game()
+    _require_active_game(game_key)
     positions = get_positions()
     return [{"sid": sid, "location": loc} for sid, loc in positions.items()]
 
 
 @visible
-def position_query(location: str) -> List[Dict[Any, Any]]:
+def position_query(game_key: str, location: str) -> List[Dict[Any, Any]]:
     """List characters at a location"""
     from dynamic_functions.Home.common import _load_bot_config
 
-    _require_active_game()
+    _require_active_game(game_key)
     sids_at = get_players_at(location)
     characters = _load_characters()
     result = []
@@ -315,34 +329,36 @@ def position_query(location: str) -> List[Dict[Any, Any]]:
 
 
 @visible
-async def move_bot(sid: str, location: str = "") -> str:
+async def move_bot(game_key: str, sid: str, location: str = "") -> str:
     """Move a bot character"""
+    _require_active_game(game_key)
     return await move_character(sid, location or "", is_bot=True)
 
 
 @visible
-async def move_human(sid: str, location: str = "") -> str:
+async def move_human(game_key: str, sid: str, location: str = "") -> str:
     """Move a human character"""
+    _require_active_game(game_key)
     return await move_character(sid, location or "", is_bot=False)
 
 
 @visible
-async def go(location: str = "") -> str:
+async def go(game_key: str, location: str = "") -> str:
     """Move the caller's character"""
-    _require_active_game()
+    _require_active_game(game_key)
 
     sid = atlantis.get_caller()
     if not sid:
         raise ValueError("Unable to determine caller identity")
-    return await move_character(sid, location or _default_location(), is_bot=False)
+    return await move_character(sid, location or "", is_bot=False)
 
 
 @visible
-async def look(location: str = "") -> str:
+async def look(game_key: str, location: str = "") -> str:
     """Move the camera to a location"""
     from dynamic_functions.Home.camera import set_camera
 
-    _require_active_game()
+    _require_active_game(game_key)
 
     if not location:
         sid = atlantis.get_caller()

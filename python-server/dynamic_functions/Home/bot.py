@@ -59,7 +59,7 @@ def _collect_bots(bots_dir: str) -> List[Dict[str, str]]:
         )
         bots.append({
             'sid': cfg.get('sid', entry.lower()),
-            'name': cfg.get('displayName', entry),
+            'displayName': cfg.get('displayName', entry),
             'model': model_label,
             'image': image_data,
             'updated': datetime.fromtimestamp(latest).strftime('%Y-%m-%d %H:%M'),
@@ -68,13 +68,13 @@ def _collect_bots(bots_dir: str) -> List[Dict[str, str]]:
 
 
 @visible
-async def bot_spawn(sid: str, role: str, location: str) -> None:
+async def bot_spawn(game_key: str, sid: str, role: str, location: str = "") -> None:
     """Spawn a bot and place it at a location"""
     from dynamic_functions.Home.character import character_bot
-    from dynamic_functions.Home.location import move_character, position_get
-    await character_bot(sid, role)
-    if position_get(sid) is None:
-        await move_character(sid, location, is_bot=True)
+    from dynamic_functions.Home.location import move_character, get_positions
+    await character_bot(game_key, sid, role)
+    if get_positions().get(sid) is None:
+        await move_character(sid, location or "", is_bot=True)
 
 
 @visible

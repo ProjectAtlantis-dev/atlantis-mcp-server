@@ -9,13 +9,14 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("mcp_server")
 
-GAME_DIR = os.path.join(os.path.dirname(__file__), "..", "Game")
-DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "Data")
-
-
 # ---------------------------------------------------------------------------
 # Game data I/O
 # ---------------------------------------------------------------------------
+
+def home_path(*parts: str) -> str:
+    """Resolve a path under python-server/dynamic_functions/."""
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", *parts))
+
 
 def _safe_id(value: str, label: str = "id") -> str:
     safe = re.sub(r"[^A-Za-z0-9_.-]", "_", str(value or "").strip())
@@ -26,7 +27,7 @@ def _safe_id(value: str, label: str = "id") -> str:
 
 def game_dir(game_key: str) -> str:
     """Get a game data directory path"""
-    return os.path.join(DATA_DIR, _safe_id(game_key, "game_key"))
+    return home_path("Data", _safe_id(game_key, "game_key"))
 
 
 def require_game_dir(game_key: str) -> str:
@@ -39,7 +40,7 @@ def require_game_dir(game_key: str) -> str:
 
 def create_game_dir(game_key: str) -> str:
     """Create a game data directory"""
-    path = os.path.join(DATA_DIR, _safe_id(game_key, "game_key"))
+    path = game_dir(game_key)
     os.makedirs(path, exist_ok=False)
     return path
 
@@ -75,7 +76,7 @@ def write_location_data(game_key: str, location: str, data: Dict[str, Any]) -> N
 
 
 def _bots_dir() -> str:
-    return os.path.join(GAME_DIR, "Bots")
+    return home_path("Game", "Bots")
 
 
 def _load_bot_config(bot_sid: str, bots_dir: Optional[str] = None) -> Optional[Tuple[Dict[str, Any], str]]:

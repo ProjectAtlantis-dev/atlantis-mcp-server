@@ -8,7 +8,7 @@ from dynamic_functions.Home.chat_common import logger, get_base_tools
 
 @visible
 async def index():
-    """Multix CLI readme"""
+    """Game logic engine"""
     pass
 
 
@@ -33,3 +33,33 @@ async def show_tools() -> List[Dict[str, Any]]:
         })
     logger.info(f"show_tools: {len(simple)} tools")
     return simple
+
+import atlantis
+import logging
+
+logger = logging.getLogger("mcp_server")
+
+
+@visible
+async def foo(x):
+    """
+    Adds 10 to x and returns the result.
+    """
+    logger.info(f"Executing foo with x={x}")
+
+    await atlantis.client_log(f"foo running with x={x}")
+
+    return x + 10
+
+
+@visible
+async def bar(x, y):
+    """
+    Returns x + y.
+    """
+    logger.info(f"Executing bar with x={x}, y={y}")
+
+    await atlantis.client_log(f"bar running with x={x}, y={y}")
+
+    return x + y
+

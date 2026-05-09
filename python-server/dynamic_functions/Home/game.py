@@ -219,6 +219,13 @@ async def game_welcome_click(message: str, character_name: str) -> None:
 
 @button("New Game")
 @public
+async def game_button() -> Dict[str, Any]:
+    """Create a new game session"""
+    settings = await atlantis.client_command("@game_new")
+    await atlantis.client_command("cursor merge")
+    return settings
+
+@visible
 async def game_new() -> Dict[str, Any]:
     """Create a new game session"""
     from dynamic_functions.Home.common import create_game_dir, game_dir, _write_json

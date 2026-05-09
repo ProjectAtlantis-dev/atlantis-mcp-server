@@ -27,7 +27,7 @@ def _safe_id(value: str, label: str = "id") -> str:
 
 def game_dir(game_key: str) -> str:
     """Get a game data directory path"""
-    return home_path("Data", _safe_id(game_key, "game_key"))
+    return home_path("Data", "games", _safe_id(game_key, "game_key"))
 
 
 def require_game_dir(game_key: str) -> str:

@@ -236,6 +236,7 @@ async def game_new() -> Dict[str, Any]:
     _write_json(os.path.join(data_dir, 'game.json'), {
         'key': game_key,
         'join_password': join_password,
+        'owner': atlantis.get_caller() or '',
     })
     atlantis.session_shared.set(SESSION_GAME_KEY, game_key)
     await atlantis.client_log(f"Game created: {game_key}")
@@ -243,6 +244,34 @@ async def game_new() -> Dict[str, Any]:
         "game_key": game_key,
         "join_password": join_password,
     }
+
+
+@visible
+async def game_list() -> list:
+    """List existing games, newest first"""
+    from datetime import datetime
+    from dynamic_functions.Home.common import home_path
+    games_root = home_path("Data", "games")
+    if not os.path.isdir(games_root):
+        return []
+    entries = []
+    for name in os.listdir(games_root):
+        path = os.path.join(games_root, name)
+        if not os.path.isdir(path):
+            continue
+        try:
+            ts = os.path.getctime(path)
+        except OSError:
+            continue
+        entries.append({
+            "game_key": name,
+            "created": datetime.fromtimestamp(ts).isoformat(timespec="seconds"),
+            "_ts": ts,
+        })
+    entries.sort(key=lambda e: e["_ts"], reverse=True)
+    for e in entries:
+        del e["_ts"]
+    return entries
 
 
 @visible

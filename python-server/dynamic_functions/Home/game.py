@@ -250,7 +250,7 @@ async def game_new() -> Dict[str, Any]:
 async def game_list() -> list:
     """List existing games, newest first"""
     from datetime import datetime
-    from dynamic_functions.Home.common import home_path
+    from dynamic_functions.Home.common import home_path, _read_json
     games_root = home_path("Data", "games")
     if not os.path.isdir(games_root):
         return []
@@ -263,8 +263,10 @@ async def game_list() -> list:
             ts = os.path.getctime(path)
         except OSError:
             continue
+        meta = _read_json(os.path.join(path, 'game.json')) or {}
         entries.append({
             "game_key": name,
+            "owner": meta.get("owner", ""),
             "created": datetime.fromtimestamp(ts).isoformat(timespec="seconds"),
             "_ts": ts,
         })

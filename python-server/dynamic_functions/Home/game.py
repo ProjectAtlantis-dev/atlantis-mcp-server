@@ -8,7 +8,8 @@ import uuid
 from typing import Dict, Any
 
 from dynamic_functions.Home.location import get_positions
-from dynamic_functions.Home.character import _load_characters, role_list
+from dynamic_functions.Home.character import _load_characters
+from dynamic_functions.Home.role import role_list
 from dynamic_functions.Home.bot import bot_list, bot_spawn
 from dynamic_functions.Home.location import location_list
 
@@ -225,7 +226,7 @@ async def game_button() -> Dict[str, Any]:
     await atlantis.client_command("cursor merge")
     return settings
 
-@visible
+@public
 async def game_new() -> Dict[str, Any]:
     """Create a new game session"""
     from dynamic_functions.Home.common import create_game_dir, game_dir, _write_json

@@ -59,7 +59,7 @@ def _default_location() -> str:
 
 def _entry_location(sid: str, is_bot: bool) -> str:
     """Get the first location for a character based on the character's role."""
-    from dynamic_functions.Home.character import role_default_location
+    from dynamic_functions.Home.role import role_default_location
 
     character = _find_character(sid, is_bot)
     role = character.get("role", "")

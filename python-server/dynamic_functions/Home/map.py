@@ -57,7 +57,7 @@ async def map(game_key: str, location: str = "") -> None:
     if not resolved_location:
         sid = atlantis.get_caller()
         if sid:
-            resolved_location = position_get(sid)
+            resolved_location = position_get(game_key, sid)
         if not resolved_location:
             raise ValueError(
                 "Cannot determine current location. Either pass a location name "

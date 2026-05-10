@@ -6,6 +6,7 @@ import logging
 from dynamic_functions.Home.location import position_get, get_players_at
 from dynamic_functions.Home.location import position_query
 from dynamic_functions.Home.chat_common import analyze_participants, fetch_transcript
+from dynamic_functions.Home.game import require_game_key
 
 logger = logging.getLogger("mcp_server")
 
@@ -18,6 +19,7 @@ async def chat():
         logger.warning("Chat fired without a caller identity")
         return
 
+    game_key = require_game_key()
     raw_transcript, transcript = await fetch_transcript(caller)
     logger.info(
         "Chat transcript fetched: %s raw entries, %s filtered entries",
@@ -32,13 +34,13 @@ async def chat():
         return
 
     # Find the speaker location
-    location = position_get(speaker_sid)
+    location = position_get(game_key, speaker_sid)
     if not location:
         await atlantis.client_log(f"📍 {speaker_sid} has no position — nowhere to chat")
         return
 
     # Find room occupants
-    occupants = position_query(location)
+    occupants = position_query(game_key, location)
     if not occupants:
         await atlantis.client_log(f"📍 {speaker_sid} is alone in {location}")
         return

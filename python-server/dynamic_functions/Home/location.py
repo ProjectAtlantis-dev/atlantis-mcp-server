@@ -159,7 +159,7 @@ async def _set_location_background(location_data: Dict[str, Any]) -> None:
 # Movement
 # =========================================================================
 
-async def move_character(sid: str, location: str, is_bot: bool) -> str:
+async def move_character(game_key: str, sid: str, location: str, is_bot: bool) -> str:
     """Move a bot or human character"""
     location = location or ""
     character = _find_character(sid, is_bot)
@@ -169,8 +169,8 @@ async def move_character(sid: str, location: str, is_bot: bool) -> str:
     if not sid:
         raise ValueError("sid is required")
 
-    _require_active_game()
-    current = position_get(sid)
+    _require_active_game(game_key)
+    current = position_get(game_key, sid)
 
     # New characters start in their configured entry location.
     if current is None:
@@ -194,8 +194,8 @@ async def move_character(sid: str, location: str, is_bot: bool) -> str:
         logger.info(f"[game] New player {sid} entered {entry_location}")
         # Owner movement updates camera and background
         if atlantis.is_owner(sid):
-            from dynamic_functions.Home.camera import set_camera
-            set_camera(location)
+            from dynamic_functions.Home.camera import camera_set
+            camera_set(game_key, location)
             await _set_location_background(dest)
         return location
 
@@ -234,7 +234,7 @@ async def move_character(sid: str, location: str, is_bot: bool) -> str:
     # Owner movement updates camera and background
     if atlantis.is_owner(sid):
         from dynamic_functions.Home.camera import camera_set
-        camera_set(location)
+        camera_set(game_key, location)
         await _set_location_background(dest)
     return location
 
@@ -332,14 +332,14 @@ def position_query(game_key: str, location: str) -> List[Dict[Any, Any]]:
 async def move_bot(game_key: str, sid: str, location: str = "") -> str:
     """Move a bot character"""
     _require_active_game(game_key)
-    return await move_character(sid, location or "", is_bot=True)
+    return await move_character(game_key, sid, location or "", is_bot=True)
 
 
 @visible
 async def move_human(game_key: str, sid: str, location: str = "") -> str:
     """Move a human character"""
     _require_active_game(game_key)
-    return await move_character(sid, location or "", is_bot=False)
+    return await move_character(game_key, sid, location or "", is_bot=False)
 
 
 @visible
@@ -350,20 +350,20 @@ async def go(game_key: str, location: str = "") -> str:
     sid = atlantis.get_caller()
     if not sid:
         raise ValueError("Unable to determine caller identity")
-    return await move_character(sid, location or "", is_bot=False)
+    return await move_character(game_key, sid, location or "", is_bot=False)
 
 
 @visible
 async def look(game_key: str, location: str = "") -> str:
     """Move the camera to a location"""
-    from dynamic_functions.Home.camera import set_camera
+    from dynamic_functions.Home.camera import camera_set
 
     _require_active_game(game_key)
 
     if not location:
         sid = atlantis.get_caller()
         if sid:
-            location = position_get(sid) or ""
+            location = position_get(game_key, sid) or ""
     if not location:
         raise ValueError("No location specified and caller has no current position.")
 
@@ -371,6 +371,6 @@ async def look(game_key: str, location: str = "") -> str:
     if not dest:
         raise ValueError(f"Unknown location: {location}")
 
-    set_camera(location)
+    camera_set(game_key, location)
     await _set_location_background(dest)
     return location

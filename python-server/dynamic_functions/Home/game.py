@@ -583,4 +583,4 @@ async def game_show(game_key: str) -> None:
 
     await atlantis.client_script(layout_script)
 
-    await atlantis.client_log("Rendered")
+    #await atlantis.client_log("Rendered")

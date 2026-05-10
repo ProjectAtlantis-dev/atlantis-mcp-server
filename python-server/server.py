@@ -298,7 +298,7 @@ class DynamicConfigEventHandler(FileSystemEventHandler):
         # Check if the change is relevant (Python file in any watched function dir or JSON file in any watched server dir)
         # Also handle directory changes (for directory deletions/additions)
         is_function_change = any(
-            (event_path.endswith(".py") or event_path.endswith(".txt")) and
+            event_path.endswith(".py") and
             (event_path.startswith(watched_dir + os.sep) or os.path.dirname(event_path) == watched_dir)
             for watched_dir in self.watched_function_dirs
         )

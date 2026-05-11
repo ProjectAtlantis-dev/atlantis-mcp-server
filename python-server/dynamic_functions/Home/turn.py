@@ -27,6 +27,7 @@ async def _close_streams(talk_id, think_id):
 
 
 async def _execute_tool(
+    game_key: str,
     tool_key: str,
     arguments: Dict[str, Any],
     call_id: str,
@@ -53,7 +54,7 @@ async def _execute_tool(
         return True
 
     if tool_key == 'todo':
-        result = await handle_todo_tool(arguments)
+        result = await handle_todo_tool(game_key, arguments)
         transcript.append({'role': 'tool', 'tool_call_id': call_id, 'content': result})
         return True
 
@@ -107,6 +108,7 @@ def _parse_tool_arguments(raw_args: str, tool_key: str) -> Dict[str, Any]:
 
 async def run_turn(
     *,
+    game_key: str,
     client: OpenAI,
     model: str,
     bot_sid: str,
@@ -138,9 +140,7 @@ async def run_turn(
 
             # Write debug payload
             from dynamic_functions.Home.common import require_game_dir
-            from dynamic_functions.Home.game import require_game_key
-            _gid = require_game_key()
-            api_dump_file = os.path.join(require_game_dir(_gid), 'api_payload.json')
+            api_dump_file = os.path.join(require_game_dir(game_key), 'api_payload.json')
             try:
                 with open(api_dump_file, 'w') as f:
                     json.dump({'model': model, 'messages': api_messages, 'tools': converted_tools, 'turn': turn_count}, f, indent=2, default=str)
@@ -234,7 +234,7 @@ async def run_turn(
             for tc in tool_calls_accumulator.values():
                 try:
                     arguments = _parse_tool_arguments(tc['arguments'], tc['name'])
-                    await _execute_tool(tc['name'], arguments, tc['id'], converted_tools, tool_lookup, transcript, allowed_apps=allowed_apps)
+                    await _execute_tool(game_key, tc['name'], arguments, tc['id'], converted_tools, tool_lookup, transcript, allowed_apps=allowed_apps)
                     any_executed = True
                 except Exception as e:
                     logger.error(f"Tool {tc['name']} failed: {e}")

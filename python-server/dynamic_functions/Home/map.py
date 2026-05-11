@@ -34,12 +34,12 @@ def _character_display_name(ch: dict) -> str:
     return ch.get("humanName", ch["sid"])
 
 
-def _characters_at(location: str) -> List[str]:
+def _characters_at(game_key: str, location: str) -> List[str]:
     """List character display names at a location"""
-    sids = get_players_at(location)
+    sids = get_players_at(game_key, location)
     if not sids:
         return []
-    characters = _load_characters()
+    characters = _load_characters(game_key)
     names = []
     for ch in characters:
         if ch["sid"] in sids:
@@ -50,8 +50,8 @@ def _characters_at(location: str) -> List[str]:
 @visible
 async def map(game_key: str, location: str = "") -> None:
     """Show nearby locations as a map"""
-    from dynamic_functions.Home.game import activate_game
-    activate_game(game_key)
+    from dynamic_functions.Home.common import require_game_dir
+    require_game_dir(game_key)
     # Find center location
     resolved_location: Optional[str] = location or None
     if not resolved_location:
@@ -80,7 +80,7 @@ async def map(game_key: str, location: str = "") -> None:
         if not loc_data:
             continue
         is_current = loc_name == location
-        chars = _characters_at(loc_name)
+        chars = _characters_at(game_key, loc_name)
         image_b64 = _location_image_b64(loc_name)
         nodes.append({
             "name": loc_name,

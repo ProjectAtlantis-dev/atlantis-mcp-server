@@ -6,21 +6,19 @@ import logging
 from dynamic_functions.Home.location import position_get, get_players_at
 from dynamic_functions.Home.location import position_query
 from dynamic_functions.Home.chat_common import analyze_participants, fetch_transcript
-from dynamic_functions.Home.game import require_game_key
 
 logger = logging.getLogger("mcp_server")
 
 
 
-async def chat():
+async def chat(game_key: str):
     """Chat"""
     caller = atlantis.get_caller()
     if not caller:
         logger.warning("Chat fired without a caller identity")
         return
 
-    game_key = require_game_key()
-    raw_transcript, transcript = await fetch_transcript(caller)
+    raw_transcript, transcript = await fetch_transcript(game_key, caller)
     logger.info(
         "Chat transcript fetched: %s raw entries, %s filtered entries",
         len(raw_transcript),

@@ -73,7 +73,7 @@ async def bot_spawn(game_key: str, sid: str, role: str, location: str = "") -> N
     from dynamic_functions.Home.character import character_bot
     from dynamic_functions.Home.location import move_character, get_positions
     await character_bot(game_key, sid, role)
-    if get_positions().get(sid) is None:
+    if get_positions(game_key).get(sid) is None:
         await move_character(game_key, sid, location or "", is_bot=True)
 
 

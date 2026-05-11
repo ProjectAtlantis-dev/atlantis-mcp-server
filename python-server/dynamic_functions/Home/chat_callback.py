@@ -12,7 +12,6 @@ from dynamic_functions.Home.chat_common import (
 from dynamic_functions.Home.location import position_get, position_query
 from dynamic_functions.Home.common import _load_bot_config
 from dynamic_functions.Home.character import _load_characters
-from dynamic_functions.Home.game import require_game_key
 from dynamic_functions.Home.prompt_common import build_system_prompt, load_role_system_prompt
 from dynamic_functions.Home.interactions import read_interaction, record_interaction
 from dynamic_functions.Home.turn import run_turn
@@ -23,7 +22,7 @@ _BUSY_KEY = "chat_busy"
 
 
 @chat
-async def chat_callback():
+async def chat_callback(game_key: str):
     """Handle game chat"""
     session_id = atlantis.get_session_id() or "unknown"
     request_id = atlantis.get_request_id() or "unknown"
@@ -39,15 +38,13 @@ async def chat_callback():
 
     atlantis.session_shared.set(_BUSY_KEY, request_id)
     try:
-        await _handle_chat(caller, session_id, request_id)
+        await _handle_chat(game_key, caller, session_id, request_id)
     finally:
         atlantis.session_shared.remove(_BUSY_KEY)
 
 
-async def _handle_chat(caller: str, session_id: str, request_id: str):
-    game_key = require_game_key()
-
-    raw_transcript, transcript = await fetch_transcript(caller)
+async def _handle_chat(game_key: str, caller: str, session_id: str, request_id: str):
+    raw_transcript, transcript = await fetch_transcript(game_key, caller)
     logger.info(f"Chat: {len(raw_transcript)} raw / {len(transcript)} filtered")
 
     participants = analyze_participants(raw_transcript)
@@ -98,15 +95,15 @@ async def _handle_chat(caller: str, session_id: str, request_id: str):
     )
 
 
-def _speaker_first_name(speaker_sid: str) -> str:
-    for ch in _load_characters():
+def _speaker_first_name(game_key: str, speaker_sid: str) -> str:
+    for ch in _load_characters(game_key):
         if ch.get("sid") == speaker_sid and not ch.get("isBot", True):
             return ch.get("humanName", "") or ""
     return ""
 
 
-def _bot_role(bot_sid: str) -> str:
-    for ch in _load_characters():
+def _bot_role(game_key: str, bot_sid: str) -> str:
+    for ch in _load_characters(game_key):
         if ch.get("sid") == bot_sid and ch.get("isBot", True):
             return ch.get("role", "") or ""
     return ""
@@ -130,7 +127,7 @@ async def _respond_as_bot(
         return
     cfg, _folder = loaded
 
-    role = _bot_role(bot_sid)
+    role = _bot_role(game_key, bot_sid)
     if not role:
         await atlantis.client_log(f"⚠️ Bot {bot_sid} has no assigned role")
         return
@@ -138,7 +135,7 @@ async def _respond_as_bot(
     base_prompt = load_role_system_prompt(role)
 
     history = read_interaction(game_key, role, speaker_sid)
-    first_name = _speaker_first_name(speaker_sid) or history.get("first_name", "")
+    first_name = _speaker_first_name(game_key, speaker_sid) or history.get("first_name", "")
 
     system_prompt = build_system_prompt(
         base_prompt=base_prompt,
@@ -161,6 +158,7 @@ async def _respond_as_bot(
     converted_tools, tool_lookup = get_base_tools()
 
     await run_turn(
+        game_key=game_key,
         client=client,
         model=model,
         bot_sid=bot_sid,

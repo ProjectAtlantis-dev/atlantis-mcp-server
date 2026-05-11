@@ -3106,6 +3106,7 @@ async def index():
             logger.debug(f"Call made with game_key: {game_key}")
         if for_cloud:
             logger.info(f"☁️ CLOUD TOOL CALL - Tool: '{tool_name}', User: '{user}', Session: '{session_id}', Game: '{game_key}', Seq: {command_seq}")
+            logger.info(f"☁️ CLOUD TOOL CALL PAYLOAD:\n{format_json_log(params)}")
 
         # Log the tool execution (don't re-register connections here)
         if for_cloud:

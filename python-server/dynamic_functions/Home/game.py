@@ -3,219 +3,24 @@
 import atlantis
 import json
 import os
-import shlex
 import uuid
 from typing import Dict, Any
 
-from dynamic_functions.Home.location import get_positions
-from dynamic_functions.Home.character import _load_characters
-from dynamic_functions.Home.role import role_list
+from dynamic_functions.Home.location import get_positions, set_positions, location_list
+from dynamic_functions.Home.character import _load_characters, _save_characters, human_spawn
+from dynamic_functions.Home.role import role_list, role_default_location
 from dynamic_functions.Home.bot import bot_list, bot_spawn
-from dynamic_functions.Home.location import location_list
-
-
-SESSION_GAME_KEY = "game_key"
-
-
-def require_game_key() -> str:
-    """Return the active Home game_key or fail with the standard game message."""
-    game_key = str(atlantis.session_shared.get(SESSION_GAME_KEY, "") or "")
-    if not game_key:
-        raise RuntimeError("No active game session. Create one with game_new() first.")
-    return game_key
-
-
-def activate_game(game_key: str) -> str:
-    """Validate game_key, pin it to the session, and return it.
-
-    Visible/public tools call this at entry so callers must pass game_key
-    explicitly instead of relying on hidden session state.
-    """
-    from dynamic_functions.Home.common import require_game_dir
-    game_key = str(game_key or "").strip()
-    if not game_key:
-        raise ValueError("game_key is required")
-    require_game_dir(game_key)
-    atlantis.session_shared.set(SESSION_GAME_KEY, game_key)
-    return game_key
 
 
 @public
 @game
 async def game_run(game_key: str) -> None:
-    """Enter"""
-    activate_game(game_key)
+    """Enter an existing game"""
+    from dynamic_functions.Home.common import require_game_dir
+    require_game_dir(game_key)
     await bot_spawn(game_key, 'kitty', 'Receptionist')
-    await atlantis.client_command('/callback set chat chat_callback')
-    await game_entry()
-
-
-async def game_entry() -> None:
-    """Show the game welcome modal"""
-    uid = uuid.uuid4().hex[:8]
-    html = f"""
-<style>
-  #game-welcome-{uid} {{
-    box-sizing: border-box;
-    width: 100%;
-    min-width: min(100%, 320px);
-    padding: 28px;
-    color: #f7f4ea;
-    background:
-      linear-gradient(to bottom, rgba(20, 34, 48, 0.96), rgba(20, 50, 60, 0.96)),
-      radial-gradient(circle at 18% 20%, rgba(20, 255, 208, 0.22), transparent 34%);
-    border: 1px solid rgba(20, 255, 208, 0.42);
-    border-radius: 8px;
-    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  }}
-  #game-welcome-{uid} .game-kicker {{
-    color: #eeba55;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0;
-    text-transform: uppercase;
-  }}
-  #game-welcome-{uid} h2 {{
-    margin: 10px 0 28px;
-    font-size: 30px;
-    line-height: 1.1;
-    color: #fffaf0;
-  }}
-  #game-welcome-{uid} p {{
-    max-width: 560px;
-    margin: 0 0 22px;
-    color: #d8d3c6;
-    font-size: 15px;
-    line-height: 1.5;
-  }}
-  #game-welcome-{uid} form {{
-    display: grid;
-    gap: 12px;
-    max-width: 420px;
-  }}
-  #game-welcome-{uid} label {{
-    color: #fffaf0;
-    font-size: 13px;
-    font-weight: 700;
-  }}
-  #game-welcome-{uid} input {{
-    box-sizing: border-box;
-    width: 100%;
-    min-height: 42px;
-    padding: 0 12px;
-    color: #fffaf0;
-    background: rgba(7, 15, 22, 0.58);
-    border: 1px solid rgba(20, 255, 208, 0.42);
-    border-radius: 6px;
-    font: inherit;
-  }}
-  #game-welcome-{uid} input:focus {{
-    outline: 2px solid rgba(20, 255, 208, 0.45);
-    outline-offset: 2px;
-  }}
-  #game-welcome-{uid} .game-error {{
-    min-height: 18px;
-    color: #ffb4a8;
-    font-size: 13px;
-  }}
-  #game-welcome-{uid} button {{
-    min-height: 40px;
-    padding: 0 16px;
-    color: #fffaf0;
-    background: linear-gradient(to bottom, #1a8a78, #143a52);
-    border: 0;
-    border-radius: 6px;
-    font: inherit;
-    font-weight: 700;
-    cursor: pointer;
-    transition: background 0.18s ease;
-  }}
-  #game-welcome-{uid} button:hover {{
-    background: linear-gradient(to bottom, #22b89e, #1a527a);
-  }}
-  #game-welcome-{uid} button:disabled {{
-    cursor: default;
-    opacity: 0.65;
-  }}
-</style>
-<section id="game-welcome-{uid}" aria-label="Game welcome">
-  <h2>Welcome to Atlantis</h2>
-  <form id="game-welcome-form-{uid}">
-    <label for="game-character-name-{uid}">Enter your character name</label>
-    <input id="game-character-name-{uid}" name="character_name" type="text" autocomplete="name" maxlength="80" required autofocus>
-    <div id="game-welcome-error-{uid}" class="game-error" aria-live="polite"></div>
-    <button id="game-welcome-button-{uid}" type="submit">Enter</button>
-  </form>
-</section>
-"""
-    modal_id = await atlantis.client_modal(html, title="Welcome")
-    atlantis.session_shared.set("game_welcome_modal_id", modal_id)
-
-    script = f"""
-(function() {{
-  function bindWelcomeButton() {{
-    var form = document.getElementById("game-welcome-form-{uid}");
-    var button = document.getElementById("game-welcome-button-{uid}");
-    var input = document.getElementById("game-character-name-{uid}");
-    var error = document.getElementById("game-welcome-error-{uid}");
-    if (!form || !button || !input) {{
-      console.error("[GAME] welcome form controls not found");
-      return;
-    }}
-    function focusCharacterName() {{
-      input.focus({{ preventScroll: true }});
-      input.select();
-    }}
-    focusCharacterName();
-    setTimeout(focusCharacterName, 120);
-    form.addEventListener("submit", async function(event) {{
-      event.preventDefault();
-      if (!window._accessToken) {{
-        console.error("[GAME] window._accessToken is empty or undefined");
-        return;
-      }}
-      var characterName = input.value.trim();
-      if (!characterName) {{
-        if (error) {{
-          error.textContent = "Type a character name to continue.";
-        }}
-        input.focus();
-        return;
-      }}
-      if (error) {{
-        error.textContent = "";
-      }}
-      button.disabled = true;
-      button.textContent = "Entering...";
-      await sendChatter(window._accessToken, "$**Home**game_welcome_click", {{
-        message: "enter_game",
-        character_name: characterName
-      }});
-    }});
-  }}
-  requestAnimationFrame(function() {{
-    requestAnimationFrame(bindWelcomeButton);
-  }});
-}})()
-"""
-    await atlantis.client_script(script)
-
-
-@visible
-async def game_welcome_click(message: str, character_name: str) -> None:
-    """Handle the welcome modal button"""
-    character_name = character_name.strip()
-    if not character_name:
-        raise ValueError("character_name is required")
-    game_key = require_game_key()
-    modal_id = atlantis.session_shared.get("game_welcome_modal_id")
-    if modal_id:
-        await atlantis.client_modal_close(modal_id)
-        atlantis.session_shared.remove("game_welcome_modal_id")
-    await atlantis.client_command(
-        f"@character_self {shlex.quote(game_key)} {shlex.quote('Guest')} {shlex.quote(character_name)}"
-    )
-    await atlantis.client_command(f"@go {shlex.quote(game_key)}")
+    await atlantis.client_command(f'/callback set chat chat_callback {game_key}')
+    await human_spawn(game_key, 'Guest')
 
 
 @button("New Game")
@@ -225,6 +30,7 @@ async def game_button() -> Dict[str, Any]:
     settings = await atlantis.client_command("@game_new")
     await atlantis.client_command("cursor merge")
     return settings
+
 
 @public
 async def game_new() -> Dict[str, Any]:
@@ -246,7 +52,19 @@ async def game_new() -> Dict[str, Any]:
         'join_password': join_password,
         'owner': atlantis.get_caller() or '',
     })
-    atlantis.session_shared.set(SESSION_GAME_KEY, game_key)
+
+    # Seed initial state: Kitty as Receptionist, placed at her role's default location.
+    kitty_role = "Receptionist"
+    kitty_location = role_default_location(kitty_role) or ""
+    _save_characters(game_key, [
+        {"sid": "kitty", "isBot": True, "role": kitty_role},
+    ])
+    set_positions(game_key, {"kitty": kitty_location})
+
+    # Register the chat callback bound to this game_key so it survives restart
+    # via the boot-time re-registration scan.
+    await atlantis.client_command(f'/callback set chat chat_callback {game_key}')
+
     await atlantis.client_log(f"Game created: {game_key}")
     return {
         "game_key": game_key,
@@ -287,14 +105,16 @@ async def game_list() -> list:
 @visible
 async def game_status(game_key: str) -> dict:
     """Show current game status"""
-    game_key = activate_game(game_key)
+    from dynamic_functions.Home.common import require_game_dir
+    require_game_dir(game_key)
     return {"game_key": game_key}
 
 
 @visible
 async def game_show(game_key: str) -> None:
     """Show the game state diagram"""
-    game_key = activate_game(game_key)
+    from dynamic_functions.Home.common import require_game_dir
+    require_game_dir(game_key)
 
     bot_rows = await bot_list()
     loc_rows = await location_list()
@@ -302,7 +122,7 @@ async def game_show(game_key: str) -> None:
 
     char_rows = []
     pos_rows = []
-    characters = _load_characters()
+    characters = _load_characters(game_key)
     for ch in characters:
         char_rows.append({
             "sid": ch["sid"],
@@ -310,7 +130,7 @@ async def game_show(game_key: str) -> None:
             "isBot": ch.get("isBot", True),
             "humanName": ch.get("humanName", ""),
         })
-    positions = get_positions()
+    positions = get_positions(game_key)
     pos_rows = [{"sid": sid, "location": loc} for sid, loc in sorted(positions.items())]
 
     # Build an HTML table
@@ -582,5 +402,3 @@ async def game_show(game_key: str) -> None:
         f'}})()')
 
     await atlantis.client_script(layout_script)
-
-    #await atlantis.client_log("Rendered")

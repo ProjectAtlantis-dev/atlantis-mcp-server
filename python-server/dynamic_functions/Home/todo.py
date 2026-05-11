@@ -21,14 +21,11 @@ def _safe(value: str, label: str = "value") -> str:
     return safe
 
 
-def _require_context() -> tuple[str, str]:
-    """Get the active game and caller"""
-    from dynamic_functions.Home.game import require_game_key
-    game_key = require_game_key()
+def _require_caller() -> str:
     sid = atlantis.get_caller()
     if not sid:
         raise ValueError("No caller in context")
-    return game_key, sid
+    return sid
 
 
 def _todo_dir(game_key: str, sid: str) -> str:
@@ -64,29 +61,29 @@ def _write_json(path: str, data) -> None:
 # Core API
 # =========================================================================
 
-def todo_read(todo_name: str) -> List[Dict[str, Any]]:
+def todo_read(game_key: str, todo_name: str) -> List[Dict[str, Any]]:
     """Read a todo list"""
-    game_key, sid = _require_context()
+    sid = _require_caller()
     return _read_json(_todo_path(game_key, sid, todo_name), [])
 
 
-def todo_write(todo_name: str, items: List[Dict[str, Any]]) -> None:
+def todo_write(game_key: str, todo_name: str, items: List[Dict[str, Any]]) -> None:
     """Write a todo list"""
-    game_key, sid = _require_context()
+    sid = _require_caller()
     _write_json(_todo_path(game_key, sid, todo_name), items)
 
 
-def todo_delete(todo_name: str) -> None:
+def todo_delete(game_key: str, todo_name: str) -> None:
     """Delete a todo list"""
-    game_key, sid = _require_context()
+    sid = _require_caller()
     path = _todo_path(game_key, sid, todo_name)
     if os.path.exists(path):
         os.remove(path)
 
 
-def todo_list() -> List[str]:
+def todo_list(game_key: str) -> List[str]:
     """List todo names"""
-    game_key, sid = _require_context()
+    sid = _require_caller()
     d = _todo_dir(game_key, sid)
     if not os.path.isdir(d):
         return []
@@ -97,48 +94,48 @@ def todo_list() -> List[str]:
     )
 
 
-def todo_add(todo_name: str, item_id: str, content: str, status: str = "pending") -> Dict[str, Any]:
+def todo_add(game_key: str, todo_name: str, item_id: str, content: str, status: str = "pending") -> Dict[str, Any]:
     """Add an item to a todo list"""
     item = _validate({"id": item_id, "content": content, "status": status})
-    items = todo_read(todo_name)
+    items = todo_read(game_key, todo_name)
     for i, existing in enumerate(items):
         if existing["id"] == item["id"]:
             items[i] = item
-            todo_write(todo_name, items)
+            todo_write(game_key, todo_name, items)
             return item
     items.append(item)
-    todo_write(todo_name, items)
+    todo_write(game_key, todo_name, items)
     return item
 
 
-def todo_update_status(todo_name: str, item_id: str, status: str) -> Dict[str, Any]:
+def todo_update_status(game_key: str, todo_name: str, item_id: str, status: str) -> Dict[str, Any]:
     """Update an item status"""
     status = status.strip().lower()
     if status not in VALID_STATUSES:
         raise ValueError(f"Invalid status: {status}. Must be one of {VALID_STATUSES}")
-    items = todo_read(todo_name)
+    items = todo_read(game_key, todo_name)
     for item in items:
         if item["id"] == item_id:
             item["status"] = status
-            todo_write(todo_name, items)
+            todo_write(game_key, todo_name, items)
             return item
     raise ValueError(f"Todo item '{item_id}' not found in {todo_name}")
 
 
-def todo_remove(todo_name: str, item_id: str) -> bool:
+def todo_remove(game_key: str, todo_name: str, item_id: str) -> bool:
     """Remove an item by id"""
-    items = todo_read(todo_name)
+    items = todo_read(game_key, todo_name)
     before = len(items)
     items = [i for i in items if i["id"] != item_id]
     if len(items) < before:
-        todo_write(todo_name, items)
+        todo_write(game_key, todo_name, items)
         return True
     return False
 
 
-def todo_get(todo_name: str, item_id: str) -> Dict[str, Any] | None:
+def todo_get(game_key: str, todo_name: str, item_id: str) -> Dict[str, Any] | None:
     """Get an item by id"""
-    for item in todo_read(todo_name):
+    for item in todo_read(game_key, todo_name):
         if item["id"] == item_id:
             return item
     return None
@@ -257,7 +254,7 @@ TODO_PSEUDO_TOOL = {
 }
 
 
-async def handle_todo_tool(arguments: dict) -> str:
+async def handle_todo_tool(game_key: str, arguments: dict) -> str:
     """Handle the todo pseudo-tool"""
     todo_name = arguments.get('todo_name')
     if not todo_name:
@@ -265,14 +262,14 @@ async def handle_todo_tool(arguments: dict) -> str:
 
     todos_arg = arguments.get('todos')
     merge = arguments.get('merge', False)
-    items = todo_read(todo_name)
+    items = todo_read(game_key, todo_name)
 
     if todos_arg is not None:
         if not merge:
             items = [_validate(t) for t in todos_arg]
         else:
             items = _merge_items(items, todos_arg)
-        todo_write(todo_name, items)
+        todo_write(game_key, todo_name, items)
         logger.info(f"todo: wrote {len(items)} items to {todo_name} (merge={merge})")
     else:
         logger.info(f"todo: read {len(items)} items from {todo_name}")

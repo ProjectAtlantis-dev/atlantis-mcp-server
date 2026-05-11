@@ -457,7 +457,7 @@ async def handle_search_tool(
     return summary, converted_tools, tool_lookup
 
 
-async def fetch_transcript(caller: str = "") -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+async def fetch_transcript(game_key: str, caller: str = "") -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Fetch and format the chat transcript"""
     logger.info("fetch_transcript: /silent on")
     await atlantis.client_command("/silent on")
@@ -477,9 +477,7 @@ async def fetch_transcript(caller: str = "") -> Tuple[List[Dict[str, Any]], List
         logger.info("Found system message in transcript - will use our own system prompt instead")
 
     from dynamic_functions.Home.common import require_game_dir
-    from dynamic_functions.Home.game import require_game_key
-    _gid = require_game_key()
-    transcript_dump_file = os.path.join(require_game_dir(_gid), 'raw_transcript.json')
+    transcript_dump_file = os.path.join(require_game_dir(game_key), 'raw_transcript.json')
     try:
         with open(transcript_dump_file, 'w') as f:
             json.dump(raw_transcript, f, indent=2, default=str)

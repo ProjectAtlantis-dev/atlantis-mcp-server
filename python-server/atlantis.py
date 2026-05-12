@@ -28,9 +28,8 @@ _client_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("
 _entry_point_name_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_entry_point_name_var", default=None)
 
 _user_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_user_var", default=None)
-_session_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_session_id_var", default=None)
-_command_seq_var: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar("_command_seq_var", default=None)
-_shell_path_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_shell_path_var", default=None)
+_session_key_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_session_key_var", default=None)
+_caller_shell_path_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_caller_shell_path_var", default=None)
 
 # Owner of the remote server instance
 _owner: Optional[str] = ""
@@ -98,10 +97,10 @@ class _SessionSharedContainer:
         self._backing = backing
 
     def _scoped_key(self, key):
-        session_id = _session_id_var.get()
-        if not session_id:
-            raise RuntimeError("session_shared requires a session context (no session_id set)")
-        return f"__session:{session_id}:{key}"
+        session_key = _session_key_var.get()
+        if not session_key:
+            raise RuntimeError("session_shared requires a session context (no session_key set)")
+        return f"__session:{session_key}:{key}"
     def get(self, key, default=None):
         """Get a value scoped to the current session"""
         return self._backing.get(self._scoped_key(key), default)
@@ -171,9 +170,9 @@ async def get_and_increment_seq_num(context_name: str = "operation") -> int:
         logger.error(f"{context_name} - request_id is None. Cannot get sequence number.")
         return -1
 
-    shell_path = _shell_path_var.get()
-    # Use composite key of (request_id, shell_path) for per-shell sequencing
-    counter_key = (request_id, shell_path)
+    caller_shell_path = _caller_shell_path_var.get()
+    # Use composite key of (request_id, caller_shell_path) for per-shell sequencing
+    counter_key = (request_id, caller_shell_path)
 
     if counter_key not in _request_seq_counters:
         _request_seq_counters[counter_key] = 1
@@ -286,39 +285,22 @@ def get_request_id() -> Optional[str]:
     """Returns the request_id"""
     return _request_id_var.get()
 
-# this is established in server.py when a connection is made
-def get_client_id() -> Optional[str]:
-    """Returns the client_id"""
-    return _client_id_var.get()
-
-# this is usually the cloud session num, which is per user
-def get_session_id() -> Optional[str]:
-    """Returns the session_id for this function call"""
-    return _session_id_var.get()
+# locally-derived stable session identifier — see CallContext.session_key
+def get_session_key() -> Optional[str]:
+    """Returns the session_key for this function call (None if any component missing)."""
+    return _session_key_var.get()
 
 def get_caller() -> Optional[str]:
     """Returns the username who called this function"""
     return _user_var.get()
 
-def get_shell_path() -> Optional[str]:
-    """Returns the shell path for this function call"""
-    return _shell_path_var.get()
+def get_caller_shell_path() -> Optional[str]:
+    """Returns the caller shell path for this function call."""
+    return _caller_shell_path_var.get()
 
-def set_shell_path(path: Optional[str]) -> None:
-    """Set the shell path contextvar directly (e.g. for lobster socket tasks)."""
-    _shell_path_var.set(path)
-
-def get_command_seq() -> Optional[int]:
-    """Returns the command sequence number for this function call"""
-    return _command_seq_var.get()
-
-def get_invoking_tool_name() -> Optional[str]:
-    """Returns the name of the tool that initiated the current execution chain."""
-    return _entry_point_name_var.get()
-
-def get_owner() -> str:
-    """Returns the user who owns this remote"""
-    return _owner or ""
+def set_caller_shell_path(path: Optional[str]) -> None:
+    """Set the caller shell path contextvar directly (e.g. for lobster socket tasks)."""
+    _caller_shell_path_var.set(path)
 
 def get_owner_usernames() -> List[str]:
     """Returns the list of owner usernames for permission checks"""
@@ -351,31 +333,29 @@ def set_context(
     client_id_token = _client_id_var.set(ctx.client_id)
     entry_point_token = _entry_point_name_var.set(entry_point_name)
     user_token = _user_var.set(ctx.user)
-    session_id_token = _session_id_var.set(ctx.session_id)
-    command_seq_token = _command_seq_var.set(ctx.command_seq)
-    shell_path_token = _shell_path_var.set(ctx.shell_path)
+    session_key_token = _session_key_var.set(ctx.session_key)
+    caller_shell_path_token = _caller_shell_path_var.set(ctx.caller_shell_path)
 
-    return (client_log_token, request_id_token, client_id_token, entry_point_token, user_token, session_id_token, command_seq_token, shell_path_token)
+    return (client_log_token, request_id_token, client_id_token, entry_point_token, user_token, session_key_token, caller_shell_path_token)
 
 # use sendChatter to send commands directly from browser
 
 def reset_context(tokens: tuple):
     """Resets the context variables using the provided tuple of tokens."""
-    # Expected order: client_log, request_id, client_id, entry_point, user, session_id, command_seq, shell_path
-    if not isinstance(tokens, tuple) or len(tokens) != 8:
-        logger.error(f"reset_context expected a tuple of 8 tokens, got {tokens}")
+    # Expected order: client_log, request_id, client_id, entry_point, user, session_key, caller_shell_path
+    if not isinstance(tokens, tuple) or len(tokens) != 7:
+        logger.error(f"reset_context expected a tuple of 7 tokens, got {tokens}")
         return
 
-    client_log_token, request_id_token, client_id_token, entry_point_token, user_token, session_id_token, command_seq_token, shell_path_token = tokens
+    client_log_token, request_id_token, client_id_token, entry_point_token, user_token, session_key_token, caller_shell_path_token = tokens
 
     _client_log_var.reset(client_log_token)
     _request_id_var.reset(request_id_token)
     _client_id_var.reset(client_id_token)
     _entry_point_name_var.reset(entry_point_token)
     _user_var.reset(user_token)
-    _session_id_var.reset(session_id_token)
-    _command_seq_var.reset(command_seq_token)
-    _shell_path_var.reset(shell_path_token)
+    _session_key_var.reset(session_key_token)
+    _caller_shell_path_var.reset(caller_shell_path_token)
 
 
 # --- Utility Functions ---
@@ -721,8 +701,8 @@ async def _client_command(
     request_id = _request_id_var.get()
     entry_point_name = _entry_point_name_var.get() # Now needed for logging with seq_num
     user = _user_var.get()  # Who's calling
-    session_id = _session_id_var.get()  # Which session
-    shell_path = _shell_path_var.get()  # Where in the command tree
+    session_key = _session_key_var.get()  # Locally-derived stable session identifier
+    caller_shell_path = _caller_shell_path_var.get()  # Caller shell (parent in the command tree)
 
     logger.info(f"📡 client_command '{command}' (entry={entry_point_name}, user={user})")
     if isinstance(data, (dict, list)):
@@ -756,8 +736,8 @@ async def _client_command(
             seq_num=current_seq_to_send,  # Pass the sequence number
             entry_point_name=entry_point_name,  # Pass the entry point name for logging
             user=user,  # Pass user for unique request tracking
-            session_id=session_id,  # Pass session_id for unique request tracking
-            shell_path=shell_path,  # Pass shell_path for unique request tracking
+            session_id=session_key,  # Wire kwarg kept for compat; value is locally-derived session_key
+            shell_path=caller_shell_path,  # Wire kwarg kept for compat; value is caller_shell_path
             message_type=message_type,  # Pass message_type for the protocol
             is_private=is_private,  # Pass is_private for broadcast control
             message_params=notification_params
@@ -964,7 +944,7 @@ async def owner_log(message: str):
     Args:
         message: The string message to log.
     """
-    invoking_tool_name = get_invoking_tool_name() or "unknown_tool"
+    invoking_tool_name = _entry_point_name_var.get() or "unknown_tool"
     username = get_caller() or "unknown_user"
 
     # The log directory is relative to the server's execution path.

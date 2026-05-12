@@ -3,13 +3,13 @@ import contextvars
 import logging
 from typing import Callable, Optional
 
-from atlantis import _game_key_var, _user_var
+from atlantis import _user_var
 
 logger = logging.getLogger("mcp_server")
 
 # --- Game Ticks ---
-# Tick support is explicit: callers must set a game_key context before
-# registering a tick callback.
+# Tick support is explicit: callers must pass a game_key into every tick API.
+# No implicit contextvar fallback — game_key is MCP-local state, not cloud-supplied.
 #
 # Shape: {game_key: {
 #     "ctx": contextvars.Context,   — snapshot for running callbacks in game context
@@ -24,12 +24,11 @@ _tick_task: Optional[asyncio.Task] = None
 _tick_interval: float = 1.0
 
 
-def _require_game_key(game_key: Optional[str] = None) -> str:
-    """Return a game_key from context or fail."""
-    gid = game_key if game_key is not None else _game_key_var.get()
-    if not gid:
+def _require_game_key(game_key: str) -> str:
+    """Validate that game_key is provided."""
+    if not game_key:
         raise RuntimeError("A valid game_key is required")
-    return gid
+    return game_key
 
 
 def get_active_game_ticks() -> dict:
@@ -44,21 +43,20 @@ def set_tick_interval(seconds: float) -> None:
     logger.info(f"tick interval set to {_tick_interval}s")
 
 
-def deactivate_game_tick(game_key: Optional[str] = None) -> bool:
+def deactivate_game_tick(game_key: str) -> bool:
     """Remove a game from the tick registry."""
-    gid = game_key if game_key is not None else _game_key_var.get()
-    if gid and gid in _active_game_ticks:
-        del _active_game_ticks[gid]
-        logger.info(f"deactivate_game_tick: removed game={gid} (remaining: {len(_active_game_ticks)})")
+    if game_key and game_key in _active_game_ticks:
+        del _active_game_ticks[game_key]
+        logger.info(f"deactivate_game_tick: removed game={game_key} (remaining: {len(_active_game_ticks)})")
         if not _active_game_ticks:
             _stop_tick_loop()
         return True
     return False
 
 
-def register_tick(callback: Callable) -> None:
-    """Register a tick callback for the current game_key."""
-    gid = _require_game_key()
+def register_tick(game_key: str, callback: Callable) -> None:
+    """Register a tick callback for the given game_key."""
+    gid = _require_game_key(game_key)
     _active_game_ticks[gid] = {
         "ctx": contextvars.copy_context(),
         "caller": _user_var.get() or "",
@@ -69,7 +67,7 @@ def register_tick(callback: Callable) -> None:
     _ensure_tick_loop()
 
 
-def unregister_tick(game_key: Optional[str] = None) -> None:
+def unregister_tick(game_key: str) -> None:
     """Remove the tick callback for a game."""
     deactivate_game_tick(game_key)
 

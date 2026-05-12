@@ -2,6 +2,7 @@ import contextvars
 import inspect # Ensure inspect is imported
 import asyncio # Added for Lock
 from typing import Callable, Optional, Any, List # Added List
+from call_context import CallContext
 from utils import client_log as util_client_log # For client_log, client_image, client_html
 from utils import execute_client_command_awaitable, execute_stream_awaitable, format_json_log # For client_command and streaming
 import uuid
@@ -28,11 +29,8 @@ _entry_point_name_var: contextvars.ContextVar[Optional[str]] = contextvars.Conte
 
 _user_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_user_var", default=None)
 _session_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_session_id_var", default=None)
-_game_key_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_game_key_var", default=None)
 _command_seq_var: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar("_command_seq_var", default=None)
 _shell_path_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_shell_path_var", default=None)
-_user_game_id_var: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar("_user_game_id_var", default=None)
-_caller_shell_path_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_caller_shell_path_var", default=None)
 
 # Owner of the remote server instance
 _owner: Optional[str] = ""
@@ -104,7 +102,6 @@ class _SessionSharedContainer:
         if not session_id:
             raise RuntimeError("session_shared requires a session context (no session_id set)")
         return f"__session:{session_id}:{key}"
-
     def get(self, key, default=None):
         """Get a value scoped to the current session"""
         return self._backing.get(self._scoped_key(key), default)
@@ -299,10 +296,6 @@ def get_session_id() -> Optional[str]:
     """Returns the session_id for this function call"""
     return _session_id_var.get()
 
-def get_game_key() -> Optional[str]:
-    """Returns the game_key for this function call (a game may span multiple sessions)"""
-    return _game_key_var.get()
-
 def get_caller() -> Optional[str]:
     """Returns the username who called this function"""
     return _user_var.get()
@@ -350,68 +343,39 @@ def _set_owner_usernames(usernames: List[str]):
 
 def set_context(
         client_log_func: Callable,
-        request_id: Optional[str],
-        client_id: Optional[str],
         entry_point_name: str,
-        user: Optional[str] = None,
-        session_id: Optional[str] = None,
-        game_key: Optional[str] = None,
-        command_seq: Optional[int] = None,
-        shell_path: Optional[str] = None):
-    """Sets all context variables and returns a tuple of their tokens for resetting."""
+        ctx: CallContext):
+    """Sets all context variables from a CallContext and returns reset tokens."""
     client_log_token = _client_log_var.set(client_log_func)
-    request_id_token = _request_id_var.set(request_id)
-    client_id_token = _client_id_var.set(client_id)
+    request_id_token = _request_id_var.set(ctx.request_id)
+    client_id_token = _client_id_var.set(ctx.client_id)
     entry_point_token = _entry_point_name_var.set(entry_point_name)
+    user_token = _user_var.set(ctx.user)
+    session_id_token = _session_id_var.set(ctx.session_id)
+    command_seq_token = _command_seq_var.set(ctx.command_seq)
+    shell_path_token = _shell_path_var.set(ctx.shell_path)
 
-    # Handle optional user context
-    # Ensure _user_var is always set, even if to None, to get a valid token for reset_context
-    actual_user = user if user is not None else None # Explicitly use None if user is not provided
-    user_token = _user_var.set(actual_user)
-
-    # Handle optional session_id context
-    # Ensure _session_id_var is always set, even if to None, to get a valid token for reset_context
-    actual_session_id = session_id if session_id is not None else None # Explicitly use None if session_id is not provided
-    session_id_token = _session_id_var.set(actual_session_id)
-
-    # Handle optional game_key context (a game may span multiple sessions)
-    actual_game_key = game_key if game_key is not None else None
-    game_key_token = _game_key_var.set(actual_game_key)
-
-    # Handle optional command_seq context
-    # Ensure _command_seq_var is always set, even if to None, to get a valid token for reset_context
-    actual_command_seq = command_seq if command_seq is not None else None # Explicitly use None if command_seq is not provided
-    command_seq_token = _command_seq_var.set(actual_command_seq)
-
-    # Handle optional shell_path context
-    actual_shell_path = shell_path if shell_path is not None else None
-    shell_path_token = _shell_path_var.set(actual_shell_path)
-
-    return (client_log_token, request_id_token, client_id_token, entry_point_token, user_token, session_id_token, game_key_token, command_seq_token, shell_path_token)
+    return (client_log_token, request_id_token, client_id_token, entry_point_token, user_token, session_id_token, command_seq_token, shell_path_token)
 
 # use sendChatter to send commands directly from browser
 
 def reset_context(tokens: tuple):
     """Resets the context variables using the provided tuple of tokens."""
-    # Expected order: client_log, request_id, client_id, entry_point, user, session_id, game_key, command_seq, shell_path
-    if not isinstance(tokens, tuple) or len(tokens) != 9:
-        logger.error(f"reset_context expected a tuple of 9 tokens, got {tokens}")
-        # Add more robust error handling or logging as needed
+    # Expected order: client_log, request_id, client_id, entry_point, user, session_id, command_seq, shell_path
+    if not isinstance(tokens, tuple) or len(tokens) != 8:
+        logger.error(f"reset_context expected a tuple of 8 tokens, got {tokens}")
         return
 
-    # Unpack tokens
-    client_log_token, request_id_token, client_id_token, entry_point_token, user_token, session_id_token, game_key_token, command_seq_token, shell_path_token = tokens
+    client_log_token, request_id_token, client_id_token, entry_point_token, user_token, session_id_token, command_seq_token, shell_path_token = tokens
 
-    # Reset each context variable if its token is present (not strictly necessary with .set(None) giving a token)
     _client_log_var.reset(client_log_token)
     _request_id_var.reset(request_id_token)
     _client_id_var.reset(client_id_token)
     _entry_point_name_var.reset(entry_point_token)
-    _user_var.reset(user_token) # user_token will be valid even if user was None
-    _session_id_var.reset(session_id_token) # session_id_token will be valid even if session_id was None
-    _game_key_var.reset(game_key_token) # game_key_token will be valid even if game_key was None
-    _command_seq_var.reset(command_seq_token) # command_seq_token will be valid even if command_seq was None
-    _shell_path_var.reset(shell_path_token) # shell_path_token will be valid even if shell_path was None
+    _user_var.reset(user_token)
+    _session_id_var.reset(session_id_token)
+    _command_seq_var.reset(command_seq_token)
+    _shell_path_var.reset(shell_path_token)
 
 
 # --- Utility Functions ---

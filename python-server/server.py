@@ -19,6 +19,7 @@ import secrets
 import base64
 import mimetypes
 from utils import clean_filename, format_json_log, parse_search_term, write_tools_debug_file
+from call_context import CallContext
 from PIDManager import PIDManager
 from typing import Any, Callable, Dict, List, Optional, Union
 from dataclasses import dataclass
@@ -859,9 +860,7 @@ class DynamicAdditionServer(Server):
         try:
             result = await self.function_manager.function_call(
                 name='index',
-                client_id=None,
-                request_id=None,
-                user=None,
+                ctx=CallContext(),
                 app=self.function_manager._path_to_app_name(app_name) if app_name else None,
             )
             if isinstance(result, list):
@@ -2123,10 +2122,10 @@ class DynamicAdditionServer(Server):
         actual_function_name: str,
         args: dict,
         parsed_app_name: Optional[str],
-        client_id: Optional[str],
-        request_id: Optional[str],
-        user: Optional[str],
+        ctx: CallContext,
     ) -> List[str]:
+        client_id = ctx.client_id
+        user = ctx.user
         decorators_list: List[str] = []
 
         # Security check: Special handling for _function_get with @copy decorator
@@ -2172,11 +2171,9 @@ class DynamicAdditionServer(Server):
                 try:
                     is_allowed = await self.function_manager.function_call(
                         name=protection_name,
-                        client_id=client_id,
-                        request_id=request_id,
-                        user=user,
+                        ctx=ctx,
                         app=None,
-                        args={'user': user}
+                        args={'user': user},
                     )
 
                     if not is_allowed:
@@ -2254,12 +2251,12 @@ class DynamicAdditionServer(Server):
         self,
         actual_function_name: str,
         args: dict,
-        client_id: Optional[str],
-        request_id: Optional[str],
-        user: Optional[str],
-        session_id: Optional[str],
-        game_key: Optional[str] = None,
+        ctx: CallContext,
     ) -> Any:
+        client_id = ctx.client_id
+        request_id = ctx.request_id
+        user = ctx.user
+        session_id = ctx.session_id
         if actual_function_name == "_function_set":
             logger.debug(f"---> Calling built-in: function_set")
             extracted_name, result_messages = await self.function_manager.function_set(args, self)
@@ -2613,13 +2610,9 @@ class DynamicAdditionServer(Server):
                 try:
                     return await self.function_manager.function_call(
                         name=wrapper_name,
-                        client_id=client_id,
-                        request_id=request_id,
-                        user=user,
-                        session_id=session_id,
-                        game_key=game_key,
+                        ctx=ctx,
                         app=None,
-                        args={}
+                        args={},
                     )
                 finally:
                     if hasattr(atlantis, wrapper_name):
@@ -2654,13 +2647,9 @@ class DynamicAdditionServer(Server):
                 try:
                     return await self.function_manager.function_call(
                         name=wrapper_name,
-                        client_id=client_id,
-                        request_id=request_id,
-                        user=user,
-                        session_id=session_id,
-                        game_key=game_key,
+                        ctx=ctx,
                         app=None,
-                        args={"filename": filename, "filetype": filetype, "base64Content": base64Content}
+                        args={"filename": filename, "filetype": filetype, "base64Content": base64Content},
                     )
                 finally:
                     if hasattr(atlantis, wrapper_name):
@@ -2844,14 +2833,11 @@ async def index():
         args: dict,
         parsed_app_name: Optional[str],
         decorators_list: List[str],
-        client_id: Optional[str],
-        request_id: Optional[str],
-        user: Optional[str],
-        session_id: Optional[str],
-        game_key: Optional[str],
-        command_seq: Optional[int],
-        shell_path: Optional[str],
+        ctx: CallContext,
     ) -> Any:
+        client_id = ctx.client_id
+        request_id = ctx.request_id
+        user = ctx.user
         logger.info(f"🔧 CALLING LOCAL DYNAMIC FUNCTION: {name}")
 
         if name in _runtime_errors:
@@ -2868,13 +2854,7 @@ async def index():
             final_args = args.copy() if args else {}
             result_raw = await self.function_manager.function_call(
                 name=actual_function_name,
-                client_id=client_id,
-                request_id=request_id,
-                user=user,
-                session_id=session_id,
-                game_key=game_key,
-                command_seq=command_seq,
-                shell_path=shell_path,
+                ctx=ctx,
                 app=parsed_app_name,
                 args=final_args,
             )
@@ -2888,20 +2868,21 @@ async def index():
         except Exception:
             raise
 
-    async def _execute_tool(self, name: str, args: dict, client_id: Optional[str] = None, request_id: Optional[str] = None, user: Optional[str] = None, session_id: Optional[str] = None, game_key: Optional[str] = None, command_seq: Optional[int] = None, shell_path: Optional[str] = None) -> ToolResult:
+    async def _execute_tool(self, name: str, args: dict, ctx: CallContext) -> ToolResult:
         """Core logic to handle a tool call. Returns ToolResult with raw value.
 
         MCP response formatting (content + structuredContent) happens in
         _handle_tools_call() - the ONE place for all MCP formatting.
         """
+        client_id = ctx.client_id
+        request_id = ctx.request_id
+        user = ctx.user
         logger.info(f"🔧 EXECUTING TOOL: {name}")
         logger.debug(f"WITH ARGUMENTS: {args}")
         if user:
             logger.debug(f"CALLED BY USER: {user}")
-        if session_id:
-            logger.debug(f"SESSION ID: {session_id}")
-        if game_key:
-            logger.debug(f"GAME KEY: {game_key}")
+        if ctx.session_id:
+            logger.debug(f"SESSION ID: {ctx.session_id}")
         # ---> ADDED: Log entry and raw args
         logger.debug(f"---> _execute_tool ENTERED. Name: '{name}', Raw Args:\n{format_json_log(args) if isinstance(args, dict) else args!r}") # <-- ADD THIS LINE
 
@@ -2938,19 +2919,13 @@ async def index():
                 actual_function_name=actual_function_name,
                 args=args,
                 parsed_app_name=parsed_app_name,
-                client_id=client_id,
-                request_id=request_id,
-                user=user,
+                ctx=ctx,
             )
 
             result_raw = await self._execute_builtin_tool(
                 actual_function_name=actual_function_name,
                 args=args,
-                client_id=client_id,
-                request_id=request_id,
-                user=user,
-                session_id=session_id,
-                game_key=game_key,
+                ctx=ctx,
             )
 
             if result_raw is BUILTIN_NOT_HANDLED:
@@ -2973,13 +2948,7 @@ async def index():
                         args=args,
                         parsed_app_name=parsed_app_name,
                         decorators_list=decorators_list,
-                        client_id=client_id,
-                        request_id=request_id,
-                        user=user,
-                        session_id=session_id,
-                        game_key=game_key,
-                        command_seq=command_seq,
-                        shell_path=shell_path,
+                        ctx=ctx,
                     )
                 else:
                     logger.error(f"❓ Unknown or unhandled tool name: {name}")
@@ -3080,12 +3049,7 @@ async def index():
         tool_name = params.get("name")
         tool_args = params.get("arguments", {}) # MCP spec uses 'arguments'
 
-        # Extract optional context fields
-        user = params.get("user", None)
-        session_id = params.get("session_id", None)
-        game_key = params.get("game_key", params.get("gameKey", None))
-        command_seq = params.get("command_seq", None)
-        shell_path = params.get("shell_path", None)
+        ctx = CallContext.from_params(params, client_id=client_id, request_id=request_id)
 
         # Validate required parameters
         if tool_name is None:
@@ -3098,12 +3062,10 @@ async def index():
         # Log the call
         logger.info(f"🔧 Processing 'tools/call' for tool '{tool_name}' with args: {tool_args}")
         logger.debug(f"Tool name: '{tool_name}', Arguments:\n{format_json_log(tool_args)}")
-        if user:
-            logger.debug(f"Call made by user: {user}")
-        if session_id:
-            logger.debug(f"Call made with session_id: {session_id}")
-        if game_key:
-            logger.debug(f"Call made with game_key: {game_key}")
+        if ctx.user:
+            logger.debug(f"Call made by user: {ctx.user}")
+        if ctx.session_id:
+            logger.debug(f"Call made with session_id: {ctx.session_id}")
         if for_cloud:
             envelope = {"jsonrpc": "2.0", "id": request_id, "method": "tools/call", "params": params}
             logger.info(f"☁️ CLOUD TOOL CALL ENVELOPE:\n{format_json_log(envelope)}")
@@ -3161,15 +3123,11 @@ async def index():
                 try:
                     # Set logging context so log lines show [reqId-shell] instead of [------]
                     lobster_shell = getattr(self.cloud_client, 'lobster_shell_path', None) if hasattr(self, 'cloud_client') and self.cloud_client else None
+                    lobster_ctx = ctx.model_copy(update={"shell_path": lobster_shell or ctx.shell_path})
                     context_tokens = atlantis.set_context(
                         client_log_func=lambda message, level="INFO", message_type="text": None,
-                        request_id=request_id,
-                        client_id=client_id,
                         entry_point_name=f"lobster_{tool_name}",
-                        user=user,
-                        session_id=session_id,
-                        game_key=game_key,
-                        shell_path=lobster_shell or shell_path,
+                        ctx=lobster_ctx,
                     )
                     lobster_req_id = self.cloud_client.lobster_request_id if hasattr(self, 'cloud_client') and self.cloud_client else None
                     return await handle_local_lobster_tool_call(
@@ -3211,13 +3169,7 @@ async def index():
             tool_result: ToolResult = await self._execute_tool(
                 name=tool_name,
                 args=tool_args,
-                client_id=client_id,
-                request_id=request_id,
-                user=user,
-                session_id=session_id,
-                game_key=game_key,
-                command_seq=command_seq,
-                shell_path=shell_path
+                ctx=ctx,
             )
 
             logger.info(f"🎯 Tool '{tool_name}' execution completed")

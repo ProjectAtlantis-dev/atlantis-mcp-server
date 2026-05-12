@@ -23,6 +23,7 @@ import traceback
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 
+from call_context import CallContext
 from state import logger
 
 from ColoredFormatter import CYAN, RESET
@@ -1853,16 +1854,16 @@ async def {name}():
 
             return self._function_queues[function_key]
 
-    async def function_call(self, name: str, client_id: Optional[str], request_id: Optional[str], user: Optional[str] = None, **kwargs) -> Any:
+    async def function_call(self, name: str, ctx: CallContext, app: Optional[str] = None, args: Optional[dict] = None) -> Any:
         """
         Public API for calling a dynamic function.
         Directly executes the function (bypassing queue for now).
 
         Returns the function's return value.
         """
-        return await self._execute_function(name, client_id, request_id, user, **kwargs)
+        return await self._execute_function(name, ctx, app=app, args=args)
 
-    async def function_call_queued(self, name: str, client_id: Optional[str], request_id: Optional[str], user: Optional[str] = None, **kwargs) -> Any:
+    async def function_call_queued(self, name: str, ctx: CallContext, app: Optional[str] = None, args: Optional[dict] = None) -> Any:
         """
         Queued version of function_call. Automatically queues the call
         so that each function's invocations run sequentially (one at a time).
@@ -1873,11 +1874,7 @@ async def {name}():
         Returns the function's return value.
         """
         # Build function key for queueing - use app+name to ensure proper isolation
-        app_name = kwargs.get("app")
-        if app_name:
-            function_key = f"{app_name}/{name}"
-        else:
-            function_key = name
+        function_key = f"{app}/{name}" if app else name
 
         logger.info(f"Queueing call to function: {function_key}")
 
@@ -1887,26 +1884,24 @@ async def {name}():
         # Create a future to receive the result
         result_future = asyncio.Future()
 
-        # Package all the call arguments
         call_args = {
             'name': name,
-            'client_id': client_id,
-            'request_id': request_id,
-            'user': user,
-            **kwargs
+            'ctx': ctx,
+            'app': app,
+            'args': args,
         }
 
         # Add to queue
         await queue.put((result_future, call_args))
-        logger.info(f"Call queued for {function_key} (queue size: {queue.qsize()}) - request_id: {request_id}")
+        logger.info(f"Call queued for {function_key} (queue size: {queue.qsize()}) - request_id: {ctx.request_id}")
 
         # Wait for the result from the queue processor
-        logger.debug(f"Waiting for result from queue processor for {function_key} - request_id: {request_id}")
+        logger.debug(f"Waiting for result from queue processor for {function_key} - request_id: {ctx.request_id}")
         result = await result_future
-        logger.debug(f"Received result from queue processor for {function_key} - request_id: {request_id}, type: {type(result)}")
+        logger.debug(f"Received result from queue processor for {function_key} - request_id: {ctx.request_id}, type: {type(result)}")
         return result
 
-    async def _execute_function(self, name: str, client_id: Optional[str], request_id: Optional[str], user: Optional[str] = None, **kwargs) -> Any:
+    async def _execute_function(self, name: str, ctx: CallContext, app: Optional[str] = None, args: Optional[dict] = None) -> Any:
         """
         Internal method that actually executes a dynamic function.
         This is called by the queue processor to run functions sequentially.
@@ -1920,13 +1915,15 @@ async def {name}():
         """
         # Function name is now pre-parsed by server.py, so 'name' is the actual function name
         actual_function_name = name
+        client_id = ctx.client_id
+        request_id = ctx.request_id
+        user = ctx.user
 
         secure_name = utils.clean_filename(actual_function_name)
         if not secure_name:
             raise ValueError(f"Invalid function name '{actual_function_name}' for calling.")
 
-        # Extract app name from kwargs (already set by server.py parsing logic)
-        app_name = kwargs.get("app")
+        app_name = app
 
         # Special handling for click and upload callback functions
         if actual_function_name.startswith("_click_callback_") or actual_function_name.startswith("_upload_callback_"):
@@ -1944,21 +1941,15 @@ async def {name}():
                         message=message,
                         level=level
                     ),
-                    request_id=request_id,
-                    client_id=client_id,
                     entry_point_name=actual_function_name,
-                    user=user,
-                    session_id=kwargs.get("session_id"),
-                    game_key=kwargs.get("game_key"),
-                    command_seq=kwargs.get("command_seq"),
-                    shell_path=kwargs.get("shell_path")
+                    ctx=ctx,
                 )
 
                 try:
                     # Execute the callback with proper atlantis context
                     if actual_function_name.startswith("_upload_callback_"):
                         # Upload callbacks get arguments
-                        upload_args = kwargs.get("args", {})
+                        upload_args = args or {}
                         filename = upload_args.get("filename")
                         filetype = upload_args.get("filetype")
                         base64Content = upload_args.get("base64Content")
@@ -2114,14 +2105,12 @@ async def {name}():
                     logger.info(f"🔐 Calling protection function '{protection_name}' for user '{user}'")
 
                     # Call protection function using the same function_call mechanism
-                    # Protection functions must be top-level (app_name=None)
+                    # Protection functions must be top-level (app=None)
                     is_allowed = await self.function_call(
                         name=protection_name,
-                        client_id=client_id,
-                        request_id=request_id,
-                        user=user,
-                        app=None,  # Protection functions must be top-level
-                        args={'user': user}  # Pass user as argument to protection function
+                        ctx=ctx,
+                        app=None,
+                        args={'user': user},
                     )
 
                     # Check the result
@@ -2148,26 +2137,10 @@ async def {name}():
             logger.debug(f"Prepared bound_client_log for context. Request ID: {request_id}, Client ID: {client_id}")
             logger.debug(f"Setting context variables via atlantis. User: {user}")
 
-            # Extract session_id from kwargs if present
-            session_id = kwargs.get('session_id', None)
-            # Extract game_key from kwargs if present (a game may span multiple sessions)
-            game_key = kwargs.get('game_key', None)
-            # Extract command_seq from kwargs if present
-            command_seq = kwargs.get('command_seq', None)
-
-            # Extract shell_path from kwargs if present
-            shell_path = kwargs.get('shell_path', None)
-
             context_tokens = atlantis.set_context(
                 client_log_func=bound_client_log,
-                request_id=request_id,
-                client_id=client_id,
-                user=user,  # Pass the user who made the call - only works if atlantis.py has been updated
-                session_id=session_id,  # Pass the session_id
-                game_key=game_key,  # Pass the game_key (game may span multiple sessions)
-                command_seq=command_seq,  # Pass the command_seq
-                shell_path=shell_path,  # Pass the shell_path
-                entry_point_name=actual_function_name # Pass the actual function name (not filename)
+                entry_point_name=actual_function_name,
+                ctx=ctx,
             )
 
 
@@ -2182,8 +2155,7 @@ async def {name}():
             if user:
                 logger.debug(f"Function '{actual_function_name}' will be called with user context: {user}")
 
-            # Extract args from the kwargs dictionary
-            function_args = kwargs.get('args', {})
+            function_args = args or {}
             logger.info(f"Calling dynamic function '{actual_function_name}' with args: {function_args}")
             logger.info(f"📊 Args as JSON: {utils.format_json_log(function_args)}")
 

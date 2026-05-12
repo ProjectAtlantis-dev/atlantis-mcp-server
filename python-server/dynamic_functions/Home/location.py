@@ -191,10 +191,11 @@ async def move_character(game_key: str, sid: str, location: str, is_bot: bool) -
             location=location,
         )
         logger.info(f"[game] New player {sid} entered {entry_location}")
-        # Owner movement updates camera and background
-        if atlantis.is_owner(sid):
-            from dynamic_functions.Home.camera import camera_set
-            camera_set(game_key, location)
+        # Track the moving character's own camera; refresh the background only
+        # for the client whose caller is actually moving themselves.
+        from dynamic_functions.Home.camera import camera_set
+        camera_set(game_key, location, sid)
+        if atlantis.get_caller() == sid:
             await _set_location_background(dest)
         return location
 
@@ -230,10 +231,11 @@ async def move_character(game_key: str, sid: str, location: str, is_bot: bool) -
         location=location,
     )
     logger.info(f"[game] {sid} moved from {current} to {location}")
-    # Owner movement updates camera and background
-    if atlantis.is_owner(sid):
-        from dynamic_functions.Home.camera import camera_set
-        camera_set(game_key, location)
+    # Track the moving character's own camera; refresh the background only
+    # for the client whose caller is actually moving themselves.
+    from dynamic_functions.Home.camera import camera_set
+    camera_set(game_key, location, sid)
+    if atlantis.get_caller() == sid:
         await _set_location_background(dest)
     return location
 
@@ -373,3 +375,4 @@ async def look(game_key: str, location: str = "") -> str:
     camera_set(game_key, location)
     await _set_location_background(dest)
     return location
+

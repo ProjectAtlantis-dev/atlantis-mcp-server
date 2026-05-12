@@ -31,6 +31,8 @@ _session_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
 _game_key_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_game_key_var", default=None)
 _command_seq_var: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar("_command_seq_var", default=None)
 _shell_path_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_shell_path_var", default=None)
+_user_game_id_var: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar("_user_game_id_var", default=None)
+_caller_shell_path_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_caller_shell_path_var", default=None)
 
 # Owner of the remote server instance
 _owner: Optional[str] = ""

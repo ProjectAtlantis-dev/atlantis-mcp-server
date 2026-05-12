@@ -6,9 +6,9 @@ import os
 import uuid
 from typing import Dict, Any
 
-from dynamic_functions.Home.location import get_positions, set_positions, location_list
-from dynamic_functions.Home.character import _load_characters, _save_characters, human_spawn
-from dynamic_functions.Home.role import role_list, role_default_location
+from dynamic_functions.Home.location import get_positions, location_list
+from dynamic_functions.Home.character import _load_characters, human_spawn
+from dynamic_functions.Home.role import role_list
 from dynamic_functions.Home.bot import bot_list, bot_spawn
 
 
@@ -18,8 +18,6 @@ async def game_run(game_key: str) -> None:
     """Enter an existing game"""
     from dynamic_functions.Home.common import require_game_dir
     require_game_dir(game_key)
-    await bot_spawn(game_key, 'kitty', 'Receptionist')
-    await atlantis.client_command(f'/callback set chat chat_callback {game_key}')
     await human_spawn(game_key, 'Guest')
 
 
@@ -28,7 +26,7 @@ async def game_run(game_key: str) -> None:
 async def game_button() -> Dict[str, Any]:
     """Create a new game session"""
     settings = await atlantis.client_command("@game_new")
-    await atlantis.client_command("cursor merge")
+    #await atlantis.client_command("cursor join")
     return settings
 
 
@@ -53,19 +51,15 @@ async def game_new() -> Dict[str, Any]:
         'owner': atlantis.get_caller() or '',
     })
 
-    # Seed initial state: Kitty as Receptionist, placed at her role's default location.
-    kitty_role = "Receptionist"
-    kitty_location = role_default_location(kitty_role) or ""
-    _save_characters(game_key, [
-        {"sid": "kitty", "isBot": True, "role": kitty_role},
-    ])
-    set_positions(game_key, {"kitty": kitty_location})
+    # Spawn the Receptionist (Kitty) at her role's default location.
+    await bot_spawn(game_key, 'kitty', 'Receptionist')
 
     # Register the chat callback bound to this game_key so it survives restart
     # via the boot-time re-registration scan.
     await atlantis.client_command(f'/callback set chat chat_callback {game_key}')
 
     await atlantis.client_log(f"Game created: {game_key}")
+
     return {
         "game_key": game_key,
         "join_password": join_password,

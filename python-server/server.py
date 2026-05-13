@@ -862,6 +862,7 @@ class DynamicAdditionServer(Server):
                 name='index',
                 ctx=CallContext(),
                 app=self.function_manager._path_to_app_name(app_name) if app_name else None,
+                setup_context=False,  # catalog probe — no real caller
             )
             if isinstance(result, list):
                 logger.info(f"🔍 Dynamic index for app '{app_name}' returned {len(result)} tool(s): {result}")
@@ -2256,7 +2257,6 @@ class DynamicAdditionServer(Server):
         client_id = ctx.client_id
         request_id = ctx.request_id
         user = ctx.user
-        session_id = ctx.session_id
         if actual_function_name == "_function_set":
             logger.debug(f"---> Calling built-in: function_set")
             extracted_name, result_messages = await self.function_manager.function_set(args, self)
@@ -2881,8 +2881,8 @@ async def index():
         logger.debug(f"WITH ARGUMENTS: {args}")
         if user:
             logger.debug(f"CALLED BY USER: {user}")
-        if ctx.session_id:
-            logger.debug(f"SESSION ID: {ctx.session_id}")
+        if ctx.session_key:
+            logger.debug(f"SESSION KEY: {ctx.session_key}")
         # ---> ADDED: Log entry and raw args
         logger.debug(f"---> _execute_tool ENTERED. Name: '{name}', Raw Args:\n{format_json_log(args) if isinstance(args, dict) else args!r}") # <-- ADD THIS LINE
 
@@ -3064,8 +3064,8 @@ async def index():
         logger.debug(f"Tool name: '{tool_name}', Arguments:\n{format_json_log(tool_args)}")
         if ctx.user:
             logger.debug(f"Call made by user: {ctx.user}")
-        if ctx.session_id:
-            logger.debug(f"Call made with session_id: {ctx.session_id}")
+        if ctx.session_key:
+            logger.debug(f"Call made with session_key: {ctx.session_key}")
         if for_cloud:
             envelope = {"jsonrpc": "2.0", "id": request_id, "method": "tools/call", "params": params}
             logger.info(f"☁️ CLOUD TOOL CALL ENVELOPE:\n{format_json_log(envelope)}")
@@ -3123,7 +3123,7 @@ async def index():
                 try:
                     # Set logging context so log lines show [reqId-shell] instead of [------]
                     lobster_shell = getattr(self.cloud_client, 'lobster_shell_path', None) if hasattr(self, 'cloud_client') and self.cloud_client else None
-                    lobster_ctx = ctx.model_copy(update={"shell_path": lobster_shell or ctx.shell_path})
+                    lobster_ctx = ctx.model_copy(update={"caller_shell_path": lobster_shell or ctx.caller_shell_path})
                     context_tokens = atlantis.set_context(
                         client_log_func=lambda message, level="INFO", message_type="text": None,
                         entry_point_name=f"lobster_{tool_name}",

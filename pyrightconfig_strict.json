@@ -1,0 +1,11 @@
+{
+  "include": ["python-server"],
+  "exclude": ["**/node_modules", "**/__pycache__", "**/venv", "**/.venv", "**/dynamic_functions copy*"],
+  "extraPaths": ["python-server"],
+  "pythonVersion": "3.13",
+  "pythonPlatform": "Darwin",
+  "venvPath": "python-server",
+  "venv": "venv",
+  "typeCheckingMode": "basic",
+  "reportAttributeAccessIssue": "error"
+}

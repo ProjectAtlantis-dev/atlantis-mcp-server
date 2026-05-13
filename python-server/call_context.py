@@ -14,9 +14,27 @@ class CallContext(BaseModel):
     client_id: Optional[str] = None
     request_id: Optional[str] = None
     user: Optional[str] = None
-    session_id: Optional[str] = None
-    command_seq: Optional[int] = None
-    shell_path: Optional[str] = None
+    user_game_id: Optional[int] = None
+    exec_shell_path: Optional[str] = None
+    caller_shell_path: Optional[str] = None
+
+    @property
+    def session_key(self) -> str:
+        """Stable, locally-derived session identifier.
+
+        Composed from (user_game_id, user, caller_shell_path). Raises if any
+        component is missing — a partial session_key is meaningless.
+        """
+        missing = [
+            n for n, v in (
+                ("user_game_id", self.user_game_id),
+                ("user", self.user),
+                ("caller_shell_path", self.caller_shell_path),
+            ) if not v
+        ]
+        if missing:
+            raise ValueError(f"Cannot derive session_key: missing {missing}")
+        return f"{self.user_game_id}:{self.user}:{self.caller_shell_path}"
 
     @classmethod
     def from_params(
@@ -29,7 +47,7 @@ class CallContext(BaseModel):
             client_id=client_id,
             request_id=request_id,
             user=params.get("user"),
-            session_id=params.get("session_id"),
-            command_seq=params.get("command_seq"),
-            shell_path=params.get("shell_path"),
+            user_game_id=params.get("user_game_id"),
+            exec_shell_path=params.get("exec_shell_path"),
+            caller_shell_path=params.get("caller_shell_path"),
         )

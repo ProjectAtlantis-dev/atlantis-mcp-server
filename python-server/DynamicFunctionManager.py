@@ -284,22 +284,25 @@ class DynamicFunctionManager:
         # Install decorator identities into builtins so they're available to any module
         # loaded via regular Python imports (e.g. Bot modules importing from Tools)
         import builtins
-        builtins.visible = visible
-        builtins.chat = _mcp_identity_decorator
-        builtins.text = text
-        builtins.public = _mcp_identity_decorator
-        builtins.session = _mcp_identity_decorator
-        builtins.game = _mcp_identity_decorator
-        builtins.app = app
-        builtins.location = location
-        builtins.button = button
-        builtins.tick = tick
-        builtins.protected = protected
-        builtins.index = index
-        builtins.price = price
-        builtins.copy = copy
-        builtins.dynamic = dynamic
-        builtins.exclude = exclude
+        for _name, _val in (
+            ("visible", visible),
+            ("chat", _mcp_identity_decorator),
+            ("text", text),
+            ("public", _mcp_identity_decorator),
+            ("session", _mcp_identity_decorator),
+            ("game", _mcp_identity_decorator),
+            ("app", app),
+            ("location", location),
+            ("button", button),
+            ("tick", tick),
+            ("protected", protected),
+            ("index", index),
+            ("price", price),
+            ("copy", copy),
+            ("dynamic", dynamic),
+            ("exclude", exclude),
+        ):
+            setattr(builtins, _name, _val)
 
         # State that was previously global
         self.functions_dir = functions_dir
@@ -1854,14 +1857,18 @@ async def {name}():
 
             return self._function_queues[function_key]
 
-    async def function_call(self, name: str, ctx: CallContext, app: Optional[str] = None, args: Optional[dict] = None) -> Any:
+    async def function_call(self, name: str, ctx: CallContext, app: Optional[str] = None, args: Optional[dict] = None, setup_context: bool = True) -> Any:
         """
         Public API for calling a dynamic function.
         Directly executes the function (bypassing queue for now).
 
+        setup_context=False is for catalog-style invocations (e.g. tool-list
+        index probes) where there is no real caller and atlantis contextvars
+        must not be populated.
+
         Returns the function's return value.
         """
-        return await self._execute_function(name, ctx, app=app, args=args)
+        return await self._execute_function(name, ctx, app=app, args=args, setup_context=setup_context)
 
     async def function_call_queued(self, name: str, ctx: CallContext, app: Optional[str] = None, args: Optional[dict] = None) -> Any:
         """
@@ -1901,7 +1908,7 @@ async def {name}():
         logger.debug(f"Received result from queue processor for {function_key} - request_id: {ctx.request_id}, type: {type(result)}")
         return result
 
-    async def _execute_function(self, name: str, ctx: CallContext, app: Optional[str] = None, args: Optional[dict] = None) -> Any:
+    async def _execute_function(self, name: str, ctx: CallContext, app: Optional[str] = None, args: Optional[dict] = None, setup_context: bool = True) -> Any:
         """
         Internal method that actually executes a dynamic function.
         This is called by the queue processor to run functions sequentially.
@@ -2133,15 +2140,18 @@ async def {name}():
 
         try:
             # --- Context Setting ---
-            bound_client_log = functools.partial(utils.client_log, request_id=request_id, client_id_for_routing=client_id)
-            logger.debug(f"Prepared bound_client_log for context. Request ID: {request_id}, Client ID: {client_id}")
-            logger.debug(f"Setting context variables via atlantis. User: {user}")
+            if setup_context:
+                bound_client_log = functools.partial(utils.client_log, request_id=request_id, client_id_for_routing=client_id)
+                logger.debug(f"Prepared bound_client_log for context. Request ID: {request_id}, Client ID: {client_id}")
+                logger.debug(f"Setting context variables via atlantis. User: {user}")
 
-            context_tokens = atlantis.set_context(
-                client_log_func=bound_client_log,
-                entry_point_name=actual_function_name,
-                ctx=ctx,
-            )
+                context_tokens = atlantis.set_context(
+                    client_log_func=bound_client_log,
+                    entry_point_name=actual_function_name,
+                    ctx=ctx,
+                )
+            else:
+                logger.debug(f"Skipping atlantis context setup for '{actual_function_name}' (catalog-style call)")
 
 
             # --- Function Execution ---

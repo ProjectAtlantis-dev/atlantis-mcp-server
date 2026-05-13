@@ -18,6 +18,7 @@ import atlantis
 import functools
 import inspect
 import importlib
+import importlib.util
 import traceback
 
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -601,14 +602,7 @@ class DynamicFunctionManager:
             return f"{value_str}.{node.attr}"
         elif isinstance(node, ast.Subscript):
             value_str = self._ast_node_to_string(node.value)
-            # Handle slice difference between Python versions
-            slice_node = node.slice # Corrected variable name
-            if hasattr(ast, 'Index') and isinstance(slice_node, ast.Index): # Python < 3.9
-                slice_inner_node = slice_node.value
-            else: # Python 3.9+
-                slice_inner_node = slice_node
-
-            slice_str = self._ast_node_to_string(slice_inner_node)
+            slice_str = self._ast_node_to_string(node.slice)
             return f"{value_str}[{slice_str}]"
         elif isinstance(node, ast.Tuple): # For Tuple[A, B] or Union[A, B] slices
             elements = ", ".join([self._ast_node_to_string(el) for el in node.elts])
@@ -654,12 +648,7 @@ class DynamicFunctionManager:
         # Subscript types (List[T], Optional[T], Dict[K, V], Union[A, B])
         elif isinstance(annotation_node, ast.Subscript):
             container_node = annotation_node.value
-            # Handle slice difference between Python versions
-            slice_node = annotation_node.slice # Corrected variable name
-            if hasattr(ast, 'Index') and isinstance(slice_node, ast.Index): # Python < 3.9
-                slice_inner_node = slice_node.value
-            else: # Python 3.9+
-                slice_inner_node = slice_node
+            slice_inner_node = annotation_node.slice
 
             container_name = self._ast_node_to_string(container_node) # e.g., 'List', 'Optional', 'Union', 'Dict'
 
@@ -1939,8 +1928,8 @@ async def {name}():
                 callback_func = getattr(atlantis, actual_function_name)
 
                 # Set up atlantis context for the callback
-                context_tokens = atlantis.set_context(
-                    client_log_func=lambda message, level="INFO", message_type="text": utils.client_log(
+                context_ctx = ctx.model_copy(update={
+                    "client_log_func": lambda message, level="INFO", message_type="text": utils.client_log(
                         client_id_for_routing=client_id,
                         request_id=request_id,
                         entry_point_name=actual_function_name,
@@ -1948,9 +1937,9 @@ async def {name}():
                         message=message,
                         level=level
                     ),
-                    entry_point_name=actual_function_name,
-                    ctx=ctx,
-                )
+                    "entry_point_name": actual_function_name,
+                })
+                context_tokens = atlantis.set_context(context_ctx)
 
                 try:
                     # Execute the callback with proper atlantis context
@@ -2011,9 +2000,10 @@ async def {name}():
                 # --- Ensure Parent Package Exists in sys.modules ---
                 if PARENT_PACKAGE_NAME not in sys.modules:
                     logger.info(f"Creating namespace package entry for '{PARENT_PACKAGE_NAME}' in sys.modules")
-                    parent_module = importlib.util.module_from_spec(
-                        importlib.util.spec_from_loader(PARENT_PACKAGE_NAME, loader=None, is_package=True)
-                    )
+                    parent_spec = importlib.util.spec_from_loader(PARENT_PACKAGE_NAME, loader=None, is_package=True)
+                    if parent_spec is None:
+                        raise ImportError(f"Could not create package spec for {PARENT_PACKAGE_NAME}")
+                    parent_module = importlib.util.module_from_spec(parent_spec)
                     parent_module.__path__ = [self.functions_dir]
                     sys.modules[PARENT_PACKAGE_NAME] = parent_module
                 # --- End Parent Package Check ---
@@ -2145,11 +2135,11 @@ async def {name}():
                 logger.debug(f"Prepared bound_client_log for context. Request ID: {request_id}, Client ID: {client_id}")
                 logger.debug(f"Setting context variables via atlantis. User: {user}")
 
-                context_tokens = atlantis.set_context(
-                    client_log_func=bound_client_log,
-                    entry_point_name=actual_function_name,
-                    ctx=ctx,
-                )
+                context_ctx = ctx.model_copy(update={
+                    "client_log_func": bound_client_log,
+                    "entry_point_name": actual_function_name,
+                })
+                context_tokens = atlantis.set_context(context_ctx)
             else:
                 logger.debug(f"Skipping atlantis context setup for '{actual_function_name}' (catalog-style call)")
 

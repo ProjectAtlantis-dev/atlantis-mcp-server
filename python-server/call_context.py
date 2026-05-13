@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Callable, Optional
 from pydantic import BaseModel, ConfigDict
 
 
@@ -17,6 +17,8 @@ class CallContext(BaseModel):
     user_game_id: Optional[int] = None
     exec_shell_path: Optional[str] = None
     caller_shell_path: Optional[str] = None
+    client_log_func: Optional[Callable[..., Any]] = None
+    entry_point_name: Optional[str] = None
 
     @property
     def session_key(self) -> str:

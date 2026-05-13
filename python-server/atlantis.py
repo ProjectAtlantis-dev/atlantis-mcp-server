@@ -323,15 +323,12 @@ def _set_owner_usernames(usernames: List[str]):
     _owner_usernames = usernames
 
 
-def set_context(
-        client_log_func: Callable,
-        entry_point_name: str,
-        ctx: CallContext):
+def set_context(ctx: CallContext):
     """Sets all context variables from a CallContext and returns reset tokens."""
-    client_log_token = _client_log_var.set(client_log_func)
+    client_log_token = _client_log_var.set(ctx.client_log_func)
     request_id_token = _request_id_var.set(ctx.request_id)
     client_id_token = _client_id_var.set(ctx.client_id)
-    entry_point_token = _entry_point_name_var.set(entry_point_name)
+    entry_point_token = _entry_point_name_var.set(ctx.entry_point_name)
     user_token = _user_var.set(ctx.user)
     session_key_token = _session_key_var.set(ctx.session_key)
     caller_shell_path_token = _caller_shell_path_var.set(ctx.caller_shell_path)

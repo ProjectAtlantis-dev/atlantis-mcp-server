@@ -203,7 +203,7 @@ class DynamicServerManager:
             raise ValueError(error_msg)
 
         # Now validate the existing config
-        return await self.validate(config_txt)
+        return await self.server_validate(name)
 
 
     # Note: We're using the existing server_start method instead of a custom helper
@@ -536,23 +536,9 @@ class DynamicServerManager:
                                 if isinstance(e, BaseExceptionGroup):
                                     logger.error(f"[{name}] Error details:", exc_info=True)
 
-                                # Close the session if it exists
-                                if session is not None:
-                                    try:
-                                        await asyncio.wait_for(session.close(), timeout=5.0)
-                                    except Exception as close_err:
-                                        logger.debug(f"[{name}] Error closing session during cleanup: {close_err}")
                                 break
 
                         logger.info(f"[{name}] Shutdown event received. Cleaning up session...")
-
-                        # Close the session cleanly if we still have it
-                        if session is not None:
-                            try:
-                                await asyncio.wait_for(session.close(), timeout=5.0)
-                                logger.debug(f"[{name}] Session closed cleanly")
-                            except Exception as e:
-                                logger.warning(f"[{name}] Error closing session: {e}")
 
                     except asyncio.TimeoutError as timeout_err:
                         # Directly check for the uvx error - this is a common pattern in our server
@@ -612,12 +598,6 @@ class DynamicServerManager:
                             # Schedule cleanup
                             asyncio.create_task(_delayed_cleanup(name))
 
-                        # Close session if it exists but failed to initialize
-                        if session is not None:
-                            try:
-                                await session.close()
-                            except Exception:
-                                pass  # Ignore errors when closing an uninitialized session
                     except Exception as e:
                         error_message_str = str(e)
                         logger.error(f"[{name}] Error during session.initialize() or operation: {error_message_str}", exc_info=True)
@@ -669,12 +649,6 @@ class DynamicServerManager:
                         # Also store in _server_load_errors for persistence in tools/list
                         self._server_load_errors[name] = key_error
 
-                        # Close session if it exists but failed
-                        if session is not None:
-                            try:
-                                await asyncio.wait_for(session.close(), timeout=5.0)
-                            except Exception as close_err:
-                                logger.debug(f"[{name}] Error closing session after init failed: {close_err}")
                         # This exception means we should exit _run_mcp_client_session, so we let it proceed to finally
                         return # Exit the _run_mcp_client_session task
 
@@ -705,10 +679,6 @@ class DynamicServerManager:
             # Force-clear session reference to help with garbage collection
             if session is not None:
                 logger.debug(f"[{name}] Clearing session reference.")
-                try:
-                    await session.close()  # Ensure session is properly closed
-                except Exception as e:
-                    logger.debug(f"[{name}] Error closing session during cleanup: {e}")
                 session = None
 
             if name in self.server_tasks:

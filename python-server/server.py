@@ -13,6 +13,7 @@ import time
 import random
 import socket
 import socketio
+from socketio.exceptions import SocketIOError
 import argparse
 import uuid
 import secrets
@@ -1796,7 +1797,7 @@ class DynamicAdditionServer(Server):
 
             # Add annotations if missing
             if not hasattr(tool, 'annotations') or tool.annotations is None:
-                tool.annotations = {}
+                tool.annotations = ToolAnnotations()
                 #logger.debug(f"  -> Created empty annotations")
 
             # Handle annotations - preserve our custom ToolAnnotations objects
@@ -1822,35 +1823,18 @@ class DynamicAdditionServer(Server):
 
                     if hasattr(old_annotations, 'model_dump'):
                         # Handle Pydantic models - this preserves all fields including extra ones
-                        tool.annotations = old_annotations.model_dump()
+                        tool.annotations = ToolAnnotations(**old_annotations.model_dump())
                         logger.debug(f"  -> Converted Pydantic annotations to dict: {tool.annotations}")
                     elif hasattr(old_annotations, 'dict'):
                         # Handle older Pydantic models
-                        tool.annotations = old_annotations.dict()
+                        tool.annotations = ToolAnnotations(**old_annotations.dict())
                         logger.debug(f"  -> Converted Pydantic annotations to dict: {tool.annotations}")
                     elif hasattr(old_annotations, '__dict__'):
                         # Convert object attributes to dictionary (fallback for non-Pydantic objects)
-                        tool.annotations = old_annotations.__dict__.copy()
+                        tool.annotations = ToolAnnotations(**old_annotations.__dict__.copy())
                         logger.debug(f"  -> Converted annotations object to dict: {tool.annotations}")
                     else:
-                        # Try to convert to dict using vars() or get all attributes
-                        try:
-                            tool.annotations = vars(old_annotations)
-                            logger.debug(f"  -> Converted annotations using vars(): {tool.annotations}")
-                        except TypeError:
-                            # Last resort: try to get all attributes manually
-                            tool.annotations = {}
-                            logger.debug(f"  -> Attempting manual conversion of annotations object")
-                            for attr in dir(old_annotations):
-                                if not attr.startswith('_'):
-                                    try:
-                                        value = getattr(old_annotations, attr)
-                                        if not callable(value):
-                                            setattr(tool.annotations, attr, value)
-                                            logger.debug(f"  -> Added attribute {attr}: {value}")
-                                    except Exception as e:
-                                        logger.debug(f"  -> Failed to get attribute {attr}: {e}")
-                            logger.debug(f"  -> Converted annotations manually: {tool.annotations}")
+                        raise TypeError(f"Unsupported annotations type for tool '{tool.name}': {type(old_annotations).__name__}")
             else:
                 logger.debug(f"  -> Annotations already a dict, lastModified: {tool.annotations.get('lastModified', 'NOT_FOUND')}")
 
@@ -2799,25 +2783,34 @@ async def index():
                 proxy_value = proxy_response.structuredContent
                 logger.debug(f"Using structuredContent from proxied response")
             elif proxy_response.content and isinstance(proxy_response.content, list):
-                if len(proxy_response.content) == 1 and hasattr(proxy_response.content[0], 'text'):
+                if len(proxy_response.content) == 1 and isinstance(proxy_response.content[0], TextContent):
+                    text_content = proxy_response.content[0].text
                     try:
-                        proxy_value = json.loads(proxy_response.content[0].text)
+                        proxy_value = json.loads(text_content)
                     except (json.JSONDecodeError, TypeError):
-                        proxy_value = proxy_response.content[0].text
+                        proxy_value = text_content
                 else:
-                    proxy_value = [getattr(c, 'text', str(c)) for c in proxy_response.content]
+                    text_values = []
+                    for content_item in proxy_response.content:
+                        if not isinstance(content_item, TextContent):
+                            raise ValueError(
+                                f"Proxied server '{server_alias}' returned unsupported content item type: "
+                                f"{type(content_item).__name__}"
+                            )
+                        text_values.append(content_item.text)
+                    proxy_value = text_values
                 logger.debug(f"Extracted value from proxied content: {type(proxy_value)}")
             else:
                 error_message = f"Proxied server '{server_alias}' returned unexpected content format: {proxy_response.content}"
                 logger.error(error_message)
                 raise ValueError(error_message)
 
-            is_error = getattr(proxy_response, 'isError', False)
+            is_error = proxy_response.isError
             logger.debug(f"<--- _execute_tool RETURNING proxied result as ToolResult.")
             return ToolResult(value=proxy_value, is_error=is_error)
         except McpError as mcp_err:
             logger.error(f"❌ MCPError proxying tool call '{name}' to '{server_alias}': {mcp_err}", exc_info=True)
-            error_message = f"Error calling '{tool_name_on_server}' on server '{server_alias}': {mcp_err.message} (Code: {mcp_err.code})"
+            error_message = f"Error calling '{tool_name_on_server}' on server '{server_alias}': {mcp_err.error.message} (Code: {mcp_err.error.code})"
             raise ValueError(error_message) from mcp_err
         except asyncio.TimeoutError:
             logger.error(f"❌ Timeout proxying tool call '{name}' to '{server_alias}'.")
@@ -2881,7 +2874,7 @@ async def index():
         logger.debug(f"WITH ARGUMENTS: {args}")
         if user:
             logger.debug(f"CALLED BY USER: {user}")
-        if ctx.session_key:
+        if ctx.user_game_id and ctx.user and ctx.caller_shell_path:
             logger.debug(f"SESSION KEY: {ctx.session_key}")
         # ---> ADDED: Log entry and raw args
         logger.debug(f"---> _execute_tool ENTERED. Name: '{name}', Raw Args:\n{format_json_log(args) if isinstance(args, dict) else args!r}") # <-- ADD THIS LINE
@@ -3064,7 +3057,7 @@ async def index():
         logger.debug(f"Tool name: '{tool_name}', Arguments:\n{format_json_log(tool_args)}")
         if ctx.user:
             logger.debug(f"Call made by user: {ctx.user}")
-        if ctx.session_key:
+        if ctx.user_game_id and ctx.user and ctx.caller_shell_path:
             logger.debug(f"Call made with session_key: {ctx.session_key}")
         if for_cloud:
             envelope = {"jsonrpc": "2.0", "id": request_id, "method": "tools/call", "params": params}
@@ -3122,14 +3115,19 @@ async def index():
                 context_tokens = None
                 try:
                     # Set logging context so log lines show [reqId-shell] instead of [------]
-                    lobster_shell = getattr(self.cloud_client, 'lobster_shell_path', None) if hasattr(self, 'cloud_client') and self.cloud_client else None
-                    lobster_ctx = ctx.model_copy(update={"caller_shell_path": lobster_shell or ctx.caller_shell_path})
-                    context_tokens = atlantis.set_context(
-                        client_log_func=lambda message, level="INFO", message_type="text": None,
-                        entry_point_name=f"lobster_{tool_name}",
-                        ctx=lobster_ctx,
-                    )
-                    lobster_req_id = self.cloud_client.lobster_request_id if hasattr(self, 'cloud_client') and self.cloud_client else None
+                    if self.cloud_client is None:
+                        raise RuntimeError("Cloud client missing for local lobster tool call")
+                    lobster_shell = self.cloud_client.lobster_shell_path
+                    lobster_game_key = self.cloud_client.lobster_game_key
+                    lobster_ctx = ctx.model_copy(update={
+                        "user": atlantis._owner,
+                        "user_game_id": lobster_game_key or ctx.user_game_id,
+                        "caller_shell_path": lobster_shell or ctx.caller_shell_path,
+                        "client_log_func": lambda message, level="INFO", message_type="text": None,
+                        "entry_point_name": f"lobster_{tool_name}",
+                    })
+                    context_tokens = atlantis.set_context(lobster_ctx)
+                    lobster_req_id = self.cloud_client.lobster_request_id
                     return await handle_local_lobster_tool_call(
                         self,
                         tool_name=tool_name,
@@ -3408,7 +3406,7 @@ async def get_all_tools_for_response(server: 'DynamicAdditionServer', caller_con
             tool_error_dict = {
                 "name": tool.name if hasattr(tool, 'name') else "unknown_tool",
                 "description": tool.description if hasattr(tool, 'description') else "",
-                "parameters": tool.parameters.model_dump() if hasattr(tool, 'parameters') and hasattr(tool.parameters, 'model_dump') else {"type": "object", "properties": {}},
+                "inputSchema": tool.inputSchema,
             }
 
             # Add error information to annotations without changing other fields
@@ -4311,7 +4309,7 @@ class ServiceClient:
             await self.sio.emit(event, data, namespace=self.namespace)
             # If emit succeeds, we don't return True anymore; success is implied by no exception.
 
-        except socketio.exceptions.SocketIOError as e:
+        except SocketIOError as e:
             # Catch specific Socket.IO errors during emit (e.g., BadNamespaceError, ConnectionError if not caught by 'is_connected')
             logger.error(f"❌ ServiceClient: Socket.IO error sending event '{event}': {str(e)}")
             error_data = ErrorData(

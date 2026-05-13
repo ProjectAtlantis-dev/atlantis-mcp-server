@@ -3114,7 +3114,7 @@ async def index():
 
                 # Send awaitable command to cloud client
                 # For lobster tools, use the lobster request_id from cloud
-                context_tokens = None
+                context_was_set = False
                 try:
                     # Set logging context so log lines show [reqId-shell] instead of [------]
                     if self.cloud_client is None:
@@ -3128,7 +3128,8 @@ async def index():
                         "client_log_func": lambda message, level="INFO", message_type="text": None,
                         "entry_point_name": f"lobster_{tool_name}",
                     })
-                    context_tokens = atlantis.set_context(lobster_ctx)
+                    atlantis.set_context(lobster_ctx)
+                    context_was_set = True
                     lobster_req_id = self.cloud_client.lobster_request_id
                     return await handle_local_lobster_tool_call(
                         self,
@@ -3150,8 +3151,8 @@ async def index():
                         }
                     }
                 finally:
-                    if context_tokens:
-                        atlantis.reset_context(context_tokens)
+                    if context_was_set:
+                        atlantis.reset_context()
 
             # If we get here, it's an unexpected tool for local connections
             logger.warning(f"⚠️ Unexpected tool call from local client: {tool_name}")

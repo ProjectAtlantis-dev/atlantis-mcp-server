@@ -1939,7 +1939,7 @@ async def {name}():
                     ),
                     "entry_point_name": actual_function_name,
                 })
-                context_tokens = atlantis.set_context(context_ctx)
+                atlantis.set_context(context_ctx)
 
                 try:
                     # Execute the callback with proper atlantis context
@@ -1965,9 +1965,7 @@ async def {name}():
                     return None
 
                 finally:
-                    # Reset atlantis context
-                    if context_tokens:
-                        atlantis.reset_context(context_tokens)
+                    atlantis.reset_context()
             else:
                 raise FileNotFoundError(f"Click callback function '{actual_function_name}' not found in atlantis")
 
@@ -1985,7 +1983,6 @@ async def {name}():
             with open(file_path, 'r', encoding='utf-8') as f:
                 return f.read()
 
-        context_tokens = None
         # Use the relative path (without .py) for module name, replacing slashes with dots
         module_path = os.path.splitext(target_file)[0].replace(os.sep, '.')
         module_name = f"{PARENT_PACKAGE_NAME}.{module_path}"
@@ -2139,7 +2136,7 @@ async def {name}():
                     "client_log_func": bound_client_log,
                     "entry_point_name": actual_function_name,
                 })
-                context_tokens = atlantis.set_context(context_ctx)
+                atlantis.set_context(context_ctx)
             else:
                 logger.debug(f"Skipping atlantis context setup for '{actual_function_name}' (catalog-style call)")
 
@@ -2173,12 +2170,9 @@ async def {name}():
             raise
 
         finally:
-            # --- RESET CONTEXT ---
-            if context_tokens:
+            if setup_context:
                 logger.debug("Resetting context variables via atlantis")
-                atlantis.reset_context(context_tokens)
-            else:
-                logger.debug("No context tokens found to reset.")
+                atlantis.reset_context()
 
 
     # --- Function Management Functions --- #

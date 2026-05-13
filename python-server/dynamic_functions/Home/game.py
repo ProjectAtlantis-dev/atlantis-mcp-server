@@ -49,14 +49,15 @@ async def game_new() -> Dict[str, Any]:
         'key': game_key,
         'join_password': join_password,
         'owner': atlantis.get_caller() or '',
+        'user_game_id': atlantis.get_user_game_id(),
     })
 
     # Spawn the Receptionist (Kitty) at her role's default location.
-    await bot_spawn(game_key, 'kitty', 'Receptionist')
+    #await bot_spawn(game_key, 'kitty', 'Receptionist')
 
     # Register the chat callback bound to this game_key so it survives restart
     # via the boot-time re-registration scan.
-    await atlantis.client_command(f'/callback set chat chat_callback {game_key}')
+    # await atlantis.client_command(f'/callback set chat chat_callback {game_key}')
 
     await atlantis.client_log(f"Game created: {game_key}")
 
@@ -86,6 +87,7 @@ async def game_list() -> list:
         meta = _read_json(os.path.join(path, 'game.json')) or {}
         entries.append({
             "game_key": name,
+            "user_game_id": meta.get("user_game_id"),
             "owner": meta.get("owner", ""),
             "created": datetime.fromtimestamp(ts).isoformat(timespec="seconds"),
             "_ts": ts,

@@ -30,6 +30,7 @@ _entry_point_name_var: contextvars.ContextVar[Optional[str]] = contextvars.Conte
 _caller_sid_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_caller_sid_var", default=None)
 _session_key_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_session_key_var", default=None)
 _caller_shell_path_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_caller_shell_path_var", default=None)
+_user_game_id_var: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar("_user_game_id_var", default=None)
 
 # Owner of the remote server instance
 _owner: Optional[str] = ""
@@ -302,6 +303,10 @@ def get_caller_shell_path() -> Optional[str]:
     """Returns the caller shell path for this function call."""
     return _caller_shell_path_var.get()
 
+def get_user_game_id() -> Optional[int]:
+    """Returns the user_game_id for this function call."""
+    return _user_game_id_var.get()
+
 def set_caller_shell_path(path: Optional[str]) -> None:
     """Set the caller shell path contextvar directly (e.g. for lobster socket tasks)."""
     _caller_shell_path_var.set(path)
@@ -327,36 +332,28 @@ def _set_owner_usernames(usernames: List[str]):
     _owner_usernames = usernames
 
 
-def set_context(ctx: CallContext):
-    """Sets all context variables from a CallContext and returns reset tokens."""
-    client_log_token = _client_log_var.set(ctx.client_log_func)
-    request_id_token = _request_id_var.set(ctx.request_id)
-    client_id_token = _client_id_var.set(ctx.client_id)
-    entry_point_token = _entry_point_name_var.set(ctx.entry_point_name)
-    caller_sid_token = _caller_sid_var.set(ctx.caller_sid)
-    session_key_token = _session_key_var.set(ctx.get_session_key())
-    caller_shell_path_token = _caller_shell_path_var.set(ctx.caller_shell_path)
+def set_context(ctx: CallContext) -> None:
+    """Sets all context variables from a CallContext."""
+    _client_log_var.set(ctx.client_log_func)
+    _request_id_var.set(ctx.request_id)
+    _client_id_var.set(ctx.client_id)
+    _entry_point_name_var.set(ctx.entry_point_name)
+    _caller_sid_var.set(ctx.caller_sid)
+    _session_key_var.set(ctx.get_session_key())
+    _caller_shell_path_var.set(ctx.caller_shell_path)
+    _user_game_id_var.set(ctx.user_game_id)
 
-    return (client_log_token, request_id_token, client_id_token, entry_point_token, caller_sid_token, session_key_token, caller_shell_path_token)
 
-# use sendChatter to send commands directly from browser
-
-def reset_context(tokens: tuple):
-    """Resets the context variables using the provided tuple of tokens."""
-    # Expected order: client_log, request_id, client_id, entry_point, caller_sid, session_key, caller_shell_path
-    if not isinstance(tokens, tuple) or len(tokens) != 7:
-        logger.error(f"reset_context expected a tuple of 7 tokens, got {tokens}")
-        return
-
-    client_log_token, request_id_token, client_id_token, entry_point_token, caller_sid_token, session_key_token, caller_shell_path_token = tokens
-
-    _client_log_var.reset(client_log_token)
-    _request_id_var.reset(request_id_token)
-    _client_id_var.reset(client_id_token)
-    _entry_point_name_var.reset(entry_point_token)
-    _caller_sid_var.reset(caller_sid_token)
-    _session_key_var.reset(session_key_token)
-    _caller_shell_path_var.reset(caller_shell_path_token)
+def reset_context() -> None:
+    """Clears all context variables set by set_context."""
+    _client_log_var.set(None)
+    _request_id_var.set(None)
+    _client_id_var.set(None)
+    _entry_point_name_var.set(None)
+    _caller_sid_var.set(None)
+    _session_key_var.set(None)
+    _caller_shell_path_var.set(None)
+    _user_game_id_var.set(None)
 
 
 # --- Utility Functions ---
@@ -1078,34 +1075,23 @@ async def invoke_click_callback_with_context(key: str, bound_client_log) -> Any:
     logger.info(f"DEBUG: Looking up callback for key '{key}' with context")
 
     callback = _click_callbacks.get(key)
-    if callback:
-        logger.info(f"DEBUG: Found callback for key '{key}', executing with context...")
-
-        # Temporarily replace the client_log implementation for this callback
-        original_client_log = globals().get('client_log')
-
-        async def context_client_log(message, level="INFO", message_type="text"):
-            # Use the bound client_log directly instead of the context-dependent one
-            await bound_client_log(message, level=level, message_type=message_type,
-                                 caller_name="callback", entry_point_name="click_callback")
-
-        # Replace client_log temporarily
-        globals()['client_log'] = context_client_log
-
-        try:
-            if inspect.iscoroutinefunction(callback):
-                result = await callback()
-            else:
-                result = callback()
-            if isinstance(result, (dict, list)):
-                logger.info(f"DEBUG: Callback executed with context, result:\n{format_json_log(result, colored=True)}")
-            else:
-                logger.info(f"DEBUG: Callback executed with context, result: {result}")
-            return result
-        finally:
-            # Restore original client_log
-            if original_client_log:
-                globals()['client_log'] = original_client_log
-    else:
+    if not callback:
         logger.info(f"DEBUG: No callback found for key '{key}'")
-    return None
+        return None
+
+    logger.info(f"DEBUG: Found callback for key '{key}', executing with context...")
+    log_token = _client_log_var.set(bound_client_log)
+    entry_token = _entry_point_name_var.set("click_callback")
+    try:
+        if inspect.iscoroutinefunction(callback):
+            result = await callback()
+        else:
+            result = callback()
+        if isinstance(result, (dict, list)):
+            logger.info(f"DEBUG: Callback executed with context, result:\n{format_json_log(result, colored=True)}")
+        else:
+            logger.info(f"DEBUG: Callback executed with context, result: {result}")
+        return result
+    finally:
+        _client_log_var.reset(log_token)
+        _entry_point_name_var.reset(entry_token)

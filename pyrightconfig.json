@@ -31,7 +31,7 @@
 
   "reportGeneralTypeIssues": "error",
   "reportArgumentType": "error",
-  "reportAttributeAccessIssue": "none",
+  "reportAttributeAccessIssue": "error",
   "reportIndexIssue": "warning",
   "reportCallIssue": "error",
   "reportReturnType": "error",

@@ -56,7 +56,6 @@ await atlantis.client_html("<button>OK</button>")
 await atlantis.client_image("/path/to/image.png")
 
 caller = atlantis.get_caller()
-session_id = atlantis.get_session_id()
 game_key = atlantis.get_game_key()
 ```
 

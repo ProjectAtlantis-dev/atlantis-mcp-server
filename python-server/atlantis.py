@@ -736,7 +736,7 @@ async def _client_command(
             seq_num=current_seq_to_send,  # Pass the sequence number
             entry_point_name=entry_point_name,  # Pass the entry point name for logging
             user=user,  # Pass user for unique request tracking
-            session_id=session_key,  # Wire kwarg kept for compat; value is locally-derived session_key
+            session_key=session_key,
             shell_path=caller_shell_path,  # Wire kwarg kept for compat; value is caller_shell_path
             message_type=message_type,  # Pass message_type for the protocol
             is_private=is_private,  # Pass is_private for broadcast control

@@ -3,7 +3,7 @@ import contextvars
 import logging
 from typing import Callable, Optional
 
-from atlantis import _user_var
+
 
 logger = logging.getLogger("mcp_server")
 
@@ -58,8 +58,8 @@ def register_tick(game_key: str, callback: Callable) -> None:
     """Register a tick callback for the given game_key."""
     gid = _require_game_key(game_key)
     _active_game_ticks[gid] = {
+        # TBD
         "ctx": contextvars.copy_context(),
-        "caller": _user_var.get() or "",
         "tick_callback": callback,
         "tick_busy": False,
     }

@@ -27,7 +27,7 @@ _client_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("
 # entry_point_name: The name of the top-level dynamic function called by the request
 _entry_point_name_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_entry_point_name_var", default=None)
 
-_user_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_user_var", default=None)
+_caller_sid_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_caller_sid_var", default=None)
 _session_key_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_session_key_var", default=None)
 _caller_shell_path_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_caller_shell_path_var", default=None)
 
@@ -290,9 +290,13 @@ def get_session_key() -> Optional[str]:
     """Returns the session_key for this function call (None if any component missing)."""
     return _session_key_var.get()
 
+def get_session_id() -> Optional[str]:
+    """Backward-compatible alias for get_session_key."""
+    return get_session_key()
+
 def get_caller() -> Optional[str]:
-    """Returns the username who called this function"""
-    return _user_var.get()
+    """Returns the caller sid who called this function."""
+    return _caller_sid_var.get()
 
 def get_caller_shell_path() -> Optional[str]:
     """Returns the caller shell path for this function call."""
@@ -329,28 +333,28 @@ def set_context(ctx: CallContext):
     request_id_token = _request_id_var.set(ctx.request_id)
     client_id_token = _client_id_var.set(ctx.client_id)
     entry_point_token = _entry_point_name_var.set(ctx.entry_point_name)
-    user_token = _user_var.set(ctx.user)
-    session_key_token = _session_key_var.set(ctx.session_key)
+    caller_sid_token = _caller_sid_var.set(ctx.caller_sid)
+    session_key_token = _session_key_var.set(ctx.get_session_key())
     caller_shell_path_token = _caller_shell_path_var.set(ctx.caller_shell_path)
 
-    return (client_log_token, request_id_token, client_id_token, entry_point_token, user_token, session_key_token, caller_shell_path_token)
+    return (client_log_token, request_id_token, client_id_token, entry_point_token, caller_sid_token, session_key_token, caller_shell_path_token)
 
 # use sendChatter to send commands directly from browser
 
 def reset_context(tokens: tuple):
     """Resets the context variables using the provided tuple of tokens."""
-    # Expected order: client_log, request_id, client_id, entry_point, user, session_key, caller_shell_path
+    # Expected order: client_log, request_id, client_id, entry_point, caller_sid, session_key, caller_shell_path
     if not isinstance(tokens, tuple) or len(tokens) != 7:
         logger.error(f"reset_context expected a tuple of 7 tokens, got {tokens}")
         return
 
-    client_log_token, request_id_token, client_id_token, entry_point_token, user_token, session_key_token, caller_shell_path_token = tokens
+    client_log_token, request_id_token, client_id_token, entry_point_token, caller_sid_token, session_key_token, caller_shell_path_token = tokens
 
     _client_log_var.reset(client_log_token)
     _request_id_var.reset(request_id_token)
     _client_id_var.reset(client_id_token)
     _entry_point_name_var.reset(entry_point_token)
-    _user_var.reset(user_token)
+    _caller_sid_var.reset(caller_sid_token)
     _session_key_var.reset(session_key_token)
     _caller_shell_path_var.reset(caller_shell_path_token)
 
@@ -697,11 +701,11 @@ async def _client_command(
     client_id = _client_id_var.get()
     request_id = _request_id_var.get()
     entry_point_name = _entry_point_name_var.get() # Now needed for logging with seq_num
-    user = _user_var.get()  # Who's calling
+    caller_sid = _caller_sid_var.get()  # Who's calling
     session_key = _session_key_var.get()  # Locally-derived stable session identifier
     caller_shell_path = _caller_shell_path_var.get()  # Caller shell (parent in the command tree)
 
-    logger.info(f"📡 client_command '{command}' (entry={entry_point_name}, user={user})")
+    logger.info(f"📡 client_command '{command}' (entry={entry_point_name}, caller_sid={caller_sid})")
     if isinstance(data, (dict, list)):
         logger.debug(f"   📦 data: {format_json_log(data, colored=True)}")
     elif data is not None:
@@ -732,7 +736,7 @@ async def _client_command(
             command_data=data,
             seq_num=current_seq_to_send,  # Pass the sequence number
             entry_point_name=entry_point_name,  # Pass the entry point name for logging
-            user=user,  # Pass user for unique request tracking
+            caller_sid=caller_sid,
             session_key=session_key,
             shell_path=caller_shell_path,  # Wire kwarg kept for compat; value is caller_shell_path
             message_type=message_type,  # Pass message_type for the protocol

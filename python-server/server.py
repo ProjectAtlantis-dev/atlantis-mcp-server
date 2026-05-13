@@ -427,10 +427,10 @@ class DynamicAdditionServer(Server):
         self.server_uuid: Optional[str] = None
 
         # DEBUG: Track command counts per execution context to detect infinite loops/duplicates
-        # Unique execution context: client_id + user + session_id + shell_path
+        # Unique execution context: client_id + caller_sid + session_key + shell_path
         # NOTE: request_id is NOT included because cloud sends new request_id per message
         # Aborts if same command called > 5 times in a row
-        self._command_counts_per_context: Dict[str, Dict[str, int]] = {}  # "client_id:user:session_id:shell_path" -> {"command": command_key, "count": n}
+        self._command_counts_per_context: Dict[str, Dict[str, int]] = {}  # "client_id:caller_sid:session_key:shell_path" -> {"command": command_key, "count": n}
 
         # TODO: Add prompts and resources
         self._cached_tools: Optional[List[Tool]] = None # Cache for tool list
@@ -494,8 +494,8 @@ class DynamicAdditionServer(Server):
                                       seq_num: Optional[int] = None, # Sequence number for client-side ordering
                                       entry_point_name: Optional[str] = None, # Entry point name for logging
                                       local_lobster_call: bool = False, # True if this is a lobster tool call from local client
-                                      user: Optional[str] = None, # User who initiated the request
-                                      session_id: Optional[str] = None, # Session ID for request isolation
+                                      caller_sid: Optional[str] = None, # Caller sid who initiated the request
+                                      session_key: Optional[str] = None, # Canonical session key for request isolation
                                       shell_path: Optional[str] = None, # Shell path in command tree for request isolation
                                       message_type: str = "command", # Message type for the protocol (default "command" for backwards compat)
                                       is_private: bool = True, # If False, cloud should broadcast to all clients
@@ -510,6 +510,7 @@ class DynamicAdditionServer(Server):
             seq_num → seqNum
             entry_point_name → entryPoint
             local_lobster_call → localLobsterCall
+            session_key → sessionKey
             shell_path → shellPath
 
         Args:
@@ -520,8 +521,8 @@ class DynamicAdditionServer(Server):
             seq_num: Optional sequence number for client-side ordering.
             entry_point_name: Optional name of the entry point function for logging.
             local_lobster_call: True if this is a lobster tool call from local client (readme/command).
-            user: Optional user who initiated the request (for request isolation).
-            session_id: Optional session ID (for request isolation).
+            caller_sid: Optional caller sid who initiated the request (for request isolation).
+            session_key: Optional canonical session key (for request isolation).
             shell_path: Optional shell path in the command tree (for request isolation).
 
         Returns:
@@ -532,11 +533,11 @@ class DynamicAdditionServer(Server):
             Various other exceptions if sending or future handling fails.
         """
         # DEBUG: Detect duplicate commands (possible infinite loop)
-        # Unique execution context: client_id + user + session_id + shell_path
+        # Unique execution context: client_id + caller_sid + session_key + shell_path
         # NOTE: request_id is NOT included because it changes per message from cloud
         # Aborts if same command called > 5 times in a row
         # DISABLED: Bug seems to be fixed, can re-enable if needed
-        # tracking_key = f"{client_id_for_routing}:{user}:{session_id}:{shell_path}"
+        # tracking_key = f"{client_id_for_routing}:{caller_sid}:{session_key}:{shell_path}"
         # command_key = f"{command}:{entry_point_name}"
         #
         # ctx_data = self._command_counts_per_context.get(tracking_key)
@@ -544,7 +545,7 @@ class DynamicAdditionServer(Server):
         #     # Same command as before - increment count
         #     ctx_data["count"] += 1
         #     if ctx_data["count"] > 5:
-        #         error_msg = f"🚨 DUPLICATE COMMAND DETECTED! Command '{command}' from entry_point '{entry_point_name}' called {ctx_data['count']} times in a row (user={user}, session={session_id}, shell={shell_path}). ABORTING to prevent infinite loop!"
+        #         error_msg = f"🚨 DUPLICATE COMMAND DETECTED! Command '{command}' from entry_point '{entry_point_name}' called {ctx_data['count']} times in a row (caller_sid={caller_sid}, session_key={session_key}, shell={shell_path}). ABORTING to prevent infinite loop!"
         #         logger.error(error_msg)
         #         raise RuntimeError(error_msg)
         #     logger.debug(f"🔍 DEBUG: Command '{command_key}' count={ctx_data['count']} for context {tracking_key}")
@@ -636,11 +637,12 @@ class DynamicAdditionServer(Server):
                 if local_lobster_call:
                     cloud_notification_params["localLobsterCall"] = True
 
-                # Add user, sessionId, and shellPath for request context
-                if user is not None:
-                    cloud_notification_params["user"] = user
-                if session_id is not None:
-                    cloud_notification_params["sessionId"] = session_id
+                # Add caller sid, sessionKey, and shellPath for request context.
+                # Cloud still expects the legacy wire key "user".
+                if caller_sid is not None:
+                    cloud_notification_params["user"] = caller_sid
+                if session_key is not None:
+                    cloud_notification_params["sessionKey"] = session_key
                 if shell_path is not None:
                     cloud_notification_params["shellPath"] = shell_path
 
@@ -2110,12 +2112,12 @@ class DynamicAdditionServer(Server):
         ctx: CallContext,
     ) -> List[str]:
         client_id = ctx.client_id
-        user = ctx.user
+        caller_sid = ctx.caller_sid
         decorators_list: List[str] = []
 
         # Security check: Special handling for _function_get with @copy decorator
         if actual_function_name == "_function_get":
-            caller = user or client_id or "unknown"
+            caller = caller_sid or client_id or "unknown"
             is_localhost = caller.startswith("ws_127.0.0.1_")
 
             if is_localhost or atlantis.is_owner(caller):
@@ -2158,12 +2160,12 @@ class DynamicAdditionServer(Server):
                         name=protection_name,
                         ctx=ctx,
                         app=None,
-                        args={'user': user},
+                        args={'user': caller_sid},
                     )
 
                     if not is_allowed:
-                        logger.warning(f"🚨 SECURITY: Protection function '{protection_name}' denied _function_get for '{target_func_name}' by user '{user}'")
-                        raise PermissionError(f"Access denied: User '{user}' not authorized to copy '{target_func_name}'")
+                        logger.warning(f"🚨 SECURITY: Protection function '{protection_name}' denied _function_get for '{target_func_name}' by caller_sid '{caller_sid}'")
+                        raise PermissionError(f"Access denied: caller_sid '{caller_sid}' not authorized to copy '{target_func_name}'")
 
                     logger.debug(f"✅ _function_get authorized for '{target_func_name}' via protection function '{protection_name}'")
                 except PermissionError:
@@ -2183,7 +2185,7 @@ class DynamicAdditionServer(Server):
             or actual_function_name.startswith('_server')
             or actual_function_name.startswith('_admin')
         ):
-            caller = user or client_id or "unknown"
+            caller = caller_sid or client_id or "unknown"
             is_localhost = caller.startswith("ws_127.0.0.1_")
 
             if not is_localhost and not atlantis.is_owner(caller):
@@ -2216,11 +2218,11 @@ class DynamicAdditionServer(Server):
 
         if is_public or is_index:
             decorator_type = '@index' if is_index else '@public'
-            logger.debug(f"✅ Public function '{actual_function_name}' ({decorator_type}) accessible to caller: {user or client_id or 'unknown'}")
+            logger.debug(f"✅ Public function '{actual_function_name}' ({decorator_type}) accessible to caller: {caller_sid or client_id or 'unknown'}")
         elif is_protected:
             logger.debug(f"🔒 Protected function '{actual_function_name}' - access will be validated by protection function")
         else:
-            caller = user or client_id or "unknown"
+            caller = caller_sid or client_id or "unknown"
             is_localhost = caller.startswith("ws_127.0.0.1_")
 
             if not is_localhost and not atlantis.is_owner(caller):
@@ -2240,7 +2242,7 @@ class DynamicAdditionServer(Server):
     ) -> Any:
         client_id = ctx.client_id
         request_id = ctx.request_id
-        user = ctx.user
+        caller_sid = ctx.caller_sid
         if actual_function_name == "_function_set":
             logger.debug(f"---> Calling built-in: function_set")
             extracted_name, result_messages = await self.function_manager.function_set(args, self)
@@ -2523,7 +2525,7 @@ class DynamicAdditionServer(Server):
                 logger.error(f"Error reading or parsing owner log: {e}")
                 raise ValueError(f"Error accessing function history: {e}")
         elif actual_function_name == "_admin_restart":
-            logger.info(f"🔄 ADMIN RESTART requested by owner: {user or 'unknown'}")
+            logger.info(f"🔄 ADMIN RESTART requested by owner: {caller_sid or 'unknown'}")
 
             async def delayed_shutdown():
                 await asyncio.sleep(0.1)
@@ -2539,7 +2541,7 @@ class DynamicAdditionServer(Server):
             if not package:
                 raise ValueError("Missing required parameter: package")
 
-            logger.info(f"📦 ADMIN PIP INSTALL requested by owner: {user or 'unknown'} - Package: {package}")
+            logger.info(f"📦 ADMIN PIP INSTALL requested by owner: {caller_sid or 'unknown'} - Package: {package}")
 
             pip_cmd = [sys.executable, "-m", "pip", "install", package]
             if force:
@@ -2582,7 +2584,7 @@ class DynamicAdditionServer(Server):
             if not key:
                 raise ValueError("Missing required parameter: key")
 
-            logger.info(f"🖱️ PUBLIC CLICK: {user} clicked key: {key}")
+            logger.info(f"🖱️ PUBLIC CLICK: {caller_sid} clicked key: {key}")
             callback = atlantis._click_callbacks.get(key)
             logger.info(f"🖱️ Available callback keys: {list(atlantis._click_callbacks.keys())}")
 
@@ -2619,7 +2621,7 @@ class DynamicAdditionServer(Server):
             if not base64Content:
                 raise ValueError("Missing required parameter: base64Content")
 
-            logger.info(f"🖱️ PUBLIC UPLOAD: {user} uploading id: {key}, filename: {filename}, filetype: {filetype}")
+            logger.info(f"🖱️ PUBLIC UPLOAD: {caller_sid} uploading id: {key}, filename: {filename}, filetype: {filetype}")
             callback = atlantis._upload_callbacks.get(key)
             logger.info(f"🖱️ Available callback keys: {list(atlantis._upload_callbacks.keys())}")
 
@@ -2646,7 +2648,7 @@ class DynamicAdditionServer(Server):
             if not app_name:
                 raise ValueError("Missing required parameter: appName")
 
-            logger.info(f"📁 ADMIN APP CREATE requested by owner: {user or 'unknown'} - App: {app_name}")
+            logger.info(f"📁 ADMIN APP CREATE requested by owner: {caller_sid or 'unknown'} - App: {app_name}")
             app_path = self.function_manager._app_name_to_path(app_name)
             if app_path is None:
                 raise ValueError("Missing required parameter: appName")
@@ -2690,7 +2692,7 @@ async def index():
             remote = args.get("remote", "origin")
             branch = args.get("branch", "main")
 
-            logger.info(f"🔄 ADMIN GIT UPDATE requested by owner: {user or 'unknown'} - Remote: {remote}, Branch: {branch}")
+            logger.info(f"🔄 ADMIN GIT UPDATE requested by owner: {caller_sid or 'unknown'} - Remote: {remote}, Branch: {branch}")
 
             try:
                 fetch_result = subprocess.run(
@@ -2830,7 +2832,7 @@ async def index():
     ) -> Any:
         client_id = ctx.client_id
         request_id = ctx.request_id
-        user = ctx.user
+        caller_sid = ctx.caller_sid
         logger.info(f"🔧 CALLING LOCAL DYNAMIC FUNCTION: {name}")
 
         if name in _runtime_errors:
@@ -2838,12 +2840,12 @@ async def index():
             logger.warning(f"❌ Function '{name}' has a cached load error: {load_error_info['error']}")
 
         try:
-            logger.info(f"RECEIVED FROM CLOUD: Tool: '{name}', Type: {type(args)}, User: {user}")
+            logger.info(f"RECEIVED FROM CLOUD: Tool: '{name}', Type: {type(args)}, caller_sid: {caller_sid}")
             if isinstance(args, dict):
                 logger.info(f"Args:\n{format_json_log(args, colored=True)}")
             else:
                 logger.info(f"Args: {args!r}")
-            logger.debug(f"---> Calling dynamic: function_call for '{actual_function_name}' with args: {args} and client_id: {client_id} and request_id: {request_id}, user: {user}")
+            logger.debug(f"---> Calling dynamic: function_call for '{actual_function_name}' with args: {args} and client_id: {client_id} and request_id: {request_id}, caller_sid: {caller_sid}")
             final_args = args.copy() if args else {}
             result_raw = await self.function_manager.function_call(
                 name=actual_function_name,
@@ -2869,12 +2871,12 @@ async def index():
         """
         client_id = ctx.client_id
         request_id = ctx.request_id
-        user = ctx.user
+        caller_sid = ctx.caller_sid
         logger.info(f"🔧 EXECUTING TOOL: {name}")
         logger.debug(f"WITH ARGUMENTS: {args}")
-        if user:
-            logger.debug(f"CALLED BY USER: {user}")
-        if ctx.user_game_id and ctx.user and ctx.caller_shell_path:
+        if caller_sid:
+            logger.debug(f"CALLED BY caller_sid: {caller_sid}")
+        if ctx.user_game_id and ctx.caller_sid and ctx.caller_shell_path:
             logger.debug(f"SESSION KEY: {ctx.session_key}")
         # ---> ADDED: Log entry and raw args
         logger.debug(f"---> _execute_tool ENTERED. Name: '{name}', Raw Args:\n{format_json_log(args) if isinstance(args, dict) else args!r}") # <-- ADD THIS LINE
@@ -2960,7 +2962,7 @@ async def index():
             # --- Log successful tool call ---
             if should_log_call:
                 try:
-                    caller_identity = user if user else (f"client:{client_id}" if client_id else "unknown_caller")
+                    caller_identity = caller_sid if caller_sid else (f"client:{client_id}" if client_id else "unknown_caller")
                     call_end_datetime = datetime.datetime.now(datetime.timezone.utc)
                     elapsed_ms = round((call_end_datetime - call_start_datetime).total_seconds() * 1000, 2)
 
@@ -2988,8 +2990,8 @@ async def index():
             if should_log_call:
                 try:
                     caller_identity = "unknown_caller"
-                    if user:
-                        caller_identity = user
+                    if caller_sid:
+                        caller_identity = caller_sid
                     elif client_id:
                         caller_identity = f"client:{client_id}"
 
@@ -3055,9 +3057,9 @@ async def index():
         # Log the call
         logger.info(f"🔧 Processing 'tools/call' for tool '{tool_name}' with args: {tool_args}")
         logger.debug(f"Tool name: '{tool_name}', Arguments:\n{format_json_log(tool_args)}")
-        if ctx.user:
-            logger.debug(f"Call made by user: {ctx.user}")
-        if ctx.user_game_id and ctx.user and ctx.caller_shell_path:
+        if ctx.caller_sid:
+            logger.debug(f"Call made by caller_sid: {ctx.caller_sid}")
+        if ctx.user_game_id and ctx.caller_sid and ctx.caller_shell_path:
             logger.debug(f"Call made with session_key: {ctx.session_key}")
         if for_cloud:
             envelope = {"jsonrpc": "2.0", "id": request_id, "method": "tools/call", "params": params}
@@ -3120,7 +3122,7 @@ async def index():
                     lobster_shell = self.cloud_client.lobster_shell_path
                     lobster_game_key = self.cloud_client.lobster_game_key
                     lobster_ctx = ctx.model_copy(update={
-                        "user": atlantis._owner,
+                        "caller_sid": atlantis._owner,
                         "user_game_id": lobster_game_key or ctx.user_game_id,
                         "caller_shell_path": lobster_shell or ctx.caller_shell_path,
                         "client_log_func": lambda message, level="INFO", message_type="text": None,
@@ -3135,7 +3137,7 @@ async def index():
                         request_id=request_id,
                         cloud_client_id=cloud_client_id,
                         lobster_request_id=lobster_req_id,
-                        user=atlantis._owner
+                        caller_sid=atlantis._owner
                     )
                 except Exception as e:
                     logger.error(f"❌ Error sending {tool_name} to cloud: {e}")

@@ -24,7 +24,7 @@ _BUSY_KEY = "chat_busy"
 @chat
 async def chat_callback(game_key: str):
     """Handle game chat"""
-    session_id = atlantis.get_session_id() or "unknown"
+    session_key = atlantis.get_session_key() or "unknown"
     request_id = atlantis.get_request_id() or "unknown"
     caller = atlantis.get_caller()
     if not caller:
@@ -33,17 +33,17 @@ async def chat_callback(game_key: str):
 
     owner_req = atlantis.session_shared.get(_BUSY_KEY)
     if owner_req:
-        logger.warning(f"Chat busy: session={session_id} owned by {owner_req}, skipping {request_id}")
+        logger.warning(f"Chat busy: session_key={session_key} owned by {owner_req}, skipping {request_id}")
         return
 
     atlantis.session_shared.set(_BUSY_KEY, request_id)
     try:
-        await _handle_chat(game_key, caller, session_id, request_id)
+        await _handle_chat(game_key, caller, session_key, request_id)
     finally:
         atlantis.session_shared.remove(_BUSY_KEY)
 
 
-async def _handle_chat(game_key: str, caller: str, session_id: str, request_id: str):
+async def _handle_chat(game_key: str, caller: str, session_key: str, request_id: str):
     raw_transcript, transcript = await fetch_transcript(game_key, caller)
     logger.info(f"Chat: {len(raw_transcript)} raw / {len(transcript)} filtered")
 
@@ -90,7 +90,7 @@ async def _handle_chat(game_key: str, caller: str, session_id: str, request_id: 
         bot_record=next_up,
         speaker_sid=speaker_sid,
         transcript=transcript,
-        session_id=session_id,
+        session_key=session_key,
         request_id=request_id,
     )
 
@@ -115,7 +115,7 @@ async def _respond_as_bot(
     bot_record: dict,
     speaker_sid: str,
     transcript: list,
-    session_id: str,
+    session_key: str,
     request_id: str,
 ):
     bot_sid = bot_record["sid"]
@@ -167,7 +167,7 @@ async def _respond_as_bot(
         transcript=transcript,
         converted_tools=converted_tools,
         tool_lookup=tool_lookup,
-        sessionId=session_id,
+        session_key=session_key,
         requestId=request_id,
     )
 

@@ -280,8 +280,8 @@ async def execute_client_command_awaitable(
     command_data: Optional[Any] = None, # Optional data for the command
     seq_num: Optional[int] = None, # Sequence number for client-side ordering
     entry_point_name: Optional[str] = None, # Entry point name for logging
-    user: Optional[str] = None, # User who initiated the request
-    session_id: Optional[str] = None, # Session ID for request isolation
+    caller_sid: Optional[str] = None, # Caller sid who initiated the request
+    session_key: Optional[str] = None, # Canonical session key for request isolation
     shell_path: Optional[str] = None, # Shell path for request isolation
     message_type: str = "command", # Message type for the protocol (default "command" for backwards compat)
     is_private: bool = True, # If False, cloud should broadcast to all clients
@@ -299,8 +299,8 @@ async def execute_client_command_awaitable(
         command_data: Optional data payload for the command.
         seq_num: Optional sequence number for client-side ordering.
         entry_point_name: Optional name of the entry point function for logging.
-        user: Optional user who initiated the request (for request isolation).
-        session_id: Optional session ID (for request isolation).
+        caller_sid: Optional caller sid who initiated the request (for request isolation).
+        session_key: Optional canonical session key (for request isolation).
         shell_path: Optional shell path in the command tree (for request isolation).
 
     Returns:
@@ -338,8 +338,8 @@ async def execute_client_command_awaitable(
             command_data=command_data,
             seq_num=seq_num,
             entry_point_name=entry_point_name,
-            user=user,
-            session_id=session_id,
+            caller_sid=caller_sid,
+            session_key=session_key,
             shell_path=shell_path,
             message_type=message_type,
             is_private=is_private,

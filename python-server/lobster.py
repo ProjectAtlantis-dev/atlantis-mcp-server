@@ -119,7 +119,7 @@ async def fetch_lobster_transcript(
     server: "DynamicAdditionServer",
     cloud_client_id: str,
     lobster_request_id: Optional[str],
-    user: Optional[str],
+    caller_sid: Optional[str],
     seq_start: int = 2,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Fetch transcript from the cloud client using the same sequence as Bot Kitty."""
@@ -131,7 +131,7 @@ async def fetch_lobster_transcript(
         command_data={},
         seq_num=seq_start,
         entry_point_name="lobster_transcript_silent_on",
-        user=user,
+        caller_sid=caller_sid,
     )
 
     try:
@@ -143,7 +143,7 @@ async def fetch_lobster_transcript(
             command_data={},
             seq_num=seq_start + 1,
             entry_point_name="lobster_transcript_get",
-            user=user,
+            caller_sid=caller_sid,
         )
         logger.info(f"🦞 fetch_lobster_transcript: got {len(raw_transcript) if isinstance(raw_transcript, list) else '?'} entries")
     finally:
@@ -156,7 +156,7 @@ async def fetch_lobster_transcript(
                 command_data={},
                 seq_num=seq_start + 2,
                 entry_point_name="lobster_transcript_silent_off",
-                user=user,
+                caller_sid=caller_sid,
             )
         except Exception as silent_off_error:
             logger.warning(f"🦞 Failed to disable silent mode after lobster transcript fetch: {silent_off_error}")
@@ -183,7 +183,7 @@ async def handle_local_lobster_tool_call(
     request_id: Any,
     cloud_client_id: str,
     lobster_request_id: Optional[str],
-    user: Optional[str],
+    caller_sid: Optional[str],
 ) -> Dict[str, Any]:
     """Execute a local lobster tool call through the cloud client and return an MCP response."""
     logger.info(f"Sending lobster tool '{tool_name}' to cloud client {cloud_client_id}")
@@ -240,7 +240,7 @@ async def handle_local_lobster_tool_call(
         seq_num=1,
         entry_point_name=tool_name,
         local_lobster_call=True,
-        user=user,
+        caller_sid=caller_sid,
     )
 
     logger.info("Got response from cloud client")
@@ -252,7 +252,7 @@ async def handle_local_lobster_tool_call(
         server=server,
         cloud_client_id=cloud_client_id,
         lobster_request_id=lobster_request_id,
-        user=user,
+        caller_sid=caller_sid,
     )
     logger.info(
         f"Pulled lobster transcript with {len(raw_transcript)} raw entries and {len(transcript)} filtered messages"

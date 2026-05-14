@@ -63,26 +63,13 @@ def _write_json(path: str, data) -> None:
     os.replace(tmp, path)
 
 
-def read_location_data(game_key: str, location: str) -> Optional[Dict[str, Any]]:
-    """Read location data"""
-    path = os.path.join(game_dir(game_key), f"{location}.json")
-    return _read_json(path, None)
-
-
-def write_location_data(game_key: str, location: str, data: Dict[str, Any]) -> None:
-    """Write location data"""
-    path = os.path.join(require_game_dir(game_key), f"{location}.json")
-    _write_json(path, data)
-
-
 def _bots_dir() -> str:
     return home_path("Game", "Bots")
 
 
-def _load_bot_config(bot_sid: str, bots_dir: Optional[str] = None) -> Optional[Tuple[Dict[str, Any], str]]:
-    if bots_dir is None:
-        bots_dir = _bots_dir()
+def _load_bot_config(bot_sid: str) -> Optional[Tuple[Dict[str, Any], str]]:
     """Find a bot config by sid"""
+    bots_dir = _bots_dir()
     for entry in os.listdir(bots_dir):
         config_path = os.path.join(bots_dir, entry, "config.json")
         if os.path.isfile(config_path):
@@ -94,10 +81,9 @@ def _load_bot_config(bot_sid: str, bots_dir: Optional[str] = None) -> Optional[T
     return None
 
 
-def _available_bot_sids(bots_dir: Optional[str] = None) -> List[str]:
+def _available_bot_sids() -> List[str]:
     """List known bot sids"""
-    if bots_dir is None:
-        bots_dir = _bots_dir()
+    bots_dir = _bots_dir()
     sids = []
     if not os.path.isdir(bots_dir):
         return sids
@@ -144,7 +130,7 @@ def _ensure_thumb(image_path: str) -> str:
         img = _PILImage.open(image_path)
         ratio = THUMB_WIDTH / img.width
         new_h = int(img.height * ratio)
-        img = img.resize((THUMB_WIDTH, new_h), _PILImage.LANCZOS)
+        img = img.resize((THUMB_WIDTH, new_h), _PILImage.Resampling.LANCZOS)
         img = img.convert("RGB")  # JPEG-compatible
         img.save(thumb, "JPEG", quality=THUMB_QUALITY)
         logger.info(f"[thumb] generated: {thumb} ({os.path.getsize(thumb)} bytes)")
@@ -152,26 +138,6 @@ def _ensure_thumb(image_path: str) -> str:
     except Exception as exc:
         logger.warning(f"[thumb] FAILED for {image_path}: {exc}")
         return image_path
-
-
-def bot_thumb(bot_sid: str) -> str:
-    """Get a bot thumbnail path"""
-    logger.info(f"[thumb] bot_thumb called: {bot_sid!r}")
-    loaded = _load_bot_config(bot_sid)
-    if not loaded:
-        logger.warning(f"[thumb] bot config not found: {bot_sid!r}")
-        return ""
-    cfg, folder = loaded
-    image_file = cfg.get("image", "")
-    if not image_file:
-        logger.warning(f"[thumb] no image for bot: {bot_sid!r}")
-        return ""
-    image_path = os.path.join(_bots_dir(), folder, image_file)
-    logger.info(f"[thumb] bot {bot_sid!r} -> {image_path}")
-    if not os.path.isfile(image_path):
-        logger.warning(f"[thumb] image file missing: {image_path}")
-        return ""
-    return _ensure_thumb(image_path)
 
 
 @visible

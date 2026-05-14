@@ -158,17 +158,21 @@ async def _set_location_background(location_data: Dict[str, Any]) -> None:
 # Movement
 # =========================================================================
 
-async def move_character(game_key: str, sid: str, location: str) -> str:
-    """Move a character"""
+@visible
+async def character_move(game_key: str, location: str = "", sid: str = "") -> str:
+    """Move a character to a location. sid defaults to the caller."""
+    require_game_dir(game_key)
+
+    if not sid:
+        sid = atlantis.get_caller() or ""
+    if not sid:
+        raise ValueError("Unable to determine character to move (no sid and no caller).")
+
     location = location or ""
     character = _find_character(game_key, sid)
     display_name = character.get("displayName", sid)
     display = f"{display_name} ({sid})" if display_name != sid else sid
 
-    if not sid:
-        raise ValueError("sid is required")
-
-    require_game_dir(game_key)
     current = position_get(game_key, sid)
 
     # New characters start in their configured entry location.
@@ -233,21 +237,16 @@ async def move_character(game_key: str, sid: str, location: str) -> str:
 
 
 # =========================================================================
-# Helper for location_list thumbnail encoding
+# Visible tools
 # =========================================================================
 
-def _thumb_for_image(image_path: str) -> str:
-    """Get a thumbnail path for a location image"""
-    if not image_path or not os.path.isfile(image_path):
-        return ''
-    return _ensure_thumb(image_path)
-
-
-def _collect_locations(locations_dir: str) -> List[Dict[str, str]]:
-    """List locations from a directory"""
-    locations = []
+@visible
+async def location_list() -> List[Dict[str, str]]:
+    """List locations"""
+    locations_dir = _locations_dir()
     if not os.path.isdir(locations_dir):
-        return locations
+        return []
+    locations: List[Dict[str, str]] = []
     for entry in sorted(os.listdir(locations_dir)):
         if not entry.endswith('.json'):
             continue
@@ -263,13 +262,13 @@ def _collect_locations(locations_dir: str) -> List[Dict[str, str]]:
             image_path = os.path.join(locations_dir, image_file)
             if os.path.isfile(image_path):
                 mtimes.append(os.path.getmtime(image_path))
-            thumb = _thumb_for_image(image_path)
-            if thumb:
-                ext = os.path.splitext(thumb)[1].lower()
-                mime = {'jpg': 'jpeg', 'jpeg': 'jpeg', 'png': 'png', 'gif': 'gif', 'webp': 'webp'}.get(ext.lstrip('.'), 'jpeg')
-                with open(thumb, 'rb') as img:
-                    b64 = base64.b64encode(img.read()).decode('ascii')
-                image_data = f'data:image/{mime};base64,{b64}'
+                thumb = _ensure_thumb(image_path)
+                if thumb:
+                    ext = os.path.splitext(thumb)[1].lower().lstrip('.')
+                    mime = {'jpg': 'jpeg', 'jpeg': 'jpeg', 'png': 'png', 'gif': 'gif', 'webp': 'webp'}.get(ext, 'jpeg')
+                    with open(thumb, 'rb') as img:
+                        b64 = base64.b64encode(img.read()).decode('ascii')
+                    image_data = f'data:image/{mime};base64,{b64}'
         locations.append({
             'name': data.get('name', entry[:-5]),
             'description': data.get('description', data.get('name', entry[:-5])),
@@ -278,16 +277,6 @@ def _collect_locations(locations_dir: str) -> List[Dict[str, str]]:
             'updated': datetime.fromtimestamp(max(mtimes)).strftime('%Y-%m-%d %H:%M'),
         })
     return locations
-
-
-# =========================================================================
-# Visible tools
-# =========================================================================
-
-@visible
-async def location_list() -> List[Dict[str, str]]:
-    """List locations"""
-    return _collect_locations(_locations_dir())
 
 
 @visible
@@ -303,17 +292,6 @@ def position_query(game_key: str, location: str) -> List[Dict[Any, Any]]:
         entry["location"] = location
         result.append(entry)
     return result
-
-
-@visible
-async def character_move(game_key: str, location: str = "", sid: str = "") -> str:
-    """Move a character to a location. sid defaults to the caller."""
-    require_game_dir(game_key)
-    if not sid:
-        sid = atlantis.get_caller() or ""
-    if not sid:
-        raise ValueError("Unable to determine character to move (no sid and no caller).")
-    return await move_character(game_key, sid, location or "")
 
 
 @visible

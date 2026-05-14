@@ -19,7 +19,7 @@ async def chat(game_key: str):
         logger.warning("Chat fired without a caller identity")
         return
 
-    raw_transcript, transcript = await fetch_transcript(game_key, caller)
+    raw_transcript, transcript = await fetch_transcript(game_key)
     logger.info(
         "Chat transcript fetched: %s raw entries, %s filtered entries",
         len(raw_transcript),

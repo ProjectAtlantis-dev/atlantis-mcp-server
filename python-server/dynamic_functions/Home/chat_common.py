@@ -457,7 +457,7 @@ async def handle_search_tool(
     return summary, converted_tools, tool_lookup
 
 
-async def fetch_transcript(game_key: str, caller: str = "") -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+async def fetch_transcript(game_key: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Fetch and format the chat transcript"""
     logger.info("fetch_transcript: /silent on")
     await atlantis.client_command("/silent on")

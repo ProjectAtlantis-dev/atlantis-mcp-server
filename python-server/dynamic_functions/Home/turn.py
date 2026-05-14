@@ -117,8 +117,6 @@ async def run_turn(
     transcript: List[Dict[str, Any]],
     converted_tools: List[TranscriptToolT],
     tool_lookup: Dict[str, ToolLookupInfo],
-    session_key: str,
-    requestId: str,
     allowed_apps: Optional[List[str]] = None,
 ) -> Optional[str]:
     """Run a streaming tool-calling turn"""
@@ -130,7 +128,7 @@ async def run_turn(
 
     try:
         for turn_count in range(1, max_turns + 1):
-            logger.info(f"=== TURN {turn_count}/{max_turns} === session_key={session_key}")
+            logger.info(f"=== TURN {turn_count}/{max_turns} === session_key={atlantis.get_session_key()}")
 
             api_messages: List[Dict[str, Any]] = [
                 {'role': 'system', 'content': system_prompt}

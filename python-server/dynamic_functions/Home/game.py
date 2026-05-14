@@ -6,8 +6,8 @@ import os
 import uuid
 from typing import Dict, Any
 
-from dynamic_functions.Home.location import get_positions, location_list
-from dynamic_functions.Home.character import _load_characters, prompt_display_name
+from dynamic_functions.Home.location import location_list
+from dynamic_functions.Home.character import character_list, prompt_display_name
 from dynamic_functions.Home.role import role_list
 from dynamic_functions.Home.bot import bot_list, bot_spawn
 
@@ -115,16 +115,7 @@ async def game_show(game_key: str) -> None:
     bot_rows = await bot_list()
     loc_rows = await location_list()
     role_rows = await role_list()
-
-    positions = get_positions(game_key)
-    char_rows = []
-    for ch in _load_characters(game_key):
-        char_rows.append({
-            "sid": ch["sid"],
-            "role": ch.get("role", "?"),
-            "displayName": ch.get("displayName", ch["sid"]),
-            "location": positions.get(ch["sid"], ""),
-        })
+    char_rows = character_list(game_key)
 
     # Build an HTML table
     def _esc(s):

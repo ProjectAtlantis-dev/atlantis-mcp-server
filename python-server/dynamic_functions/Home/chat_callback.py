@@ -1,4 +1,4 @@
-"""Game chat callback"""
+"""Game chat callback — main game tick. Fired on every transcript change."""
 
 import atlantis
 import logging
@@ -23,32 +23,28 @@ _BUSY_KEY = "chat_busy"
 
 @chat
 async def chat_callback(game_key: str):
-    """Handle game chat"""
-    session_key = atlantis.get_session_key() or "unknown"
-    request_id = atlantis.get_request_id() or "unknown"
-    caller = atlantis.get_caller()
-    if not caller:
-        await atlantis.client_log("Chat callback fired without a caller identity")
+    """Game tick: fired on every transcript change. The speaker is read from the transcript itself."""
+    if not atlantis.get_session_key():
+        logger.warning("chat_callback fired without session context, skipping")
         return
 
-    owner_req = atlantis.session_shared.get(_BUSY_KEY)
-    if owner_req:
-        logger.warning(f"Chat busy: session_key={session_key} owned by {owner_req}, skipping {request_id}")
+    request_id = atlantis.get_request_id() or "unknown"
+    if atlantis.session_shared.get(_BUSY_KEY):
+        logger.debug(f"chat_callback busy, skipping {request_id}")
         return
 
     atlantis.session_shared.set(_BUSY_KEY, request_id)
     try:
-        await _handle_chat(game_key, caller, session_key, request_id)
+        await _handle_chat(game_key)
     finally:
         atlantis.session_shared.remove(_BUSY_KEY)
 
 
-async def _handle_chat(game_key: str, caller: str, session_key: str, request_id: str):
-    raw_transcript, transcript = await fetch_transcript(game_key, caller)
+async def _handle_chat(game_key: str):
+    raw_transcript, transcript = await fetch_transcript(game_key)
     logger.info(f"Chat: {len(raw_transcript)} raw / {len(transcript)} filtered")
 
-    participants = analyze_participants(raw_transcript)
-    speaker_sid = participants.get("last_speaker")
+    speaker_sid = analyze_participants(raw_transcript).get("last_speaker")
     if not speaker_sid:
         await atlantis.client_log("No chat speaker found in transcript")
         return
@@ -59,63 +55,40 @@ async def _handle_chat(game_key: str, caller: str, session_key: str, request_id:
         return
 
     occupants = position_query(game_key, location)
-    if not occupants or len(occupants) <= 1:
+    if len(occupants) <= 1:
         await atlantis.client_log(f"📍 {speaker_sid} is alone in {location}")
         return
 
     names = [ch.get("displayName", ch["sid"]) for ch in occupants]
     await atlantis.client_log(f"🏠 Room [{location}]: {', '.join(names)}")
 
-    bots_heard = []
-    for ch in occupants:
-        sid = ch["sid"]
-        if sid == speaker_sid:
-            continue
-        if is_bot_driven(game_key, sid):
-            bots_heard.append(ch)
-
+    bots_heard = [
+        ch for ch in occupants
+        if ch["sid"] != speaker_sid and is_bot_driven(game_key, ch["sid"])
+    ]
     if not bots_heard:
         await atlantis.client_log("🎤 No bots heard it")
         return
 
     next_up = bots_heard[0]
-    bot_sid = next_up["sid"]
-    bot_display = next_up.get("displayName", bot_sid)
-    await atlantis.client_log(f"🎤 Heard by: {bot_display}")
+    await atlantis.client_log(f"🎤 Heard by: {next_up.get('displayName', next_up['sid'])}")
 
     await _respond_as_bot(
         game_key=game_key,
         bot_record=next_up,
         speaker_sid=speaker_sid,
         transcript=transcript,
-        session_key=session_key,
-        request_id=request_id,
     )
 
 
-def _speaker_display_name(game_key: str, speaker_sid: str) -> str:
-    for ch in _load_characters(game_key):
-        if ch.get("sid") == speaker_sid:
-            return ch.get("displayName", "") or ""
-    return ""
+def _character_field(game_key: str, sid: str, field: str) -> str:
+    return next(
+        (ch.get(field, "") or "" for ch in _load_characters(game_key) if ch.get("sid") == sid),
+        "",
+    )
 
 
-def _bot_role(game_key: str, bot_sid: str) -> str:
-    for ch in _load_characters(game_key):
-        if ch.get("sid") == bot_sid:
-            return ch.get("role", "") or ""
-    return ""
-
-
-async def _respond_as_bot(
-    *,
-    game_key: str,
-    bot_record: dict,
-    speaker_sid: str,
-    transcript: list,
-    session_key: str,
-    request_id: str,
-):
+async def _respond_as_bot(*, game_key: str, bot_record: dict, speaker_sid: str, transcript: list):
     bot_sid = bot_record["sid"]
     bot_display = bot_record.get("displayName", bot_sid)
 
@@ -125,15 +98,14 @@ async def _respond_as_bot(
         return
     cfg, _folder = loaded
 
-    role = _bot_role(game_key, bot_sid)
+    role = _character_field(game_key, bot_sid, "role")
     if not role:
         await atlantis.client_log(f"⚠️ Bot {bot_sid} has no assigned role")
         return
 
     base_prompt = load_role_system_prompt(role)
-
     history = read_interaction(game_key, role, speaker_sid)
-    first_name = _speaker_display_name(game_key, speaker_sid) or history.get("first_name", "")
+    first_name = _character_field(game_key, speaker_sid, "displayName") or history.get("first_name", "")
 
     system_prompt = build_system_prompt(
         base_prompt=base_prompt,
@@ -152,7 +124,6 @@ async def _respond_as_bot(
         return
 
     client = OpenAI(api_key=api_key, base_url=base_url)
-
     converted_tools, tool_lookup = get_base_tools()
 
     await run_turn(
@@ -165,8 +136,6 @@ async def _respond_as_bot(
         transcript=transcript,
         converted_tools=converted_tools,
         tool_lookup=tool_lookup,
-        session_key=session_key,
-        requestId=request_id,
     )
 
     record_interaction(game_key, role, speaker_sid, first_name=first_name)

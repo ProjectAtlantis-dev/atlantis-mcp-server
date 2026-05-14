@@ -2876,7 +2876,7 @@ async def index():
         logger.debug(f"WITH ARGUMENTS: {args}")
         if caller_sid:
             logger.debug(f"CALLED BY caller_sid: {caller_sid}")
-        if ctx.user_game_id and ctx.caller_sid and ctx.caller_shell_path:
+        if ctx.user_game_id and ctx.caller_sid:
             logger.debug(f"SESSION KEY: {ctx.session_key}")
         # ---> ADDED: Log entry and raw args
         logger.debug(f"---> _execute_tool ENTERED. Name: '{name}', Raw Args:\n{format_json_log(args) if isinstance(args, dict) else args!r}") # <-- ADD THIS LINE
@@ -3059,7 +3059,7 @@ async def index():
         logger.debug(f"Tool name: '{tool_name}', Arguments:\n{format_json_log(tool_args)}")
         if ctx.caller_sid:
             logger.debug(f"Call made by caller_sid: {ctx.caller_sid}")
-        if ctx.user_game_id and ctx.caller_sid and ctx.caller_shell_path:
+        if ctx.user_game_id and ctx.caller_sid:
             logger.debug(f"Call made with session_key: {ctx.session_key}")
         if for_cloud:
             envelope = {"jsonrpc": "2.0", "id": request_id, "method": "tools/call", "params": params}

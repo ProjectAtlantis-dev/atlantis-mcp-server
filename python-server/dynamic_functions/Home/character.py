@@ -14,13 +14,8 @@ from dynamic_functions.Home.role import _validate_role
 logger = logging.getLogger("mcp_server")
 
 
-def game_data_dir(game_key: str) -> str:
-    """Get the game data directory"""
-    return require_game_dir(game_key)
-
-
 def _characters_path(game_key: str) -> str:
-    return os.path.join(game_data_dir(game_key), "characters.json")
+    return os.path.join(require_game_dir(game_key), "characters.json")
 
 
 def _load_characters(game_key: str) -> List[Dict[str, Any]]:

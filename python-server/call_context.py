@@ -32,13 +32,13 @@ class CallContext(BaseModel):
     def session_key(self) -> str:
         """Stable, locally-derived session identifier.
 
-        Composed from (user_game_id, caller sid, caller_shell_path). Raises
-        if any component is missing — a partial session_key is meaningless.
+        Composed from (user_game_id, caller sid). Shell path is intentionally NOT included —
+        we want one session per (game, sid) so multiple terminals of the same human share state
+        (e.g. the chat busy-lock). Raises if any component is missing.
         """
         return self.derive_session_key(
             user_game_id=self.user_game_id,
             caller_sid=self.caller_sid,
-            caller_shell_path=self.caller_shell_path,
         )
 
     def get_session_key(self) -> Optional[str]:
@@ -53,19 +53,17 @@ class CallContext(BaseModel):
         *,
         user_game_id: Optional[int],
         caller_sid: Optional[str],
-        caller_shell_path: Optional[str],
     ) -> str:
         """Canonical session key factory for cloud tool-call context."""
         missing = [
             n for n, v in (
                 ("user_game_id", user_game_id),
                 ("caller_sid", caller_sid),
-                ("caller_shell_path", caller_shell_path),
             ) if not v
         ]
         if missing:
             raise ValueError(f"Cannot derive session_key: missing {missing}")
-        return f"{user_game_id}:{caller_sid}:{caller_shell_path}"
+        return f"{user_game_id}:{caller_sid}"
 
     @classmethod
     def from_params(

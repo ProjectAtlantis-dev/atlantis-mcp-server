@@ -54,8 +54,8 @@ def is_bot_driven(game_key: str, sid: str) -> bool:
         return False
     return not chat_slot_claimed(sid)
 
-
-async def character_set(game_key: str, sid: str, role: str, display_name: str = "") -> None:
+@visible
+async def character_assign(game_key: str, sid: str, role: str, display_name: str = "") -> None:
     """Register a character (or update an existing one). display_name auto-fills from bot config or sid."""
     require_game_dir(game_key)
     _validate_role(role)
@@ -63,6 +63,10 @@ async def character_set(game_key: str, sid: str, role: str, display_name: str = 
         raise ValueError("sid is required")
 
     from dynamic_functions.Home.common import _load_bot_config
+    if _load_bot_config(sid) is None:
+        caller = atlantis.get_caller()
+        if sid != caller:
+            raise ValueError(f"Invalid sid {sid!r}: must be a bot sid or match the caller")
     if not display_name.strip():
         loaded = _load_bot_config(sid)
         display_name = loaded[0].get("displayName", sid) if loaded else sid
@@ -219,8 +223,8 @@ async def prompt_display_name_click(message: str, game_key: str, role: str, disp
     sid = atlantis.get_caller()
     if not sid:
         raise ValueError("Unable to determine caller identity")
-    await character_set(game_key, sid, role, display_name)
-    await atlantis.client_command(f"@character_move {shlex.quote(game_key)}")
+    await character_assign(game_key, sid, role, display_name)
+
 
 
 @visible

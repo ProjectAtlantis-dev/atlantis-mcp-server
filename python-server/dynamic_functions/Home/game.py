@@ -9,7 +9,7 @@ from typing import Dict, Any
 from dynamic_functions.Home.location import location_list
 from dynamic_functions.Home.character import character_list, prompt_display_name
 from dynamic_functions.Home.role import role_list
-from dynamic_functions.Home.bot import bot_list, bot_spawn
+from dynamic_functions.Home.bot import bot_list
 
 
 @public

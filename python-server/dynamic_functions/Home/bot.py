@@ -9,17 +9,6 @@ from typing import List, Dict
 from dynamic_functions.Home.common import _bots_dir, _ensure_thumb
 
 
-@visible
-async def bot_spawn(game_key: str, sid: str, role: str, location: str = "") -> None:
-    """Spawn a bot and place it at a location"""
-    from dynamic_functions.Home.character import character_set
-    from dynamic_functions.Home.common import _load_bot_config, _available_bot_sids
-    from dynamic_functions.Home.location import character_move, get_positions
-    if _load_bot_config(sid) is None:
-        raise ValueError(f"Unknown bot sid: {sid!r}. Must match a bot in Bots/ (e.g. {_available_bot_sids()})")
-    await character_set(game_key, sid, role)
-    if get_positions(game_key).get(sid) is None:
-        await character_move(game_key, location or "", sid=sid)
 
 
 @visible

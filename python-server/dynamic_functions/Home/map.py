@@ -7,7 +7,6 @@ import os
 import uuid
 from typing import Any, Dict, List, Optional
 
-from dynamic_functions.Home.common import _load_bot_config
 from dynamic_functions.Home.character import _load_characters
 from dynamic_functions.Home.location import (
     _load_location, _locations_dir, _connects_to,
@@ -27,28 +26,16 @@ def _location_image_b64(loc_name: str) -> str:
     return f"data:image/{mime};base64,{b64}"
 
 
-def _character_display_name(ch: dict) -> str:
-    if ch.get("isBot", True):
-        loaded = _load_bot_config(ch["sid"])
-        return loaded[0].get("displayName", ch["sid"]) if loaded else ch["sid"]
-    return ch.get("humanName", ch["sid"])
-
-
 def _characters_at(game_key: str, location: str) -> List[str]:
     """List character display names at a location"""
     sids = get_players_at(game_key, location)
     if not sids:
         return []
-    characters = _load_characters(game_key)
-    names = []
-    for ch in characters:
-        if ch["sid"] in sids:
-            names.append(_character_display_name(ch))
-    return names
+    return [ch.get("displayName", ch["sid"]) for ch in _load_characters(game_key) if ch["sid"] in sids]
 
 
 @visible
-async def map(game_key: str, location: str = "") -> None:
+async def location_map(game_key: str, location: str = "") -> None:
     """Show nearby locations as a map"""
     from dynamic_functions.Home.common import require_game_dir
     require_game_dir(game_key)
@@ -61,7 +48,7 @@ async def map(game_key: str, location: str = "") -> None:
         if not resolved_location:
             raise ValueError(
                 "Cannot determine current location. Either pass a location name "
-                "or move your character first with go()."
+                "or move your character first with character_move()."
             )
     location = resolved_location
 

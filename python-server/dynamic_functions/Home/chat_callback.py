@@ -11,7 +11,7 @@ from dynamic_functions.Home.chat_common import (
 )
 from dynamic_functions.Home.location import position_get, position_query
 from dynamic_functions.Home.common import _load_bot_config
-from dynamic_functions.Home.character import _load_characters
+from dynamic_functions.Home.character import _load_characters, is_bot_driven
 from dynamic_functions.Home.prompt_common import build_system_prompt, load_role_system_prompt
 from dynamic_functions.Home.interactions import read_interaction, record_interaction
 from dynamic_functions.Home.turn import run_turn
@@ -71,9 +71,7 @@ async def _handle_chat(game_key: str, caller: str, session_key: str, request_id:
         sid = ch["sid"]
         if sid == speaker_sid:
             continue
-        if not ch.get("isBot"):
-            continue
-        if _load_bot_config(sid):
+        if is_bot_driven(game_key, sid):
             bots_heard.append(ch)
 
     if not bots_heard:
@@ -95,16 +93,16 @@ async def _handle_chat(game_key: str, caller: str, session_key: str, request_id:
     )
 
 
-def _speaker_first_name(game_key: str, speaker_sid: str) -> str:
+def _speaker_display_name(game_key: str, speaker_sid: str) -> str:
     for ch in _load_characters(game_key):
-        if ch.get("sid") == speaker_sid and not ch.get("isBot", True):
-            return ch.get("humanName", "") or ""
+        if ch.get("sid") == speaker_sid:
+            return ch.get("displayName", "") or ""
     return ""
 
 
 def _bot_role(game_key: str, bot_sid: str) -> str:
     for ch in _load_characters(game_key):
-        if ch.get("sid") == bot_sid and ch.get("isBot", True):
+        if ch.get("sid") == bot_sid:
             return ch.get("role", "") or ""
     return ""
 
@@ -135,7 +133,7 @@ async def _respond_as_bot(
     base_prompt = load_role_system_prompt(role)
 
     history = read_interaction(game_key, role, speaker_sid)
-    first_name = _speaker_first_name(game_key, speaker_sid) or history.get("first_name", "")
+    first_name = _speaker_display_name(game_key, speaker_sid) or history.get("first_name", "")
 
     system_prompt = build_system_prompt(
         base_prompt=base_prompt,

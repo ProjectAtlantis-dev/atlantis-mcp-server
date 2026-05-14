@@ -70,11 +70,14 @@ def _collect_bots(bots_dir: str) -> List[Dict[str, str]]:
 @visible
 async def bot_spawn(game_key: str, sid: str, role: str, location: str = "") -> None:
     """Spawn a bot and place it at a location"""
-    from dynamic_functions.Home.character import character_bot
+    from dynamic_functions.Home.character import character_set
+    from dynamic_functions.Home.common import _load_bot_config, _available_bot_sids
     from dynamic_functions.Home.location import move_character, get_positions
-    await character_bot(game_key, sid, role)
+    if _load_bot_config(sid) is None:
+        raise ValueError(f"Unknown bot sid: {sid!r}. Must match a bot in Bots/ (e.g. {_available_bot_sids()})")
+    await character_set(game_key, sid, role)
     if get_positions(game_key).get(sid) is None:
-        await move_character(game_key, sid, location or "", is_bot=True)
+        await move_character(game_key, sid, location or "")
 
 
 @visible

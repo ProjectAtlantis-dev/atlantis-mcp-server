@@ -43,115 +43,59 @@ def _save_characters(game_key: str, characters: List[Dict[str, Any]]) -> None:
     os.replace(tmp, path)
 
 
-def _find_character(game_key: str, sid: str, is_bot: bool) -> dict:
+def _find_character(game_key: str, sid: str) -> dict:
     """Find a character by sid"""
     for ch in _load_characters(game_key):
         if ch.get("sid") == sid:
-            if ch.get("isBot", True) != is_bot:
-                kind = "bot" if is_bot else "human"
-                raise ValueError(f"Character {sid!r} is not a {kind}")
             return ch
-    kind = "character_bot()" if is_bot else "character_self() or character_human()"
-    raise ValueError(f"No character found for sid: {sid!r}. Register role with {kind} first.")
+    raise ValueError(f"No character found for sid: {sid!r}. Register with character_set() first.")
 
 
-async def _upsert_character(game_key: str, sid: str, role: str, is_bot: bool, human_name: str = "") -> None:
-    """Create or update a character"""
+def is_bot_driven(game_key: str, sid: str) -> bool:
+    """A character is bot-driven iff its sid has a Bots/ config AND no live session has claimed its chat slot."""
+    from dynamic_functions.Home.common import _load_bot_config
+    from dynamic_functions.Home.session import chat_slot_claimed
+    if _load_bot_config(sid) is None:
+        return False
+    return not chat_slot_claimed(sid)
+
+
+async def character_set(game_key: str, sid: str, role: str, display_name: str = "") -> None:
+    """Register a character (or update an existing one). display_name auto-fills from bot config or sid."""
+    require_game_dir(game_key)
     _validate_role(role)
+    if not sid:
+        raise ValueError("sid is required")
+
+    from dynamic_functions.Home.common import _load_bot_config
+    if not display_name.strip():
+        loaded = _load_bot_config(sid)
+        display_name = loaded[0].get("displayName", sid) if loaded else sid
+    display_name = display_name.strip()
+
     characters = _load_characters(game_key)
-
-    record: Dict[str, Any] = {"isBot": is_bot}
-    if is_bot:
-        record["sid"] = sid
-    else:
-        record["sid"] = sid
-        record["humanName"] = human_name
-    record["role"] = role
-
-    is_self = (not is_bot) and atlantis.get_caller() == sid
-    if is_bot:
-        subject, verb = f"Bot {sid}", "is"
-    elif is_self:
-        subject, verb = "You", "are"
-    else:
-        subject, verb = f"User {sid}", "is"
-    suffix = f" named {human_name}" if (human_name and not is_bot) else ""
-    message = f"{subject} {verb} now roleplaying as {role}{suffix}"
-
+    record = {"sid": sid, "role": role, "displayName": display_name}
     for ch in characters:
         if ch.get("sid") == sid:
             ch.update(record)
             _save_characters(game_key, characters)
-            await atlantis.client_log(message)
+            await atlantis.client_log(f"{display_name} ({sid}) is now roleplaying as {role}")
             return
-
     characters.append(record)
     _save_characters(game_key, characters)
-    await atlantis.client_log(message)
+    await atlantis.client_log(f"{display_name} ({sid}) is now roleplaying as {role}")
 
 
 @visible
-async def character_bot(game_key: str, sid: str, role: str) -> None:
-    """Assign a role to a bot"""
+async def prompt_display_name(game_key: str, role: str) -> None:
+    """Pop up a modal asking the caller for their display name; on submit, assign the role."""
     require_game_dir(game_key)
-    from dynamic_functions.Home.common import _load_bot_config, _available_bot_sids
-    if _load_bot_config(sid) is None:
-        raise ValueError(f"Unknown bot sid: {sid!r}. Must match a bot in Bots/ (e.g. {_available_bot_sids()})")
-    await _upsert_character(game_key, sid, role, is_bot=True)
-
-
-@visible
-async def character_human(game_key: str, sid: str, role: str, human_name: str) -> None:
-    """Assign a role to a human"""
-    require_game_dir(game_key)
-    if not sid:
-        raise ValueError("sid is required for human characters")
-    if not human_name or not human_name.strip():
-        raise ValueError("human_name is required for human characters")
-    await _upsert_character(game_key, sid, role, is_bot=False, human_name=human_name.strip())
-
-
-@visible
-async def character_self(game_key: str, role: str, human_name: str) -> None:
-    """Assign a role to the caller"""
-    require_game_dir(game_key)
-    sid = atlantis.get_caller()
-    if not sid:
-        raise ValueError("Unable to determine caller identity")
-    await character_human(game_key, sid, role, human_name)
-
-
-@visible
-async def human_spawn(game_key: str, role: str) -> None:
-    """Assume a role as a human. Prompts for a display name if the caller doesn't have one yet."""
-    require_game_dir(game_key)
-    _validate_role(role)
-    sid = atlantis.get_caller()
-    if not sid:
-        raise ValueError("Unable to determine caller identity")
-
-    existing_name = ""
-    for ch in _load_characters(game_key):
-        if ch.get("sid") == sid and not ch.get("isBot", True):
-            existing_name = (ch.get("humanName") or "").strip()
-            break
-
-    if existing_name:
-        await character_human(game_key, sid, role, existing_name)
-        await atlantis.client_command(f"@go {shlex.quote(game_key)}")
-        return
-
-    await _prompt_display_name(game_key, role)
-
-
-async def _prompt_display_name(game_key: str, role: str) -> None:
-    """Show the display-name modal for a human assuming a role."""
     uid = uuid.uuid4().hex[:8]
     game_key_js = json.dumps(game_key)
     role_js = json.dumps(role)
     html = f"""
 <style>
-  #human-spawn-{uid} {{
+  #displayname-{uid} {{
     box-sizing: border-box;
     width: 100%;
     min-width: min(100%, 320px);
@@ -164,23 +108,23 @@ async def _prompt_display_name(game_key: str, role: str) -> None:
     border-radius: 8px;
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }}
-  #human-spawn-{uid} h2 {{
+  #displayname-{uid} h2 {{
     margin: 10px 0 28px;
     font-size: 30px;
     line-height: 1.1;
     color: #fffaf0;
   }}
-  #human-spawn-{uid} form {{
+  #displayname-{uid} form {{
     display: grid;
     gap: 12px;
     max-width: 420px;
   }}
-  #human-spawn-{uid} label {{
+  #displayname-{uid} label {{
     color: #fffaf0;
     font-size: 13px;
     font-weight: 700;
   }}
-  #human-spawn-{uid} input {{
+  #displayname-{uid} input {{
     box-sizing: border-box;
     width: 100%;
     min-height: 42px;
@@ -191,16 +135,16 @@ async def _prompt_display_name(game_key: str, role: str) -> None:
     border-radius: 6px;
     font: inherit;
   }}
-  #human-spawn-{uid} input:focus {{
+  #displayname-{uid} input:focus {{
     outline: 2px solid rgba(20, 255, 208, 0.45);
     outline-offset: 2px;
   }}
-  #human-spawn-{uid} .err {{
+  #displayname-{uid} .err {{
     min-height: 18px;
     color: #ffb4a8;
     font-size: 13px;
   }}
-  #human-spawn-{uid} button {{
+  #displayname-{uid} button {{
     min-height: 40px;
     padding: 0 16px;
     color: #fffaf0;
@@ -211,34 +155,34 @@ async def _prompt_display_name(game_key: str, role: str) -> None:
     font-weight: 700;
     cursor: pointer;
   }}
-  #human-spawn-{uid} button:hover {{
+  #displayname-{uid} button:hover {{
     background: linear-gradient(to bottom, #22b89e, #1a527a);
   }}
-  #human-spawn-{uid} button:disabled {{
+  #displayname-{uid} button:disabled {{
     cursor: default;
     opacity: 0.65;
   }}
 </style>
-<section id="human-spawn-{uid}" aria-label="Choose display name">
+<section id="displayname-{uid}" aria-label="Choose display name">
   <h2>Welcome to Atlantis</h2>
-  <form id="human-spawn-form-{uid}">
-    <label for="human-spawn-name-{uid}">Enter your display name</label>
-    <input id="human-spawn-name-{uid}" name="display_name" type="text" autocomplete="name" maxlength="80" required autofocus>
-    <div id="human-spawn-err-{uid}" class="err" aria-live="polite"></div>
-    <button id="human-spawn-btn-{uid}" type="submit">Enter</button>
+  <form id="displayname-form-{uid}">
+    <label for="displayname-input-{uid}">Enter your display name</label>
+    <input id="displayname-input-{uid}" name="display_name" type="text" autocomplete="name" maxlength="80" required autofocus>
+    <div id="displayname-err-{uid}" class="err" aria-live="polite"></div>
+    <button id="displayname-btn-{uid}" type="submit">Enter</button>
   </form>
 </section>
 """
     modal_id = await atlantis.client_modal(html, title="Welcome")
-    atlantis.session_shared.set(f"human_spawn_modal_id:{game_key}", modal_id)
+    atlantis.session_shared.set(f"displayname_modal_id:{game_key}", modal_id)
 
     script = f"""
 (function() {{
   function bind() {{
-    var form = document.getElementById("human-spawn-form-{uid}");
-    var button = document.getElementById("human-spawn-btn-{uid}");
-    var input = document.getElementById("human-spawn-name-{uid}");
-    var error = document.getElementById("human-spawn-err-{uid}");
+    var form = document.getElementById("displayname-form-{uid}");
+    var button = document.getElementById("displayname-btn-{uid}");
+    var input = document.getElementById("displayname-input-{uid}");
+    var error = document.getElementById("displayname-err-{uid}");
     if (!form || !button || !input) return;
     function focusInput() {{ input.focus({{ preventScroll: true }}); input.select(); }}
     focusInput();
@@ -251,8 +195,8 @@ async def _prompt_display_name(game_key: str, role: str) -> None:
       if (error) error.textContent = "";
       button.disabled = true;
       button.textContent = "Entering...";
-      await sendChatter(window._accessToken, "$**Home**human_spawn_click", {{
-        message: "human_spawn",
+      await sendChatter(window._accessToken, "$**Home**prompt_display_name_click", {{
+        message: "display_name",
         game_key: {game_key_js},
         role: {role_js},
         display_name: name
@@ -266,39 +210,31 @@ async def _prompt_display_name(game_key: str, role: str) -> None:
 
 
 @visible
-async def human_spawn_click(message: str, game_key: str, role: str, display_name: str) -> None:
-    """Handle the human-spawn display-name modal."""
-    game_key = str(game_key or "").strip()
-    if not game_key:
-        raise ValueError("game_key is required")
+async def prompt_display_name_click(message: str, game_key: str, role: str, display_name: str) -> None:
+    """Handle the display-name modal submit."""
     require_game_dir(game_key)
     display_name = (display_name or "").strip()
     if not display_name:
         raise ValueError("display_name is required")
-    modal_key = f"human_spawn_modal_id:{game_key}"
+    modal_key = f"displayname_modal_id:{game_key}"
     modal_id = atlantis.session_shared.get(modal_key)
     if modal_id:
         await atlantis.client_modal_close(modal_id)
         atlantis.session_shared.remove(modal_key)
-    await atlantis.client_command(
-        f"@character_self {shlex.quote(game_key)} {shlex.quote(role)} {shlex.quote(display_name)}"
-    )
-    await atlantis.client_command(f"@go {shlex.quote(game_key)}")
+    sid = atlantis.get_caller()
+    if not sid:
+        raise ValueError("Unable to determine caller identity")
+    await character_set(game_key, sid, role, display_name)
+    await atlantis.client_command(f"@character_move {shlex.quote(game_key)}")
 
 
 @visible
 def character_list(game_key: str) -> List[Dict[str, Any]]:
-    """List game characters"""
+    """List game characters with their current positions (blank if unplaced)."""
     require_game_dir(game_key)
-    from dynamic_functions.Home.common import _load_bot_config
-    characters = _load_characters(game_key)
-    result = []
-    for ch in characters:
-        entry = dict(ch)
-        if ch.get("isBot", True):
-            loaded = _load_bot_config(ch["sid"])
-            entry["displayName"] = loaded[0].get("displayName", ch["sid"]) if loaded else ch["sid"]
-        else:
-            entry["displayName"] = ch.get("humanName", ch["sid"])
-        result.append(entry)
-    return result
+    from dynamic_functions.Home.location import get_positions
+    positions = get_positions(game_key)
+    return [
+        {**ch, "location": positions.get(ch["sid"], "")}
+        for ch in _load_characters(game_key)
+    ]

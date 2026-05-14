@@ -7,7 +7,7 @@ import uuid
 from typing import Dict, Any
 
 from dynamic_functions.Home.location import get_positions, location_list
-from dynamic_functions.Home.character import _load_characters, human_spawn
+from dynamic_functions.Home.character import _load_characters, prompt_display_name
 from dynamic_functions.Home.role import role_list
 from dynamic_functions.Home.bot import bot_list, bot_spawn
 
@@ -18,7 +18,7 @@ async def game_run(game_key: str) -> None:
     """Enter an existing game"""
     from dynamic_functions.Home.common import require_game_dir
     require_game_dir(game_key)
-    await human_spawn(game_key, 'Guest')
+    await prompt_display_name(game_key, 'Guest')
 
 
 @button("New Game")
@@ -116,18 +116,15 @@ async def game_show(game_key: str) -> None:
     loc_rows = await location_list()
     role_rows = await role_list()
 
+    positions = get_positions(game_key)
     char_rows = []
-    pos_rows = []
-    characters = _load_characters(game_key)
-    for ch in characters:
+    for ch in _load_characters(game_key):
         char_rows.append({
             "sid": ch["sid"],
             "role": ch.get("role", "?"),
-            "isBot": ch.get("isBot", True),
-            "humanName": ch.get("humanName", ""),
+            "displayName": ch.get("displayName", ch["sid"]),
+            "location": positions.get(ch["sid"], ""),
         })
-    positions = get_positions(game_key)
-    pos_rows = [{"sid": sid, "location": loc} for sid, loc in sorted(positions.items())]
 
     # Build an HTML table
     def _esc(s):
@@ -163,11 +160,8 @@ async def game_show(game_key: str) -> None:
         [[l["name"], l["description"], ", ".join(l["connects_to"]), l["updated"]] for l in loc_rows]))
     tables.append(_table("ent-role", "ROLE", ["name", "title", "defaultLocation", "updated"],
         [[r["name"], r["title"], r.get("defaultLocation", ""), r["updated"]] for r in role_rows]))
-    tables.append(_table("ent-character", "CHARACTER", ["sid", "role", "isBot", "humanName"],
-        [[c["sid"], c["role"], c["isBot"], c.get("humanName", "")] for c in char_rows],
-        variant="runtime"))
-    tables.append(_table("ent-position", "POSITION", ["sid", "location"],
-        [[p["sid"], p["location"]] for p in pos_rows],
+    tables.append(_table("ent-character", "CHARACTER", ["sid", "role", "displayName", "location"],
+        [[c["sid"], c["role"], c["displayName"], c["location"]] for c in char_rows],
         variant="runtime"))
 
     # Relationships
@@ -177,8 +171,7 @@ async def game_show(game_key: str) -> None:
         (f"ent-location-{uid}", f"ent-role-{uid}", "defaultLocation"),
         (f"ent-bot-{uid}", f"ent-character-{uid}", "sid"),
         (f"ent-role-{uid}", f"ent-character-{uid}", "role"),
-        (f"ent-character-{uid}", f"ent-position-{uid}", "sid"),
-        (f"ent-location-{uid}", f"ent-position-{uid}", "location"),
+        (f"ent-location-{uid}", f"ent-character-{uid}", "location"),
     ]
 
     rels_json = json.dumps(relationships)

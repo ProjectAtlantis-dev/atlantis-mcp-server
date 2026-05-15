@@ -1,12 +1,14 @@
 """Character tools"""
 
 import atlantis
+import asyncio
+import html as html_lib
 import json
 import logging
 import os
 import shlex
 import uuid
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from dynamic_functions.Home.common import require_game_dir
 from dynamic_functions.Home.role import _validate_role
@@ -63,12 +65,14 @@ async def character_assign(game_key: str, sid: str, role: str, display_name: str
         raise ValueError("sid is required")
 
     from dynamic_functions.Home.common import _load_bot_config
-    if _load_bot_config(sid) is None:
+    loaded = _load_bot_config(sid)
+    if loaded is None:
         caller = atlantis.get_caller()
         if sid != caller:
             raise ValueError(f"Invalid sid {sid!r}: must be a bot sid or match the caller")
+        if not display_name.strip():
+            raise ValueError("display_name is required when sid matches the caller")
     if not display_name.strip():
-        loaded = _load_bot_config(sid)
         display_name = loaded[0].get("displayName", sid) if loaded else sid
     display_name = display_name.strip()
 
@@ -86,12 +90,18 @@ async def character_assign(game_key: str, sid: str, role: str, display_name: str
 
 
 @visible
-async def prompt_display_name(game_key: str, role: str) -> None:
-    """Pop up a modal asking the caller for their display name; on submit, assign the role."""
-    require_game_dir(game_key)
+async def prompt_string(prompt_text: str) -> Optional[str]:
+    """Pop up a modal asking the caller for a string.
+
+    Returns None if the user closes/cancels the modal without submitting.
+    """
     uid = uuid.uuid4().hex[:8]
-    game_key_js = json.dumps(game_key)
-    role_js = json.dumps(role)
+    prompt_id = f"displayname:{uid}"
+    prompt_id_js = json.dumps(prompt_id)
+    prompt_text_html = html_lib.escape(prompt_text or "Enter a value")
+    loop = asyncio.get_running_loop()
+    future = loop.create_future()
+    atlantis.session_shared.set(f"{prompt_id}:future", future)
     html = f"""
 <style>
   #displayname-{uid} {{
@@ -165,7 +175,7 @@ async def prompt_display_name(game_key: str, role: str) -> None:
 <section id="displayname-{uid}" aria-label="Choose display name">
   <h2>Welcome to Atlantis</h2>
   <form id="displayname-form-{uid}">
-    <label for="displayname-input-{uid}">Enter your display name</label>
+    <label for="displayname-input-{uid}">{prompt_text_html}</label>
     <input id="displayname-input-{uid}" name="display_name" type="text" autocomplete="name" maxlength="80" required autofocus>
     <div id="displayname-err-{uid}" class="err" aria-live="polite"></div>
     <button id="displayname-btn-{uid}" type="submit">Enter</button>
@@ -173,58 +183,100 @@ async def prompt_display_name(game_key: str, role: str) -> None:
 </section>
 """
     modal_id = await atlantis.client_modal(html, title="Welcome")
-    atlantis.session_shared.set(f"displayname_modal_id:{game_key}", modal_id)
+    atlantis.session_shared.set(f"{prompt_id}:modal_id", modal_id)
 
     script = f"""
 (function() {{
+  var settled = false;
+  var observer = null;
+  function cleanup() {{ if (observer) {{ try {{ observer.disconnect(); }} catch (e) {{}} observer = null; }} }}
+  async function cancel() {{
+    if (settled) return;
+    settled = true;
+    cleanup();
+    if (!window._accessToken) return;
+    try {{
+      await sendChatter(window._accessToken, "$**Home**prompt_string_cancel", {{
+        prompt_id: {prompt_id_js}
+      }});
+    }} catch (e) {{}}
+  }}
   function bind() {{
+    var root = document.getElementById("displayname-{uid}");
     var form = document.getElementById("displayname-form-{uid}");
     var button = document.getElementById("displayname-btn-{uid}");
     var input = document.getElementById("displayname-input-{uid}");
     var error = document.getElementById("displayname-err-{uid}");
-    if (!form || !button || !input) return;
+    if (!root || !form || !button || !input) return;
     function focusInput() {{ input.focus({{ preventScroll: true }}); input.select(); }}
     focusInput();
     setTimeout(focusInput, 120);
     form.addEventListener("submit", async function(event) {{
       event.preventDefault();
+      if (settled) return;
       if (!window._accessToken) return;
       var name = input.value.trim();
       if (!name) {{ if (error) error.textContent = "Type a display name to continue."; input.focus(); return; }}
       if (error) error.textContent = "";
       button.disabled = true;
       button.textContent = "Entering...";
-      await sendChatter(window._accessToken, "$**Home**prompt_display_name_click", {{
-        message: "display_name",
-        game_key: {game_key_js},
-        role: {role_js},
+      settled = true;
+      cleanup();
+      await sendChatter(window._accessToken, "$**Home**prompt_string_click", {{
+        prompt_id: {prompt_id_js},
         display_name: name
       }});
     }});
+    observer = new MutationObserver(function() {{
+      if (!document.body.contains(root)) {{ cancel(); }}
+    }});
+    observer.observe(document.body, {{ childList: true, subtree: true }});
   }}
   requestAnimationFrame(function() {{ requestAnimationFrame(bind); }});
 }})()
 """
     await atlantis.client_script(script)
+    try:
+        return await future
+    finally:
+        atlantis.session_shared.remove(f"{prompt_id}:future")
+        atlantis.session_shared.remove(f"{prompt_id}:modal_id")
 
 
 @visible
-async def prompt_display_name_click(message: str, game_key: str, role: str, display_name: str) -> None:
+async def prompt_string_click(prompt_id: str, display_name: str) -> None:
     """Handle the display-name modal submit."""
-    require_game_dir(game_key)
     display_name = (display_name or "").strip()
     if not display_name:
         raise ValueError("display_name is required")
-    modal_key = f"displayname_modal_id:{game_key}"
+    modal_key = f"{prompt_id}:modal_id"
+    future_key = f"{prompt_id}:future"
     modal_id = atlantis.session_shared.get(modal_key)
     if modal_id:
         await atlantis.client_modal_close(modal_id)
         atlantis.session_shared.remove(modal_key)
-    sid = atlantis.get_caller()
-    if not sid:
-        raise ValueError("Unable to determine caller identity")
-    await character_assign(game_key, sid, role, display_name)
+    future = atlantis.session_shared.get(future_key)
+    if future is None:
+        raise ValueError("Display-name prompt is no longer active")
+    if not future.done():
+        future.set_result(display_name)
 
+
+@visible
+async def prompt_string_cancel(prompt_id: str) -> None:
+    """Handle the user closing the prompt modal without submitting."""
+    modal_key = f"{prompt_id}:modal_id"
+    future_key = f"{prompt_id}:future"
+    modal_id = atlantis.session_shared.get(modal_key)
+    if modal_id:
+        try:
+            await atlantis.client_modal_close(modal_id)
+        except Exception:
+            pass
+        atlantis.session_shared.remove(modal_key)
+    future = atlantis.session_shared.get(future_key)
+    if future is not None and not future.done():
+        future.set_result(None)
 
 
 @visible

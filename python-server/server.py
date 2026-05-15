@@ -2967,12 +2967,14 @@ async def index():
                     elapsed_ms = round((call_end_datetime - call_start_datetime).total_seconds() * 1000, 2)
 
                     success_log_entry = {
+                        "request_id": request_id,
                         "caller": caller_identity,
                         "tool_name": actual_function_name,
                         "app_name": parsed_app_name if parsed_app_name else "",
                         "timestamp": call_start_time,
                         "status": "success",
-                        "elapsed_ms": elapsed_ms
+                        "elapsed_ms": elapsed_ms,
+                        "arg_data": args if isinstance(args, dict) else None,
                     }
 
                     os.makedirs(LOG_DIR, exist_ok=True)
@@ -3000,13 +3002,15 @@ async def index():
                     elapsed_ms = round((call_end_datetime - call_start_datetime).total_seconds() * 1000, 2)
 
                     error_log_entry = {
+                        "request_id": request_id,
                         "caller": caller_identity,
                         "tool_name": actual_function_name, # Use parsed function name
                         "app_name": parsed_app_name if parsed_app_name else "", # Include app name
                         "timestamp": call_start_time,  # Use the call start time, not a new timestamp
                         "status": "error",
                         "error_message": str(e),
-                        "elapsed_ms": elapsed_ms
+                        "elapsed_ms": elapsed_ms,
+                        "arg_data": args if isinstance(args, dict) else None,
                     }
 
                     os.makedirs(LOG_DIR, exist_ok=True)

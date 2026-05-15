@@ -7,18 +7,10 @@ import uuid
 from typing import Dict, Any
 
 from dynamic_functions.Home.location import location_list
-from dynamic_functions.Home.character import character_list, prompt_display_name
+from dynamic_functions.Home.character import character_assign, character_list, prompt_string
 from dynamic_functions.Home.role import role_list
 from dynamic_functions.Home.bot import bot_list
 
-
-@public
-@game
-async def game_run(game_key: str) -> None:
-    """Enter an existing game"""
-    from dynamic_functions.Home.common import require_game_dir
-    require_game_dir(game_key)
-    await prompt_display_name(game_key, 'Guest')
 
 
 @button("New Game")

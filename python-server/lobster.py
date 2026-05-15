@@ -469,7 +469,7 @@ async def handle_lobster_socket(
     # Set shell path contextvar for this async task so all log lines show the lobster shell
     lobster_shell = getattr(mcp_server.cloud_client, 'lobster_shell_path', None) if mcp_server.cloud_client else None
     if lobster_shell:
-        atlantis.set_caller_shell_path(lobster_shell)
+        atlantis.set_exec_shell_path(lobster_shell)
 
     client_id = f"ws_{websocket.client.host}_{id(websocket)}"
     active_websockets.add(websocket)

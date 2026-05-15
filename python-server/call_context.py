@@ -18,6 +18,12 @@ class CallContext(BaseModel):
     request_id: Optional[str] = None
     caller_sid: Optional[str] = None
     user_game_id: Optional[int] = None
+    # exec_shell_path: shell where this tool call's work runs. Outbound
+    # client_command callbacks must be tagged with THIS so they nest under
+    # the tool call in the cloud's command tree.
+    # caller_shell_path: user's root shell - who triggered the call.
+    # Attribution / session routing only; never use for placing work.
+    # These are distinct on purpose - don't swap them.
     exec_shell_path: Optional[str] = None
     caller_shell_path: Optional[str] = None
     client_log_func: Optional[Callable[..., Any]] = None

@@ -185,6 +185,11 @@ async def prompt_string(prompt_text: str) -> Optional[str]:
     modal_id = await atlantis.client_modal(html, title="Welcome")
     atlantis.session_shared.set(f"{prompt_id}:modal_id", modal_id)
 
+    # Route modal-originated commands (cancel / submit) to this tool call's
+    # exec shell so they nest inside the prompt_string subshell rather than
+    # polluting the user's parent shell history.
+    exec_shell_js = json.dumps(atlantis.get_exec_shell_path())
+
     script = f"""
 (function() {{
   var settled = false;
@@ -198,7 +203,7 @@ async def prompt_string(prompt_text: str) -> Optional[str]:
     try {{
       await sendChatter(window._accessToken, "$**Home**prompt_string_cancel", {{
         prompt_id: {prompt_id_js}
-      }});
+      }}, {exec_shell_js});
     }} catch (e) {{}}
   }}
   function bind() {{
@@ -225,7 +230,7 @@ async def prompt_string(prompt_text: str) -> Optional[str]:
       await sendChatter(window._accessToken, "$**Home**prompt_string_click", {{
         prompt_id: {prompt_id_js},
         display_name: name
-      }});
+      }}, {exec_shell_js});
     }});
     observer = new MutationObserver(function() {{
       if (!document.body.contains(root)) {{ cancel(); }}

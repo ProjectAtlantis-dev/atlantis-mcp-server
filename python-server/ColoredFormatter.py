@@ -39,7 +39,7 @@ class ContextFilter(logging.Filter):
         try:
             import atlantis
             req_id = atlantis.get_request_id()
-            shell = atlantis.get_caller_shell_path()
+            shell = atlantis.get_exec_shell_path()
         except Exception:
             req_id = None
             shell = None

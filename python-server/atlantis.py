@@ -29,7 +29,7 @@ _entry_point_name_var: contextvars.ContextVar[Optional[str]] = contextvars.Conte
 
 _caller_sid_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_caller_sid_var", default=None)
 _session_key_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_session_key_var", default=None)
-_caller_shell_path_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_caller_shell_path_var", default=None)
+_exec_shell_path_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_exec_shell_path_var", default=None)
 _user_game_id_var: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar("_user_game_id_var", default=None)
 
 # Owner of the remote server instance
@@ -171,9 +171,9 @@ async def get_and_increment_seq_num(context_name: str = "operation") -> int:
         logger.error(f"{context_name} - request_id is None. Cannot get sequence number.")
         return -1
 
-    caller_shell_path = _caller_shell_path_var.get()
-    # Use composite key of (request_id, caller_shell_path) for per-shell sequencing
-    counter_key = (request_id, caller_shell_path)
+    exec_shell_path = _exec_shell_path_var.get()
+    # Use composite key of (request_id, exec_shell_path) for per-shell sequencing
+    counter_key = (request_id, exec_shell_path)
 
     if counter_key not in _request_seq_counters:
         _request_seq_counters[counter_key] = 1
@@ -299,17 +299,20 @@ def get_caller() -> Optional[str]:
     """Returns the caller sid who called this function."""
     return _caller_sid_var.get()
 
-def get_caller_shell_path() -> Optional[str]:
-    """Returns the caller shell path for this function call."""
-    return _caller_shell_path_var.get()
+def get_exec_shell_path() -> Optional[str]:
+    """Returns the exec shell path - the shell where this call's work runs.
+    Outbound client_command callbacks are tagged with this. NOT the user's
+    root shell (that's ctx.caller_shell_path, used only for attribution)."""
+    return _exec_shell_path_var.get()
 
 def get_user_game_id() -> Optional[int]:
     """Returns the user_game_id for this function call."""
     return _user_game_id_var.get()
 
-def set_caller_shell_path(path: Optional[str]) -> None:
-    """Set the caller shell path contextvar directly (e.g. for lobster socket tasks)."""
-    _caller_shell_path_var.set(path)
+def set_exec_shell_path(path: Optional[str]) -> None:
+    """Set the exec shell path contextvar directly (e.g. for lobster socket tasks,
+    where the lobster's single shell IS the exec shell)."""
+    _exec_shell_path_var.set(path)
 
 def get_owner_usernames() -> List[str]:
     """Returns the list of owner usernames for permission checks"""
@@ -340,7 +343,10 @@ def set_context(ctx: CallContext) -> None:
     _entry_point_name_var.set(ctx.entry_point_name)
     _caller_sid_var.set(ctx.caller_sid)
     _session_key_var.set(ctx.get_session_key())
-    _caller_shell_path_var.set(ctx.caller_shell_path)
+    # Seed exec_shell_path so client_command callbacks tag outbound work with
+    # the shell where this call is running. Fall back to caller_shell_path only
+    # if exec wasn't provided (legacy / lobster path).
+    _exec_shell_path_var.set(ctx.exec_shell_path or ctx.caller_shell_path)
     _user_game_id_var.set(ctx.user_game_id)
 
 
@@ -352,7 +358,7 @@ def reset_context() -> None:
     _entry_point_name_var.set(None)
     _caller_sid_var.set(None)
     _session_key_var.set(None)
-    _caller_shell_path_var.set(None)
+    _exec_shell_path_var.set(None)
     _user_game_id_var.set(None)
 
 
@@ -700,7 +706,7 @@ async def _client_command(
     entry_point_name = _entry_point_name_var.get() # Now needed for logging with seq_num
     caller_sid = _caller_sid_var.get()  # Who's calling
     session_key = _session_key_var.get()  # Locally-derived stable session identifier
-    caller_shell_path = _caller_shell_path_var.get()  # Caller shell (parent in the command tree)
+    exec_shell_path = _exec_shell_path_var.get()  # Shell where this call's work runs - what outbound callbacks tag with
 
     logger.info(f"📡 client_command '{command}' (entry={entry_point_name}, caller_sid={caller_sid})")
     if isinstance(data, (dict, list)):
@@ -735,7 +741,7 @@ async def _client_command(
             entry_point_name=entry_point_name,  # Pass the entry point name for logging
             caller_sid=caller_sid,
             session_key=session_key,
-            shell_path=caller_shell_path,  # Wire kwarg kept for compat; value is caller_shell_path
+            shell_path=exec_shell_path,  # Wire kwarg name is legacy; semantically this is exec_shell_path
             message_type=message_type,  # Pass message_type for the protocol
             is_private=is_private,  # Pass is_private for broadcast control
             message_params=notification_params

@@ -2,15 +2,15 @@
 
 ## Overview
 
-You should have an MCP called Atlantis, with the following ways to access the wonderful Project Atlantis system, which helps us manage automation across the island of Greenland:
+You should have an MCP called Atlantis, with the following ways to access the Project Atlantis system, which helps us manage automation across the island of Greenland:
 
-- **readme** - this file, see bottom for secret word of the day
+- **readme** - this file
 - **command** - use this to enter an Atlantis command
 - **chat** - use this to just talk into the chat
 
 ## Commands
 
-`command` lets you send commands to Atlantis. All commands should start with `/`. They kinda follow a linux style shell approach. Folders contain tools instead of files. Tools are usually Python or functions hot-loaded in the dynamic_functions folder. Note that functions are contained in Python container files such as main.py and more than one function can be in the same file. Generally, you should not have to care about the containing file.
+`command` lets you send commands in Atlantis. All commands should start with `/`. They kinda follow a Linux style shell approach. In fact, you can enable terminal mode to enter the Multix terminal directly and avoid having to prefix everything with slashes. The main difference is that each MCP exposes a virtual filesystem of sorts but of functions instead of files. The file containers are essentially unwrapped and then hotloaded so they are call ready. Note that the default container is usually main.py and more than one function can be in the same file. Generally, you should not have to care about the containing file except for versioning.
 
 Some interesting commands to get you started:
 
@@ -28,17 +28,17 @@ Some interesting commands to get you started:
   - `cd ~` - go to your home, arranged by connected servers
   - `cd ..` - go back up one folder
 - `add` - add a function in the current location
-- `edit` - DO NOT USE, use `set` instead (see below)
+- `edit` - DO NOT USE, use `codeset` instead (see below)
 - `rls` - list the connected remotes
 
 ## Tools
 
 You will start at the root of the Atlantis virtual filesystem arranged by usernames, and then you go into a user's home folder, and then connected MCP server for that user. You cannot go into disconnected servers.
 
-To run a tool in the current folder, you can simply use `@name` plus any params, much like a javascript function e.g. `@foo` or `@foo(3,100)`
+To run a tool in the current folder, you can simply use `@name` plus any params, much like a JavaScript function e.g. `@foo` or `@foo(3,100)`
 
 - `cat` - retrieves the text of a function
-- `set` - sets the content of a function
+- `codeset` - sets the content of a function
 
 ## Tool Prefixes
 
@@ -56,10 +56,10 @@ If you just say `foo` from the top-level it could be ambiguous which one you mea
 
 ## Named Function Parameters
 
-While purely positional parameters usually work, it is better to use explicitly named JSON arguments (parenthesis are optional) to avoid escaping issues:
+While purely positional parameters usually work, it is better to use explicitly named JSON arguments (parentheses are optional) to avoid escaping issues:
 
 - `foo { x: 3, name: "chicago" }`
-- `set { searchTerm: "bar", contents: "async def bar(): ... rest of code here ..." }`
+- `codeset { searchTerm: "bar", contents: "async def bar(): ... rest of code here ..." }`
 
 The `help` command also provides parameter info.
 

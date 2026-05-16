@@ -192,6 +192,27 @@ async def prompt_string(prompt_text: str) -> Optional[str]:
     # Route modal-originated commands (cancel / submit) to this tool call's
     # exec shell so they nest inside the prompt_string subshell rather than
     # polluting the user's parent shell history.
+    #
+    # WHY THIS IS REQUIRED (do not remove the 4th arg to sendChatter below):
+    #   - Every @visible/@chat tool call spawns an isolated callback shell on
+    #     the Node side via Session.spawnShell(parent, 'tool', isBackground=True).
+    #     That shell gets a FLAT name like "37" (not "2.36.1") precisely so the
+    #     tool's internal chatter (modals, scripts, log lines, button click
+    #     callbacks) stays out of the user's command history on "2.36".
+    #   - The Node engage handler defaults missing shellPath to the websocket's
+    #     root working shell (app_server.ts ~line 2131:
+    #     `targetShellPath = params.shellPath ?? session.getWorkingPath(rootShellPath)`).
+    #     There is no server-side awareness of "the currently active tool
+    #     callback shell" - it can't infer "37" from the websocket alone,
+    #     since multiple tool calls can be in flight at once.
+    #   - Therefore: if `exec_shell_js` is omitted from the sendChatter calls
+    #     below, prompt_string_click/_cancel will be routed to the user's main
+    #     shell ("2.X") instead of "37.1". Visible symptom: the click event
+    #     shows up as a sibling of the prompt_string command in /history.
+    #   - The matching Node-side fix that lets the data-callback render skip
+    #     auto-display correctly is in Session.ts handleMcpCallback's
+    #     `messageType === "data"` branch, which explicitly marks the caller's
+    #     shell. See the comment there for the symmetric explanation.
     exec_shell_js = json.dumps(atlantis.get_exec_shell_path())
 
     script = f"""

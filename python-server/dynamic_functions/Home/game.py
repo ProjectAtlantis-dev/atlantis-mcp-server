@@ -146,10 +146,10 @@ async def game_show(game_key: str) -> None:
     tables.append(_table("ent-game", "GAME", ["key"], [[game_key]]))
     tables.append(_table("ent-bot", "BOT", ["sid", "displayName", "model", "updated"],
         [[b["sid"], b["displayName"], b["model"], b["updated"]] for b in bot_rows]))
-    tables.append(_table("ent-location", "LOCATION", ["name", "description", "connects_to", "updated"],
-        [[l["name"], l["description"], ", ".join(l["connects_to"]), l["updated"]] for l in loc_rows]))
-    tables.append(_table("ent-role", "ROLE", ["name", "title", "defaultLocation", "updated"],
-        [[r["name"], r["title"], r.get("defaultLocation", ""), r["updated"]] for r in role_rows]))
+    tables.append(_table("ent-location", "LOCATION", ["name", "displayName", "connects_to", "updated"],
+        [[l["name"], l["displayName"], ", ".join(l["connects_to"]), l["updated"]] for l in loc_rows]))
+    tables.append(_table("ent-role", "ROLE", ["name", "displayName", "defaultLocation", "updated"],
+        [[r["name"], r["displayName"], r.get("defaultLocation", ""), r["updated"]] for r in role_rows]))
     tables.append(_table("ent-character", "CHARACTER", ["sid", "role", "displayName", "location"],
         [[c["sid"], c["role"], c["displayName"], c["location"]] for c in char_rows],
         variant="runtime"))

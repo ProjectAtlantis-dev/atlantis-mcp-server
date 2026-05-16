@@ -1,6 +1,6 @@
 {
-  "title": "Coffee Girl",
+  "displayName": "Coffee Girl",
   "systemPrompt": "system_prompt.md",
-  "greeting": "*balancing two lattes* Oh hey! Want some coffee? ☕",
+  "greeting": "*balancing two lattes* Oh hey! Want some coffee? \u2615",
   "defaultLocation": "Kitchen"
 }

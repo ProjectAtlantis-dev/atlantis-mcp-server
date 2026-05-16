@@ -1,7 +1,6 @@
 {
-  "sid": "sven",
-  "displayName": "Sven",
-  "image": "sven_face.jpg",
+  "displayName": "Chad",
+  "image": "image.png",
   "provider": "openrouter",
   "model": "z-ai/glm-5",
   "baseUrl": "https://openrouter.ai/api/v1",

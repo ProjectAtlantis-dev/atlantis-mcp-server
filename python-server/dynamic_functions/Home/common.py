@@ -68,35 +68,28 @@ def _bots_dir() -> str:
 
 
 def _load_bot_config(bot_sid: str) -> Optional[Tuple[Dict[str, Any], str]]:
-    """Find a bot config by sid"""
-    bots_dir = _bots_dir()
-    for entry in os.listdir(bots_dir):
-        config_path = os.path.join(bots_dir, entry, "config.json")
-        if os.path.isfile(config_path):
-            with open(config_path) as f:
-                cfg = json.load(f)
-            if cfg.get("sid") == bot_sid:
-                cfg["_botDir"] = os.path.join(bots_dir, entry)
-                return cfg, entry
-    return None
+    """Load a bot config — folder name is the sid"""
+    bot_dir = os.path.join(_bots_dir(), bot_sid)
+    config_path = os.path.join(bot_dir, "config.json")
+    if not os.path.isfile(config_path):
+        return None
+    with open(config_path) as f:
+        cfg = json.load(f)
+    cfg["_botDir"] = bot_dir
+    return cfg, bot_sid
 
 
 def _available_bot_sids() -> List[str]:
-    """List known bot sids"""
+    """List known bot sids (folder names)"""
     bots_dir = _bots_dir()
-    sids = []
     if not os.path.isdir(bots_dir):
-        return sids
+        return []
+    sids = []
     for entry in os.listdir(bots_dir):
-        config_path = os.path.join(bots_dir, entry, "config.json")
-        if os.path.isfile(config_path):
-            try:
-                with open(config_path) as f:
-                    cfg = json.load(f)
-                if "sid" in cfg:
-                    sids.append(cfg["sid"])
-            except (json.JSONDecodeError, OSError):
-                pass
+        if entry.startswith(".") or entry == "__pycache__":
+            continue
+        if os.path.isfile(os.path.join(bots_dir, entry, "config.json")):
+            sids.append(entry)
     return sorted(sids)
 
 

@@ -28,9 +28,13 @@ def _locations_dir() -> str:
 # Location loading
 # =========================================================================
 
+def _location_dir(name: str) -> str:
+    return os.path.join(_locations_dir(), name)
+
+
 def _load_location(name: str) -> Optional[Dict[str, Any]]:
-    """Load a location by name"""
-    path = os.path.join(_locations_dir(), f"{name}.json")
+    """Load a location by name (folder name is the identifier)"""
+    path = os.path.join(_location_dir(name), "config.json")
     if not os.path.exists(path):
         return None
     with open(path, "r", encoding="utf-8") as f:
@@ -47,13 +51,14 @@ def _connects_to(location_name: str) -> List[str]:
 def _default_location() -> str:
     """Get the default location"""
     loc_dir = _locations_dir()
-    for fname in os.listdir(loc_dir):
-        if not fname.endswith(".json"):
+    for entry in os.listdir(loc_dir):
+        cfg = os.path.join(loc_dir, entry, "config.json")
+        if not os.path.isfile(cfg):
             continue
-        with open(os.path.join(loc_dir, fname), "r", encoding="utf-8") as f:
+        with open(cfg, "r", encoding="utf-8") as f:
             data = json.load(f)
         if data.get("default"):
-            return data.get("name", fname[:-5])
+            return entry
     raise RuntimeError(f"No default location found in {loc_dir}")
 
 
@@ -85,7 +90,7 @@ def location_thumb(loc_name: str) -> str:
     if not image_file:
         logger.warning(f"[thumb] no image for location: {loc_name!r}")
         return ""
-    image_path = os.path.join(_locations_dir(), image_file)
+    image_path = os.path.join(_location_dir(loc_name), image_file)
     logger.info(f"[thumb] location {loc_name!r} -> {image_path}")
     if not os.path.isfile(image_path):
         logger.warning(f"[thumb] image file missing: {image_path}")
@@ -142,12 +147,12 @@ def get_players_at(game_key: str, location: str) -> List[str]:
 # Background
 # =========================================================================
 
-async def _set_location_background(location_data: Dict[str, Any]) -> None:
+async def _set_location_background(loc_name: str, location_data: Dict[str, Any]) -> None:
     """Set the location background"""
     image_name = location_data.get("image")
     if not image_name:
         return
-    image_path = os.path.join(_locations_dir(), image_name)
+    image_path = os.path.join(_location_dir(loc_name), image_name)
     if os.path.exists(image_path):
         await atlantis.set_background(image_path)
     else:
@@ -187,7 +192,7 @@ async def character_move(game_key: str, location: str = "", sid: str = "") -> st
         dest = _load_location(location)
         if not dest:
             raise ValueError(f"Unknown location: {location}")
-        desc = dest.get("description", location)
+        desc = dest.get("displayName", location)
         set_player_position(game_key, sid, location)
         await atlantis.client_log(f"\U0001f3db\ufe0f New player {display} has entered {desc} for the first time")
         await atlantis.client_description(
@@ -196,7 +201,7 @@ async def character_move(game_key: str, location: str = "", sid: str = "") -> st
         )
         logger.info(f"[game] New player {sid} entered {entry_location}")
         if atlantis.get_caller() == sid:
-            await _set_location_background(dest)
+            await _set_location_background(location, dest)
         return location
 
 
@@ -223,7 +228,7 @@ async def character_move(game_key: str, location: str = "", sid: str = "") -> st
         )
 
     # Apply movement
-    current_desc = (_load_location(current) or {}).get("description", current)
+    current_desc = (_load_location(current) or {}).get("displayName", current)
     set_player_position(game_key, sid, location)
     await atlantis.client_log(f"\U0001f6b6 {display} moved from {current_desc} to {desc}")
     await atlantis.client_description(
@@ -248,18 +253,20 @@ async def location_list() -> List[Dict[str, str]]:
         return []
     locations: List[Dict[str, str]] = []
     for entry in sorted(os.listdir(locations_dir)):
-        if not entry.endswith('.json'):
+        entry_dir = os.path.join(locations_dir, entry)
+        if not os.path.isdir(entry_dir) or entry.startswith('.') or entry == '__pycache__':
             continue
-        json_path = os.path.join(locations_dir, entry)
+        json_path = os.path.join(entry_dir, 'config.json')
         if not os.path.isfile(json_path):
             continue
         with open(json_path, 'r') as f:
             data = json.load(f)
+        name = entry  # folder name is the identifier
         image_data = ''
         image_file = data.get('image', '')
         mtimes = [os.path.getmtime(json_path)]
         if image_file:
-            image_path = os.path.join(locations_dir, image_file)
+            image_path = os.path.join(entry_dir, image_file)
             if os.path.isfile(image_path):
                 mtimes.append(os.path.getmtime(image_path))
                 thumb = _ensure_thumb(image_path)
@@ -270,8 +277,8 @@ async def location_list() -> List[Dict[str, str]]:
                         b64 = base64.b64encode(img.read()).decode('ascii')
                     image_data = f'data:image/{mime};base64,{b64}'
         locations.append({
-            'name': data.get('name', entry[:-5]),
-            'description': data.get('description', data.get('name', entry[:-5])),
+            'name': name,
+            'displayName': data.get('displayName', name),
             'connects_to': data.get('connects_to', []),
             'image': image_data,
             'updated': datetime.fromtimestamp(max(mtimes)).strftime('%Y-%m-%d %H:%M'),
@@ -312,7 +319,7 @@ async def camera_look(game_key: str, location: str = "") -> str:
         raise ValueError(f"Unknown location: {location}")
 
     set_camera_location(location)
-    await _set_location_background(dest)
+    await _set_location_background(location, dest)
     return location
 
 
@@ -329,6 +336,6 @@ async def camera_follow(game_key: str, sid: str) -> str:
     if loc:
         dest = _load_location(loc)
         if dest:
-            await _set_location_background(dest)
+            await _set_location_background(loc, dest)
     return loc
 

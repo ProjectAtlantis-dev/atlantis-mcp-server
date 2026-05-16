@@ -1,7 +1,0 @@
-{
-  "name": "Hallway",
-  "description": "Hallway",
-  "image": "Hallway.png",
-  "connects_to": ["Lobby", "Kitchen", "SecurityOffice"],
-  "default": false
-}

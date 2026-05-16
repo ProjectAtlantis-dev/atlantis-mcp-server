@@ -27,7 +27,7 @@ async def bot_list() -> List[Dict[str, str]]:
             continue
         with open(config_path, 'r') as f:
             cfg = json.load(f)
-        sid = cfg.get('sid', entry.lower())
+        sid = entry  # folder name is the sid
 
         image_data = ''
         image_file = cfg.get('image', '')

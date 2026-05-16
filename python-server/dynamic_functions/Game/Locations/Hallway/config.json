@@ -1,0 +1,10 @@
+{
+  "displayName": "Hallway",
+  "image": "image.png",
+  "connects_to": [
+    "Lobby",
+    "Kitchen",
+    "SecurityOffice"
+  ],
+  "default": false
+}

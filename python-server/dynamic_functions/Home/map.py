@@ -71,7 +71,7 @@ async def location_map(game_key: str, location: str = "") -> None:
         image_b64 = _location_image_b64(loc_name)
         nodes.append({
             "name": loc_name,
-            "description": loc_data.get("description", loc_name),
+            "displayName": loc_data.get("displayName", loc_name),
             "image": image_b64,
             "is_current": is_current,
             "characters": chars,
@@ -123,7 +123,7 @@ async def location_map(game_key: str, location: str = "") -> None:
             chars_html = f'<div class="map-chars-{uid}">👤 {chars_list}</div>'
 
         # Label
-        label = _esc(node["description"])
+        label = _esc(node["displayName"])
         if is_current:
             label = f"📍 {label}"
 

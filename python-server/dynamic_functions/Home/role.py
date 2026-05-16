@@ -44,7 +44,7 @@ async def role_list() -> List[Dict[str, str]]:
         updated = datetime.fromtimestamp(max(mtimes)).strftime('%Y-%m-%d %H:%M') if mtimes else ''
         roles.append({
             "name": entry,
-            "title": role_data.get("title", entry),
+            "displayName": role_data.get("displayName", entry),
             "greeting": role_data.get("greeting", ""),
             "defaultLocation": role_data.get("defaultLocation", ""),
             "updated": updated,

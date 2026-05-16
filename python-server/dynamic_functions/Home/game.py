@@ -7,7 +7,8 @@ import uuid
 from typing import Dict, Any
 
 from dynamic_functions.Home.location import location_list
-from dynamic_functions.Home.character import character_assign, character_list, prompt_string
+from dynamic_functions.Home.character import character_assign, character_list
+from dynamic_functions.Home.modal import modal_string
 from dynamic_functions.Home.role import role_list
 from dynamic_functions.Home.bot import bot_list
 

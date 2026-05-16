@@ -98,6 +98,13 @@ async def game_status(game_key: str) -> dict:
     return {"game_key": game_key}
 
 
+@button("Join Game")
+@public
+async def game_join(game_key: str) -> None:
+    """Join a game"""
+    pass
+
+
 @visible
 async def game_show(game_key: str) -> None:
     """Show the game state diagram"""

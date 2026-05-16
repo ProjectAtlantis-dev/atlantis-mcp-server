@@ -1,0 +1,6 @@
+{
+  "title": "Coffee Girl",
+  "systemPrompt": "system_prompt.md",
+  "greeting": "*balancing two lattes* Oh hey! Want some coffee? ☕",
+  "defaultLocation": "Kitchen"
+}

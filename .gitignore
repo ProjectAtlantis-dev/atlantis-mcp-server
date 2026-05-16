@@ -59,6 +59,9 @@ log/
 
 *.db
 python-server/**/*.json
+!python-server/dynamic_functions/Game/Roles/**/*.json
+!python-server/dynamic_functions/Game/Bots/**/*.json
+!python-server/dynamic_functions/Game/Locations/**/*.json
 python-server/**/*.log
 
 

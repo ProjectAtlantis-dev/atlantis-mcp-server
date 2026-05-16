@@ -1,0 +1,7 @@
+{
+  "name": "Lobby",
+  "description": "Lobby",
+  "image": "Lobby.png",
+  "connects_to": ["Hallway"],
+  "default": true
+}

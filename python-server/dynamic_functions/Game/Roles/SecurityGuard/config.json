@@ -1,0 +1,6 @@
+{
+  "title": "Security Guard",
+  "systemPrompt": "system_prompt.md",
+  "greeting": "*nods from behind the desk* Evening. Sign in?",
+  "defaultLocation": "SecurityOffice"
+}

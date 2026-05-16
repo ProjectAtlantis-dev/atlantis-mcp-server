@@ -17,7 +17,7 @@ def _roles_dir() -> str:
 
 def _load_role_json(role_name: str) -> dict:
     """Read a role config"""
-    rjson = os.path.join(_roles_dir(), role_name, "role.json")
+    rjson = os.path.join(_roles_dir(), role_name, "config.json")
     if os.path.isfile(rjson):
         with open(rjson) as f:
             return json.load(f)
@@ -53,7 +53,7 @@ async def role_list() -> List[Dict[str, str]]:
 
 
 def role_default_location(role: str) -> Optional[str]:
-    """Return a role-specific default location from role.json, if set."""
+    """Return a role-specific default location from config.json, if set."""
     location = _load_role_json(role).get("defaultLocation", "")
     return str(location).strip() or None
 

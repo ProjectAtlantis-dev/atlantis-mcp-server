@@ -1,0 +1,6 @@
+{
+  "title": "Receptionist",
+  "systemPrompt": "system_prompt.md",
+  "greeting": "*waves* Hey there~ Welcome to the lobby! 🐱",
+  "defaultLocation": "Lobby"
+}

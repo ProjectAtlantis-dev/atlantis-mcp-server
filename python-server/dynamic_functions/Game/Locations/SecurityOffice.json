@@ -1,0 +1,7 @@
+{
+  "name": "SecurityOffice",
+  "description": "Security Office",
+  "image": "SecurityOffice.png",
+  "connects_to": ["Hallway"],
+  "default": false
+}

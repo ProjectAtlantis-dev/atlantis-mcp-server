@@ -3,22 +3,22 @@
 ```mermaid
 erDiagram
     BOT {
-        string sid PK
+        string sid PK "folder name"
         string displayName
         string image
         string model
     }
     LOCATION {
-        string name PK
-        string description
+        string name PK "folder name"
+        string displayName
         string image
     }
     GAME {
         string key PK
     }
     ROLE {
-        string name PK
-        string title
+        string name PK "folder name"
+        string displayName
         string systemPrompt
         string greeting
         string defaultLocation FK
@@ -26,8 +26,8 @@ erDiagram
     CHARACTER {
         string sid PK
         string role FK
+        string displayName
         bool isBot "FK to BOT only if true"
-        string humanName "only if isBot is false"
     }
     POSITION {
         string sid FK

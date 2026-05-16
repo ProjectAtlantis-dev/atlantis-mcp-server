@@ -31,7 +31,7 @@ def _characters_at(game_key: str, location: str) -> List[str]:
     sids = get_players_at(game_key, location)
     if not sids:
         return []
-    return [ch.get("displayName", ch["sid"]) for ch in _load_characters(game_key) if ch["sid"] in sids]
+    return [ch.get("displayName", ch["sid"]) for ch in _load_characters() if ch["sid"] in sids]
 
 
 @visible

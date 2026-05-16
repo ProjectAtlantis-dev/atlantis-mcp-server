@@ -1,92 +1,92 @@
-"""Character tools"""
+"""Character tools
 
-import atlantis
-import json
+Characters are derived from the filesystem: a `Characters/<sid>/<Role>/prompt.md`
+file declares that bot <sid> plays role <Role>. There is no per-game character
+registry — the (sid x role) binding is a static asset, not runtime state.
+"""
+
 import logging
 import os
 from typing import Any, Dict, List
 
-from dynamic_functions.Home.common import require_game_dir
-from dynamic_functions.Home.role import _validate_role
+from dynamic_functions.Home.common import (
+    _load_bot_config,
+    home_path,
+    require_game_dir,
+)
 
 logger = logging.getLogger("mcp_server")
 
 
-def _characters_path(game_key: str) -> str:
-    return os.path.join(require_game_dir(game_key), "characters.json")
+def _valid_roles() -> set:
+    roles_dir = home_path("Game", "Roles")
+    if not os.path.isdir(roles_dir):
+        return set()
+    return {
+        entry for entry in os.listdir(roles_dir)
+        if os.path.isdir(os.path.join(roles_dir, entry))
+        and not entry.startswith(".") and entry != "__pycache__"
+    }
 
 
-def _load_characters(game_key: str) -> List[Dict[str, Any]]:
-    path = _characters_path(game_key)
-    if not os.path.isfile(path):
+def _load_characters() -> List[Dict[str, Any]]:
+    """Derive characters from the filesystem.
+
+    Each `Game/Characters/<sid>/<Role>/prompt.md` declares one character:
+    bot <sid> playing role <Role>. The binding is a pure asset — it does not
+    vary per game. The sid must resolve to a bot folder (for the display
+    name and driving model); the role must resolve to a role folder.
+    """
+    roles = _valid_roles()
+    characters_dir = home_path("Game", "Characters")
+    if not os.path.isdir(characters_dir):
         return []
+    characters: List[Dict[str, Any]] = []
+    for sid in sorted(os.listdir(characters_dir)):
+        sid_dir = os.path.join(characters_dir, sid)
+        if not os.path.isdir(sid_dir) or sid.startswith(".") or sid == "__pycache__":
+            continue
+        loaded = _load_bot_config(sid)
+        if not loaded:
+            continue
+        cfg, _ = loaded
+        display_name = cfg.get("displayName", sid)
+        for role in sorted(os.listdir(sid_dir)):
+            role_dir = os.path.join(sid_dir, role)
+            if not os.path.isdir(role_dir) or role not in roles:
+                continue
+            if not os.path.isfile(os.path.join(role_dir, "prompt.md")):
+                continue
+            characters.append({"sid": sid, "role": role, "displayName": display_name})
+    return characters
+
+
+def load_character_prompt(sid: str, role: str) -> str:
+    """Read this character's prompt — the (sid x role) join.
+
+    Stored at Game/Characters/<sid>/<role>/prompt.md. Empty string if missing.
+    """
+    path = os.path.join(home_path("Game", "Characters", sid, role), "prompt.md")
+    if not os.path.isfile(path):
+        return ""
     with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    if not isinstance(data, list):
-        raise ValueError(f"Invalid characters.json: expected a list")
-    return data
+        return f.read().strip()
 
 
-def _save_characters(game_key: str, characters: List[Dict[str, Any]]) -> None:
-    path = _characters_path(game_key)
-    tmp = f"{path}.tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(characters, f, indent=2)
-        f.write("\n")
-    os.replace(tmp, path)
-
-
-def _find_character(game_key: str, sid: str) -> dict:
+def _find_character(sid: str) -> dict:
     """Find a character by sid"""
-    for ch in _load_characters(game_key):
-        if ch.get("sid") == sid:
+    for ch in _load_characters():
+        if ch["sid"] == sid:
             return ch
-    raise ValueError(f"No character found for sid: {sid!r}. Register with character_set() first.")
+    raise ValueError(f"No character found for sid: {sid!r}. Add a prompt at Characters/{sid}/<Role>/prompt.md.")
 
 
-def is_bot_driven(game_key: str, sid: str) -> bool:
+def is_bot_driven(sid: str) -> bool:
     """A character is bot-driven iff its sid has a Bots/ config AND no live session has claimed its chat slot."""
-    from dynamic_functions.Home.common import _load_bot_config
     from dynamic_functions.Home.session import chat_slot_claimed
     if _load_bot_config(sid) is None:
         return False
     return not chat_slot_claimed(sid)
-
-@visible
-async def character_assign(game_key: str, sid: str, role: str, display_name: str = "") -> None:
-    """Register a character (or update an existing one).
-
-    The (sid x role) specialization prompt lives at Game/Bots/<sid>/<role>.md
-    and is loaded at chat time — it's not stored on the character record.
-    """
-    require_game_dir(game_key)
-    _validate_role(role)
-    if not sid:
-        raise ValueError("sid is required")
-
-    from dynamic_functions.Home.common import _load_bot_config
-    loaded = _load_bot_config(sid)
-    if loaded is None:
-        caller = atlantis.get_caller()
-        if sid != caller:
-            raise ValueError(f"Invalid sid {sid!r}: must be a bot sid or match the caller")
-        if not display_name.strip():
-            raise ValueError("display_name is required when sid matches the caller")
-    if not display_name.strip():
-        display_name = loaded[0].get("displayName", sid) if loaded else sid
-    display_name = display_name.strip()
-
-    characters = _load_characters(game_key)
-    record = {"sid": sid, "role": role, "displayName": display_name}
-    for ch in characters:
-        if ch.get("sid") == sid:
-            ch.update(record)
-            _save_characters(game_key, characters)
-            await atlantis.client_log(f"{display_name} ({sid}) is now roleplaying as {role}")
-            return
-    characters.append(record)
-    _save_characters(game_key, characters)
-    await atlantis.client_log(f"{display_name} ({sid}) is now roleplaying as {role}")
 
 
 @visible
@@ -97,5 +97,5 @@ def character_list(game_key: str) -> List[Dict[str, Any]]:
     positions = get_positions(game_key)
     return [
         {**ch, "location": positions.get(ch["sid"], "")}
-        for ch in _load_characters(game_key)
+        for ch in _load_characters()
     ]

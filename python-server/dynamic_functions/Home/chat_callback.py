@@ -12,7 +12,8 @@ from dynamic_functions.Home.chat_common import (
 from dynamic_functions.Home.location import position_get, position_query
 from dynamic_functions.Home.common import _load_bot_config
 from dynamic_functions.Home.character import _load_characters, is_bot_driven
-from dynamic_functions.Home.prompt_common import build_system_prompt, load_role_system_prompt, load_character_prompt, load_persona
+from dynamic_functions.Home.character import load_character_prompt
+from dynamic_functions.Home.prompt_common import build_system_prompt, load_role_system_prompt, load_persona
 from dynamic_functions.Home.interactions import read_interaction, record_interaction
 from dynamic_functions.Home.turn import run_turn
 
@@ -64,7 +65,7 @@ async def _handle_chat(game_key: str):
 
     bots_heard = [
         ch for ch in occupants
-        if ch["sid"] != speaker_sid and is_bot_driven(game_key, ch["sid"])
+        if ch["sid"] != speaker_sid and is_bot_driven(ch["sid"])
     ]
     if not bots_heard:
         await atlantis.client_log("🎤 No bots heard it")
@@ -81,9 +82,9 @@ async def _handle_chat(game_key: str):
     )
 
 
-def _character_field(game_key: str, sid: str, field: str) -> str:
+def _character_field(sid: str, field: str) -> str:
     return next(
-        (ch.get(field, "") or "" for ch in _load_characters(game_key) if ch.get("sid") == sid),
+        (ch.get(field, "") or "" for ch in _load_characters() if ch.get("sid") == sid),
         "",
     )
 
@@ -98,14 +99,14 @@ async def _respond_as_bot(*, game_key: str, bot_record: dict, speaker_sid: str, 
         return
     cfg, _folder = loaded
 
-    role = _character_field(game_key, bot_sid, "role")
+    role = _character_field(bot_sid, "role")
     if not role:
         await atlantis.client_log(f"⚠️ Bot {bot_sid} has no assigned role")
         return
 
     base_prompt = load_role_system_prompt(role)
     history = read_interaction(game_key, bot_sid, speaker_sid)
-    first_name = _character_field(game_key, speaker_sid, "displayName") or history.get("first_name", "")
+    first_name = _character_field(speaker_sid, "displayName") or history.get("first_name", "")
 
     system_prompt = build_system_prompt(
         base_prompt=base_prompt,

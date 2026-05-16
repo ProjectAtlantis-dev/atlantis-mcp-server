@@ -7,7 +7,7 @@ import uuid
 from typing import Dict, Any
 
 from dynamic_functions.Home.location import location_list
-from dynamic_functions.Home.character import character_assign, character_list
+from dynamic_functions.Home.character import character_list
 from dynamic_functions.Home.modal import modal_string
 from dynamic_functions.Home.role import role_list
 from dynamic_functions.Home.bot import bot_list
@@ -123,14 +123,10 @@ async def game_show(game_key: str) -> None:
 
     uid = uuid.uuid4().hex[:8]
 
-    def _table(entity_id, title, headers, rows, disabled=False, variant=None):
+    def _table(entity_id, title, headers, rows):
         """Build one entity table"""
         scoped_id = f"{entity_id}-{uid}"
         cls = f"er-entity-{uid}"
-        if variant:
-            cls += f" er-variant-{variant}-{uid}"
-        if disabled:
-            cls += f" er-disabled-{uid}"
         h = "".join(f"<th>{_esc(c)}</th>" for c in headers)
         body = ""
         for row in rows:
@@ -149,19 +145,18 @@ async def game_show(game_key: str) -> None:
         [[b["sid"], b["displayName"], b["model"], b["updated"]] for b in bot_rows]))
     tables.append(_table("ent-location", "LOCATION", ["name", "displayName", "connects_to", "updated"],
         [[l["name"], l["displayName"], ", ".join(l["connects_to"]), l["updated"]] for l in loc_rows]))
-    tables.append(_table("ent-role", "ROLE", ["name", "displayName", "defaultLocation", "updated"],
-        [[r["name"], r["displayName"], r.get("defaultLocation", ""), r["updated"]] for r in role_rows]))
+    tables.append(_table("ent-role", "ROLE", ["name", "displayName", "defaultLocation", "systemPrompt", "updated"],
+        [[r["name"], r["displayName"], r.get("defaultLocation", ""), "system_prompt.md" if r.get("systemPrompt") else "", r["updated"]] for r in role_rows]))
     tables.append(_table("ent-character", "CHARACTER", ["sid", "role", "displayName", "location"],
-        [[c["sid"], c["role"], c["displayName"], c["location"]] for c in char_rows],
-        variant="runtime"))
+        [[c["sid"], c["role"], c["displayName"], c["location"]] for c in char_rows]))
 
     # Relationships
     relationships = [
-        (f"ent-game-{uid}", f"ent-role-{uid}", "has"),
         (f"ent-location-{uid}", f"ent-location-{uid}", "connects to"),
         (f"ent-location-{uid}", f"ent-role-{uid}", "defaultLocation"),
-        (f"ent-bot-{uid}", f"ent-character-{uid}", "sid"),
-        (f"ent-role-{uid}", f"ent-character-{uid}", "role"),
+        (f"ent-bot-{uid}", f"ent-character-{uid}", "Characters/<sid>/<Role>/prompt.md"),
+        (f"ent-role-{uid}", f"ent-character-{uid}", "Characters/<sid>/<Role>/prompt.md"),
+        (f"ent-game-{uid}", f"ent-character-{uid}", "position"),
         (f"ent-location-{uid}", f"ent-character-{uid}", "location"),
     ]
 
@@ -227,21 +222,6 @@ async def game_show(game_key: str) -> None:
   }}
   #er-wrapper-{uid} .er-entity-{uid} tr:last-child td {{
     border-bottom: none;
-  }}
-  #er-wrapper-{uid} .er-variant-runtime-{uid} {{
-    background: #1e2e22;
-    border-color: #4a7a5a;
-  }}
-  #er-wrapper-{uid} .er-variant-runtime-{uid} .er-title-{uid} {{
-    background: #2f5c42;
-    color: #d0ffe0;
-  }}
-  #er-wrapper-{uid} .er-variant-runtime-{uid} th {{
-    background: #223a2c;
-    color: #a8c8b0;
-  }}
-  #er-wrapper-{uid} .er-disabled-{uid} {{
-    opacity: 0.35;
   }}
   #er-wrapper-{uid} #er-svg-{uid} {{
     position: absolute;

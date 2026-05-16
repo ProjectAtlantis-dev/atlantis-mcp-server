@@ -847,35 +847,6 @@ class DynamicAdditionServer(Server):
                 logger.warning(f"🧹 Final cleanup: Future for stream {correlation_id} was still in awaitable_requests.")
                 self.awaitable_requests.pop(correlation_id, None)
 
-    async def _get_dynamic_index_filter(self, app_name: str) -> set[str] | None:
-        """
-        Check if an app/folder has a @dynamic @index function.
-        If so, call it and return a set of allowed tool names.
-        Returns None if no dynamic index exists or it doesn't return a list.
-        """
-        metadata_by_func = self.function_manager._function_metadata_by_app.get(app_name, {})
-        index_meta = metadata_by_func.get('index')
-        if not index_meta:
-            return None
-        if not index_meta.get('is_dynamic'):
-            return None
-
-        try:
-            result = await self.function_manager.function_call(
-                name='index',
-                ctx=CallContext(),
-                app=self.function_manager._path_to_app_name(app_name) if app_name else None,
-                setup_context=False,  # catalog probe — no real caller
-            )
-            if isinstance(result, list):
-                logger.info(f"🔍 Dynamic index for app '{app_name}' returned {len(result)} tool(s): {result}")
-                return set(result)
-            else:
-                return None
-        except Exception as e:
-            logger.warning(f"⚠️ Error calling dynamic index for app '{app_name}': {e}")
-            return None
-
     async def _create_tools_from_app_mappings(self) -> list[Tool]:
         """Create tools from app-specific function mappings, showing all function variants"""
         tools_list = []
@@ -1053,15 +1024,6 @@ class DynamicAdditionServer(Server):
                 except Exception as e:
                     logger.warning(f"⚠️ Error processing function {func_name} from {file_path}: {str(e)}")
                     continue
-
-            # Apply dynamic index filter: if this app has a @dynamic index(), only keep tools it returns
-            dynamic_index_filter = await self._get_dynamic_index_filter(app_name)
-            if dynamic_index_filter is not None:
-                before_count = len(app_tools)
-                app_tools = [t for t in app_tools if t.name in dynamic_index_filter or t.name == 'index']
-                filtered_count = before_count - len(app_tools)
-                if filtered_count > 0:
-                    logger.info(f"🔍 Dynamic index filter for app '{app_name}': kept {len(app_tools)}/{before_count} tools")
 
             tools_list.extend(app_tools)
 

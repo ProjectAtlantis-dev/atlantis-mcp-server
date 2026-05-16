@@ -66,7 +66,7 @@ def _entry_location(game_key: str, sid: str) -> str:
     """Get the first location for a character based on the character's role."""
     from dynamic_functions.Home.role import role_default_location
 
-    character = _find_character(game_key, sid)
+    character = _find_character(sid)
     role = character.get("role", "")
     if role:
         role_location = role_default_location(role)
@@ -174,7 +174,7 @@ async def character_move(game_key: str, location: str = "", sid: str = "") -> st
         raise ValueError("Unable to determine character to move (no sid and no caller).")
 
     location = location or ""
-    character = _find_character(game_key, sid)
+    character = _find_character(sid)
     display_name = character.get("displayName", sid)
     display = f"{display_name} ({sid})" if display_name != sid else sid
 
@@ -292,7 +292,7 @@ def position_query(game_key: str, location: str) -> List[Dict[Any, Any]]:
     require_game_dir(game_key)
     sids_at = get_players_at(game_key, location)
     result = []
-    for ch in _load_characters(game_key):
+    for ch in _load_characters():
         if ch["sid"] not in sids_at:
             continue
         entry = dict(ch)

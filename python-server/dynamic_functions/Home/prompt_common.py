@@ -23,18 +23,6 @@ def load_persona(bot_sid: str) -> str:
         return f.read().strip()
 
 
-def load_character_prompt(bot_sid: str, role: str) -> str:
-    """Read this bot's specific take on this role (the sid x role join).
-
-    Stored at Game/Bots/<sid>/<role>.md. Empty string if not provided.
-    """
-    path = os.path.join(home_path("Game", "Bots", bot_sid), f"{role}.md")
-    if not os.path.isfile(path):
-        return ""
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read().strip()
-
-
 def build_interaction_context(
     caller: str,
     prior_interaction_count: int,

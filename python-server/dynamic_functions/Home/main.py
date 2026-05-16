@@ -7,7 +7,7 @@ from dynamic_functions.Home.chat_common import logger, get_base_tools
 
 
 @visible
-async def index():
+async def index(session_key: str):
     """Game logic engine"""
     pass
 

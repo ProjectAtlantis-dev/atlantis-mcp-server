@@ -16,10 +16,10 @@ Bot and location images can be full-resolution source files. The first time some
 
 There are two completely separate kinds of data, and conflating them causes pain:
 
-- **Assets** (`Game/`) — shared across every game, version-controlled, hand-edited. Bots, Roles, Locations. Read-only at runtime.
-- **Runtime state** (`Data/games/<game_key>/`) — per-game, written by the engine, never edited by hand. `characters.json` (who is playing), `positions.json` (where they are), `interactions/` (conversation memory), `game.json` (metadata).
+- **Assets** (`Game/`) — shared across every game, version-controlled, hand-edited. Bots, Roles, Locations, *and the (sid × role) bindings themselves*. Read-only at runtime.
+- **Runtime state** (`Data/games/<game_key>/`) — per-game, written by the engine, never edited by hand. `positions.json` (where characters are), `interactions/` (conversation memory), `game.json` (metadata).
 
-A single asset (e.g. the `kitty` bot) can participate in many games simultaneously; each game has its own character record, position, and conversation history for that bot. Don't write game-specific state into `Game/`; don't put shared definitions in `Data/`.
+A single asset (e.g. the `kitty` bot) can participate in many games simultaneously; each game has its own position and conversation history for that bot. Don't write game-specific state into `Game/`; don't put shared definitions in `Data/`.
 
 ## `game_key` is always explicit
 
@@ -31,12 +31,11 @@ There are three axes of prompt content, and they each have a home:
 
 - **Bot persona** (`Bots/<sid>/config.json` → `persona`): who this bot *is*, regardless of role. Identity, look, voice, mannerisms. Travels with the bot across role swaps.
 - **Role base** (`Roles/<role>/system_prompt.md`): how *anyone* plays this role. Job description, tools, procedures, expected behavior. Travels with the role across bot swaps.
-- **Character prompt** (`Bots/<sid>/<role>.md`): how *this bot* plays *this role* — the (sid × role) join. Stuff like "you're brand new and rely entirely on your console" lives here, because newness is a property of *Kitty playing Receptionist*, not of Kitty in general or of Receptionists in general. The CHARACTER record in `characters.json` is what *binds* a bot to a role for a game; the prompt content for that pairing lives as an asset file under the bot's folder.
+- **Character prompt** (`Characters/<sid>/<Role>/prompt.md`): how *this bot* plays *this role* — the (sid × role) join. Stuff like "you're brand new and rely entirely on your console" lives here, because newness is a property of *Kitty playing Receptionist*, not of Kitty in general or of Receptionists in general. The *existence* of this folder is also what declares the binding: there is no runtime registration step and no `characters.json`. To cast Kitty as Receptionist, create `Characters/kitty/Receptionist/prompt.md`; to swap roles, move the folder.
 
-At prompt time, all three are composed: `persona` + role base + character prompt + time + interaction context. Don't cross the streams — bot identity belongs to the bot, role behavior belongs to the role, the specifics of this casting belong to the bot-role file. The relationship is loose:
+At prompt time, all three are composed: `persona` + role base + character prompt + time + interaction context. Don't cross the streams — bot identity belongs to the bot, role behavior belongs to the role, the specifics of this casting belong to the bot-role file.
 
-- Same sid + different game = different character record (different role/position possible).
-- Bot-driven vs human-driven is determined dynamically by `is_bot_driven()`: if there's a bot config for the sid AND no live human session has claimed that sid's chat slot, the bot drives. A human can take over a bot's sid by claiming it.
+Bot-driven vs human-driven is determined dynamically by `is_bot_driven()`: if there's a bot config for the sid AND no live human session has claimed that sid's chat slot, the bot drives. A human can take over a bot's sid by claiming it.
 
 The role is what carries the system prompt and greeting. The bot just supplies the LLM and the face.
 
@@ -85,10 +84,9 @@ erDiagram
         string defaultLocation FK
     }
     CHARACTER {
-        string sid PK
-        string role FK
-        string displayName
-        bool isBot "FK to BOT only if true"
+        string sid FK "= BOT.sid"
+        string role FK "= ROLE.name; presence of Characters/<sid>/<Role>/prompt.md"
+        string displayName "= BOT.displayName"
     }
     POSITION {
         string sid FK
@@ -96,10 +94,9 @@ erDiagram
     }
 
     LOCATION ||--o{ LOCATION : "connects to"
-    GAME ||--o{ ROLE : has
-    BOT ||--o{ CHARACTER : sid
     LOCATION ||--o{ ROLE : defaultLocation
-    ROLE ||--o{ CHARACTER : role
+    BOT ||--o{ CHARACTER : "Characters/<sid>/<Role>/prompt.md"
+    ROLE ||--o{ CHARACTER : "Characters/<sid>/<Role>/prompt.md"
     CHARACTER ||--o| POSITION : sid
     LOCATION ||--o{ POSITION : location
 ```

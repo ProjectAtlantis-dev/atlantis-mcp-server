@@ -1,5 +1,6 @@
 """Role tools"""
 
+import atlantis
 import json
 import logging
 import os
@@ -27,6 +28,7 @@ def _load_role_json(role_name: str) -> dict:
 @visible
 async def role_list() -> List[Dict[str, str]]:
     """List available roles"""
+    from dynamic_functions.Home.prompt_common import load_role_system_prompt
     roles_dir = _roles_dir()
     roles: List[Dict[str, str]] = []
     if not os.path.isdir(roles_dir):
@@ -42,13 +44,21 @@ async def role_list() -> List[Dict[str, str]]:
             if os.path.isfile(os.path.join(entry_dir, filename))
         ]
         updated = datetime.fromtimestamp(max(mtimes)).strftime('%Y-%m-%d %H:%M') if mtimes else ''
+        try:
+            system_prompt = load_role_system_prompt(entry)
+        except FileNotFoundError:
+            system_prompt = ""
         roles.append({
             "name": entry,
             "displayName": role_data.get("displayName", entry),
             "greeting": role_data.get("greeting", ""),
             "defaultLocation": role_data.get("defaultLocation", ""),
+            "systemPrompt": system_prompt,
             "updated": updated,
         })
+    await atlantis.client_data("Roles", roles, column_formatter={
+        "systemPrompt": {"type": "markdown"},
+    })
     return roles
 
 

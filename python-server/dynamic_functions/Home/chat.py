@@ -50,7 +50,7 @@ async def chat(game_key: str):
     for ch in occupants:
         display = ch.get("displayName", ch["sid"])
         names.append(display)
-        if ch["sid"] != speaker_sid and is_bot_driven(game_key, ch["sid"]):
+        if ch["sid"] != speaker_sid and is_bot_driven(ch["sid"]):
             bots.append(ch)
 
     await atlantis.client_log(

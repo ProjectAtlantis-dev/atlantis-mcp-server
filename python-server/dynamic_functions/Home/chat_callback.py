@@ -12,7 +12,7 @@ from dynamic_functions.Home.chat_common import (
 from dynamic_functions.Home.location import position_get, position_query
 from dynamic_functions.Home.common import _load_bot_config
 from dynamic_functions.Home.character import _load_characters, is_bot_driven
-from dynamic_functions.Home.prompt_common import build_system_prompt, load_role_system_prompt
+from dynamic_functions.Home.prompt_common import build_system_prompt, load_role_system_prompt, load_character_prompt, load_persona
 from dynamic_functions.Home.interactions import read_interaction, record_interaction
 from dynamic_functions.Home.turn import run_turn
 
@@ -104,11 +104,13 @@ async def _respond_as_bot(*, game_key: str, bot_record: dict, speaker_sid: str, 
         return
 
     base_prompt = load_role_system_prompt(role)
-    history = read_interaction(game_key, role, speaker_sid)
+    history = read_interaction(game_key, bot_sid, speaker_sid)
     first_name = _character_field(game_key, speaker_sid, "displayName") or history.get("first_name", "")
 
     system_prompt = build_system_prompt(
         base_prompt=base_prompt,
+        persona=load_persona(bot_sid),
+        character_prompt=load_character_prompt(bot_sid, role),
         caller=speaker_sid,
         prior_interaction_count=int(history.get("count") or 0),
         last_interaction_at=history.get("last_interaction_at", ""),
@@ -138,4 +140,4 @@ async def _respond_as_bot(*, game_key: str, bot_record: dict, speaker_sid: str, 
         tool_lookup=tool_lookup,
     )
 
-    record_interaction(game_key, role, speaker_sid, first_name=first_name)
+    record_interaction(game_key, bot_sid, speaker_sid, first_name=first_name)

@@ -58,7 +58,11 @@ def is_bot_driven(game_key: str, sid: str) -> bool:
 
 @visible
 async def character_assign(game_key: str, sid: str, role: str, display_name: str = "") -> None:
-    """Register a character (or update an existing one). display_name auto-fills from bot config or sid."""
+    """Register a character (or update an existing one).
+
+    The (sid x role) specialization prompt lives at Game/Bots/<sid>/<role>.md
+    and is loaded at chat time — it's not stored on the character record.
+    """
     require_game_dir(game_key)
     _validate_role(role)
     if not sid:

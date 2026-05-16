@@ -27,7 +27,13 @@ Every function that touches runtime state takes `game_key` as a parameter. There
 
 ## Characters are roles, not bots
 
-A bot is a *driver* (model config and image — nothing else). A character is a *participant in a specific game*, bound to a role. System prompts and greetings live on the role, not the bot — swap the bot driving a role and the personality doesn't change. The relationship is loose:
+There are three axes of prompt content, and they each have a home:
+
+- **Bot persona** (`Bots/<sid>/config.json` → `persona`): who this bot *is*, regardless of role. Identity, look, voice, mannerisms. Travels with the bot across role swaps.
+- **Role base** (`Roles/<role>/system_prompt.md`): how *anyone* plays this role. Job description, tools, procedures, expected behavior. Travels with the role across bot swaps.
+- **Character prompt** (`Bots/<sid>/<role>.md`): how *this bot* plays *this role* — the (sid × role) join. Stuff like "you're brand new and rely entirely on your console" lives here, because newness is a property of *Kitty playing Receptionist*, not of Kitty in general or of Receptionists in general. The CHARACTER record in `characters.json` is what *binds* a bot to a role for a game; the prompt content for that pairing lives as an asset file under the bot's folder.
+
+At prompt time, all three are composed: `persona` + role base + character prompt + time + interaction context. Don't cross the streams — bot identity belongs to the bot, role behavior belongs to the role, the specifics of this casting belong to the bot-role file. The relationship is loose:
 
 - Same sid + different game = different character record (different role/position possible).
 - Bot-driven vs human-driven is determined dynamically by `is_bot_driven()`: if there's a bot config for the sid AND no live human session has claimed that sid's chat slot, the bot drives. A human can take over a bot's sid by claiming it.
@@ -41,15 +47,17 @@ The role is what carries the system prompt and greeting. The bot just supplies t
 1. **First entry** — no position record yet. The character *must* spawn at their entry location (their role's `defaultLocation`, falling back to the location with `"default": true`). Passing any other location raises. This is the only way to enter the world.
 2. **Subsequent moves** — `connects_to` adjacency is enforced. You can only go to a location that the current location lists as reachable. No teleporting between disconnected rooms.
 
-## Conversation memory is per-role-per-speaker
+## Role-level continuity is a gameplay mechanic, not an engine feature
 
-This is the most non-obvious part. Bot memory is keyed at `Data/games/<game_key>/interactions/<role>/<speaker_sid>.json`. Implications:
+Engine-managed memory belongs to the bot. If a role needs shared continuity across whichever bot is currently driving it — e.g. the Receptionist should always know who has signed in this week — that's modeled in-world: the role has a *tool* it queries (a guest log, an access database, a central computer). The shared store is just another resource the role's system prompt knows how to call.
 
-- Two characters playing the **same role** share one memory of you. The Receptionist remembers you the same way regardless of which bot is currently driving Receptionist.
-- The **same bot** playing different roles in different games has separate memories per role.
-- The role is the "personality slot"; the bot is the voice; the memory belongs to the slot, not the voice.
+This keeps the engine boring and the world-building flexible. Personal memory = engine. Institutional memory = gameplay.
 
-If you want a bot to remember you across role changes, that's not how this is designed.
+## Conversation memory is per-bot-per-speaker
+
+Bot memory is keyed at `Data/games/<game_key>/interactions/<bot_sid>/<speaker_sid>.json`. The memory belongs to the bot, not the role — a bot keeps its own accumulated history of each participant across role changes within a game. Two different bots playing the same role have independent memories of you.
+
+The per-`game_key` scoping still applies: a bot remembers you differently in each game.
 
 ## ER diagram
 

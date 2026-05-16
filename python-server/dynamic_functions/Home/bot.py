@@ -1,5 +1,6 @@
 """Bot tools"""
 
+import atlantis
 import base64
 import json
 import os
@@ -7,6 +8,7 @@ from datetime import datetime
 from typing import List, Dict
 
 from dynamic_functions.Home.common import _bots_dir, _ensure_thumb
+from dynamic_functions.Home.prompt_common import load_persona
 
 
 
@@ -55,6 +57,10 @@ async def bot_list() -> List[Dict[str, str]]:
             'displayName': cfg.get('displayName', entry),
             'model': model_label,
             'image': image_data,
+            'persona': load_persona(sid),
             'updated': datetime.fromtimestamp(latest).strftime('%Y-%m-%d %H:%M'),
         })
+    await atlantis.client_data("Bots", bots, column_formatter={
+        "persona": {"type": "markdown"},
+    })
     return bots

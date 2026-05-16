@@ -14,6 +14,27 @@ def load_role_system_prompt(role: str) -> str:
         return f.read().strip()
 
 
+def load_persona(bot_sid: str) -> str:
+    """Read this bot's persona.md. Empty string if not provided."""
+    path = os.path.join(home_path("Game", "Bots", bot_sid), "persona.md")
+    if not os.path.isfile(path):
+        return ""
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read().strip()
+
+
+def load_character_prompt(bot_sid: str, role: str) -> str:
+    """Read this bot's specific take on this role (the sid x role join).
+
+    Stored at Game/Bots/<sid>/<role>.md. Empty string if not provided.
+    """
+    path = os.path.join(home_path("Game", "Bots", bot_sid), f"{role}.md")
+    if not os.path.isfile(path):
+        return ""
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read().strip()
+
+
 def build_interaction_context(
     caller: str,
     prior_interaction_count: int,
@@ -62,13 +83,20 @@ def build_interaction_context(
 
 def build_system_prompt(
     base_prompt: str,
+    persona: str = "",
+    character_prompt: str = "",
     caller: str = "",
     prior_interaction_count: int = 0,
     last_interaction_at: str = "",
     first_name: str = "",
 ) -> str:
-    """Assemble the final system prompt: base text + current time + interaction context."""
-    parts: List[str] = [base_prompt]
+    """Assemble the final system prompt: persona + role base + character (sid x role) + time + interaction."""
+    parts: List[str] = []
+    if persona:
+        parts.append(persona)
+    parts.append(base_prompt)
+    if character_prompt:
+        parts.append(character_prompt)
     parts.append(f"Current date and time: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
     note = build_interaction_context(caller, prior_interaction_count, last_interaction_at, first_name)

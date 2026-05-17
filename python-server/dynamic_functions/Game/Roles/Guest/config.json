@@ -1,6 +1,5 @@
 {
   "displayName": "Guest",
   "systemPrompt": "system_prompt.md",
-  "greeting": "*looks around* So this is Project Atlantis, huh? Pretty sick.",
   "defaultLocation": "Lobby"
 }

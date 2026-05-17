@@ -1,6 +1,5 @@
 {
   "displayName": "Manager",
   "systemPrompt": "system_prompt.md",
-  "greeting": "*smiles* Hej",
   "defaultLocation": "Hallway"
 }

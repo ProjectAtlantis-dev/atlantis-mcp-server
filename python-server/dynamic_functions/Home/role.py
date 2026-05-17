@@ -50,7 +50,6 @@ def _role_rows() -> List[Dict[str, str]]:
         roles.append({
             "name": entry,
             "displayName": role_data.get("displayName", entry),
-            "greeting": role_data.get("greeting", ""),
             "defaultLocation": role_data.get("defaultLocation", ""),
             "systemPrompt": system_prompt,
             "updated": updated,

@@ -1,6 +1,5 @@
 {
   "displayName": "Receptionist",
   "systemPrompt": "system_prompt.md",
-  "greeting": "*waves* Hey there~ Welcome to the lobby! \ud83d\udc31",
   "defaultLocation": "Lobby"
 }

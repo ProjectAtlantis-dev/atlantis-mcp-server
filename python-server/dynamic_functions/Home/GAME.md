@@ -37,7 +37,7 @@ At prompt time, all three are composed: `persona` + role base + character prompt
 
 Bot-driven vs human-driven is determined dynamically by `is_bot_driven()`: if there's a bot config for the sid AND no live human session has claimed that sid's chat slot, the bot drives. A human can take over a bot's sid by claiming it.
 
-The role is what carries the system prompt and greeting. The bot just supplies the LLM and the face.
+The role carries the system prompt. The bot supplies the LLM, the face, and the in-character voice (including any first-line greeting, which is generated at runtime rather than baked into the role).
 
 ## Locations have two relationships, not one
 
@@ -90,7 +90,6 @@ erDiagram
         string name PK "folder name"
         string displayName
         string systemPrompt
-        string greeting
         string defaultLocation FK
     }
     CHARACTER {

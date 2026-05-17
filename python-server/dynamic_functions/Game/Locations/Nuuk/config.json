@@ -1,0 +1,8 @@
+{
+  "displayName": "Nuuk",
+  "parent": "Greenland",
+  "image": "image.jpg",
+  "connects_to": [],
+  "default": false,
+  "description": "The capital of Greenland, a colorful coastal city nestled between fjords and mountains on the southwest coast."
+}

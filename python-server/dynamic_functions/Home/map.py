@@ -74,6 +74,35 @@ async def location_map() -> None:
             if neighbor in leaf_set and (neighbor, name) not in edges:
                 edges.append((name, neighbor))
 
+    # Edges must be attached to the lowest-common-ancestor container of their
+    # endpoints, not to the root graph. With elk.hierarchyHandling=INCLUDE_CHILDREN,
+    # an edge declared on root is routed through root's coordinate space — so a
+    # Lobby↔Hallway edge (both inside Atlantis) gets dragged out of the Atlantis
+    # container and back in, producing long detours and bends. Grouping by LCA
+    # keeps each edge local to the smallest container that contains both ends.
+    # "" means root (no shared ancestor).
+    def _ancestors(name: str) -> List[str]:
+        chain: List[str] = []
+        cur = parent_of.get(name) or ""
+        while cur:
+            chain.append(cur)
+            cur = parent_of.get(cur) or ""
+        return chain
+
+    def _lca(a: str, b: str) -> str:
+        anc_b = _ancestors(b)
+        anc_b_set = set(anc_b)
+        for x in _ancestors(a):
+            if x in anc_b_set:
+                return x
+        return ""
+
+    # lca_container_name -> list of (src_leaf, dst_leaf); "" key = root.
+    edges_by_lca: Dict[str, List[tuple]] = {}
+    for src, dst in edges:
+        key = _lca(src, dst)
+        edges_by_lca.setdefault(key, []).append((src, dst))
+
     uid = uuid.uuid4().hex[:8]
 
     def _esc(s):
@@ -113,10 +142,16 @@ async def location_map() -> None:
         "rootLeaves": [f"map-node-{n}-{uid}" for n in leaves if not parent_of.get(n)],
     }
     hierarchy_json = json.dumps(hierarchy)
-    edges_json = json.dumps([
-        (f"map-node-{src}-{uid}", f"map-node-{dst}-{uid}")
-        for src, dst in edges
-    ])
+
+    def _edge_pair(src: str, dst: str) -> List[str]:
+        return [f"map-node-{src}-{uid}", f"map-node-{dst}-{uid}"]
+
+    # JS expects: { "<container-id-or-__root__>": [[srcId, dstId], ...] }
+    edges_by_container = {
+        (f"map-group-{k}-{uid}" if k else "__root__"): [_edge_pair(s, d) for s, d in v]
+        for k, v in edges_by_lca.items()
+    }
+    edges_by_container_json = json.dumps(edges_by_container)
 
     html = f"""
 <style>
@@ -237,7 +272,14 @@ async def location_map() -> None:
         f'  await new Promise(function(r) {{ requestAnimationFrame(function() {{ requestAnimationFrame(r); }}); }});'
         f'  var uid = "{uid}";'
         f'  var hier = {hierarchy_json};'
-        f'  var edgeData = {edges_json};'
+        f'  var edgesByContainer = {edges_by_container_json};'
+        f'  var edgeSeq = 0;'
+        f'  function edgesFor(id) {{'
+        f'    var pairs = edgesByContainer[id] || [];'
+        f'    return pairs.map(function(p) {{'
+        f'      return {{ id: "me" + (edgeSeq++), sources: [p[0]], targets: [p[1]] }};'
+        f'    }});'
+        f'  }}'
         f'  var stage = document.getElementById("map-stage-" + uid);'
         f'  var svg = document.getElementById("map-svg-" + uid);'
         f'  if (!stage || !svg) {{ console.error("[MAP] stage/svg not found"); return; }}'
@@ -263,12 +305,17 @@ async def location_map() -> None:
         f'    return {{'
         f'      id: id,'
         f'      layoutOptions: {{'
+        # INCLUDE_CHILDREN must be set on every container, not just root —
+        # without it, child containers don't propagate cross-hierarchy routing
+        # and edges crossing nested boundaries get mangled.
         f'        "elk.algorithm": "layered",'
         f'        "elk.direction": "RIGHT",'
+        f'        "elk.hierarchyHandling": "INCLUDE_CHILDREN",'
         f'        "elk.padding": "[top=28,left=18,bottom=18,right=18]",'
         f'        "elk.spacing.nodeNode": "30"'
         f'      }},'
-        f'      children: children'
+        f'      children: children,'
+        f'      edges: edgesFor(id)'
         f'    }};'
         f'  }}'
         # Roots = top-level containers (no parent) + orphan leaves (no parent)
@@ -279,9 +326,7 @@ async def location_map() -> None:
         f'  hier.rootLeaves.forEach(function(id) {{'
         f'    if (id in leafSizes) rootChildren.push(Object.assign({{ id: id }}, leafSizes[id]));'
         f'  }});'
-        f'  var edges = edgeData.map(function(pair, i) {{'
-        f'    return {{ id: "me" + i, sources: [pair[0]], targets: [pair[1]] }};'
-        f'  }});'
+        f'  var rootEdges = edgesFor("__root__");'
         f'  var graph = {{'
         f'    id: "root",'
         f'    layoutOptions: {{'
@@ -293,7 +338,7 @@ async def location_map() -> None:
         f'      "elk.layered.spacing.nodeNodeBetweenLayers": "60"'
         f'    }},'
         f'    children: rootChildren,'
-        f'    edges: edges'
+        f'    edges: rootEdges'
         f'  }};'
         f'  var elk = new ELK();'
         f'  elk.layout(graph).then(function(g) {{'

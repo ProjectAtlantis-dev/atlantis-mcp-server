@@ -271,7 +271,7 @@ async def character_move(game_key: str, location: str = "", sid: str = "") -> st
     )
     logger.info(f"[game] {sid} moved from {current} to {location}")
     if atlantis.get_caller() == sid:
-        await _set_location_background(dest)
+        await _set_location_background(location, dest)
     return location
 
 
@@ -313,7 +313,7 @@ def _location_rows() -> List[Dict[str, str]]:
             'name': name,
             'displayName': data.get('displayName', name),
             'parent': data.get('parent') or '',
-            'connects_to': data.get('connects_to', []),
+            'connects_to': '\n'.join(data.get('connects_to', []) or []),
             'description': data.get('description', ''),
             'image': image_data,
             'updated': datetime.fromtimestamp(max(mtimes)).strftime('%Y-%m-%d %H:%M'),
@@ -353,6 +353,7 @@ async def location_list() -> List[Dict[str, str]]:
     locations = _location_rows()
     await atlantis.client_data("Locations", locations, column_formatter={
         "description": {"type": "markdown", "maxWidth": "80ch"},
+        "connects_to": {"type": "pre"},
     })
     return locations
 

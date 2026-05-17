@@ -1,8 +1,10 @@
 {
   "displayName": "Lobby",
+  "parent": "Atlantis",
   "image": "image.png",
   "connects_to": [
     "Hallway"
   ],
-  "default": true
+  "default": true,
+  "description": "A vast biomorphic hall in deep violet and lavender. Curved cathedral-like arches form bubble windows looking out onto snow-capped Greenland mountains. Polished reflective floors, recessed circular ceiling lights, tropical potted plants flanking low curved seating, and a small dark check-in counter at the back. Futuristic but warm — like a 1970s sci-fi paperback cover."
 }

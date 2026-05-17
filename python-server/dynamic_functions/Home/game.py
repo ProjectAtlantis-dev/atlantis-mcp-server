@@ -143,8 +143,8 @@ async def game_show(game_key: str) -> None:
     tables.append(_table("ent-game", "GAME", ["key"], [[game_key]]))
     tables.append(_table("ent-bot", "BOT", ["sid", "displayName", "model", "updated"],
         [[b["sid"], b["displayName"], b["model"], b["updated"]] for b in bot_rows]))
-    tables.append(_table("ent-location", "LOCATION", ["name", "displayName", "connects_to", "updated"],
-        [[l["name"], l["displayName"], ", ".join(l["connects_to"]), l["updated"]] for l in loc_rows]))
+    tables.append(_table("ent-location", "LOCATION", ["name", "displayName", "parent", "connects_to", "description", "updated"],
+        [[l["name"], l["displayName"], l.get("parent", ""), ", ".join(l["connects_to"]), (l.get("description", "")[:60] + "…") if len(l.get("description", "")) > 60 else l.get("description", ""), l["updated"]] for l in loc_rows]))
     tables.append(_table("ent-role", "ROLE", ["name", "displayName", "defaultLocation", "systemPrompt", "updated"],
         [[r["name"], r["displayName"], r.get("defaultLocation", ""), "system_prompt.md" if r.get("systemPrompt") else "", r["updated"]] for r in role_rows]))
     tables.append(_table("ent-character", "CHARACTER", ["sid", "role", "displayName", "prompt", "location"],
@@ -153,6 +153,7 @@ async def game_show(game_key: str) -> None:
     # Relationships
     relationships = [
         (f"ent-location-{uid}", f"ent-location-{uid}", "connects to"),
+        (f"ent-location-{uid}", f"ent-location-{uid}", "parent"),
         (f"ent-location-{uid}", f"ent-role-{uid}", "defaultLocation"),
         (f"ent-bot-{uid}", f"ent-character-{uid}", "Characters/<sid>/<Role>/prompt.md"),
         (f"ent-role-{uid}", f"ent-character-{uid}", "Characters/<sid>/<Role>/prompt.md"),

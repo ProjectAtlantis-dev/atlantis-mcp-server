@@ -39,6 +39,14 @@ Bot-driven vs human-driven is determined dynamically by `is_bot_driven()`: if th
 
 The role is what carries the system prompt and greeting. The bot just supplies the LLM and the face.
 
+## Locations have two relationships, not one
+
+`connects_to` is adjacency: where you can walk to from here. `parent` is containment: what this room is inside of. A Lobby has `parent: "Atlantis"` (it's part of the Atlantis facility) and `connects_to: ["Hallway"]` (you can walk into the hallway from here). These are independent — Atlantis itself is a root location with no parent and an empty `connects_to`.
+
+**Only leaves are standable.** A location with children is a container, not a place you can move to. The engine enforces this on entry, on movement, and on the default-spawn lookup. You can't "go to Atlantis"; you go to Lobby (which is in Atlantis). This means containers can hold setting/description without polluting the navigable space.
+
+The `description` field on each location is in-world prose. At prompt time the engine walks from the root down to the character's current location and concatenates descriptions in that order — facility context first, room context last — and injects the result as the prompt's `setting` block. That's why the facility blurb ("futuristic robot research playground...") lives on the Atlantis root and not in every role file.
+
 ## Movement: first entry is special
 
 `character_move` has two distinct modes:
@@ -71,6 +79,8 @@ erDiagram
     LOCATION {
         string name PK "folder name"
         string displayName
+        string parent FK "= LOCATION.name (containment, not adjacency)"
+        string description "in-world prose; composed root→leaf into the prompt's setting"
         string image
     }
     GAME {
@@ -93,7 +103,8 @@ erDiagram
         string location FK
     }
 
-    LOCATION ||--o{ LOCATION : "connects to"
+    LOCATION ||--o{ LOCATION : "connects to (adjacency)"
+    LOCATION ||--o{ LOCATION : "parent (containment)"
     LOCATION ||--o{ ROLE : defaultLocation
     BOT ||--o{ CHARACTER : "Characters/<sid>/<Role>/prompt.md"
     ROLE ||--o{ CHARACTER : "Characters/<sid>/<Role>/prompt.md"

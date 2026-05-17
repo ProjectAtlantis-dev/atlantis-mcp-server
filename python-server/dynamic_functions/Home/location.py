@@ -48,8 +48,39 @@ def _connects_to(location_name: str) -> List[str]:
     return loc.get("connects_to", [])
 
 
+def _child_locations(location_name: str) -> List[str]:
+    """Names of locations whose parent is `location_name`."""
+    loc_dir = _locations_dir()
+    if not os.path.isdir(loc_dir):
+        return []
+    children: List[str] = []
+    for entry in os.listdir(loc_dir):
+        cfg = os.path.join(loc_dir, entry, "config.json")
+        if not os.path.isfile(cfg):
+            continue
+        with open(cfg, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if (data.get("parent") or "") == location_name:
+            children.append(entry)
+    return children
+
+
+def _is_leaf(location_name: str) -> bool:
+    """A location is a valid move target only if it has no children (containers aren't standable)."""
+    return not _child_locations(location_name)
+
+
+def _require_leaf(location_name: str) -> None:
+    if not _is_leaf(location_name):
+        children = _child_locations(location_name)
+        raise ValueError(
+            f"{location_name} is a container, not a place you can stand. "
+            f"It contains: {', '.join(children)}."
+        )
+
+
 def _default_location() -> str:
-    """Get the default location"""
+    """Get the default location (must be a leaf — containers aren't valid)"""
     loc_dir = _locations_dir()
     for entry in os.listdir(loc_dir):
         cfg = os.path.join(loc_dir, entry, "config.json")
@@ -58,6 +89,7 @@ def _default_location() -> str:
         with open(cfg, "r", encoding="utf-8") as f:
             data = json.load(f)
         if data.get("default"):
+            _require_leaf(entry)
             return entry
     raise RuntimeError(f"No default location found in {loc_dir}")
 
@@ -192,6 +224,7 @@ async def character_move(game_key: str, location: str = "", sid: str = "") -> st
         dest = _load_location(location)
         if not dest:
             raise ValueError(f"Unknown location: {location}")
+        _require_leaf(location)
         desc = dest.get("displayName", location)
         set_player_position(game_key, sid, location)
         await atlantis.client_log(f"\U0001f3db\ufe0f New player {display} has entered {desc} for the first time")
@@ -211,6 +244,7 @@ async def character_move(game_key: str, location: str = "", sid: str = "") -> st
     dest = _load_location(location)
     if not dest:
         raise ValueError(f"Unknown location: {location}")
+    _require_leaf(location)
 
     desc = dest.get("description", location)
 
@@ -278,18 +312,48 @@ def _location_rows() -> List[Dict[str, str]]:
         locations.append({
             'name': name,
             'displayName': data.get('displayName', name),
+            'parent': data.get('parent') or '',
             'connects_to': data.get('connects_to', []),
+            'description': data.get('description', ''),
             'image': image_data,
             'updated': datetime.fromtimestamp(max(mtimes)).strftime('%Y-%m-%d %H:%M'),
         })
     return locations
 
 
+def compose_setting(location_name: str) -> str:
+    """Walk from the root down to `location_name` and concatenate descriptions.
+
+    Returns one paragraph per level (root first), so the prompt reads
+    outer-context → inner-context. Empty string if the location has no
+    description and no ancestors with one.
+    """
+    chain: List[str] = []
+    seen: set = set()
+    current = location_name
+    while current and current not in seen:
+        seen.add(current)
+        loc = _load_location(current)
+        if not loc:
+            break
+        chain.append(current)
+        current = loc.get("parent") or ""
+    parts: List[str] = []
+    for name in reversed(chain):
+        loc = _load_location(name) or {}
+        desc = (loc.get("description") or "").strip()
+        if desc:
+            parts.append(desc)
+    return "\n\n".join(parts)
+
+
 @visible
 async def location_list() -> List[Dict[str, str]]:
     """List locations"""
     locations = _location_rows()
-    await atlantis.client_data("Locations", locations)
+    await atlantis.client_data("Locations", locations, column_formatter={
+        "description": {"maxWidth": "80ch"},
+    })
     return locations
 
 

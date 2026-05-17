@@ -1,4 +1,4 @@
-"""Location map tool"""
+"""Location map tool — renders the full facility layout with parent containment."""
 
 import atlantis
 import base64
@@ -7,10 +7,9 @@ import os
 import uuid
 from typing import Any, Dict, List, Optional
 
-from dynamic_functions.Home.character import _load_characters
 from dynamic_functions.Home.location import (
-    _load_location, _locations_dir, _connects_to,
-    location_thumb, position_get, get_players_at,
+    _load_location, _locations_dir, _child_locations, _is_leaf,
+    location_thumb,
 )
 
 
@@ -26,125 +25,94 @@ def _location_image_b64(loc_name: str) -> str:
     return f"data:image/{mime};base64,{b64}"
 
 
-def _characters_at(game_key: str, location: str) -> List[str]:
-    """List character display names at a location"""
-    sids = get_players_at(game_key, location)
-    if not sids:
+def _all_location_names() -> List[str]:
+    loc_dir = _locations_dir()
+    if not os.path.isdir(loc_dir):
         return []
-    return [ch.get("displayName", ch["sid"]) for ch in _load_characters() if ch["sid"] in sids]
+    return sorted([
+        entry for entry in os.listdir(loc_dir)
+        if os.path.isfile(os.path.join(loc_dir, entry, "config.json"))
+    ])
 
 
 @visible
-async def location_map(game_key: str, location: str = "") -> None:
-    """Show nearby locations as a map"""
-    from dynamic_functions.Home.common import require_game_dir
-    require_game_dir(game_key)
-    # Find center location
-    resolved_location: Optional[str] = location or None
-    if not resolved_location:
-        sid = atlantis.get_caller()
-        if sid:
-            resolved_location = position_get(game_key, sid)
-        if not resolved_location:
-            raise ValueError(
-                "Cannot determine current location. Either pass a location name "
-                "or move your character first with character_move()."
-            )
-    location = resolved_location
+async def location_map() -> None:
+    """Show the full facility map: containers wrap their child rooms; edges are adjacency (connects_to)."""
+    all_names = _all_location_names()
+    if not all_names:
+        await atlantis.client_log("No locations defined.")
+        return
 
-    center_loc = _load_location(location)
-    if not center_loc:
-        raise ValueError(f"Unknown location: {location}")
+    # Partition into leaves (standable rooms) and containers (groupings).
+    leaves: List[str] = []
+    containers: List[str] = []
+    parent_of: Dict[str, str] = {}
+    for name in all_names:
+        loc = _load_location(name) or {}
+        parent_of[name] = (loc.get("parent") or "")
+        if _is_leaf(name):
+            leaves.append(name)
+        else:
+            containers.append(name)
 
-    # Gather adjacent locations
-    adjacent_names = center_loc.get("connects_to", [])
-    all_names = [location] + adjacent_names
-
-    # Build node data
-    nodes = []
-    for loc_name in all_names:
-        loc_data = _load_location(loc_name)
-        if not loc_data:
-            continue
-        is_current = loc_name == location
-        chars = _characters_at(game_key, loc_name)
-        image_b64 = _location_image_b64(loc_name)
-        nodes.append({
-            "name": loc_name,
-            "displayName": loc_data.get("displayName", loc_name),
-            "image": image_b64,
-            "is_current": is_current,
-            "characters": chars,
-            # Show exits beyond the center
-            "further_connects": [
-                c for c in loc_data.get("connects_to", [])
-                if c != location and c not in adjacent_names
-            ],
+    # Build leaf node data for HTML rendering.
+    leaf_nodes: List[Dict[str, Any]] = []
+    for name in leaves:
+        loc = _load_location(name) or {}
+        leaf_nodes.append({
+            "name": name,
+            "displayName": loc.get("displayName", name),
+            "image": _location_image_b64(name),
         })
 
-    # Connect center to adjacent nodes
-    edges = []
-    for adj_name in adjacent_names:
-        edges.append((location, adj_name))
-
-    # Connect adjacent nodes to each other
-    for i, a in enumerate(adjacent_names):
-        for b in adjacent_names[i + 1:]:
-            a_connects = _connects_to(a)
-            if b in a_connects:
-                edges.append((a, b))
+    # Adjacency edges between leaves (skip dangling targets).
+    edges: List[tuple] = []
+    leaf_set = set(leaves)
+    for name in leaves:
+        loc = _load_location(name) or {}
+        for neighbor in loc.get("connects_to", []):
+            if neighbor in leaf_set and (neighbor, name) not in edges:
+                edges.append((name, neighbor))
 
     uid = uuid.uuid4().hex[:8]
 
-    # Build HTML
     def _esc(s):
         return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
     def _node_html(node: dict) -> str:
         name = node["name"]
         node_id = f"map-node-{name}-{uid}"
-        is_current = node["is_current"]
-
-        cls = f"map-node-{uid}"
-        if is_current:
-            cls += f" map-current-{uid}"
-
-        # Image
-        img_html = ""
-        if node["image"]:
-            img_html = f'<img src="{node["image"]}" class="map-img-{uid}" />'
-        else:
-            img_html = f'<div class="map-img-placeholder-{uid}">🗺️</div>'
-
-        # Characters
-        chars_html = ""
-        if node["characters"]:
-            chars_list = ", ".join(_esc(c) for c in node["characters"])
-            chars_html = f'<div class="map-chars-{uid}">👤 {chars_list}</div>'
-
-        # Label
+        img_html = (
+            f'<img src="{node["image"]}" class="map-img-{uid}" />'
+            if node["image"]
+            else f'<div class="map-img-placeholder-{uid}">🗺️</div>'
+        )
         label = _esc(node["displayName"])
-        if is_current:
-            label = f"📍 {label}"
-
-        # Further exits
-        further_html = ""
-        if node["further_connects"]:
-            dirs = ", ".join(_esc(c) for c in node["further_connects"])
-            further_html = f'<div class="map-further-{uid}">→ {dirs}</div>'
-
         return (
-            f'<div class="{cls}" id="{node_id}">'
+            f'<div class="map-node-{uid}" id="{node_id}">'
             f'  {img_html}'
             f'  <div class="map-label-{uid}">{label}</div>'
-            f'  {chars_html}'
-            f'  {further_html}'
             f'</div>'
         )
 
-    nodes_html = "".join(_node_html(n) for n in nodes)
+    nodes_html = "".join(_node_html(n) for n in leaf_nodes)
 
-    # Serialize edges for layout
+    # Serialize the hierarchy + edges for the layout script.
+    hierarchy = {
+        "containers": [
+            {
+                "id": f"map-group-{c}-{uid}",
+                "name": c,
+                "displayName": (_load_location(c) or {}).get("displayName", c),
+                "parent": (f"map-group-{parent_of[c]}-{uid}" if parent_of.get(c) else ""),
+                "children": [f"map-node-{n}-{uid}" for n in _child_locations(c) if n in leaf_set]
+                            + [f"map-group-{n}-{uid}" for n in _child_locations(c) if n not in leaf_set],
+            }
+            for c in containers
+        ],
+        "rootLeaves": [f"map-node-{n}-{uid}" for n in leaves if not parent_of.get(n)],
+    }
+    hierarchy_json = json.dumps(hierarchy)
     edges_json = json.dumps([
         (f"map-node-{src}-{uid}", f"map-node-{dst}-{uid}")
         for src, dst in edges
@@ -168,7 +136,8 @@ async def location_map(game_key: str, location: str = "") -> None:
     align-items: flex-start;
     justify-content: center;
   }}
-  #map-stage-{uid}.map-laid-out-{uid} .map-node-{uid} {{
+  #map-stage-{uid}.map-laid-out-{uid} .map-node-{uid},
+  #map-stage-{uid}.map-laid-out-{uid} .map-group-{uid} {{
     position: absolute;
   }}
 
@@ -180,11 +149,7 @@ async def location_map(game_key: str, location: str = "") -> None:
     overflow: hidden;
     width: 180px;
     text-align: center;
-    transition: transform 0.2s;
-  }}
-  .map-current-{uid} {{
-    border-color: #f0c040 !important;
-    box-shadow: 0 0 20px rgba(240,192,64,0.5), 0 2px 12px rgba(0,0,0,0.4) !important;
+    z-index: 2;
   }}
   .map-img-{uid} {{
     width: 100%;
@@ -202,24 +167,27 @@ async def location_map(game_key: str, location: str = "") -> None:
     background: #2a2a40;
   }}
   .map-label-{uid} {{
-    padding: 8px 10px 4px;
+    padding: 8px 10px 10px;
     color: #e0e0ff;
     font-weight: bold;
     font-size: 14px;
   }}
-  .map-current-{uid} .map-label-{uid} {{
-    color: #f0c040;
+
+  .map-group-{uid} {{
+    background: rgba(80, 60, 120, 0.10);
+    border: 1.5px dashed #6a4c9a;
+    border-radius: 14px;
+    z-index: 1;
   }}
-  .map-chars-{uid} {{
-    padding: 2px 10px 4px;
-    color: #aac8aa;
+  .map-group-label-{uid} {{
+    position: absolute;
+    top: 6px;
+    left: 12px;
+    color: #b9a4d8;
     font-size: 11px;
-  }}
-  .map-further-{uid} {{
-    padding: 2px 10px 8px;
-    color: #888;
-    font-size: 10px;
-    font-style: italic;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    font-weight: bold;
   }}
 
   #map-svg-{uid} {{
@@ -228,6 +196,7 @@ async def location_map(game_key: str, location: str = "") -> None:
     left: 0;
     pointer-events: none;
     overflow: visible;
+    z-index: 3;
   }}
 </style>
 <div id="map-wrapper-{uid}">
@@ -240,7 +209,6 @@ async def location_map(game_key: str, location: str = "") -> None:
 
     await atlantis.client_html(html)
 
-    # Load ELK
     elk_loader = (
         'if (!window.ELK) {'
         '  var resolve; var p = new Promise(function(r) { resolve = r; });'
@@ -262,22 +230,54 @@ async def location_map(game_key: str, location: str = "") -> None:
     )
     await atlantis.client_script(f'(async function() {{ {elk_loader} }})()')
 
-    # Layout script
+    # ELK hierarchical layout: build nested children, run layout, then place
+    # leaf cards + render container backgrounds.
     layout_script = (
         f'(async function() {{'
         f'  await new Promise(function(r) {{ requestAnimationFrame(function() {{ requestAnimationFrame(r); }}); }});'
         f'  var uid = "{uid}";'
+        f'  var hier = {hierarchy_json};'
         f'  var edgeData = {edges_json};'
         f'  var stage = document.getElementById("map-stage-" + uid);'
         f'  var svg = document.getElementById("map-svg-" + uid);'
         f'  if (!stage || !svg) {{ console.error("[MAP] stage/svg not found"); return; }}'
         f'  if (!window.ELK) {{ console.error("[MAP] ELK not loaded"); return; }}'
         f'  var SVG_NS = "http://www.w3.org/2000/svg";'
-        f'  var cards = stage.querySelectorAll(".map-node-{uid}");'
-        f'  var nodes = [];'
-        f'  cards.forEach(function(el) {{'
+        # Measure leaf cards
+        f'  var leafSizes = {{}};'
+        f'  stage.querySelectorAll(".map-node-{uid}").forEach(function(el) {{'
         f'    var r = el.getBoundingClientRect();'
-        f'    nodes.push({{ id: el.id, width: Math.ceil(r.width), height: Math.ceil(r.height) }});'
+        f'    leafSizes[el.id] = {{ width: Math.ceil(r.width), height: Math.ceil(r.height) }};'
+        f'  }});'
+        # Build container index
+        f'  var containerById = {{}};'
+        f'  hier.containers.forEach(function(c) {{ containerById[c.id] = c; }});'
+        # Recursive node builder
+        f'  function buildNode(id) {{'
+        f'    if (id in leafSizes) {{'
+        f'      return Object.assign({{ id: id }}, leafSizes[id]);'
+        f'    }}'
+        f'    var c = containerById[id];'
+        f'    if (!c) return null;'
+        f'    var children = c.children.map(buildNode).filter(function(x) {{ return x; }});'
+        f'    return {{'
+        f'      id: id,'
+        f'      layoutOptions: {{'
+        f'        "elk.algorithm": "layered",'
+        f'        "elk.direction": "RIGHT",'
+        f'        "elk.padding": "[top=28,left=18,bottom=18,right=18]",'
+        f'        "elk.spacing.nodeNode": "30"'
+        f'      }},'
+        f'      children: children'
+        f'    }};'
+        f'  }}'
+        # Roots = top-level containers (no parent) + orphan leaves (no parent)
+        f'  var rootChildren = [];'
+        f'  hier.containers.forEach(function(c) {{'
+        f'    if (!c.parent) {{ var n = buildNode(c.id); if (n) rootChildren.push(n); }}'
+        f'  }});'
+        f'  hier.rootLeaves.forEach(function(id) {{'
+        f'    if (id in leafSizes) rootChildren.push(Object.assign({{ id: id }}, leafSizes[id]));'
         f'  }});'
         f'  var edges = edgeData.map(function(pair, i) {{'
         f'    return {{ id: "me" + i, sources: [pair[0]], targets: [pair[1]] }};'
@@ -287,16 +287,12 @@ async def location_map(game_key: str, location: str = "") -> None:
         f'    layoutOptions: {{'
         f'      "elk.algorithm": "layered",'
         f'      "elk.direction": "RIGHT",'
+        f'      "elk.hierarchyHandling": "INCLUDE_CHILDREN",'
         f'      "elk.edgeRouting": "ORTHOGONAL",'
         f'      "elk.spacing.nodeNode": "40",'
-        f'      "elk.spacing.edgeNode": "20",'
-        f'      "elk.spacing.edgeEdge": "15",'
-        f'      "elk.layered.spacing.nodeNodeBetweenLayers": "60",'
-        f'      "elk.layered.spacing.edgeNodeBetweenLayers": "25",'
-        f'      "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",'
-        f'      "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES"'
+        f'      "elk.layered.spacing.nodeNodeBetweenLayers": "60"'
         f'    }},'
-        f'    children: nodes,'
+        f'    children: rootChildren,'
         f'    edges: edges'
         f'  }};'
         f'  var elk = new ELK();'
@@ -305,50 +301,58 @@ async def location_map(game_key: str, location: str = "") -> None:
         f'    stage.classList.add("map-laid-out-{uid}");'
         f'    var W = Math.ceil(g.width) + 20;'
         f'    var H = Math.ceil(g.height) + 20;'
-        f'    g.children.forEach(function(n) {{'
-        f'      var el = document.getElementById(n.id);'
-        f'      if (!el) return;'
-        f'      el.style.left = n.x + "px";'
-        f'      el.style.top = n.y + "px";'
-        f'    }});'
+        # Walk hierarchy, accumulating absolute positions
+        f'    function place(node, offX, offY) {{'
+        f'      var ax = offX + (node.x || 0);'
+        f'      var ay = offY + (node.y || 0);'
+        f'      if (node.id in leafSizes) {{'
+        f'        var el = document.getElementById(node.id);'
+        f'        if (el) {{ el.style.left = ax + "px"; el.style.top = ay + "px"; }}'
+        f'      }} else if (node.id in containerById) {{'
+        # Render container background
+        f'        var box = document.createElement("div");'
+        f'        box.className = "map-group-{uid}";'
+        f'        box.id = node.id;'
+        f'        box.style.left = ax + "px";'
+        f'        box.style.top = ay + "px";'
+        f'        box.style.width = Math.ceil(node.width) + "px";'
+        f'        box.style.height = Math.ceil(node.height) + "px";'
+        f'        var lbl = document.createElement("div");'
+        f'        lbl.className = "map-group-label-{uid}";'
+        f'        lbl.textContent = containerById[node.id].displayName;'
+        f'        box.appendChild(lbl);'
+        f'        stage.appendChild(box);'
+        f'      }}'
+        f'      (node.children || []).forEach(function(ch) {{ place(ch, ax, ay); }});'
+        f'    }}'
+        f'    (g.children || []).forEach(function(n) {{ place(n, 0, 0); }});'
         f'    stage.style.width = W + "px";'
         f'    stage.style.height = H + "px";'
         f'    svg.setAttribute("width", W);'
         f'    svg.setAttribute("height", H);'
         f'    svg.setAttribute("viewBox", "0 0 " + W + " " + H);'
         f'    while (svg.firstChild) svg.removeChild(svg.firstChild);'
-        # Draw edges
-        f'    (g.edges || []).forEach(function(e) {{'
-        f'      (e.sections || []).forEach(function(sec) {{'
-        f'        var pts = [sec.startPoint].concat(sec.bendPoints || []).concat([sec.endPoint]);'
-        f'        var d = "M " + pts.map(function(p) {{ return p.x + "," + p.y; }}).join(" L ");'
-        f'        var path = document.createElementNS(SVG_NS, "path");'
-        f'        path.setAttribute("d", d);'
-        f'        path.setAttribute("fill", "none");'
-        f'        path.setAttribute("stroke", "#f0c040");'
-        f'        path.setAttribute("stroke-width", "2");'
-        f'        path.setAttribute("stroke-dasharray", "6,4");'
-        f'        path.setAttribute("opacity", "0.6");'
-        f'        svg.appendChild(path);'
-        # Draw arrowhead
-        f'        var last = pts[pts.length - 1];'
-        f'        var prev = pts.length > 1 ? pts[pts.length - 2] : last;'
-        f'        var angle = Math.atan2(last.y - prev.y, last.x - prev.x);'
-        f'        var arrLen = 8;'
-        f'        var arr = document.createElementNS(SVG_NS, "polygon");'
-        f'        var ax = last.x, ay = last.y;'
-        f'        var p1x = ax - arrLen * Math.cos(angle - 0.4);'
-        f'        var p1y = ay - arrLen * Math.sin(angle - 0.4);'
-        f'        var p2x = ax - arrLen * Math.cos(angle + 0.4);'
-        f'        var p2y = ay - arrLen * Math.sin(angle + 0.4);'
-        f'        arr.setAttribute("points", ax+","+ay+" "+p1x+","+p1y+" "+p2x+","+p2y);'
-        f'        arr.setAttribute("fill", "#f0c040");'
-        f'        arr.setAttribute("opacity", "0.6");'
-        f'        svg.appendChild(arr);'
+        # Draw edges (recursively flatten — edges live on the LCA container)
+        f'    function drawEdges(node, offX, offY) {{'
+        f'      var ax = offX + (node.x || 0);'
+        f'      var ay = offY + (node.y || 0);'
+        f'      (node.edges || []).forEach(function(e) {{'
+        f'        (e.sections || []).forEach(function(sec) {{'
+        f'          var pts = [sec.startPoint].concat(sec.bendPoints || []).concat([sec.endPoint]);'
+        f'          var d = "M " + pts.map(function(p) {{ return (ax + p.x) + "," + (ay + p.y); }}).join(" L ");'
+        f'          var path = document.createElementNS(SVG_NS, "path");'
+        f'          path.setAttribute("d", d);'
+        f'          path.setAttribute("fill", "none");'
+        f'          path.setAttribute("stroke", "#f0c040");'
+        f'          path.setAttribute("stroke-width", "2");'
+        f'          path.setAttribute("opacity", "0.7");'
+        f'          svg.appendChild(path);'
+        f'        }});'
         f'      }});'
-        f'    }});'
+        f'      (node.children || []).forEach(function(ch) {{ drawEdges(ch, ax, ay); }});'
+        f'    }}'
+        f'    drawEdges(g, 0, 0);'
         f'  }}).catch(function(err) {{ console.error("[MAP] ELK layout failed", err); }});'
         f'}})()')
 
     await atlantis.client_script(layout_script)
-    await atlantis.client_log(f"📍 Map centered on: {center_loc.get('description', location)}")

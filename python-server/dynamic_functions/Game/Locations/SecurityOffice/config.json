@@ -1,8 +1,10 @@
 {
   "displayName": "Security Office",
+  "parent": "Atlantis",
   "image": "image.png",
   "connects_to": [
     "Hallway"
   ],
-  "default": false
+  "default": false,
+  "description": "Compact monitoring room — wall of screens, a couple of chairs. Quiet most of the time."
 }

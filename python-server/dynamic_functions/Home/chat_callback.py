@@ -108,10 +108,15 @@ async def _respond_as_bot(*, game_key: str, bot_record: dict, speaker_sid: str, 
     history = read_interaction(game_key, bot_sid, speaker_sid)
     first_name = _character_field(speaker_sid, "displayName") or history.get("first_name", "")
 
+    from dynamic_functions.Home.location import compose_setting, position_get
+    bot_location = position_get(game_key, bot_sid)
+    setting = compose_setting(bot_location) if bot_location else ""
+
     system_prompt = build_system_prompt(
         base_prompt=base_prompt,
         persona=load_persona(bot_sid),
         character_prompt=load_character_prompt(bot_sid, role),
+        setting=setting,
         caller=speaker_sid,
         prior_interaction_count=int(history.get("count") or 0),
         last_interaction_at=history.get("last_interaction_at", ""),

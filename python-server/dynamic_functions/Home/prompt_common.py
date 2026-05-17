@@ -73,13 +73,16 @@ def build_system_prompt(
     base_prompt: str,
     persona: str = "",
     character_prompt: str = "",
+    setting: str = "",
     caller: str = "",
     prior_interaction_count: int = 0,
     last_interaction_at: str = "",
     first_name: str = "",
 ) -> str:
-    """Assemble the final system prompt: persona + role base + character (sid x role) + time + interaction."""
-    parts: List[str] = []
+    """Assemble the final system prompt: director's note + setting + persona + role base + character + time + interaction."""
+    parts: List[str] = ["(director's note: we are striving for realistic dialog)"]
+    if setting:
+        parts.append(setting)
     if persona:
         parts.append(persona)
     parts.append(base_prompt)

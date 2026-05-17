@@ -352,7 +352,7 @@ async def location_list() -> List[Dict[str, str]]:
     """List locations"""
     locations = _location_rows()
     await atlantis.client_data("Locations", locations, column_formatter={
-        "description": {"maxWidth": "80ch"},
+        "description": {"type": "markdown", "maxWidth": "80ch"},
     })
     return locations
 

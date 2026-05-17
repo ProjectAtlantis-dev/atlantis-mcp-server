@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import List, Dict
 
 from dynamic_functions.Home.common import _bots_dir, _ensure_thumb
-from dynamic_functions.Home.prompt_common import load_persona
+from dynamic_functions.Home.prompt_common import load_persona, load_appearance
 
 
 
@@ -57,6 +57,7 @@ def _bot_rows() -> List[Dict[str, str]]:
             'model': model_label,
             'image': image_data,
             'persona': load_persona(sid),
+            'appearance': load_appearance(sid),
             'updated': datetime.fromtimestamp(latest).strftime('%Y-%m-%d %H:%M'),
         })
     return bots
@@ -68,5 +69,6 @@ async def bot_list() -> List[Dict[str, str]]:
     bots = _bot_rows()
     await atlantis.client_data("Bots", bots, column_formatter={
         "persona": {"type": "markdown"},
+        "appearance": {"type": "markdown"},
     })
     return bots

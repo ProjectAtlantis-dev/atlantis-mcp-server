@@ -13,7 +13,7 @@ from dynamic_functions.Home.location import position_get, position_query
 from dynamic_functions.Home.common import _load_bot_config
 from dynamic_functions.Home.character import _load_characters, is_bot_driven
 from dynamic_functions.Home.character import load_character_prompt
-from dynamic_functions.Home.prompt_common import build_system_prompt, load_role_system_prompt, load_persona
+from dynamic_functions.Home.prompt_common import build_system_prompt, load_role_system_prompt, load_persona, load_appearance
 from dynamic_functions.Home.interactions import read_interaction, record_interaction
 from dynamic_functions.Home.turn import run_turn
 
@@ -115,6 +115,7 @@ async def _respond_as_bot(*, game_key: str, bot_record: dict, speaker_sid: str, 
     system_prompt = build_system_prompt(
         base_prompt=base_prompt,
         persona=load_persona(bot_sid),
+        appearance=load_appearance(bot_sid),
         character_prompt=load_character_prompt(bot_sid, role),
         setting=setting,
         caller=speaker_sid,

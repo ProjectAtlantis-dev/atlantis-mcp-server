@@ -6,11 +6,11 @@ import os
 import uuid
 from typing import Dict, Any
 
-from dynamic_functions.Home.location import location_list
-from dynamic_functions.Home.character import character_list
+from dynamic_functions.Home.location import _location_rows
+from dynamic_functions.Home.character import _character_rows
 from dynamic_functions.Home.modal import modal_string
-from dynamic_functions.Home.role import role_list
-from dynamic_functions.Home.bot import bot_list
+from dynamic_functions.Home.role import _role_rows
+from dynamic_functions.Home.bot import _bot_rows
 
 
 
@@ -112,10 +112,10 @@ async def game_show(game_key: str) -> None:
     from dynamic_functions.Home.common import require_game_dir
     require_game_dir(game_key)
 
-    bot_rows = await bot_list()
-    loc_rows = await location_list()
-    role_rows = await role_list()
-    char_rows = character_list(game_key)
+    bot_rows = _bot_rows()
+    loc_rows = _location_rows()
+    role_rows = _role_rows()
+    char_rows = _character_rows(game_key)
 
     # Build an HTML table
     def _esc(s):
@@ -147,8 +147,8 @@ async def game_show(game_key: str) -> None:
         [[l["name"], l["displayName"], ", ".join(l["connects_to"]), l["updated"]] for l in loc_rows]))
     tables.append(_table("ent-role", "ROLE", ["name", "displayName", "defaultLocation", "systemPrompt", "updated"],
         [[r["name"], r["displayName"], r.get("defaultLocation", ""), "system_prompt.md" if r.get("systemPrompt") else "", r["updated"]] for r in role_rows]))
-    tables.append(_table("ent-character", "CHARACTER", ["sid", "role", "displayName", "location"],
-        [[c["sid"], c["role"], c["displayName"], c["location"]] for c in char_rows]))
+    tables.append(_table("ent-character", "CHARACTER", ["sid", "role", "displayName", "prompt", "location"],
+        [[c["sid"], c["role"], c["displayName"], "prompt.md" if c.get("prompt") else "", c["location"]] for c in char_rows]))
 
     # Relationships
     relationships = [

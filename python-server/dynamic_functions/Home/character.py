@@ -5,6 +5,7 @@ file declares that bot <sid> plays role <Role>. There is no per-game character
 registry — the (sid x role) binding is a static asset, not runtime state.
 """
 
+import atlantis
 import logging
 import os
 from typing import Any, Dict, List
@@ -57,7 +58,12 @@ def _load_characters() -> List[Dict[str, Any]]:
                 continue
             if not os.path.isfile(os.path.join(role_dir, "prompt.md")):
                 continue
-            characters.append({"sid": sid, "role": role, "displayName": display_name})
+            characters.append({
+                "sid": sid,
+                "role": role,
+                "displayName": display_name,
+                "prompt": load_character_prompt(sid, role),
+            })
     return characters
 
 
@@ -89,9 +95,8 @@ def is_bot_driven(sid: str) -> bool:
     return not chat_slot_claimed(sid)
 
 
-@visible
-def character_list(game_key: str) -> List[Dict[str, Any]]:
-    """List game characters with their current positions (blank if unplaced)."""
+def _character_rows(game_key: str) -> List[Dict[str, Any]]:
+    """Pure data: characters with current positions. No client side effects."""
     require_game_dir(game_key)
     from dynamic_functions.Home.location import get_positions
     positions = get_positions(game_key)
@@ -99,3 +104,13 @@ def character_list(game_key: str) -> List[Dict[str, Any]]:
         {**ch, "location": positions.get(ch["sid"], "")}
         for ch in _load_characters()
     ]
+
+
+@visible
+async def character_list(game_key: str) -> List[Dict[str, Any]]:
+    """List game characters with their current positions (blank if unplaced)."""
+    characters = _character_rows(game_key)
+    await atlantis.client_data("Characters", characters, column_formatter={
+        "prompt": {"type": "markdown"},
+    })
+    return characters

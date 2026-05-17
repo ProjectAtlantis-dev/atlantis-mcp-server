@@ -13,9 +13,8 @@ from dynamic_functions.Home.prompt_common import load_persona
 
 
 
-@visible
-async def bot_list() -> List[Dict[str, str]]:
-    """List bots"""
+def _bot_rows() -> List[Dict[str, str]]:
+    """Pure data: list bots. No client side effects."""
     bots_dir = _bots_dir()
     bots: List[Dict[str, str]] = []
     if not os.path.isdir(bots_dir):
@@ -60,6 +59,13 @@ async def bot_list() -> List[Dict[str, str]]:
             'persona': load_persona(sid),
             'updated': datetime.fromtimestamp(latest).strftime('%Y-%m-%d %H:%M'),
         })
+    return bots
+
+
+@visible
+async def bot_list() -> List[Dict[str, str]]:
+    """List bots"""
+    bots = _bot_rows()
     await atlantis.client_data("Bots", bots, column_formatter={
         "persona": {"type": "markdown"},
     })

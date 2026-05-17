@@ -245,9 +245,8 @@ async def character_move(game_key: str, location: str = "", sid: str = "") -> st
 # Visible tools
 # =========================================================================
 
-@visible
-async def location_list() -> List[Dict[str, str]]:
-    """List locations"""
+def _location_rows() -> List[Dict[str, str]]:
+    """Pure data: list locations. No client side effects."""
     locations_dir = _locations_dir()
     if not os.path.isdir(locations_dir):
         return []
@@ -283,6 +282,14 @@ async def location_list() -> List[Dict[str, str]]:
             'image': image_data,
             'updated': datetime.fromtimestamp(max(mtimes)).strftime('%Y-%m-%d %H:%M'),
         })
+    return locations
+
+
+@visible
+async def location_list() -> List[Dict[str, str]]:
+    """List locations"""
+    locations = _location_rows()
+    await atlantis.client_data("Locations", locations)
     return locations
 
 

@@ -25,9 +25,8 @@ def _load_role_json(role_name: str) -> dict:
     return {}
 
 
-@visible
-async def role_list() -> List[Dict[str, str]]:
-    """List available roles"""
+def _role_rows() -> List[Dict[str, str]]:
+    """Pure data: list available roles. No client side effects."""
     from dynamic_functions.Home.prompt_common import load_role_system_prompt
     roles_dir = _roles_dir()
     roles: List[Dict[str, str]] = []
@@ -56,6 +55,13 @@ async def role_list() -> List[Dict[str, str]]:
             "systemPrompt": system_prompt,
             "updated": updated,
         })
+    return roles
+
+
+@visible
+async def role_list() -> List[Dict[str, str]]:
+    """List available roles"""
+    roles = _role_rows()
     await atlantis.client_data("Roles", roles, column_formatter={
         "systemPrompt": {"type": "markdown"},
     })

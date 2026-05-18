@@ -89,6 +89,46 @@ def _character_field(sid: str, field: str) -> str:
     )
 
 
+async def greet_entrant(game_key: str, entrant_sid: str, location: str):
+    """Fire an in-character greeting from a bot already at `location` toward a newcomer.
+
+    Bot recognition (stranger vs. familiar) falls out of the existing per-bot
+    interaction memory injected via build_interaction_context — no special prompt
+    needed. Mirrors _handle_chat's "first bot heard responds" pattern.
+    """
+    if not atlantis.get_session_key():
+        logger.warning("greet_entrant called without session context, skipping")
+        return
+    if atlantis.session_shared.get(_BUSY_KEY):
+        logger.debug("greet_entrant: chat busy, skipping")
+        return
+
+    occupants = position_query(game_key, location)
+    bots_here = [
+        ch for ch in occupants
+        if ch["sid"] != entrant_sid and is_bot_driven(ch["sid"])
+    ]
+    if not bots_here:
+        return
+
+    greeter = bots_here[0]
+    request_id = atlantis.get_request_id() or f"greet:{entrant_sid}->{greeter['sid']}"
+    atlantis.session_shared.set(_BUSY_KEY, request_id)
+    try:
+        _, transcript = await fetch_transcript(game_key)
+        await atlantis.client_log(
+            f"\U0001f44b {greeter.get('displayName', greeter['sid'])} greets the arrival"
+        )
+        await _respond_as_bot(
+            game_key=game_key,
+            bot_record=greeter,
+            speaker_sid=entrant_sid,
+            transcript=transcript,
+        )
+    finally:
+        atlantis.session_shared.remove(_BUSY_KEY)
+
+
 async def _respond_as_bot(*, game_key: str, bot_record: dict, speaker_sid: str, transcript: list):
     bot_sid = bot_record["sid"]
     bot_display = bot_record.get("displayName", bot_sid)

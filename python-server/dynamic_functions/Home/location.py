@@ -235,6 +235,8 @@ async def character_move(game_key: str, location: str = "", sid: str = "") -> st
         logger.info(f"[game] New player {sid} entered {entry_location}")
         if atlantis.get_caller() == sid:
             await _set_location_background(location, dest)
+        from dynamic_functions.Home.chat_callback import greet_entrant
+        await greet_entrant(game_key, sid, location)
         return location
 
 
@@ -272,6 +274,8 @@ async def character_move(game_key: str, location: str = "", sid: str = "") -> st
     logger.info(f"[game] {sid} moved from {current} to {location}")
     if atlantis.get_caller() == sid:
         await _set_location_background(location, dest)
+    from dynamic_functions.Home.chat_callback import greet_entrant
+    await greet_entrant(game_key, sid, location)
     return location
 
 

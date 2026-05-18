@@ -39,7 +39,6 @@ async def game_new() -> Dict[str, Any]:
     data_dir = create_game_dir(game_key)
     join_password = uuid.uuid4().hex
     _write_json(os.path.join(data_dir, 'game.json'), {
-        'key': game_key,
         'join_password': join_password,
         'owner': atlantis.get_caller() or '',
         'user_game_id': atlantis.get_user_game_id(),
@@ -94,9 +93,16 @@ async def game_list() -> list:
 @visible
 async def game_status(game_key: str) -> dict:
     """Show current game status"""
-    from dynamic_functions.Home.common import require_game_dir
-    require_game_dir(game_key)
-    return {"game_key": game_key}
+    from datetime import datetime
+    from dynamic_functions.Home.common import require_game_dir, _read_json
+    path = require_game_dir(game_key)
+    meta = _read_json(os.path.join(path, 'game.json')) or {}
+    return {
+        "game_key": game_key,
+        "user_game_id": meta.get("user_game_id"),
+        "owner": meta.get("owner", ""),
+        "created": datetime.fromtimestamp(os.path.getctime(path)).isoformat(timespec="seconds"),
+    }
 
 
 @button("Join Game")

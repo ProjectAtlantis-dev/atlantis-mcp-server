@@ -34,7 +34,7 @@ def require_game_dir(game_key: str) -> str:
     """Get an existing game data directory"""
     path = game_dir(game_key)
     if not os.path.isdir(path):
-        raise RuntimeError(f"Unknown game '{game_key}'. Create a game first with game_new().")
+        raise RuntimeError(f"Invalid game '{game_key}'")
     return path
 
 

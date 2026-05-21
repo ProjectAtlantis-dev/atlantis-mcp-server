@@ -1,0 +1,8 @@
+{
+  "displayName": "Hotel Receptionist",
+  "purpose": "Greets and checks in arrivals at the front desk.",
+  "defaultLocation": "Lobby",
+  "defaultPersona": "kitty",
+  "openToHumans": true,
+  "systemPrompt": "system_prompt.md"
+}

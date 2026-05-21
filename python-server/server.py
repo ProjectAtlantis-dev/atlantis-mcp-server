@@ -2987,6 +2987,7 @@ async def index():
                             error_message_for_owner = f"Error in tool '{name}': {str(e)}"
                             # Construct a unique reference for this error instance if possible
                             error_ref = request_id if request_id else str(uuid.uuid4())[:8]
+                            atlantis.set_context(ctx.model_copy(update={"entry_point_name": actual_function_name}))
                             await atlantis.owner_log(error_message_for_owner)
                             logger.debug(f"Logged error for tool '{name}' to owner '{owner_to_log}'.")
                         else:
@@ -3087,10 +3088,11 @@ async def index():
                         raise RuntimeError("Cloud client missing for local lobster tool call")
                     lobster_shell = self.cloud_client.lobster_shell_path
                     lobster_game_key = self.cloud_client.lobster_game_key
-                    lobster_ctx = ctx.model_copy(update={
-                        "caller_sid": atlantis._owner,
-                        "user_game_id": lobster_game_key or ctx.user_game_id,
-                        "caller_shell_path": lobster_shell or ctx.caller_shell_path,
+                    lobster_ctx = ctx.with_payload_updates(
+                        caller_sid=atlantis._owner,
+                        user_game_id=lobster_game_key or ctx.user_game_id,
+                        caller_shell_path=lobster_shell or ctx.caller_shell_path,
+                    ).model_copy(update={
                         "client_log_func": lambda message, level="INFO", message_type="text": None,
                         "entry_point_name": f"lobster_{tool_name}",
                     })

@@ -1,9 +1,11 @@
 """Per-session state, keyed by atlantis.get_session_key() = f"{user_game_id}:{caller_sid}".
 
-Two independent bindings per session:
+One binding per session:
   - chat_slot:   sid → whose mouth my typed text comes out of
-  - camera:      {location, follow_sid} → what this terminal is looking at;
-                 if follow_sid is set, location auto-resolves to that character's position.
+
+Viewing location ("where am I looking right now") is a per-terminal thing,
+not per-session — see `terminal.py`. One session can have several shells open
+and each is its own terminal placed at its own location.
 
 In-process only — dies on restart, which matches session lifetime.
 """
@@ -22,6 +24,17 @@ def _slot() -> Dict[str, Any]:
     return _state.setdefault(sk, {})
 
 
+def require_session() -> Dict[str, Any]:
+    """Return the current session slot or raise if none exists."""
+    sk = atlantis.get_session_key()
+    if not sk:
+        raise RuntimeError("No session.")
+    s = _state.get(sk)
+    if s is None:
+        raise RuntimeError(f"Session not set: {sk}")
+    return s
+
+
 # --- chat_slot ---------------------------------------------------------
 
 def set_chat_slot(sid: str) -> None:
@@ -33,27 +46,48 @@ def chat_slot_claimed(sid: str) -> bool:
     return any(s.get("chat_slot") == sid for s in _state.values())
 
 
-# --- camera ------------------------------------------------------------
+# --- room resolution ---------------------------------------------------
 
-def set_camera_location(location: str) -> None:
-    """Park this terminal's camera at a specific location. Clears any follow."""
-    s = _slot()
-    s["camera_location"] = location
-    s.pop("camera_follow", None)
-
-
-def set_camera_follow(sid: str) -> None:
-    """Make this terminal's camera follow a character's position."""
-    s = _slot()
-    s["camera_follow"] = sid
-    s.pop("camera_location", None)
+def get_session_room(game_key: str) -> str:
+    """Resolve this session's chat room from its chat_slot's position. Raises if unset."""
+    s = require_session()
+    chat_slot = s.get("chat_slot")
+    if not chat_slot:
+        raise RuntimeError("Session has no chat_slot.")
+    from dynamic_functions.Home.location import position_get
+    loc = position_get(game_key, chat_slot)
+    if not loc:
+        raise RuntimeError(f"chat_slot '{chat_slot}' has no position.")
+    return loc
 
 
 # --- introspection -----------------------------------------------------
 
 @visible
+async def session_show() -> Dict[str, Any]:
+    """Show the current session's identity — user_game_id, caller sid,
+    caller shell path, and the slot the user is currently typing as."""
+    sk = atlantis.get_session_key()
+    info: Dict[str, Any] = {
+        "session_key": sk or "",
+        "user_game_id": atlantis.get_user_game_id(),
+        "caller_sid": atlantis.get_caller() or "",
+        "caller_shell_path": atlantis.get_caller_shell_path() or "",
+        "exec_shell_path": atlantis.get_exec_shell_path() or "",
+        "request_id": atlantis.get_request_id() or "",
+        "chat_slot": "",
+    }
+    if sk and sk in _state:
+        info["chat_slot"] = _state[sk].get("chat_slot", "") or ""
+    from dynamic_functions.Home.terminal import get_terminal_location
+    info["terminal_location"] = get_terminal_location() or ""
+    await atlantis.client_data("Session", [info])
+    return info
+
+
+@visible
 def session_list(game_key: str = "") -> List[Dict[str, Any]]:
-    """List live sessions and their chat_slot / camera state. Pass game_key to scope to one game."""
+    """List live sessions and their chat_slot. Pass game_key to scope to one game."""
     rows: List[Dict[str, Any]] = []
 
     target_uid: Optional[int] = None
@@ -75,19 +109,10 @@ def session_list(game_key: str = "") -> List[Dict[str, Any]]:
         if target_uid is not None and str(target_uid) != user_game_id:
             continue
 
-        follow_sid = s.get("camera_follow")
-        followed_at = None
-        if follow_sid and game_key:
-            from dynamic_functions.Home.location import position_get
-            followed_at = position_get(game_key, follow_sid)
-
         rows.append({
             "session_key": sk,
             "user_game_id": user_game_id,
             "caller_sid": caller_sid,
             "chat_slot": s.get("chat_slot"),
-            "camera_location": s.get("camera_location"),
-            "camera_follow": follow_sid,
-            "camera_resolved": s.get("camera_location") or followed_at,
         })
     return rows

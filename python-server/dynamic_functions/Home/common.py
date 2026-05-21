@@ -63,32 +63,32 @@ def _write_json(path: str, data) -> None:
     os.replace(tmp, path)
 
 
-def _bots_dir() -> str:
-    return home_path("Game", "Bots")
+def _personas_dir() -> str:
+    return home_path("Game", "Personas")
 
 
-def _load_bot_config(bot_sid: str) -> Optional[Tuple[Dict[str, Any], str]]:
-    """Load a bot config — folder name is the sid"""
-    bot_dir = os.path.join(_bots_dir(), bot_sid)
-    config_path = os.path.join(bot_dir, "config.json")
+def _load_persona_config(persona_sid: str) -> Optional[Tuple[Dict[str, Any], str]]:
+    """Load a persona config — folder name is the sid"""
+    persona_dir = os.path.join(_personas_dir(), persona_sid)
+    config_path = os.path.join(persona_dir, "config.json")
     if not os.path.isfile(config_path):
         return None
     with open(config_path) as f:
         cfg = json.load(f)
-    cfg["_botDir"] = bot_dir
-    return cfg, bot_sid
+    cfg["_personaDir"] = persona_dir
+    return cfg, persona_sid
 
 
-def _available_bot_sids() -> List[str]:
-    """List known bot sids (folder names)"""
-    bots_dir = _bots_dir()
-    if not os.path.isdir(bots_dir):
+def _available_persona_sids() -> List[str]:
+    """List known persona sids (folder names)"""
+    personas_dir = _personas_dir()
+    if not os.path.isdir(personas_dir):
         return []
     sids = []
-    for entry in os.listdir(bots_dir):
+    for entry in os.listdir(personas_dir):
         if entry.startswith(".") or entry == "__pycache__":
             continue
-        if os.path.isfile(os.path.join(bots_dir, entry, "config.json")):
+        if os.path.isfile(os.path.join(personas_dir, entry, "config.json")):
             sids.append(entry)
     return sorted(sids)
 

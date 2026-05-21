@@ -1,4 +1,4 @@
-"""Shared system-prompt builder for game roles."""
+"""Shared system-prompt builder for game slots."""
 
 import os
 from datetime import datetime
@@ -7,25 +7,26 @@ from typing import List
 from dynamic_functions.Home.common import home_path
 
 
-def load_role_system_prompt(role: str) -> str:
-    """Read the role's system_prompt.md and return its text."""
-    path = os.path.join(home_path("Game", "Roles", role), "system_prompt.md")
+def load_slot_system_prompt(slot: str) -> str:
+    """Read the slot's system_prompt.md and return its text."""
+    path = os.path.join(home_path("Game", "Slots", slot), "system_prompt.md")
     with open(path, "r", encoding="utf-8") as f:
         return f.read().strip()
 
 
-def load_persona(bot_sid: str) -> str:
-    """Read this bot's persona.md. Empty string if not provided."""
-    path = os.path.join(home_path("Game", "Bots", bot_sid), "persona.md")
+
+def load_persona(persona_sid: str) -> str:
+    """Read this persona's persona.md. Empty string if not provided."""
+    path = os.path.join(home_path("Game", "Personas", persona_sid), "persona.md")
     if not os.path.isfile(path):
         return ""
     with open(path, "r", encoding="utf-8") as f:
         return f.read().strip()
 
 
-def load_appearance(bot_sid: str) -> str:
-    """Read this bot's appearance.md. Empty string if not provided."""
-    path = os.path.join(home_path("Game", "Bots", bot_sid), "appearance.md")
+def load_appearance(persona_sid: str) -> str:
+    """Read this persona's appearance.md. Empty string if not provided."""
+    path = os.path.join(home_path("Game", "Personas", persona_sid), "appearance.md")
     if not os.path.isfile(path):
         return ""
     with open(path, "r", encoding="utf-8") as f:

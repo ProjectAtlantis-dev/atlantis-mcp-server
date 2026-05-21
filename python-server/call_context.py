@@ -1,5 +1,18 @@
 from typing import Any, Callable, Optional
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class ToolCallPayload(BaseModel):
+    """Typed JSON-RPC tools/call params payload carried by CallContext."""
+    model_config = ConfigDict(frozen=True, extra="allow", coerce_numbers_to_str=True)
+
+    name: Optional[str] = None
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    caller_sid: Optional[str] = None
+    user: Optional[str] = None
+    user_game_id: Optional[int] = None
+    exec_shell_path: Optional[str] = None
+    caller_shell_path: Optional[str] = None
 
 
 class CallContext(BaseModel):
@@ -9,30 +22,44 @@ class CallContext(BaseModel):
     then passed by reference through the execution chain. New fields
     land here — not on intermediate function signatures.
 
-    The cloud currently sends params.user as the caller sid. Convert that
-    wire-format name to caller_sid at this boundary; ownership is separate.
+    The wire payload is kept intact on payload. Compatibility accessors expose
+    the context fields callers use without copying them into parallel state.
     """
     model_config = ConfigDict(frozen=True, extra="ignore", coerce_numbers_to_str=True)
 
     client_id: Optional[str] = None
     request_id: Optional[str] = None
-    caller_sid: Optional[str] = None
-    user_game_id: Optional[int] = None
+    payload: ToolCallPayload
     # exec_shell_path: shell where this tool call's work runs. Outbound
     # client_command callbacks must be tagged with THIS so they nest under
     # the tool call in the cloud's command tree.
     # caller_shell_path: user's root shell - who triggered the call.
     # Attribution / session routing only; never use for placing work.
     # These are distinct on purpose - don't swap them.
-    exec_shell_path: Optional[str] = None
-    caller_shell_path: Optional[str] = None
     client_log_func: Optional[Callable[..., Any]] = None
     entry_point_name: Optional[str] = None
+
+    @property
+    def caller_sid(self) -> Optional[str]:
+        """Caller sid. Cloud legacy wire format may send this as params.user."""
+        return self.payload.caller_sid or self.payload.user
 
     @property
     def user(self) -> Optional[str]:
         """Backward-compatible alias for caller_sid."""
         return self.caller_sid
+
+    @property
+    def user_game_id(self) -> Optional[int]:
+        return self.payload.user_game_id
+
+    @property
+    def exec_shell_path(self) -> Optional[str]:
+        return self.payload.exec_shell_path
+
+    @property
+    def caller_shell_path(self) -> Optional[str]:
+        return self.payload.caller_shell_path
 
     @property
     def session_key(self) -> str:
@@ -71,6 +98,11 @@ class CallContext(BaseModel):
             raise ValueError(f"Cannot derive session_key: missing {missing}")
         return f"{user_game_id}:{caller_sid}"
 
+    def with_payload_updates(self, **updates: Any) -> "CallContext":
+        """Return a copy with selected wire payload keys overridden."""
+        payload = ToolCallPayload.model_validate({**self.payload.model_dump(exclude_unset=True), **updates})
+        return self.model_copy(update={"payload": payload})
+
     @classmethod
     def from_params(
         cls,
@@ -81,8 +113,5 @@ class CallContext(BaseModel):
         return cls(
             client_id=client_id,
             request_id=request_id,
-            caller_sid=params.get("caller_sid") or params.get("user"),
-            user_game_id=params.get("user_game_id"),
-            exec_shell_path=params.get("exec_shell_path"),
-            caller_shell_path=params.get("caller_shell_path"),
+            payload=ToolCallPayload.model_validate(params),
         )

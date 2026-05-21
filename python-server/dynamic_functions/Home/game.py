@@ -7,10 +7,10 @@ import uuid
 from typing import Dict, Any
 
 from dynamic_functions.Home.location import _location_rows
-from dynamic_functions.Home.character import _character_rows
+from dynamic_functions.Home.casting import _character_rows
 from dynamic_functions.Home.modal import modal_string
-from dynamic_functions.Home.role import _role_rows
-from dynamic_functions.Home.bot import _bot_rows
+from dynamic_functions.Home.slot import _slot_rows
+from dynamic_functions.Home.persona import _persona_rows
 
 
 
@@ -91,8 +91,8 @@ async def game_list() -> list:
 
 
 @visible
-async def game_status(game_key: str) -> dict:
-    """Show current game status"""
+async def game_show(game_key: str) -> dict:
+    """Show this game's metadata — owner, user_game_id, created timestamp."""
     from datetime import datetime
     from dynamic_functions.Home.common import require_game_dir, _read_json
     path = require_game_dir(game_key)
@@ -113,14 +113,14 @@ async def game_join(game_key: str) -> None:
 
 
 @visible
-async def game_show(game_key: str) -> None:
-    """Show the game state diagram"""
+async def game_overview(game_key: str) -> None:
+    """Show the game state diagram — personas, slots, locations, and current casting."""
     from dynamic_functions.Home.common import require_game_dir
     require_game_dir(game_key)
 
-    bot_rows = _bot_rows()
+    bot_rows = _persona_rows()
     loc_rows = _location_rows()
-    role_rows = _role_rows()
+    role_rows = _slot_rows()
     char_rows = _character_rows(game_key)
 
     # Build an HTML table
@@ -147,22 +147,23 @@ async def game_show(game_key: str) -> None:
 
     tables = []
     tables.append(_table("ent-game", "GAME", ["key"], [[game_key]]))
-    tables.append(_table("ent-bot", "BOT", ["sid", "displayName", "model", "updated"],
+    tables.append(_table("ent-bot", "PERSONA", ["sid", "displayName", "model", "updated"],
         [[b["sid"], b["displayName"], b["model"], b["updated"]] for b in bot_rows]))
     tables.append(_table("ent-location", "LOCATION", ["name", "displayName", "parent", "connects_to", "description", "updated"],
         [[l["name"], l["displayName"], l.get("parent", ""), l["connects_to"], (l.get("description", "")[:60] + "…") if len(l.get("description", "")) > 60 else l.get("description", ""), l["updated"]] for l in loc_rows]))
-    tables.append(_table("ent-role", "ROLE", ["name", "displayName", "defaultLocation", "systemPrompt", "updated"],
+    tables.append(_table("ent-role", "SLOT", ["name", "displayName", "defaultLocation", "systemPrompt", "updated"],
         [[r["name"], r["displayName"], r.get("defaultLocation", ""), "system_prompt.md" if r.get("systemPrompt") else "", r["updated"]] for r in role_rows]))
-    tables.append(_table("ent-character", "CHARACTER", ["sid", "role", "displayName", "prompt", "location"],
-        [[c["sid"], c["role"], c["displayName"], "prompt.md" if c.get("prompt") else "", c["location"]] for c in char_rows]))
+    tables.append(_table("ent-character", "CASTING", ["slot", "occupant", "displayName", "casting", "location"],
+        [[c["role"], c["sid"], c["displayName"], "casting.md" if c.get("prompt") else "", c["location"]] for c in char_rows]))
 
     # Relationships
     relationships = [
         (f"ent-location-{uid}", f"ent-location-{uid}", "connects to"),
         (f"ent-location-{uid}", f"ent-location-{uid}", "parent"),
         (f"ent-location-{uid}", f"ent-role-{uid}", "defaultLocation"),
-        (f"ent-bot-{uid}", f"ent-character-{uid}", "Characters/<sid>/<Role>/prompt.md"),
-        (f"ent-role-{uid}", f"ent-character-{uid}", "Characters/<sid>/<Role>/prompt.md"),
+        (f"ent-bot-{uid}", f"ent-role-{uid}", "defaultPersona"),
+        (f"ent-bot-{uid}", f"ent-character-{uid}", "Slots/<slot>/casting/<persona>.md"),
+        (f"ent-role-{uid}", f"ent-character-{uid}", "casting.json (per-game override)"),
         (f"ent-game-{uid}", f"ent-character-{uid}", "position"),
         (f"ent-location-{uid}", f"ent-character-{uid}", "location"),
     ]

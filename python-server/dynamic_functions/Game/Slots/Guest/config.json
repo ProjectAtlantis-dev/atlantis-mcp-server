@@ -1,0 +1,8 @@
+{
+  "displayName": "Hotel Guest",
+  "purpose": "A guest checking in at the hotel.",
+  "defaultLocation": "Lobby",
+  "defaultPersona": "chad",
+  "openToHumans": true,
+  "systemPrompt": "system_prompt.md"
+}

@@ -2,7 +2,7 @@ import contextvars
 import inspect # Ensure inspect is imported
 import asyncio # Added for Lock
 from typing import Callable, Optional, Any, List # Added List
-from call_context import CallContext
+from call_context import CallContext, ToolCallPayload
 from utils import client_log as util_client_log # For client_log, client_image, client_html
 from utils import execute_client_command_awaitable, execute_stream_awaitable, format_json_log # For client_command and streaming
 import uuid
@@ -17,27 +17,14 @@ from datetime import datetime, timezone
 logger = logging.getLogger("mcp_server")
 
 # --- Context Variables ---
-# client_log_func: Holds the partially bound client_log function for the current request
-_client_log_var: contextvars.ContextVar[Optional[Callable]] = contextvars.ContextVar("_client_log_var", default=None)
-# request_id: The unique ID of the current MCP request
-_request_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_request_id_var", default=None)
-# client_id: The ID of the client that initiated the current request
-_client_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_client_id_var", default=None)
-
-# entry_point_name: The name of the top-level dynamic function called by the request
-_entry_point_name_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_entry_point_name_var", default=None)
-
-_caller_sid_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_caller_sid_var", default=None)
-_session_key_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_session_key_var", default=None)
-_exec_shell_path_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_exec_shell_path_var", default=None)
-_user_game_id_var: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar("_user_game_id_var", default=None)
+_current_context: contextvars.ContextVar[Optional[CallContext]] = contextvars.ContextVar("current_call_context", default=None)
 
 # Owner of the remote server instance
 _owner: Optional[str] = ""
 _owner_usernames: List[str] = []  # List of owner usernames for permission checks
 
 # Simple task collection for logging tasks
-_log_tasks_var: contextvars.ContextVar[Optional[List[asyncio.Task]]] = contextvars.ContextVar("_log_tasks_var", default=None)
+_current_log_tasks: contextvars.ContextVar[Optional[List[asyncio.Task]]] = contextvars.ContextVar("current_log_tasks", default=None)
 
 # Per-stream sequence numbers - each stream_id gets its own counter
 _stream_seq_counters: dict = {}
@@ -98,7 +85,7 @@ class _SessionSharedContainer:
         self._backing = backing
 
     def _scoped_key(self, key):
-        session_key = _session_key_var.get()
+        session_key = get_session_key()
         if not session_key:
             raise RuntimeError("session_shared requires a session context (no session_key set)")
         return f"__session:{session_key}:{key}"
@@ -125,6 +112,10 @@ server_shared = _SharedContainer()
 session_shared = _SessionSharedContainer(server_shared)
 
 # --- Helper Functions ---
+
+def get_context() -> Optional[CallContext]:
+    """Return the current CallContext, if one is active."""
+    return _current_context.get()
 
 def _trim_message_for_debug(message: Any, max_len: int = 200) -> str:
     """Trim a message for debug output to avoid console spam from long content like base64."""
@@ -166,12 +157,12 @@ async def get_and_increment_seq_num(context_name: str = "operation") -> int:
     # client-side locking of sequence number generation. While concurrent tasks within
     # the same request context share the same counter, server-side ordering
     # guarantees prevent race conditions that could cause duplicate sequence numbers.
-    request_id = _request_id_var.get()
+    request_id = get_request_id()
     if request_id is None:
         logger.error(f"{context_name} - request_id is None. Cannot get sequence number.")
         return -1
 
-    exec_shell_path = _exec_shell_path_var.get()
+    exec_shell_path = get_exec_shell_path()
     # Use composite key of (request_id, exec_shell_path) for per-shell sequencing
     counter_key = (request_id, exec_shell_path)
 
@@ -205,10 +196,11 @@ async def client_log(message: Any, level: str = "INFO", message_type: str = "tex
 
     Calls the underlying log function directly; async dispatch is handled internally.
     """
-    log_func = _client_log_var.get()
+    ctx = get_context()
+    log_func = ctx.client_log_func if ctx else None
     if log_func:
         caller_name = "unknown_caller" # Default for immediate caller
-        entry_point_name = _entry_point_name_var.get() or "unknown_entry_point" # Get entry point from context
+        entry_point_name = get_entry_point_name() or "unknown_entry_point" # Get entry point from context
 
         try:
             # --- Get immediate caller function name ---
@@ -225,8 +217,8 @@ async def client_log(message: Any, level: str = "INFO", message_type: str = "tex
             # If current_seq_to_send is -1, the helper function already logged the error
 
             # Get context values with null checks
-            client_id = _client_id_var.get()
-            request_id = _request_id_var.get()
+            client_id = get_client_id()
+            request_id = get_request_id()
 
             if client_id is None or request_id is None:
                 logger.warning(f"Missing context data - client_id: {client_id}, request_id: {request_id}")
@@ -248,11 +240,11 @@ async def client_log(message: Any, level: str = "INFO", message_type: str = "tex
 
             # Track the task if we have one
             if task is not None:
-                tasks = _log_tasks_var.get()
+                tasks = _current_log_tasks.get()
                 if tasks is None:
                     # Initialize task list if not already done
                     tasks = []
-                    _log_tasks_var.set(tasks)
+                    _current_log_tasks.set(tasks)
                 tasks.append(task)
 
             return None # Return None in either case
@@ -284,12 +276,24 @@ async def tool_result(name: str, result: Any):
 # this is established by the tool caller
 def get_request_id() -> Optional[str]:
     """Returns the request_id"""
-    return _request_id_var.get()
+    ctx = get_context()
+    return ctx.request_id if ctx else None
+
+def get_client_id() -> Optional[str]:
+    """Returns the client_id"""
+    ctx = get_context()
+    return ctx.client_id if ctx else None
+
+def get_entry_point_name() -> Optional[str]:
+    """Returns the entry point function for the current call."""
+    ctx = get_context()
+    return ctx.entry_point_name if ctx else None
 
 # locally-derived stable session identifier — see CallContext.session_key
 def get_session_key() -> Optional[str]:
     """Returns the session_key for this function call (None if any component missing)."""
-    return _session_key_var.get()
+    ctx = get_context()
+    return ctx.get_session_key() if ctx else None
 
 def get_session_id() -> Optional[str]:
     """Backward-compatible alias for get_session_key."""
@@ -297,22 +301,35 @@ def get_session_id() -> Optional[str]:
 
 def get_caller() -> Optional[str]:
     """Returns the caller sid who called this function."""
-    return _caller_sid_var.get()
+    ctx = get_context()
+    return ctx.caller_sid if ctx else None
 
 def get_exec_shell_path() -> Optional[str]:
     """Returns the exec shell path - the shell where this call's work runs.
     Outbound client_command callbacks are tagged with this. NOT the user's
     root shell (that's ctx.caller_shell_path, used only for attribution)."""
-    return _exec_shell_path_var.get()
+    ctx = get_context()
+    if not ctx:
+        return None
+    return ctx.exec_shell_path or ctx.caller_shell_path
+
+def get_caller_shell_path() -> Optional[str]:
+    ctx = get_context()
+    return ctx.caller_shell_path if ctx else None
 
 def get_user_game_id() -> Optional[int]:
     """Returns the user_game_id for this function call."""
-    return _user_game_id_var.get()
+    ctx = get_context()
+    return ctx.user_game_id if ctx else None
 
 def set_exec_shell_path(path: Optional[str]) -> None:
     """Set the exec shell path contextvar directly (e.g. for lobster socket tasks,
     where the lobster's single shell IS the exec shell)."""
-    _exec_shell_path_var.set(path)
+    ctx = get_context()
+    if ctx:
+        _current_context.set(ctx.with_payload_updates(exec_shell_path=path))
+    else:
+        _current_context.set(CallContext(payload=ToolCallPayload(exec_shell_path=path)))
 
 def get_owner_usernames() -> List[str]:
     """Returns the list of owner usernames for permission checks"""
@@ -336,30 +353,13 @@ def _set_owner_usernames(usernames: List[str]):
 
 
 def set_context(ctx: CallContext) -> None:
-    """Sets all context variables from a CallContext."""
-    _client_log_var.set(ctx.client_log_func)
-    _request_id_var.set(ctx.request_id)
-    _client_id_var.set(ctx.client_id)
-    _entry_point_name_var.set(ctx.entry_point_name)
-    _caller_sid_var.set(ctx.caller_sid)
-    _session_key_var.set(ctx.get_session_key())
-    # Seed exec_shell_path so client_command callbacks tag outbound work with
-    # the shell where this call is running. Fall back to caller_shell_path only
-    # if exec wasn't provided (legacy / lobster path).
-    _exec_shell_path_var.set(ctx.exec_shell_path or ctx.caller_shell_path)
-    _user_game_id_var.set(ctx.user_game_id)
+    """Sets the current CallContext."""
+    _current_context.set(ctx)
 
 
 def reset_context() -> None:
-    """Clears all context variables set by set_context."""
-    _client_log_var.set(None)
-    _request_id_var.set(None)
-    _client_id_var.set(None)
-    _entry_point_name_var.set(None)
-    _caller_sid_var.set(None)
-    _session_key_var.set(None)
-    _exec_shell_path_var.set(None)
-    _user_game_id_var.set(None)
+    """Clears the current CallContext."""
+    _current_context.set(None)
 
 
 # --- Utility Functions ---
@@ -500,9 +500,9 @@ async def stream_start(sid: str, who: str) -> str:
 
     """
     stream_id_to_send = str(uuid.uuid4())
-    actual_client_id = _client_id_var.get() # Get the actual client ID from context
-    request_id = _request_id_var.get()
-    entry_point_name = _entry_point_name_var.get() or "unknown_entry_point"
+    actual_client_id = get_client_id()
+    request_id = get_request_id()
+    entry_point_name = get_entry_point_name() or "unknown_entry_point"
 
     # Check for required context data
     if actual_client_id is None or request_id is None:
@@ -560,9 +560,9 @@ async def stream_start(sid: str, who: str) -> str:
 async def stream(message: str, stream_id_param: str):
     """Sends a stream message snippet back to the client using a provided stream_id.
     """
-    actual_client_id = _client_id_var.get() # Get the actual client ID from context
-    request_id = _request_id_var.get()
-    entry_point_name = _entry_point_name_var.get() or "unknown_entry_point"
+    actual_client_id = get_client_id()
+    request_id = get_request_id()
+    entry_point_name = get_entry_point_name() or "unknown_entry_point"
 
     # Check for required context data
     if actual_client_id is None or request_id is None:
@@ -618,9 +618,9 @@ async def stream(message: str, stream_id_param: str):
 async def stream_end(stream_id_param: str):
     """Sends a stream_end message to the client, indicating the end of a stream, using a provided stream_id.
     """
-    actual_client_id = _client_id_var.get() # Get the actual client ID from context
-    request_id = _request_id_var.get()
-    entry_point_name = _entry_point_name_var.get() or "unknown_entry_point"
+    actual_client_id = get_client_id()
+    request_id = get_request_id()
+    entry_point_name = get_entry_point_name() or "unknown_entry_point"
 
     # Check for required context data
     if actual_client_id is None or request_id is None:
@@ -701,12 +701,12 @@ async def _client_command(
         McpError: Propagated from underlying calls if timeouts or client-side errors occur.
     """
     # Get necessary context for routing and correlation
-    client_id = _client_id_var.get()
-    request_id = _request_id_var.get()
-    entry_point_name = _entry_point_name_var.get() # Now needed for logging with seq_num
-    caller_sid = _caller_sid_var.get()  # Who's calling
-    session_key = _session_key_var.get()  # Locally-derived stable session identifier
-    exec_shell_path = _exec_shell_path_var.get()  # Shell where this call's work runs - what outbound callbacks tag with
+    client_id = get_client_id()
+    request_id = get_request_id()
+    entry_point_name = get_entry_point_name()
+    caller_sid = get_caller()
+    session_key = get_session_key()
+    exec_shell_path = get_exec_shell_path()
 
     logger.info(f"📡 client_command '{command}' (entry={entry_point_name}, caller_sid={caller_sid})")
     if isinstance(data, (dict, list)):
@@ -924,7 +924,7 @@ async def gather_logs():
         await atlantis.gather_logs()
         ```
     """
-    tasks = _log_tasks_var.get()
+    tasks = _current_log_tasks.get()
     if not tasks:
         return False
 
@@ -948,7 +948,7 @@ async def owner_log(message: str):
     Args:
         message: The string message to log.
     """
-    invoking_tool_name = _entry_point_name_var.get() or "unknown_tool"
+    invoking_tool_name = get_entry_point_name() or "unknown_tool"
     username = get_caller() or "unknown_user"
 
     # The log directory is relative to the server's execution path.
@@ -1086,8 +1086,13 @@ async def invoke_click_callback_with_context(key: str, bound_client_log) -> Any:
         return None
 
     logger.info(f"DEBUG: Found callback for key '{key}', executing with context...")
-    log_token = _client_log_var.set(bound_client_log)
-    entry_token = _entry_point_name_var.set("click_callback")
+    current_ctx = get_context()
+    context_token = None
+    if current_ctx:
+        context_token = _current_context.set(current_ctx.model_copy(update={
+            "client_log_func": bound_client_log,
+            "entry_point_name": "click_callback",
+        }))
     try:
         if inspect.iscoroutinefunction(callback):
             result = await callback()
@@ -1099,5 +1104,5 @@ async def invoke_click_callback_with_context(key: str, bound_client_log) -> Any:
             logger.info(f"DEBUG: Callback executed with context, result: {result}")
         return result
     finally:
-        _client_log_var.reset(log_token)
-        _entry_point_name_var.reset(entry_token)
+        if context_token is not None:
+            _current_context.reset(context_token)

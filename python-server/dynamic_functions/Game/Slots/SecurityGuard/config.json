@@ -1,0 +1,8 @@
+{
+  "displayName": "Security Guard",
+  "purpose": "Watches the cameras and patrols the facility.",
+  "defaultLocation": "SecurityOffice",
+  "defaultPersona": "sven",
+  "openToHumans": true,
+  "systemPrompt": "system_prompt.md"
+}

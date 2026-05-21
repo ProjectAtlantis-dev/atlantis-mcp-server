@@ -8,7 +8,7 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from dynamic_functions.Home.character import (
+from dynamic_functions.Home.casting import (
     _find_character, _load_characters,
 )
 from dynamic_functions.Home.common import _ensure_thumb, home_path, require_game_dir
@@ -96,12 +96,12 @@ def _default_location() -> str:
 
 def _entry_location(game_key: str, sid: str) -> str:
     """Get the first location for a character based on the character's role."""
-    from dynamic_functions.Home.role import role_default_location
+    from dynamic_functions.Home.slot import slot_default_location
 
-    character = _find_character(sid)
+    character = _find_character(sid, game_key)
     role = character.get("role", "")
     if role:
-        role_location = role_default_location(role)
+        role_location = slot_default_location(role)
         if role_location:
             return role_location
     return _default_location()
@@ -206,7 +206,7 @@ async def character_move(game_key: str, location: str = "", sid: str = "") -> st
         raise ValueError("Unable to determine character to move (no sid and no caller).")
 
     location = location or ""
-    character = _find_character(sid)
+    character = _find_character(sid, game_key)
     display_name = character.get("displayName", sid)
     display = f"{display_name} ({sid})" if display_name != sid else sid
 
@@ -368,7 +368,7 @@ def position_query(game_key: str, location: str) -> List[Dict[Any, Any]]:
     require_game_dir(game_key)
     sids_at = get_players_at(game_key, location)
     result = []
-    for ch in _load_characters():
+    for ch in _load_characters(game_key):
         if ch["sid"] not in sids_at:
             continue
         entry = dict(ch)
@@ -377,41 +377,5 @@ def position_query(game_key: str, location: str) -> List[Dict[Any, Any]]:
     return result
 
 
-@visible
-async def camera_look(game_key: str, location: str = "") -> str:
-    """Park this terminal's camera at a location (or the caller's current position)."""
-    from dynamic_functions.Home.session import set_camera_location
-
-    require_game_dir(game_key)
-    if not location:
-        sid = atlantis.get_caller()
-        if sid:
-            location = position_get(game_key, sid) or ""
-    if not location:
-        raise ValueError("No location specified and caller has no current position.")
-
-    dest = _load_location(location)
-    if not dest:
-        raise ValueError(f"Unknown location: {location}")
-
-    set_camera_location(location)
-    await _set_location_background(location, dest)
-    return location
-
-
-@visible
-async def camera_follow(game_key: str, sid: str) -> str:
-    """Make this terminal's camera follow a character's position."""
-    from dynamic_functions.Home.session import set_camera_follow
-
-    require_game_dir(game_key)
-    if not sid:
-        raise ValueError("sid is required")
-    set_camera_follow(sid)
-    loc = position_get(game_key, sid) or ""
-    if loc:
-        dest = _load_location(loc)
-        if dest:
-            await _set_location_background(loc, dest)
-    return loc
-
+# camera_look / camera_follow are gone — use terminal.terminal_move(game_key, location)
+# instead. "Terminal at a location" is the only viewing concept now.

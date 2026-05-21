@@ -1,76 +1,109 @@
 # Game Engine
 
-A multi-character world where humans and bots share a small set of locations, roles, and conversation memory. This document explains the design — not the file layout, which `ls Game/` shows you.
+A multi-character world where humans and AI personas share a small set of locations, slots, and conversation memory. This document explains the design — not the file layout, which `ls Game/` shows you.
 
-## The filesystem is the database
+## The three nouns
 
-Bots, Roles, and Locations are not stored in a DB or a registry. Their folder on disk *is* the record, and the folder name *is* the identifier. There is no `sid` or `name` field inside `config.json` — duplicating it would invite drift. Adding a bot is `mkdir Game/Bots/<sid>` plus a `config.json`; deleting one is `rm -rf`. The engine never indexes; it scans.
+Everything else is built out of these:
 
-This shapes everything downstream. References like a role's `defaultLocation`, a location's `connects_to`, or a position record are all folder-name strings — they survive a code rename because they're just paths. The tradeoff: spaces and exotic characters in identifiers are awkward, so we use `displayName` in config for the pretty label and accept that the id is whatever-the-folder-is-called.
+- **Persona** (`Game/Personas/<sid>/`) — an AI character: persona, appearance, image, LLM config. Personas are reusable assets; the same one can be the default for many slots across many games (e.g. one `chad` persona drives `Guest1`…`Guest8`).
+- **Slot** (`Game/Slots/<slot>/`) — a *playable unit* in a scenario. The chair at the table. Has a job (`system_prompt.md`), a `defaultLocation`, a `defaultPersona`, a `purpose`, and an `openToHumans` flag. The gamer-facing surface: the lobby shows a roster of slots, and you either pick one to play yourself or let the AI play it.
+- **Casting** (per game, `Data/games/<game_key>/casting.json`) — who's filling each slot right now. An occupant is either an AI persona sid or a human user sid; absence falls back to the slot's `defaultPersona`.
+
+There is no separate "character" entity. A character is just *whoever is currently cast in a slot*, plus the slot's job description.
+
+## The filesystem is the database (for assets)
+
+Personas, Slots, and Locations are not stored in a DB or a registry. Their folder on disk *is* the record, and the folder name *is* the identifier. Adding a persona is `mkdir Game/Personas/<sid>` plus a `config.json`; deleting one is `rm -rf`. References like a slot's `defaultPersona`, a location's `connects_to`, or a position record are all folder-name strings — they survive a code rename because they're just paths.
+
+The tradeoff: spaces and exotic characters in identifiers are awkward, so we use `displayName` in config for the pretty label and accept that the id is whatever-the-folder-is-called.
 
 ## Images are auto-thumbnailed
 
-Bot and location images can be full-resolution source files. The first time something needs a thumbnail (`bot_list`, `location_list`, map rendering), `_ensure_thumb()` generates a width-360 JPEG next to the source — by convention `image.png` → `image_thumb.jpg` — and caches it on disk. Subsequent reads reuse the cached thumb unless the source mtime is newer. Don't commit the thumbs by hand or keep them in sync manually; let the engine manage them.
+Persona and location images can be full-resolution source files. The first time something needs a thumbnail (`persona_list`, `location_list`, map rendering), `_ensure_thumb()` generates a width-360 JPEG next to the source — by convention `image.png` → `image_thumb.jpg` — and caches it on disk. Subsequent reads reuse the cached thumb unless the source mtime is newer. Don't commit the thumbs by hand or keep them in sync manually; let the engine manage them.
 
 ## Two state layers
 
 There are two completely separate kinds of data, and conflating them causes pain:
 
-- **Assets** (`Game/`) — shared across every game, version-controlled, hand-edited. Bots, Roles, Locations, *and the (sid × role) bindings themselves*. Read-only at runtime.
-- **Runtime state** (`Data/games/<game_key>/`) — per-game, written by the engine, never edited by hand. `positions.json` (where characters are), `interactions/` (conversation memory), `game.json` (metadata).
+- **Assets** (`Game/`) — shared across every game, version-controlled, hand-edited. Personas, Slots (incl. their default casting), Locations, and per-(persona × slot) casting flavor under `Slots/<slot>/casting/<persona>.md`. Read-only at runtime.
+- **Runtime state** (`Data/games/<game_key>/`) — per-game, written by the engine, never edited by hand. `positions.json` (where occupants are), `casting.json` (per-game slot overrides), `interactions/` (conversation memory), `game.json` (metadata).
 
-A single asset (e.g. the `kitty` bot) can participate in many games simultaneously; each game has its own position and conversation history for that bot. Don't write game-specific state into `Game/`; don't put shared definitions in `Data/`.
+A single persona (e.g. `kitty`) can participate in many games simultaneously; each game has its own position, casting, and conversation history. Don't write game-specific state into `Game/`; don't put shared definitions in `Data/`.
 
 ## `game_key` is always explicit
 
 Every function that touches runtime state takes `game_key` as a parameter. There is no implicit "current game" via `session_shared` or a global — and there shouldn't be. Multiple games can be live in one server, and the only way to tell them apart is the key the caller passes.
 
-## Characters are roles, not bots
+## Three layers of prompt content
 
-There are three axes of prompt content, and they each have a home:
+When the engine drives an AI occupant, three pieces of prose are composed into the system prompt:
 
-- **Bot persona** (`Bots/<sid>/config.json` → `persona`): who this bot *is*, regardless of role. Identity, look, voice, mannerisms. Travels with the bot across role swaps.
-- **Role base** (`Roles/<role>/system_prompt.md`): how *anyone* plays this role. Job description, tools, procedures, expected behavior. Travels with the role across bot swaps.
-- **Character prompt** (`Characters/<sid>/<Role>/prompt.md`): how *this bot* plays *this role* — the (sid × role) join. Stuff like "you're brand new and rely entirely on your console" lives here, because newness is a property of *Kitty playing Receptionist*, not of Kitty in general or of Receptionists in general. The *existence* of this folder is also what declares the binding: there is no runtime registration step and no `characters.json`. To cast Kitty as Receptionist, create `Characters/kitty/Receptionist/prompt.md`; to swap roles, move the folder.
+- **Persona** (`Personas/<sid>/persona.md` + `appearance.md`): who this AI *is*, regardless of which slot it's filling. Identity, look, voice, mannerisms. Travels with the persona.
+- **Slot job** (`Slots/<slot>/system_prompt.md`): how *anyone* plays this slot. Job description, tools, procedures. Travels with the slot.
+- **Casting flavor** (`Slots/<slot>/casting/<persona>.md`): how *this persona* plays *this slot* — the (persona × slot) join. Specifics like "you're brand new and rely entirely on the console" live here, because newness is a property of *Kitty playing Receptionist*, not of Kitty in general or of Receptionists in general.
 
-At prompt time, all three are composed: `persona` + role base + character prompt + time + interaction context. Don't cross the streams — bot identity belongs to the bot, role behavior belongs to the role, the specifics of this casting belong to the bot-role file.
+At prompt time, all three are composed: `persona` + slot job + casting flavor + setting + time + interaction context. Don't cross the streams.
 
-Bot-driven vs human-driven is determined dynamically by `is_bot_driven()`: if there's a bot config for the sid AND no live human session has claimed that sid's chat slot, the bot drives. A human can take over a bot's sid by claiming it.
+## Casting: defaults vs. overrides
 
-The role carries the system prompt. The bot supplies the LLM, the face, and the in-character voice (including any first-line greeting, which is generated at runtime rather than baked into the role).
+Every slot has a `defaultPersona` baked into its `config.json`. That's the AI that fills it when nobody has done anything. A per-game override in `casting.json` can:
+
+- swap one AI persona for another (e.g. Natalie covers Receptionist on the night shift instead of Kitty),
+- replace the AI with a human (so a human player drives that slot themselves), or
+- be cleared, falling the slot back to its default.
+
+The lobby UI is just `slot_list(game_key)`: it returns each slot with its current occupant, kind (`ai` / `human` / `empty`), and source (`default` / `override`). `slot_take(game_key, slot)` claims a slot for the calling user; `slot_release(game_key, slot)` drops the override.
+
+## Personas can fill multiple slots
+
+Nothing prevents one persona from being the default for many slots — Chad-the-persona is the default for `Guest1`, `Guest2`, …, `Guest8`. Each slot is independent in casting, so a human can take `Guest3` while Chad-AI keeps playing the other seven.
+
+> **Note (current limitation):** the runtime occupant id is the persona sid (`chad`), not the slot. That means all eight Chad-driven guests currently share one persona's memory and one position record. Multi-instance personas (per-slot identity for the same AI) are a planned follow-up — see "Known gaps" below.
+
+## Memory is per-occupant
+
+Bot memory lives at `Data/games/<game_key>/interactions/<occupant_sid>/<other_sid>.json`. Memory belongs to the occupant, not the slot — so:
+
+- if **Joe** (`cavallo1`) plays Receptionist, then steps away, then comes back as Manager, Joe carries his memory of every conversation with him,
+- if **Kitty** drives Receptionist and is later swapped for Natalie, Natalie starts fresh; she does not inherit Kitty's memories.
+
+The per-`game_key` scoping still applies: a persona remembers you differently in each game.
 
 ## Locations have two relationships, not one
 
-`connects_to` is adjacency: where you can walk to from here. `parent` is containment: what this room is inside of. A Lobby has `parent: "Atlantis"` (it's part of the Atlantis facility) and `connects_to: ["Hallway"]` (you can walk into the hallway from here). These are independent — Atlantis itself is a root location with no parent and an empty `connects_to`.
+`connects_to` is adjacency: where you can walk to from here. `parent` is containment: what this room is inside of. A Lobby has `parent: "Atlantis"` (it's part of the Atlantis facility) and `connects_to: ["Hallway"]` (you can walk into the hallway from here). These are independent.
 
-**Only leaves are standable.** A location with children is a container, not a place you can move to. The engine enforces this on entry, on movement, and on the default-spawn lookup. You can't "go to Atlantis"; you go to Lobby (which is in Atlantis). This means containers can hold setting/description without polluting the navigable space.
+**Only leaves are standable.** A location with children is a container, not a place you can move to. The engine enforces this on entry, on movement, and on the default-spawn lookup. You can't "go to Atlantis"; you go to Lobby (which is in Atlantis). Containers can hold setting/description without polluting the navigable space.
 
-The `description` field on each location is in-world prose. At prompt time the engine walks from the root down to the character's current location and concatenates descriptions in that order — facility context first, room context last — and injects the result as the prompt's `setting` block. That's why the facility blurb ("futuristic robot research playground...") lives on the Atlantis root and not in every role file.
+The `description` field on each location is in-world prose. At prompt time the engine walks from the root down to the occupant's current location and concatenates descriptions in that order — facility context first, room context last — and injects the result as the prompt's `setting` block.
 
 ## Movement: first entry is special
 
-`character_move` has two distinct modes:
+`character_move` (yes, the function is still called that — it moves an occupant) has two distinct modes:
 
-1. **First entry** — no position record yet. The character *must* spawn at their entry location (their role's `defaultLocation`, falling back to the location with `"default": true`). Passing any other location raises. This is the only way to enter the world.
-2. **Subsequent moves** — `connects_to` adjacency is enforced. You can only go to a location that the current location lists as reachable. No teleporting between disconnected rooms.
+1. **First entry** — no position record yet. The occupant *must* spawn at their entry location (their slot's `defaultLocation`, falling back to the location marked `"default": true`). Passing any other location raises. This is the only way to enter the world.
+2. **Subsequent moves** — `connects_to` adjacency is enforced. You can only go to a location that the current location lists as reachable.
 
-## Role-level continuity is a gameplay mechanic, not an engine feature
+## Bot-driven vs human-driven
 
-Engine-managed memory belongs to the bot. If a role needs shared continuity across whichever bot is currently driving it — e.g. the Receptionist should always know who has signed in this week — that's modeled in-world: the role has a *tool* it queries (a guest log, an access database, a central computer). The shared store is just another resource the role's system prompt knows how to call.
+`is_bot_driven(sid)` returns true iff:
 
-This keeps the engine boring and the world-building flexible. Personal memory = engine. Institutional memory = gameplay.
+1. `sid` is a known persona (has a `Personas/<sid>/config.json`), **and**
+2. no live human session has claimed `sid` as its chat slot.
 
-## Conversation memory is per-bot-per-speaker
+A human can take over an AI persona at runtime by claiming the chat slot. The cleaner way to put a human into the game, though, is `slot_take(game_key, slot)`, which writes the human's user sid into casting and the AI for that slot goes idle automatically.
 
-Bot memory is keyed at `Data/games/<game_key>/interactions/<bot_sid>/<speaker_sid>.json`. The memory belongs to the bot, not the role — a bot keeps its own accumulated history of each participant across role changes within a game. Two different bots playing the same role have independent memories of you.
+## Known gaps
 
-The per-`game_key` scoping still applies: a bot remembers you differently in each game.
+- **Multi-instance personas.** One persona can be the default for many slots, but at runtime they share an occupant sid, a position record, and a memory store. Splitting these per-slot (so `chad@Guest1` ≠ `chad@Guest5`) needs a per-slot occupant identity layer. Planned, not built.
+- **Scenarios.** Right now there's effectively one scenario baked into the slot list. A future `Game/Scenarios/<name>/slots.json` could parameterize which slots exist, with what defaults, for which storyline (day shift vs. night shift, full hotel vs. lobby-only, etc.).
 
 ## ER diagram
 
 ```mermaid
 erDiagram
-    BOT {
+    PERSONA {
         string sid PK "folder name"
         string displayName
         string image
@@ -80,33 +113,38 @@ erDiagram
         string name PK "folder name"
         string displayName
         string parent FK "= LOCATION.name (containment, not adjacency)"
-        string description "in-world prose; composed root→leaf into the prompt's setting"
+        string description
         string image
     }
     GAME {
         string key PK
     }
-    ROLE {
+    SLOT {
         string name PK "folder name"
         string displayName
         string systemPrompt
         string defaultLocation FK
+        string defaultPersona FK
+        string purpose
+        bool openToHumans
     }
-    CHARACTER {
-        string sid FK "= BOT.sid"
-        string role FK "= ROLE.name; presence of Characters/<sid>/<Role>/prompt.md"
-        string displayName "= BOT.displayName"
+    CASTING {
+        string slot FK "= SLOT.name"
+        string occupant "persona sid or human user sid"
+        string kind "ai | human"
     }
     POSITION {
-        string sid FK
+        string occupant FK
         string location FK
     }
 
     LOCATION ||--o{ LOCATION : "connects to (adjacency)"
     LOCATION ||--o{ LOCATION : "parent (containment)"
-    LOCATION ||--o{ ROLE : defaultLocation
-    BOT ||--o{ CHARACTER : "Characters/<sid>/<Role>/prompt.md"
-    ROLE ||--o{ CHARACTER : "Characters/<sid>/<Role>/prompt.md"
-    CHARACTER ||--o| POSITION : sid
+    LOCATION ||--o{ SLOT : defaultLocation
+    PERSONA ||--o{ SLOT : defaultPersona
+    PERSONA ||--o{ CASTING : "Slots/<slot>/casting/<persona>.md (flavor)"
+    SLOT ||--o{ CASTING : "Data/games/<key>/casting.json (override)"
+    GAME ||--o{ CASTING : per-game
+    CASTING ||--o| POSITION : occupant
     LOCATION ||--o{ POSITION : location
 ```

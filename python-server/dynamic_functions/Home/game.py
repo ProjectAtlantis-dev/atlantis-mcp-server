@@ -49,7 +49,7 @@ async def game_new() -> Dict[str, Any]:
 
     # Register the chat callback bound to this game_key so it survives restart
     # via the boot-time re-registration scan.
-    # await atlantis.client_command(f'/callback set chat chat_callback {game_key}')
+    await atlantis.client_command(f'/callback set chat chat_callback {game_key}')
 
     await atlantis.client_log(f"Game created: {game_key}")
 

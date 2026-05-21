@@ -458,14 +458,24 @@ async def handle_search_tool(
 
 
 async def fetch_transcript(game_key: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+
+
     """Fetch and format the chat transcript"""
     logger.info("fetch_transcript: /silent on")
     await atlantis.client_command("/silent on")
     logger.info("fetch_transcript: /transcript chat")
+
+
     raw_transcript = await atlantis.client_command("/transcript chat")
+
+
+
     logger.info(f"fetch_transcript: received {len(raw_transcript)} entries")
     await atlantis.client_command("/silent off")
     logger.info("fetch_transcript: /silent off")
+
+
+
 
     if not raw_transcript:
         logger.error("!!! CRITICAL: rawTranscript is EMPTY - no messages received from client!")
@@ -519,11 +529,8 @@ async def fetch_transcript(game_key: str) -> Tuple[List[Dict[str, Any]], List[Di
                 logger.warning(f"       -> SKIPPED (oversized: {len(msg_content_full)} chars > {MAX_ENTRY_SIZE})")
                 continue
 
-            # Caller sid is the user
-            role_for_llm = 'user' if (caller and msg_sid == caller) else 'assistant' if caller else 'user'
-
-            transcript.append({'role': role_for_llm, 'content': [{'type': 'text', 'text': msg_content_full}]})
-            logger.info(f"       -> INCLUDED as role={role_for_llm} (sid={msg_sid})")
+            transcript.append({'role': 'user', 'content': [{'type': 'text', 'text': msg_content_full}]})
+            logger.info(f"       -> INCLUDED as role=user (sid={msg_sid})")
         elif msg_type == 'description':
             msg_content_full = msg.get('content', '')
             if not msg_content_full or not str(msg_content_full).strip():

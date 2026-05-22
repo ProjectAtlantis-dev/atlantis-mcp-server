@@ -341,6 +341,28 @@ def build_casting_prompt(game_key: str, slot: str, caller: str = "") -> Dict[str
 
 
 @visible
+async def casting_list(game_key: str) -> List[Dict[str, Any]]:
+    """Show the cast list for this game — one row per slot. The lobby view:
+    who's in each seat, are they AI or human, is this the slot's default or an
+    explicit override. Empty slots show kind="empty".
+    """
+    casting = get_casting(game_key)
+    rows: List[Dict[str, Any]] = []
+    for slot_key in _list_slot_keys():
+        cfg = _slot_config(slot_key)
+        info = casting.get(slot_key, {})
+        rows.append({
+            "slot": slot_key,
+            "slotDisplayName": cfg.get("displayName", slot_key),
+            "occupant": info.get("occupant", ""),
+            "displayName": info.get("displayName", ""),
+            "kind": info.get("kind", "empty"),
+        })
+    await atlantis.client_data("Casting", rows)
+    return rows
+
+
+@visible
 async def casting_prompt(game_key: str, slot: str, caller: str = "") -> Dict[str, Any]:
     """Show the assembled system prompt for the AI currently cast in `slot`.
 

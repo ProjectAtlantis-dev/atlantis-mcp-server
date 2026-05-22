@@ -105,11 +105,11 @@ def _parse_tool_arguments(raw_args: str, tool_key: str) -> Dict[str, Any]:
             return repaired
         raise ValueError(f"Could not parse tool arguments as JSON: {e}")
 
-
 async def run_turn(
     *,
     game_key: str,
-    client: OpenAI,
+    api_key: str,
+    base_url: Optional[str],
     model: str,
     bot_sid: str,
     bot_display_name: str,
@@ -121,6 +121,7 @@ async def run_turn(
 ) -> Optional[str]:
     """Run a streaming tool-calling turn"""
 
+    client = OpenAI(api_key=api_key, base_url=base_url)
     stream_talk_id = None
     stream_think_id = None
     max_turns = 10
@@ -245,3 +246,45 @@ async def run_turn(
         await _close_streams(stream_talk_id, stream_think_id)
 
     return accumulated_text or None
+
+@visible
+async def bot_turn(
+    *,
+    game_key: str,
+    bot_sid: str,
+    system_prompt: str,
+    transcript: List[Dict[str, Any]],
+    converted_tools: List[TranscriptToolT],
+    tool_lookup: Dict[str, ToolLookupInfo],
+    allowed_apps: Optional[List[str]] = None,
+) -> Optional[str]:
+    """High-level wrapper: loads persona config for bot_sid and delegates to run_turn."""
+    from dynamic_functions.Home.common import _load_persona_config
+
+    loaded = _load_persona_config(bot_sid)
+    if not loaded:
+        raise ValueError(f"No persona config for bot {bot_sid}")
+    cfg, _folder = loaded
+
+    api_key_env = cfg.get("apiKeyEnv", "")
+    api_key = os.environ.get(api_key_env, "") if api_key_env else ""
+    base_url = cfg.get("baseUrl", "") or None
+    model = cfg.get("model", "")
+    bot_display_name = cfg.get("displayName", bot_sid)
+
+    if not api_key or not model:
+        raise ValueError(f"Bot {bot_sid} missing model/api key (env={api_key_env})")
+
+    return await run_turn(
+        game_key=game_key,
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+        bot_sid=bot_sid,
+        bot_display_name=bot_display_name,
+        system_prompt=system_prompt,
+        transcript=transcript,
+        converted_tools=converted_tools,
+        tool_lookup=tool_lookup,
+        allowed_apps=allowed_apps,
+    )

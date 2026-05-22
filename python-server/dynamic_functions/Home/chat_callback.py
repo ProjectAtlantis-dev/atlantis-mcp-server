@@ -2,19 +2,15 @@
 
 import atlantis
 import logging
-import os
-
-from openai import OpenAI
 
 from dynamic_functions.Home.chat_common import (
     analyze_participants, fetch_transcript, get_base_tools,
 )
 from dynamic_functions.Home.location import position_get, position_query
-from dynamic_functions.Home.common import _load_persona_config
 from dynamic_functions.Home.casting import _load_characters, is_bot_driven, load_casting_prompt, slot_for_occupant
 from dynamic_functions.Home.prompt_common import build_system_prompt, load_slot_system_prompt, load_persona, load_appearance
 from dynamic_functions.Home.interactions import read_interaction, record_interaction
-from dynamic_functions.Home.turn import run_turn
+from dynamic_functions.Home.turn import bot_turn
 
 logger = logging.getLogger("mcp_server")
 
@@ -141,14 +137,6 @@ async def greet_entrant(game_key: str, entrant_sid: str, location: str):
 
 async def _respond_as_bot(*, game_key: str, bot_record: dict, speaker_sid: str, transcript: list):
     bot_sid = bot_record["sid"]
-    bot_display = bot_record.get("displayName", bot_sid)
-
-    loaded = _load_persona_config(bot_sid)
-    if not loaded:
-        await atlantis.client_log(f"⚠️ No config for bot {bot_sid}")
-        return
-    cfg, _folder = loaded
-
     role = slot_for_occupant(game_key, bot_sid) or ""
     if not role:
         await atlantis.client_log(f"⚠️ Persona {bot_sid} is not currently cast in any slot")
@@ -174,23 +162,11 @@ async def _respond_as_bot(*, game_key: str, bot_record: dict, speaker_sid: str, 
         first_name=first_name,
     )
 
-    api_key_env = cfg.get("apiKeyEnv", "")
-    api_key = os.environ.get(api_key_env, "") if api_key_env else ""
-    base_url = cfg.get("baseUrl", "") or None
-    model = cfg.get("model", "")
-    if not api_key or not model:
-        await atlantis.client_log(f"⚠️ Bot {bot_sid} missing model/api key (env={api_key_env})")
-        return
-
-    client = OpenAI(api_key=api_key, base_url=base_url)
     converted_tools, tool_lookup = get_base_tools()
 
-    await run_turn(
+    await bot_turn(
         game_key=game_key,
-        client=client,
-        model=model,
         bot_sid=bot_sid,
-        bot_display_name=bot_display,
         system_prompt=system_prompt,
         transcript=transcript,
         converted_tools=converted_tools,

@@ -5,7 +5,7 @@ import json
 import os
 import logging
 
-from typing import List, Dict, Any, Optional, TypedDict, Tuple, NotRequired
+from typing import List, Dict, Any, Optional, TypedDict, Tuple, NotRequired, cast
 from datetime import datetime
 from jinja2 import Template
 
@@ -15,7 +15,7 @@ logger = logging.getLogger("mcp_client")
 
 
 class ToolT(TypedDict, total=False):
-    """Cloud tool record"""
+    """Cloud tool record (legacy)"""
     remote_id: int
     tool_id: int
     perm_id: int
@@ -61,6 +61,17 @@ class ToolT(TypedDict, total=False):
     remote_updated_at: str
 
 
+class AtlantisSearchToolT(TypedDict, total=False):
+    """Subset of Atlantis search/dir result fields needed for LLM tool conversion."""
+    tool_name: str
+    tool_description: str
+    tool_app: str
+    tool_location: str
+    input_schema: str            # JSON string, e.g. '{"type":"object","properties":{...}}'
+    remote_owner: str
+    remote_name: str
+
+
 class ToolSchemaPropertyT(TypedDict, total=False):
     type: str
     description: str
@@ -94,6 +105,69 @@ class ToolLookupInfo(TypedDict):
     searchTerm: str
     filename: str
     functionName: str
+
+
+def convert_search_tools(
+    tools: List[AtlantisSearchToolT],
+) -> Tuple[List[OpenAITool], Dict[str, ToolLookupInfo]]:
+    """Convert Atlantis search results to OpenAI function-calling format.
+
+    Returns (openai_tools, tool_lookup) where tool_lookup maps the
+    sanitised OpenAI name back to the Atlantis search term.
+    """
+    openai_tools: List[OpenAITool] = []
+    tool_lookup: Dict[str, ToolLookupInfo] = {}
+
+    for tool in tools:
+        name = tool.get('tool_name', '')
+        if not name:
+            logger.warning(f"convert_search_tools: skipping tool with no tool_name: {tool}")
+            continue
+
+        app = tool.get('tool_app', '')
+        full_name = f"{app}__{name}" if app else name
+        sanitized = re.sub(r'[^a-zA-Z0-9_-]', '_', full_name)
+
+        # Parse input_schema JSON string -> dict
+        raw_schema = tool.get('input_schema', '')
+        if raw_schema:
+            try:
+                schema: ToolSchemaT = cast(ToolSchemaT, json.loads(raw_schema))
+            except (json.JSONDecodeError, TypeError):
+                logger.warning(f"convert_search_tools: bad input_schema for {name}, defaulting to empty")
+                schema = ToolSchemaT(type='object', properties={})
+        else:
+            schema = ToolSchemaT(type='object', properties={})
+
+        fn: OpenAIFunction = {
+            'name': sanitized,
+            'description': tool.get('tool_description', ''),
+            'parameters': schema,
+        }
+        ot: OpenAITool = {'type': 'function', 'function': fn}
+        openai_tools.append(ot)
+
+        # Build search term: remote_owner*remote_name*tool_app*tool_location*tool_name
+        parts = [
+            tool.get('remote_owner', ''),
+            tool.get('remote_name', ''),
+            tool.get('tool_app', ''),
+            tool.get('tool_location', ''),
+            name,
+        ]
+        if all(p == '' for p in parts[:-1]):
+            search_term = name
+        else:
+            search_term = '*'.join(parts)
+
+        tool_lookup[sanitized] = {
+            'searchTerm': search_term,
+            'filename': '',
+            'functionName': name,
+        }
+
+    logger.info(f"convert_search_tools: {len(tools)} in -> {len(openai_tools)} out")
+    return openai_tools, tool_lookup
 
 
 def get_consolidated_full_name(tool: ToolT) -> str:

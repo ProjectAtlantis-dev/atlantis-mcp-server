@@ -8,8 +8,8 @@ from typing import List, Dict, Any, Optional, cast
 
 from dynamic_functions.Home.chat_common import (
     logger,
-    OpenAITool, ToolLookupInfo,
-    _repair_json, coerce_args_to_schema,
+    AtlantisSearchToolT, OpenAITool, ToolLookupInfo,
+    _repair_json, coerce_args_to_schema, convert_search_tools,
 )
 from utils import format_json_log
 
@@ -25,7 +25,7 @@ async def _close_streams(talk_id, think_id):
 
 @visible
 async def execute_tool(search_term: str, arguments: Dict[str, Any] = {}) -> Any:
-    """Execute a tool call via Atlantis client_command."""
+    """silent wrapper around client_command"""
 
     logger.info(f"TOOL: searchTerm='{search_term}' args={format_json_log(arguments)}")
 
@@ -62,11 +62,12 @@ async def run_turn(
     bot_display_name: str,
     system_prompt: str,
     transcript: List[Dict[str, Any]],
-    tools: List[str] = [],
+    tools: List[AtlantisSearchToolT] = [],
 ) -> Optional[str]:
     """Run a streaming tool-calling turn"""
 
     client = OpenAI(api_key=api_key, base_url=base_url)
+    openai_tools, tool_lookup = convert_search_tools(tools)
     stream_talk_id = None
     stream_think_id = None
     max_turns = 10
@@ -80,7 +81,7 @@ async def run_turn(
                 {'role': 'system', 'content': system_prompt}
             ] + transcript
 
-            logger.info(f"Sending to {model}: {len(api_messages)} messages, {len(converted_tools)} tools")
+            logger.info(f"Sending to {model}: {len(api_messages)} messages, {len(openai_tools)} tools")
 
             # Call LLM
             tool_calls_accumulator: Dict[int, Dict[str, Any]] = {}
@@ -91,8 +92,8 @@ async def run_turn(
             stream = client.chat.completions.create(
                 model=model,
                 messages=cast(Any, api_messages),
-                tools=converted_tools if converted_tools else None,  # type: ignore[arg-type]
-                tool_choice=cast(Any, "auto" if converted_tools else None),
+                tools=openai_tools,  # type: ignore[arg-type]
+                tool_choice=cast(Any, "auto" if openai_tools else None),
                 stream=True,
                 max_tokens=16000,
                 extra_body={"reasoning": {"effort": "low"}},
@@ -170,18 +171,19 @@ async def run_turn(
                 try:
                     tool_key = tc['name']
                     lookup_info = tool_lookup[tool_key]
+                    search_term = lookup_info['searchTerm']
                     arguments = _parse_tool_arguments(tc['arguments'], tool_key)
 
                     # Coerce args to match schema types
-                    for ct in converted_tools:
-                        if ct['function']['name'] == tool_key:
-                            schema = ct['function']['parameters']
+                    for ot in openai_tools:
+                        if ot['function']['name'] == tool_key:
+                            schema = ot['function']['parameters']
                             if schema and arguments:
                                 arguments = coerce_args_to_schema(arguments, schema)
                             break
 
                     tool_result = await execute_tool(
-                        search_term=lookup_info['searchTerm'],
+                        search_term=search_term,
                         arguments=arguments,
                     )
                     transcript.append({
@@ -208,7 +210,7 @@ async def bot_turn(
     bot_sid: str,
     system_prompt: str,
     transcript: List[Dict[str, Any]],  # Atlantis chat transcript (not OpenAI messages)
-    tools: List[str] = [],             # Atlantis search terms, e.g. ["**Home**bot_list"]
+    tools: List[AtlantisSearchToolT] = [],
 ) -> Optional[str]:
     """High-level wrapper: loads bot config for bot_sid and delegates to run_turn."""
     from dynamic_functions.Home.common import _load_bot_config

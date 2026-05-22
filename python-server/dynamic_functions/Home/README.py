@@ -4,6 +4,9 @@ from pathlib import Path
 
 logger = logging.getLogger("mcp_server")
 
+# % whoami
+
+
 @text("md")
 @visible
 async def README():

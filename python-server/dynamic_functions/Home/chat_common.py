@@ -10,7 +10,6 @@ from datetime import datetime
 from jinja2 import Template
 
 from utils import format_json_log, parse_search_term
-from dynamic_functions.Home.todo import TODO_PSEUDO_TOOL
 
 logger = logging.getLogger("mcp_client")
 
@@ -314,147 +313,7 @@ def convert_tools_for_llm(
     return out_tools, out_tools_simple, tool_lookup
 
 
-SEARCH_PSEUDO_TOOL: TranscriptToolT = {
-    'type': 'function',
-    'function': {
-        'name': 'search',
-        'description': 'Search for available tools and commands. Results will be added to your tool list so you can call them. Use this when a user asks you to do something and you don\'t have an appropriate tool yet.',
-        'parameters': {
-            'type': 'object',
-            'properties': {
-                'query': {
-                    'type': 'string',
-                    'description': 'Search query to find tools (e.g. "weather", "admin", "game")'
-                }
-            },
-            'required': ['query']
-        }
-    }
-}
 
-
-DIR_PSEUDO_TOOL: TranscriptToolT = {
-    'type': 'function',
-    'function': {
-        'name': 'dir',
-        'description': 'Look up tools by name. Use this when you know the specific name of a tool you want to load. Results will be added to your tool list.',
-        'parameters': {
-            'type': 'object',
-            'properties': {
-                'name': {
-                    'type': 'string',
-                    'description': 'Tool name to look up (e.g. "foo", "admin*Home*chat")'
-                }
-            },
-            'required': ['name']
-        }
-    }
-}
-
-
-async def handle_dir_tool(
-    name: str,
-    converted_tools: List[TranscriptToolT],
-    tool_lookup: Dict[str, ToolLookupInfo]
-) -> Tuple[str, List[TranscriptToolT], Dict[str, ToolLookupInfo]]:
-    import time as _t
-    logger.info(f">>> DIR PSEUDO-TOOL: name='{name}' — sending /dir command...")
-    t0 = _t.monotonic()
-
-    try:
-        results = await atlantis.client_command(f"/dir {name}")
-    except Exception as e:
-        elapsed = _t.monotonic() - t0
-        logger.error(f"<<< DIR FAILED after {elapsed:.2f}s: {e}")
-        return f"Dir lookup failed: {e}", converted_tools, tool_lookup
-
-    elapsed = _t.monotonic() - t0
-    logger.info(f"<<< DIR RETURNED in {elapsed:.2f}s — {len(results) if results else 0} results")
-
-    if not results:
-        return f"No tools found for '{name}'.", converted_tools, tool_lookup
-
-    new_tools, new_simple, new_lookup = convert_tools_for_llm(results)
-
-    added_names = []
-    for tool in new_tools:
-        tool_name = tool['function']['name']
-        if tool_name not in tool_lookup:
-            converted_tools.append(tool)
-            added_names.append(f"{tool_name}: {tool['function']['description']}")
-
-    for tool_name, info in new_lookup.items():
-        if tool_name not in tool_lookup:
-            tool_lookup[tool_name] = info
-
-    if added_names:
-        summary = f"Found {len(added_names)} new tool(s) added to your toolkit:\n" + "\n".join(f"- {n}" for n in added_names)
-    else:
-        summary = f"Dir lookup for '{name}' returned {len(new_tools)} tool(s), but all were already in your toolkit."
-
-    logger.info(f"Dir result: {summary}")
-    return summary, converted_tools, tool_lookup
-
-
-def _filter_by_allowed_apps(results: List[Dict[str, Any]], allowed_apps: Optional[List[str]] = None) -> List[Dict[str, Any]]:
-    """Filter results by app prefix"""
-    if not allowed_apps:
-        return results
-    filtered = []
-    for r in results:
-        app = (r.get('app', '') or r.get('tool_app', '')).lower()
-        if any(app.startswith(prefix.lower()) for prefix in allowed_apps):
-            filtered.append(r)
-    return filtered
-
-
-async def handle_search_tool(
-    query: str,
-    converted_tools: List[TranscriptToolT],
-    tool_lookup: Dict[str, ToolLookupInfo],
-    allowed_apps: Optional[List[str]] = None,
-) -> Tuple[str, List[TranscriptToolT], Dict[str, ToolLookupInfo]]:
-    import time as _t
-    logger.info(f">>> SEARCH PSEUDO-TOOL: query='{query}' allowed_apps={allowed_apps} — sending /search command...")
-    t0 = _t.monotonic()
-
-    try:
-        results = await atlantis.client_command(f"/search {query}")
-    except Exception as e:
-        elapsed = _t.monotonic() - t0
-        logger.error(f"<<< SEARCH FAILED after {elapsed:.2f}s: {e}")
-        return f"Search failed: {e}", converted_tools, tool_lookup
-
-    elapsed = _t.monotonic() - t0
-    logger.info(f"<<< SEARCH RETURNED in {elapsed:.2f}s — {len(results) if results else 0} results")
-
-    if not results:
-        return f"No tools found for '{query}'.", converted_tools, tool_lookup
-
-    results = _filter_by_allowed_apps(results, allowed_apps)
-    if not results:
-        return f"No tools found for '{query}'.", converted_tools, tool_lookup
-
-    new_tools, new_simple, new_lookup = convert_tools_for_llm(results)
-
-    added_names = []
-    for tool in new_tools:
-        name = tool['function']['name']
-        if name not in tool_lookup:
-            converted_tools.append(tool)
-            added_names.append(f"{name}: {tool['function']['description']}")
-
-    for name, info in new_lookup.items():
-        if name not in tool_lookup:
-            tool_lookup[name] = info
-
-    if added_names:
-        summary = f"Found {len(added_names)} new tool(s) added to your toolkit:\n" + "\n".join(f"- {n}" for n in added_names)
-    else:
-        summary = f"Search for '{query}' returned {len(new_tools)} tool(s), but all were already in your toolkit."
-
-    logger.info(f"Search result: {summary}")
-    return summary, converted_tools, tool_lookup
 
 
 async def fetch_transcript(game_key: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
@@ -545,8 +404,4 @@ async def fetch_transcript(game_key: str) -> Tuple[List[Dict[str, Any]], List[Di
     return raw_transcript, transcript
 
 
-def get_base_tools() -> Tuple[List[TranscriptToolT], Dict[str, ToolLookupInfo]]:
-    """Create base pseudo-tools and lookup state"""
-    tools = [SEARCH_PSEUDO_TOOL, DIR_PSEUDO_TOOL, TODO_PSEUDO_TOOL]
-    lookup: Dict[str, ToolLookupInfo] = {}
-    return tools, lookup
+

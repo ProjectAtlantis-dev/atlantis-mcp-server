@@ -4,7 +4,7 @@ import atlantis
 import logging
 
 from dynamic_functions.Home.chat_common import (
-    analyze_participants, fetch_transcript, get_base_tools,
+    analyze_participants, fetch_transcript,
 )
 from dynamic_functions.Home.location import position_get, position_query
 from dynamic_functions.Home.casting import _load_characters, is_bot_driven, load_casting_prompt, slot_for_occupant
@@ -162,15 +162,13 @@ async def _respond_as_bot(*, game_key: str, bot_record: dict, speaker_sid: str, 
         first_name=first_name,
     )
 
-    converted_tools, tool_lookup = get_base_tools()
-
     await bot_turn(
         game_key=game_key,
         bot_sid=bot_sid,
         system_prompt=system_prompt,
         transcript=transcript,
-        converted_tools=converted_tools,
-        tool_lookup=tool_lookup,
+        converted_tools=[],
+        tool_lookup={},
     )
 
     record_interaction(game_key, bot_sid, speaker_sid, first_name=first_name)

@@ -8,11 +8,9 @@ from typing import List, Dict, Any, Optional, cast
 
 from dynamic_functions.Home.chat_common import (
     logger,
-    TranscriptToolT, ToolLookupInfo, ToolSchemaT,
-    _repair_json, coerce_args_to_schema, convert_tools_for_llm,
-    handle_dir_tool, handle_search_tool,
+    TranscriptToolT, ToolLookupInfo,
+    _repair_json, coerce_args_to_schema,
 )
-from dynamic_functions.Home.todo import handle_todo_tool
 from utils import format_json_log
 
 
@@ -25,63 +23,24 @@ async def _close_streams(talk_id, think_id):
             except Exception as e:
                 logger.warning(f"Failed to close stream {sid}: {e}")
 
-
-async def _execute_tool(
-    game_key: str,
-    tool_key: str,
+@visible
+async def execute_tool(
+    search_term: str,
     arguments: Dict[str, Any],
     call_id: str,
-    converted_tools: List[TranscriptToolT],
-    tool_lookup: Dict[str, ToolLookupInfo],
-    transcript: List[Dict[str, Any]],
-    allowed_apps: Optional[List[str]] = None,
+    function_name: str,
+    transcript: List[Dict[str, Any]]
 ) -> bool:
-    """Execute a tool call"""
+    """Execute a tool call via Atlantis client_command."""
 
-    # Pseudo-tools
-    if tool_key == 'dir':
-        name = arguments.get('name', '')
-        logger.info(f"DIR: name='{name}'")
-        summary, _, _ = await handle_dir_tool(name, converted_tools, tool_lookup)
-        transcript.append({'role': 'tool', 'tool_call_id': call_id, 'content': summary})
-        return True
-
-    if tool_key == 'search':
-        query = arguments.get('query', '')
-        logger.info(f"SEARCH: query='{query}'")
-        summary, _, _ = await handle_search_tool(query, converted_tools, tool_lookup, allowed_apps=allowed_apps)
-        transcript.append({'role': 'tool', 'tool_call_id': call_id, 'content': summary})
-        return True
-
-    if tool_key == 'todo':
-        result = await handle_todo_tool(game_key, arguments)
-        transcript.append({'role': 'tool', 'tool_call_id': call_id, 'content': result})
-        return True
-
-    # Real tools
-    if tool_key not in tool_lookup:
-        raise ValueError(f"Unknown tool: {tool_key} (available: {list(tool_lookup.keys())})")
-
-    lookup_info = tool_lookup[tool_key]
-    search_term = lookup_info['searchTerm']
-    function_name = lookup_info['functionName']
-
-    logger.info(f"TOOL: {tool_key} searchTerm='{search_term}' args={format_json_log(arguments)}")
-
-    # Coerce args to schema
-    for ct in converted_tools:
-        if ct['function']['name'] == tool_key:
-            tool_schema = ct['function']['parameters']
-            if tool_schema and arguments:
-                arguments = coerce_args_to_schema(arguments, tool_schema)
-            break
+    logger.info(f"TOOL: {function_name} searchTerm='{search_term}' args={format_json_log(arguments)}")
 
     t0 = _t.monotonic()
     await atlantis.client_command("/silent on")
     tool_result = await atlantis.client_command(f"%{search_term}", data=arguments)
     await atlantis.client_command("/silent off")
 
-    logger.info(f"TOOL {tool_key} returned in {_t.monotonic() - t0:.2f}s: {str(tool_result)[:200]}")
+    logger.info(f"TOOL {function_name} returned in {_t.monotonic() - t0:.2f}s: {str(tool_result)[:200]}")
     await atlantis.tool_result(function_name, tool_result)
 
     transcript.append({
@@ -232,8 +191,25 @@ async def run_turn(
             any_executed = False
             for tc in tool_calls_accumulator.values():
                 try:
-                    arguments = _parse_tool_arguments(tc['arguments'], tc['name'])
-                    await _execute_tool(game_key, tc['name'], arguments, tc['id'], converted_tools, tool_lookup, transcript, allowed_apps=allowed_apps)
+                    tool_key = tc['name']
+                    lookup_info = tool_lookup[tool_key]
+                    arguments = _parse_tool_arguments(tc['arguments'], tool_key)
+
+                    # Coerce args to match schema types
+                    for ct in converted_tools:
+                        if ct['function']['name'] == tool_key:
+                            schema = ct['function']['parameters']
+                            if schema and arguments:
+                                arguments = coerce_args_to_schema(arguments, schema)
+                            break
+
+                    await execute_tool(
+                        search_term=lookup_info['searchTerm'],
+                        arguments=arguments,
+                        call_id=tc['id'],
+                        function_name=lookup_info['functionName'],
+                        transcript=transcript,
+                    )
                     any_executed = True
                 except Exception as e:
                     logger.error(f"Tool {tc['name']} failed: {e}")

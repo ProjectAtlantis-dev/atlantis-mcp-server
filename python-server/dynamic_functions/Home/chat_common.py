@@ -73,15 +73,15 @@ class ToolSchemaT(TypedDict):
     required: NotRequired[List[str]]
 
 
-class OpenAIFunctionDefT(TypedDict):
+class OpenAIFunction(TypedDict):
     name: str
     description: str
     parameters: ToolSchemaT
 
 
-class TranscriptToolT(TypedDict):
+class OpenAITool(TypedDict):
     type: str
-    function: OpenAIFunctionDefT
+    function: OpenAIFunction
 
 
 class SimpleToolT(TypedDict, total=False):
@@ -235,8 +235,8 @@ def parse_tool_params(tool_str: str) -> ToolSchemaT:
 def convert_tools_for_llm(
     tools: List[Dict[str, Any]],
     show_hidden: bool = False
-) -> Tuple[List[TranscriptToolT], List[SimpleToolT], Dict[str, ToolLookupInfo]]:
-    out_tools: List[TranscriptToolT] = []
+) -> Tuple[List[OpenAITool], List[SimpleToolT], Dict[str, ToolLookupInfo]]:
+    out_tools: List[OpenAITool] = []
     out_tools_simple: List[SimpleToolT] = []
     tool_lookup: Dict[str, ToolLookupInfo] = {}
 
@@ -287,7 +287,7 @@ def convert_tools_for_llm(
             full_name = func_name
         sanitized_name = re.sub(r'[^a-zA-Z0-9_-]', '_', full_name)
 
-        out_tool: TranscriptToolT = {
+        out_tool: OpenAITool = {
             'type': 'function',
             'function': {
                 'name': sanitized_name,

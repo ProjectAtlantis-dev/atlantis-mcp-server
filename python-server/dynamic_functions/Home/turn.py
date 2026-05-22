@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Optional, cast
 
 from dynamic_functions.Home.chat_common import (
     logger,
-    TranscriptToolT, ToolLookupInfo,
+    OpenAITool, ToolLookupInfo,
     _repair_json, coerce_args_to_schema,
 )
 from utils import format_json_log
@@ -24,31 +24,20 @@ async def _close_streams(talk_id, think_id):
                 logger.warning(f"Failed to close stream {sid}: {e}")
 
 @visible
-async def execute_tool(
-    search_term: str,
-    arguments: Dict[str, Any],
-    call_id: str,
-    function_name: str,
-    transcript: List[Dict[str, Any]]
-) -> bool:
+async def execute_tool(search_term: str, arguments: Dict[str, Any] = {}) -> Any:
     """Execute a tool call via Atlantis client_command."""
 
-    logger.info(f"TOOL: {function_name} searchTerm='{search_term}' args={format_json_log(arguments)}")
+    logger.info(f"TOOL: searchTerm='{search_term}' args={format_json_log(arguments)}")
 
     t0 = _t.monotonic()
     await atlantis.client_command("/silent on")
     tool_result = await atlantis.client_command(f"%{search_term}", data=arguments)
     await atlantis.client_command("/silent off")
 
-    logger.info(f"TOOL {function_name} returned in {_t.monotonic() - t0:.2f}s: {str(tool_result)[:200]}")
-    await atlantis.tool_result(function_name, tool_result)
+    logger.info(f"TOOL {search_term} returned in {_t.monotonic() - t0:.2f}s: {str(tool_result)[:200]}")
+    await atlantis.tool_result(search_term, tool_result)
 
-    transcript.append({
-        'role': 'tool',
-        'tool_call_id': call_id,
-        'content': str(tool_result) if tool_result else "No result"
-    })
-    return True
+    return tool_result
 
 
 def _parse_tool_arguments(raw_args: str, tool_key: str) -> Dict[str, Any]:
@@ -66,7 +55,6 @@ def _parse_tool_arguments(raw_args: str, tool_key: str) -> Dict[str, Any]:
 
 async def run_turn(
     *,
-    game_key: str,
     api_key: str,
     base_url: Optional[str],
     model: str,
@@ -74,9 +62,7 @@ async def run_turn(
     bot_display_name: str,
     system_prompt: str,
     transcript: List[Dict[str, Any]],
-    converted_tools: List[TranscriptToolT],
-    tool_lookup: Dict[str, ToolLookupInfo],
-    allowed_apps: Optional[List[str]] = None,
+    tools: List[str] = [],
 ) -> Optional[str]:
     """Run a streaming tool-calling turn"""
 
@@ -95,15 +81,6 @@ async def run_turn(
             ] + transcript
 
             logger.info(f"Sending to {model}: {len(api_messages)} messages, {len(converted_tools)} tools")
-
-            # Write debug payload
-            from dynamic_functions.Home.common import require_game_dir
-            api_dump_file = os.path.join(require_game_dir(game_key), 'api_payload.json')
-            try:
-                with open(api_dump_file, 'w') as f:
-                    json.dump({'model': model, 'messages': api_messages, 'tools': converted_tools, 'turn': turn_count}, f, indent=2, default=str)
-            except Exception as e:
-                logger.warning(f"Failed to write API payload: {e}")
 
             # Call LLM
             tool_calls_accumulator: Dict[int, Dict[str, Any]] = {}
@@ -203,13 +180,15 @@ async def run_turn(
                                 arguments = coerce_args_to_schema(arguments, schema)
                             break
 
-                    await execute_tool(
+                    tool_result = await execute_tool(
                         search_term=lookup_info['searchTerm'],
                         arguments=arguments,
-                        call_id=tc['id'],
-                        function_name=lookup_info['functionName'],
-                        transcript=transcript,
                     )
+                    transcript.append({
+                        'role': 'tool',
+                        'tool_call_id': tc['id'],
+                        'content': str(tool_result) if tool_result else "No result"
+                    })
                     any_executed = True
                 except Exception as e:
                     logger.error(f"Tool {tc['name']} failed: {e}")
@@ -226,13 +205,10 @@ async def run_turn(
 @visible
 async def bot_turn(
     *,
-    game_key: str,
     bot_sid: str,
     system_prompt: str,
-    transcript: List[Dict[str, Any]],
-    converted_tools: List[TranscriptToolT],
-    tool_lookup: Dict[str, ToolLookupInfo],
-    allowed_apps: Optional[List[str]] = None,
+    transcript: List[Dict[str, Any]],  # Atlantis chat transcript (not OpenAI messages)
+    tools: List[str] = [],             # Atlantis search terms, e.g. ["**Home**bot_list"]
 ) -> Optional[str]:
     """High-level wrapper: loads bot config for bot_sid and delegates to run_turn."""
     from dynamic_functions.Home.common import _load_bot_config
@@ -252,7 +228,6 @@ async def bot_turn(
         raise ValueError(f"Bot {bot_sid} missing model/api key (env={api_key_env})")
 
     return await run_turn(
-        game_key=game_key,
         api_key=api_key,
         base_url=base_url,
         model=model,
@@ -260,7 +235,5 @@ async def bot_turn(
         bot_display_name=bot_display_name,
         system_prompt=system_prompt,
         transcript=transcript,
-        converted_tools=converted_tools,
-        tool_lookup=tool_lookup,
-        allowed_apps=allowed_apps,
+        tools=tools,
     )

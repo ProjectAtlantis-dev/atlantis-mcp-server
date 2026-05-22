@@ -163,12 +163,9 @@ async def _respond_as_bot(*, game_key: str, bot_record: dict, speaker_sid: str, 
     )
 
     await bot_turn(
-        game_key=game_key,
         bot_sid=bot_sid,
         system_prompt=system_prompt,
         transcript=transcript,
-        converted_tools=[],
-        tool_lookup={},
     )
 
     record_interaction(game_key, bot_sid, speaker_sid, first_name=first_name)

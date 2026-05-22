@@ -7,9 +7,9 @@ from dynamic_functions.Home.chat_common import (
     analyze_participants, fetch_transcript,
 )
 from dynamic_functions.Home.location import position_get, position_query
-from dynamic_functions.Home.casting import _load_characters, is_bot_driven, load_casting_prompt, slot_for_occupant
-from dynamic_functions.Home.prompt_common import build_system_prompt, load_slot_system_prompt, load_bot, load_appearance
-from dynamic_functions.Home.interactions import read_interaction, record_interaction
+from dynamic_functions.Home.casting import _load_characters, is_bot_driven
+from dynamic_functions.Home.prompt_common import prompt_assemble
+from dynamic_functions.Home.interactions import record_interaction
 from dynamic_functions.Home.turn import bot_turn
 
 logger = logging.getLogger("mcp_server")
@@ -88,12 +88,6 @@ async def _handle_chat(game_key: str):
     )
 
 
-def _character_field(game_key: str, sid: str, field: str) -> str:
-    return next(
-        (ch.get(field, "") or "" for ch in _load_characters(game_key) if ch.get("sid") == sid),
-        "",
-    )
-
 
 async def greet_entrant(game_key: str, entrant_sid: str, location: str):
     """Fire an in-character greeting from a bot already at `location` toward a newcomer.
@@ -137,30 +131,7 @@ async def greet_entrant(game_key: str, entrant_sid: str, location: str):
 
 async def _respond_as_bot(*, game_key: str, bot_record: dict, speaker_sid: str, transcript: list):
     bot_sid = bot_record["sid"]
-    role = slot_for_occupant(game_key, bot_sid) or ""
-    if not role:
-        await atlantis.client_log(f"⚠️ Bot {bot_sid} is not currently cast in any slot")
-        return
-
-    base_prompt = load_slot_system_prompt(role)
-    history = read_interaction(game_key, bot_sid, speaker_sid)
-    first_name = _character_field(game_key, speaker_sid, "displayName") or history.get("first_name", "")
-
-    from dynamic_functions.Home.location import compose_setting, position_get
-    bot_location = position_get(game_key, bot_sid)
-    setting = compose_setting(bot_location) if bot_location else ""
-
-    system_prompt = build_system_prompt(
-        base_prompt=base_prompt,
-        bot=load_bot(bot_sid),
-        appearance=load_appearance(bot_sid),
-        character_prompt=load_casting_prompt(role, bot_sid),
-        setting=setting,
-        caller=speaker_sid,
-        prior_interaction_count=int(history.get("count") or 0),
-        last_interaction_at=history.get("last_interaction_at", ""),
-        first_name=first_name,
-    )
+    system_prompt = prompt_assemble(game_key, bot_sid, speaker_sid)
 
     await bot_turn(
         bot_sid=bot_sid,
@@ -168,4 +139,9 @@ async def _respond_as_bot(*, game_key: str, bot_record: dict, speaker_sid: str, 
         transcript=transcript,
     )
 
-    record_interaction(game_key, bot_sid, speaker_sid, first_name=first_name)
+    # Seed speaker's display name into interaction history on first encounter
+    speaker_name = next(
+        (ch.get("displayName", "") for ch in _load_characters(game_key) if ch.get("sid") == speaker_sid),
+        "",
+    )
+    record_interaction(game_key, bot_sid, speaker_sid, first_name=speaker_name)

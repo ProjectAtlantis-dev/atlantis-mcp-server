@@ -147,12 +147,12 @@ async def game_overview(game_key: str) -> None:
 
     tables = []
     tables.append(_table("ent-game", "GAME", ["key"], [[game_key]]))
-    tables.append(_table("ent-bot", "BOT", ["sid", "displayName", "model", "updated"],
-        [[b["sid"], b["displayName"], b["model"], b["updated"]] for b in bot_rows]))
-    tables.append(_table("ent-location", "LOCATION", ["name", "displayName", "parent", "connects_to", "description", "updated"],
-        [[l["name"], l["displayName"], l.get("parent", ""), l["connects_to"], (l.get("description", "")[:60] + "…") if len(l.get("description", "")) > 60 else l.get("description", ""), l["updated"]] for l in loc_rows]))
-    tables.append(_table("ent-role", "SLOT", ["name", "displayName", "defaultLocation", "systemPrompt", "updated"],
-        [[r["name"], r["displayName"], r.get("defaultLocation", ""), "system_prompt.md" if r.get("systemPrompt") else "", r["updated"]] for r in role_rows]))
+    tables.append(_table("ent-bot", "BOT", ["sid", "displayName", "bot", "appearance"],
+        [[b["sid"], b["displayName"], (b.get("bot", "")[:40] + "…") if len(b.get("bot", "")) > 40 else b.get("bot", ""), (b.get("appearance", "")[:40] + "…") if len(b.get("appearance", "")) > 40 else b.get("appearance", "")] for b in bot_rows]))
+    tables.append(_table("ent-location", "LOCATION", ["name", "displayName", "parent", "connects_to", "description"],
+        [[l["name"], l["displayName"], l.get("parent", ""), l["connects_to"], (l.get("description", "")[:40] + "…") if len(l.get("description", "")) > 40 else l.get("description", "")] for l in loc_rows]))
+    tables.append(_table("ent-role", "SLOT", ["name", "displayName", "defaultLocation", "systemPrompt"],
+        [[r["name"], r["displayName"], r.get("defaultLocation", ""), "system_prompt.md" if r.get("systemPrompt") else ""] for r in role_rows]))
     tables.append(_table("ent-character", "CASTING", ["slot", "occupant", "displayName", "casting", "location"],
         [[c["role"], c["sid"], c["displayName"], "casting.md" if c.get("prompt") else "", c["location"]] for c in char_rows]))
 

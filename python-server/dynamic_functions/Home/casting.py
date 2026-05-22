@@ -295,33 +295,19 @@ def build_casting_prompt(game_key: str, slot: str, caller: str = "") -> Dict[str
     bot_sid = info["occupant"]
 
     from dynamic_functions.Home.prompt_common import (
-        build_system_prompt, load_bot, load_appearance,
+        prompt_assemble, load_bot, load_appearance,
         load_slot_system_prompt,
     )
-    from dynamic_functions.Home.location import compose_setting, position_get
-    from dynamic_functions.Home.interactions import read_interaction
+    from dynamic_functions.Home.location import position_get
 
+    pos = position_get(game_key, bot_sid) or _slot_config(slot).get("defaultLocation", "")
+    prompt = prompt_assemble(game_key, bot_sid, caller)
+
+    # Load individual pieces only for the sources breakdown
     bot_md = load_bot(bot_sid)
     appearance_md = load_appearance(bot_sid)
     job_md = load_slot_system_prompt(slot)
     flavor_md = load_casting_prompt(slot, bot_sid)
-
-    pos = position_get(game_key, bot_sid) or _slot_config(slot).get("defaultLocation", "")
-    setting = compose_setting(pos) if pos else ""
-
-    history = read_interaction(game_key, bot_sid, caller) if caller else {}
-
-    prompt = build_system_prompt(
-        base_prompt=job_md,
-        bot=bot_md,
-        appearance=appearance_md,
-        character_prompt=flavor_md,
-        setting=setting,
-        caller=caller,
-        prior_interaction_count=int(history.get("count") or 0),
-        last_interaction_at=history.get("last_interaction_at", ""),
-        first_name=history.get("first_name", ""),
-    )
 
     return {
         "slot": slot,
@@ -335,7 +321,7 @@ def build_casting_prompt(game_key: str, slot: str, caller: str = "") -> Dict[str
             "appearance": f"Game/Bots/{bot_sid}/appearance.md"   if appearance_md else "(missing)",
             "job":        f"Game/Slots/{slot}/system_prompt.md"          if job_md       else "(missing)",
             "casting":    f"Game/Slots/{slot}/casting/{bot_sid}.md"  if flavor_md    else "(none — optional)",
-            "setting":    f"composed from location chain rooted at {pos!r}" if setting else "(no location)",
+            "setting":    f"composed from location chain rooted at {pos!r}" if pos else "(no location)",
         },
     }
 

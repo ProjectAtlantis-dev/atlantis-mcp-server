@@ -2,7 +2,7 @@
 
 import os
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 from dynamic_functions.Home.common import home_path
 
@@ -90,21 +90,71 @@ def build_system_prompt(
     last_interaction_at: str = "",
     first_name: str = "",
 ) -> str:
-    """Assemble the final system prompt: director's note + setting + bot + appearance + role base + character + time + interaction."""
-    parts: List[str] = ["(director's note: we are striving for realistic dialog)"]
+    """Assemble the final system prompt as markdown sections with titles."""
+    parts: List[str] = ["## Director's Note\n\nWe are striving for realistic dialog."]
     if setting:
-        parts.append(setting)
+        parts.append(f"## Setting\n\n{setting}")
     if bot:
-        parts.append(bot)
+        parts.append(f"## Character\n\n{bot}")
     if appearance:
-        parts.append(f"Appearance: {appearance}")
-    parts.append(base_prompt)
+        parts.append(f"## Appearance\n\n{appearance}")
+    parts.append(f"## Role\n\n{base_prompt}")
     if character_prompt:
-        parts.append(character_prompt)
-    parts.append(f"Current date and time: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        parts.append(f"## Casting Notes\n\n{character_prompt}")
+    parts.append(f"## Current Time\n\n{datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
     note = build_interaction_context(caller, prior_interaction_count, last_interaction_at, first_name)
     if note:
-        parts.append(note)
+        parts.append(f"## Interaction History\n\n{note}")
 
     return "\n\n".join(parts)
+
+@visible
+def prompt_assemble(
+    game_key: str,
+    bot_sid: str,
+    speaker_sid: str = "",
+) -> str:
+    """One-stop prompt assembly. Returns the full system-prompt string."""
+    from dynamic_functions.Home.casting import (
+        _load_characters, load_casting_prompt, _slot_config, slot_for_occupant,
+    )
+    from dynamic_functions.Home.interactions import read_interaction
+    from dynamic_functions.Home.location import compose_setting, position_get
+
+    slot = slot_for_occupant(game_key, bot_sid)
+    if not slot:
+        raise ValueError(f"Bot {bot_sid} is not cast in any slot for game {game_key}")
+
+    base_prompt = load_slot_system_prompt(slot)
+    bot_md = load_bot(bot_sid)
+    appearance_md = load_appearance(bot_sid)
+    character_prompt = load_casting_prompt(slot, bot_sid)
+
+    # Location / setting
+    pos = position_get(game_key, bot_sid) or _slot_config(slot).get("defaultLocation", "")
+    setting = compose_setting(pos) if pos else ""
+
+    # Interaction history with speaker
+    history = read_interaction(game_key, bot_sid, speaker_sid) if speaker_sid else {}
+
+    # Resolve speaker's display name from casting records, fall back to history
+    first_name = ""
+    if speaker_sid:
+        first_name = next(
+            (ch.get("displayName", "") or ""
+             for ch in _load_characters(game_key) if ch.get("sid") == speaker_sid),
+            "",
+        ) or history.get("first_name", "")
+
+    return build_system_prompt(
+        base_prompt=base_prompt,
+        bot=bot_md,
+        appearance=appearance_md,
+        character_prompt=character_prompt,
+        setting=setting,
+        caller=speaker_sid,
+        prior_interaction_count=int(history.get("count") or 0),
+        last_interaction_at=history.get("last_interaction_at", ""),
+        first_name=first_name,
+    )

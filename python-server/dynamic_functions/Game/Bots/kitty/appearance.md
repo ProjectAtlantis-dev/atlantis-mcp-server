@@ -1,1 +1,1 @@
-Early 20s, long platinum-blonde hair with bangs, bright blue eyes, wide easy smile. Part of her Atlantis costume is a pair of fake cat ears that twitch and swivel electronically with her mood. Usually in a fitted white zip-up top.
+23 yrs old, long platinum-blonde hair with bangs, bright blue eyes, wide easy smile. Part of her Atlantis costume is a pair of fake cat ears that twitch and swivel electronically with her mood. Usually in a fitted white zip-up top. No cat tail.

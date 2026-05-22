@@ -53,18 +53,30 @@ def _parse_tool_arguments(raw_args: str, tool_key: str) -> Dict[str, Any]:
             return repaired
         raise ValueError(f"Could not parse tool arguments as JSON: {e}")
 
+@visible
 async def run_turn(
     *,
-    api_key: str,
-    base_url: Optional[str],
-    model: str,
     bot_sid: str,
-    bot_display_name: str,
     system_prompt: str,
     transcript: List[Dict[str, Any]],
     tools: List[AtlantisSearchToolT] = [],
 ) -> Optional[str]:
-    """Run a streaming tool-calling turn"""
+    """Run a streaming tool-calling turn. Loads bot config from bot_sid."""
+    from dynamic_functions.Home.common import _load_bot_config
+
+    loaded = _load_bot_config(bot_sid)
+    if not loaded:
+        raise ValueError(f"No bot config for bot {bot_sid}")
+    cfg, _folder = loaded
+
+    api_key_env = cfg.get("apiKeyEnv", "")
+    api_key = os.environ.get(api_key_env, "") if api_key_env else ""
+    base_url = cfg.get("baseUrl", "") or None
+    model = cfg.get("model", "")
+    bot_display_name = cfg.get("displayName", bot_sid)
+
+    if not api_key or not model:
+        raise ValueError(f"Bot {bot_sid} missing model/api key (env={api_key_env})")
 
     client = OpenAI(api_key=api_key, base_url=base_url)
     openai_tools, tool_lookup = convert_search_tools(tools)
@@ -204,38 +216,5 @@ async def run_turn(
 
     return accumulated_text or None
 
-@visible
-async def bot_turn(
-    *,
-    bot_sid: str,
-    system_prompt: str,
-    transcript: List[Dict[str, Any]],  # Atlantis chat transcript (not OpenAI messages)
-    tools: List[AtlantisSearchToolT] = [],
-) -> Optional[str]:
-    """High-level wrapper: loads bot config for bot_sid and delegates to run_turn."""
-    from dynamic_functions.Home.common import _load_bot_config
-
-    loaded = _load_bot_config(bot_sid)
-    if not loaded:
-        raise ValueError(f"No bot config for bot {bot_sid}")
-    cfg, _folder = loaded
-
-    api_key_env = cfg.get("apiKeyEnv", "")
-    api_key = os.environ.get(api_key_env, "") if api_key_env else ""
-    base_url = cfg.get("baseUrl", "") or None
-    model = cfg.get("model", "")
-    bot_display_name = cfg.get("displayName", bot_sid)
-
-    if not api_key or not model:
-        raise ValueError(f"Bot {bot_sid} missing model/api key (env={api_key_env})")
-
-    return await run_turn(
-        api_key=api_key,
-        base_url=base_url,
-        model=model,
-        bot_sid=bot_sid,
-        bot_display_name=bot_display_name,
-        system_prompt=system_prompt,
-        transcript=transcript,
-        tools=tools,
-    )
+# Keep bot_turn as an alias for backward compat
+bot_turn = run_turn

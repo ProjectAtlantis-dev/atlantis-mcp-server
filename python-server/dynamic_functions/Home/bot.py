@@ -1,14 +1,10 @@
-"""Persona tools
+"""Bot tools
 
-A *persona* is an AI character that can fill a slot — Kitty, Lars, Sven,
-Natalie, Taffy, Chad. Personas are reusable assets: the same persona may be
+A *bot* is an AI character that can fill a slot - Kitty, Lars, Sven,
+Natalie, Taffy, Chad. Bots are reusable assets: the same bot may be
 the default occupant for many slots (e.g. Chad fills Guest1…Guest8). Each
-persona contributes its `persona.md`, `appearance.md`, image and LLM config
+bot contributes its `bot.md`, `appearance.md`, image and LLM config
 when it sits in a slot.
-
-This file is the renamed successor of `bot.py`. The deeper model shift
-(slot.defaultPersona, casting.json, multi-slot memory keying) lands in the
-next pass.
 """
 
 import atlantis
@@ -18,20 +14,20 @@ import os
 from datetime import datetime
 from typing import List, Dict
 
-from dynamic_functions.Home.common import _personas_dir, _ensure_thumb
-from dynamic_functions.Home.prompt_common import load_persona, load_appearance
+from dynamic_functions.Home.common import _bots_dir, _ensure_thumb
+from dynamic_functions.Home.prompt_common import load_bot, load_appearance
 
 
 
 
-def _persona_rows() -> List[Dict[str, str]]:
-    """Pure data: list personas. No client side effects."""
-    personas_dir = _personas_dir()
-    personas: List[Dict[str, str]] = []
-    if not os.path.isdir(personas_dir):
-        return personas
-    for entry in sorted(os.listdir(personas_dir)):
-        entry_dir = os.path.join(personas_dir, entry)
+def _bot_rows() -> List[Dict[str, str]]:
+    """Pure data: list bots. No client side effects."""
+    bots_dir = _bots_dir()
+    bots: List[Dict[str, str]] = []
+    if not os.path.isdir(bots_dir):
+        return bots
+    for entry in sorted(os.listdir(bots_dir)):
+        entry_dir = os.path.join(bots_dir, entry)
         if not os.path.isdir(entry_dir) or entry.startswith(".") or entry == "__pycache__":
             continue
         config_path = os.path.join(entry_dir, 'config.json')
@@ -62,24 +58,24 @@ def _persona_rows() -> List[Dict[str, str]]:
              if os.path.isfile(os.path.join(entry_dir, f))),
             default=os.path.getmtime(config_path),
         )
-        personas.append({
+        bots.append({
             'sid': sid,
             'displayName': cfg.get('displayName', entry),
             'model': model_label,
             'image': image_data,
-            'persona': load_persona(sid),
+            'bot': load_bot(sid),
             'appearance': load_appearance(sid),
             'updated': datetime.fromtimestamp(latest).strftime('%Y-%m-%d %H:%M'),
         })
-    return personas
+    return bots
 
 
 @visible
-async def persona_list() -> List[Dict[str, str]]:
-    """List personas (AI characters available to fill slots)"""
-    personas = _persona_rows()
-    await atlantis.client_data("Personas", personas, column_formatter={
-        "persona": {"type": "markdown"},
+async def bot_list() -> List[Dict[str, str]]:
+    """List bots (AI characters available to fill slots)"""
+    bots = _bot_rows()
+    await atlantis.client_data("Bots", bots, column_formatter={
+        "bot": {"type": "markdown"},
         "appearance": {"type": "markdown"},
     })
-    return personas
+    return bots

@@ -6,7 +6,7 @@ logger = logging.getLogger("mcp_server")
 
 @visible
 async def index():
-    """Atlantis persona roster — the AI characters available to fill slots (Kitty, Lars, Sven, Natalie, Taffy, Chad)."""
+    """Atlantis bot roster — the AI characters available to fill slots (Kitty, Lars, Sven, Natalie, Taffy, Chad)."""
     logger.info(f"Executing placeholder function: index...")
 
     await atlantis.client_log("index running")

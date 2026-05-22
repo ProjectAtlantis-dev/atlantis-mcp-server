@@ -2,13 +2,12 @@
 
 A *slot* is a playable unit in the game (the gamer-friendly term for what we
 used to call a role). The lobby UI shows a roster of slots; each one is either
-filled by an AI persona or claimed by a human. The slot's `role.md` is the job
+filled by an AI bot or claimed by a human. The slot's `role.md` is the job
 description that whoever fills the slot is expected to follow.
 
 This file is the renamed successor of `role.py`. For now it still reads from
 `Game/Slots/<slot>/` and uses the legacy `system_prompt.md` filename for the
-role text — the deeper model shift (defaultPersona, casting.json, etc.) lands
-in a follow-up pass.
+role text.
 """
 
 import atlantis
@@ -61,7 +60,7 @@ def _slot_rows() -> List[Dict[str, Any]]:
             "name": entry,
             "displayName": slot_data.get("displayName", entry),
             "defaultLocation": slot_data.get("defaultLocation", ""),
-            "defaultPersona": slot_data.get("defaultPersona", ""),
+            "defaultBot": slot_data.get("defaultBot", ""),
             "purpose": slot_data.get("purpose", ""),
             "openToHumans": bool(slot_data.get("openToHumans", True)),
             "systemPrompt": system_prompt,

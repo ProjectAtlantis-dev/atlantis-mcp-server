@@ -258,12 +258,12 @@ async def bot_turn(
     tool_lookup: Dict[str, ToolLookupInfo],
     allowed_apps: Optional[List[str]] = None,
 ) -> Optional[str]:
-    """High-level wrapper: loads persona config for bot_sid and delegates to run_turn."""
-    from dynamic_functions.Home.common import _load_persona_config
+    """High-level wrapper: loads bot config for bot_sid and delegates to run_turn."""
+    from dynamic_functions.Home.common import _load_bot_config
 
-    loaded = _load_persona_config(bot_sid)
+    loaded = _load_bot_config(bot_sid)
     if not loaded:
-        raise ValueError(f"No persona config for bot {bot_sid}")
+        raise ValueError(f"No bot config for bot {bot_sid}")
     cfg, _folder = loaded
 
     api_key_env = cfg.get("apiKeyEnv", "")

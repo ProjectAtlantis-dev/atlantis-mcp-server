@@ -2,7 +2,7 @@
   "displayName": "Hotel Manager",
   "purpose": "Oversees staff and handles escalations.",
   "defaultLocation": "Hallway",
-  "defaultPersona": "lars",
+  "defaultBot": "lars",
   "openToHumans": true,
   "systemPrompt": "system_prompt.md"
 }

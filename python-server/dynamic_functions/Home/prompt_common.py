@@ -15,18 +15,18 @@ def load_slot_system_prompt(slot: str) -> str:
 
 
 
-def load_persona(persona_sid: str) -> str:
-    """Read this persona's persona.md. Empty string if not provided."""
-    path = os.path.join(home_path("Game", "Personas", persona_sid), "persona.md")
+def load_bot(bot_sid: str) -> str:
+    """Read this bot's bot.md. Empty string if not provided."""
+    path = os.path.join(home_path("Game", "Bots", bot_sid), "bot.md")
     if not os.path.isfile(path):
         return ""
     with open(path, "r", encoding="utf-8") as f:
         return f.read().strip()
 
 
-def load_appearance(persona_sid: str) -> str:
-    """Read this persona's appearance.md. Empty string if not provided."""
-    path = os.path.join(home_path("Game", "Personas", persona_sid), "appearance.md")
+def load_appearance(bot_sid: str) -> str:
+    """Read this bot's appearance.md. Empty string if not provided."""
+    path = os.path.join(home_path("Game", "Bots", bot_sid), "appearance.md")
     if not os.path.isfile(path):
         return ""
     with open(path, "r", encoding="utf-8") as f:
@@ -81,7 +81,7 @@ def build_interaction_context(
 
 def build_system_prompt(
     base_prompt: str,
-    persona: str = "",
+    bot: str = "",
     appearance: str = "",
     character_prompt: str = "",
     setting: str = "",
@@ -90,12 +90,12 @@ def build_system_prompt(
     last_interaction_at: str = "",
     first_name: str = "",
 ) -> str:
-    """Assemble the final system prompt: director's note + setting + persona + appearance + role base + character + time + interaction."""
+    """Assemble the final system prompt: director's note + setting + bot + appearance + role base + character + time + interaction."""
     parts: List[str] = ["(director's note: we are striving for realistic dialog)"]
     if setting:
         parts.append(setting)
-    if persona:
-        parts.append(persona)
+    if bot:
+        parts.append(bot)
     if appearance:
         parts.append(f"Appearance: {appearance}")
     parts.append(base_prompt)

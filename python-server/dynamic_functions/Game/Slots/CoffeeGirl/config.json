@@ -2,7 +2,7 @@
   "displayName": "Coffee Girl",
   "purpose": "Runs the break-room espresso bar and roams with caffeine.",
   "defaultLocation": "Kitchen",
-  "defaultPersona": "taffy",
+  "defaultBot": "taffy",
   "openToHumans": true,
   "systemPrompt": "system_prompt.md"
 }

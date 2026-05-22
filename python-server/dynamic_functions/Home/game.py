@@ -10,7 +10,7 @@ from dynamic_functions.Home.location import _location_rows
 from dynamic_functions.Home.casting import _character_rows
 from dynamic_functions.Home.modal import modal_string
 from dynamic_functions.Home.slot import _slot_rows
-from dynamic_functions.Home.persona import _persona_rows
+from dynamic_functions.Home.bot import _bot_rows
 
 
 
@@ -114,11 +114,11 @@ async def game_join(game_key: str) -> None:
 
 @visible
 async def game_overview(game_key: str) -> None:
-    """Show the game state diagram — personas, slots, locations, and current casting."""
+    """Show the game state diagram — bots, slots, locations, and current casting."""
     from dynamic_functions.Home.common import require_game_dir
     require_game_dir(game_key)
 
-    bot_rows = _persona_rows()
+    bot_rows = _bot_rows()
     loc_rows = _location_rows()
     role_rows = _slot_rows()
     char_rows = _character_rows(game_key)
@@ -147,7 +147,7 @@ async def game_overview(game_key: str) -> None:
 
     tables = []
     tables.append(_table("ent-game", "GAME", ["key"], [[game_key]]))
-    tables.append(_table("ent-bot", "PERSONA", ["sid", "displayName", "model", "updated"],
+    tables.append(_table("ent-bot", "BOT", ["sid", "displayName", "model", "updated"],
         [[b["sid"], b["displayName"], b["model"], b["updated"]] for b in bot_rows]))
     tables.append(_table("ent-location", "LOCATION", ["name", "displayName", "parent", "connects_to", "description", "updated"],
         [[l["name"], l["displayName"], l.get("parent", ""), l["connects_to"], (l.get("description", "")[:60] + "…") if len(l.get("description", "")) > 60 else l.get("description", ""), l["updated"]] for l in loc_rows]))
@@ -161,8 +161,8 @@ async def game_overview(game_key: str) -> None:
         (f"ent-location-{uid}", f"ent-location-{uid}", "connects to"),
         (f"ent-location-{uid}", f"ent-location-{uid}", "parent"),
         (f"ent-location-{uid}", f"ent-role-{uid}", "defaultLocation"),
-        (f"ent-bot-{uid}", f"ent-role-{uid}", "defaultPersona"),
-        (f"ent-bot-{uid}", f"ent-character-{uid}", "Slots/<slot>/casting/<persona>.md"),
+        (f"ent-bot-{uid}", f"ent-role-{uid}", "defaultBot"),
+        (f"ent-bot-{uid}", f"ent-character-{uid}", "Slots/<slot>/casting/<bot>.md"),
         (f"ent-role-{uid}", f"ent-character-{uid}", "casting.json (per-game override)"),
         (f"ent-game-{uid}", f"ent-character-{uid}", "position"),
         (f"ent-location-{uid}", f"ent-character-{uid}", "location"),

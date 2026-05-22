@@ -8,7 +8,7 @@ from dynamic_functions.Home.chat_common import (
 )
 from dynamic_functions.Home.location import position_get, position_query
 from dynamic_functions.Home.casting import _load_characters, is_bot_driven, load_casting_prompt, slot_for_occupant
-from dynamic_functions.Home.prompt_common import build_system_prompt, load_slot_system_prompt, load_persona, load_appearance
+from dynamic_functions.Home.prompt_common import build_system_prompt, load_slot_system_prompt, load_bot, load_appearance
 from dynamic_functions.Home.interactions import read_interaction, record_interaction
 from dynamic_functions.Home.turn import bot_turn
 
@@ -139,7 +139,7 @@ async def _respond_as_bot(*, game_key: str, bot_record: dict, speaker_sid: str, 
     bot_sid = bot_record["sid"]
     role = slot_for_occupant(game_key, bot_sid) or ""
     if not role:
-        await atlantis.client_log(f"⚠️ Persona {bot_sid} is not currently cast in any slot")
+        await atlantis.client_log(f"⚠️ Bot {bot_sid} is not currently cast in any slot")
         return
 
     base_prompt = load_slot_system_prompt(role)
@@ -152,7 +152,7 @@ async def _respond_as_bot(*, game_key: str, bot_record: dict, speaker_sid: str, 
 
     system_prompt = build_system_prompt(
         base_prompt=base_prompt,
-        persona=load_persona(bot_sid),
+        bot=load_bot(bot_sid),
         appearance=load_appearance(bot_sid),
         character_prompt=load_casting_prompt(role, bot_sid),
         setting=setting,

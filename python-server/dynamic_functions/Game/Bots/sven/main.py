@@ -6,5 +6,5 @@ logger = logging.getLogger("mcp_server")
 
 @visible
 async def index():
-    """Lars — Atlantis bot persona (manager)."""
+    """Sven — Atlantis bot (night security guard)."""
     pass

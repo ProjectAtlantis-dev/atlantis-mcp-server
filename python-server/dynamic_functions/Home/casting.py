@@ -1,22 +1,22 @@
-"""Casting — runtime binding of personas (or humans) to slots, per game.
+"""Casting — runtime binding of bots (or humans) to slots, per game.
 
 Replaces the old `character.py` and the `Game/Characters/` folder.
 
 ## Concepts
 
 - **Slot** (`Game/Slots/<slot>/`): a playable unit in a scenario.
-  Has a `defaultPersona` and a `defaultLocation` baked into its config.
-- **Persona** (`Game/Personas/<sid>/`): an AI character with persona, model,
+  Has a `defaultBot` and a `defaultLocation` baked into its config.
+- **Bot** (`Game/Bots/<sid>/`): an AI character with prompt, model,
   image, etc. Reusable across slots and games.
 - **Casting**: which occupant currently fills which slot, *per game*. An
-  occupant is either an AI persona sid or a human user sid. If no casting
-  override exists for a slot, the slot's `defaultPersona` is in the chair.
+  occupant is either an AI bot sid or a human user sid. If no casting
+  override exists for a slot, the slot's `defaultBot` is in the chair.
 
 ## On-disk
 
 - Slot defaults:  `Game/Slots/<slot>/config.json`     (asset, shared)
-- Per-slot prompt flavor for a persona:
-                   `Game/Slots/<slot>/casting/<persona>.md`   (asset, shared)
+- Per-slot prompt flavor for a bot:
+                   `Game/Slots/<slot>/casting/<bot>.md`   (asset, shared)
 - Per-game override: `Data/games/<game_key>/casting.json`     (runtime)
     `{ "<slot>": { "occupant": "<sid>", "kind": "ai" | "human", "displayName": "..." } }`
 
@@ -26,7 +26,7 @@ Replaces the old `character.py` and the `Game/Characters/` folder.
 - `set_casting(game_key, slot, occupant, kind, displayName="")`
 - `clear_casting(game_key, slot)`
 - `slot_for_occupant(game_key, sid)` → slot or None  (reverse lookup)
-- `load_casting_prompt(slot, persona)` — reads `Slots/<slot>/casting/<persona>.md`
+- `load_casting_prompt(slot, bot)` — reads `Slots/<slot>/casting/<bot>.md`
 - Legacy shims used by older callers: `_load_characters`, `_find_character`,
   `_character_rows`, `is_bot_driven`, `load_character_prompt`.
 """
@@ -37,7 +37,7 @@ import os
 from typing import Any, Dict, List, Optional
 
 from dynamic_functions.Home.common import (
-    _load_persona_config,
+    _load_bot_config,
     _read_json,
     _write_json,
     home_path,
@@ -71,8 +71,8 @@ def _slot_config(slot: str) -> Dict[str, Any]:
     return _read_json(p, {}) or {}
 
 
-def slot_default_persona(slot: str) -> str:
-    return str(_slot_config(slot).get("defaultPersona", "") or "")
+def slot_default_bot(slot: str) -> str:
+    return str(_slot_config(slot).get("defaultBot", "") or "")
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +94,7 @@ def _write_overrides(game_key: str, data: Dict[str, Dict[str, Any]]) -> None:
 
 def get_casting(game_key: str) -> Dict[str, Dict[str, Any]]:
     """Return current casting for every slot. Merges per-game overrides on top
-    of each slot's defaultPersona. Slots with no occupant at all are still
+    of each slot's defaultBot. Slots with no occupant at all are still
     included with kind="empty" (which only happens when there is no default
     AND no override)."""
     overrides = _read_overrides(game_key)
@@ -113,14 +113,14 @@ def get_casting(game_key: str) -> Dict[str, Dict[str, Any]]:
                 "source": "override",
             }
             continue
-        default_persona = cfg.get("defaultPersona", "")
-        if default_persona:
+        default_bot = cfg.get("defaultBot", "")
+        if default_bot:
             out[slot] = {
                 "slot": slot,
                 "slotDisplayName": slot_display,
-                "occupant": default_persona,
+                "occupant": default_bot,
                 "kind": "ai",
-                "displayName": _occupant_display_name(default_persona, "ai"),
+                "displayName": _occupant_display_name(default_bot, "ai"),
                 "source": "default",
             }
             continue
@@ -137,7 +137,7 @@ def get_casting(game_key: str) -> Dict[str, Dict[str, Any]]:
 
 def _occupant_display_name(occupant: str, kind: str) -> str:
     if kind == "ai":
-        loaded = _load_persona_config(occupant)
+        loaded = _load_bot_config(occupant)
         if loaded:
             cfg, _ = loaded
             return cfg.get("displayName", occupant)
@@ -145,14 +145,14 @@ def _occupant_display_name(occupant: str, kind: str) -> str:
 
 
 def set_casting(game_key: str, slot: str, occupant: str, kind: str = "ai", displayName: str = "") -> None:
-    """Cast a slot. `kind` is "ai" (occupant is a persona sid) or "human"
+    """Cast a slot. `kind` is "ai" (occupant is a bot sid) or "human"
     (occupant is a user sid)."""
     if slot not in _list_slot_keys():
         raise ValueError(f"Unknown slot: {slot}")
     if kind not in ("ai", "human"):
         raise ValueError(f"Unknown kind: {kind}")
-    if kind == "ai" and not _load_persona_config(occupant):
-        raise ValueError(f"Unknown persona: {occupant}")
+    if kind == "ai" and not _load_bot_config(occupant):
+        raise ValueError(f"Unknown bot: {occupant}")
     overrides = _read_overrides(game_key)
     overrides[slot] = {
         "occupant": occupant,
@@ -163,7 +163,7 @@ def set_casting(game_key: str, slot: str, occupant: str, kind: str = "ai", displ
 
 
 def clear_casting(game_key: str, slot: str) -> None:
-    """Drop the per-game override so the slot falls back to its defaultPersona."""
+    """Drop the per-game override so the slot falls back to its defaultBot."""
     overrides = _read_overrides(game_key)
     if slot in overrides:
         del overrides[slot]
@@ -182,10 +182,10 @@ def slot_for_occupant(game_key: str, sid: str) -> Optional[str]:
 # Prompt content
 # ---------------------------------------------------------------------------
 
-def load_casting_prompt(slot: str, persona: str) -> str:
-    """Read this persona's specific take on this slot.
-    Stored at `Game/Slots/<slot>/casting/<persona>.md`. Empty string if missing."""
-    path = os.path.join(_slots_dir(), slot, "casting", f"{persona}.md")
+def load_casting_prompt(slot: str, bot: str) -> str:
+    """Read this bot's specific take on this slot.
+    Stored at `Game/Slots/<slot>/casting/<bot>.md`. Empty string if missing."""
+    path = os.path.join(_slots_dir(), slot, "casting", f"{bot}.md")
     if not os.path.isfile(path):
         return ""
     with open(path, "r", encoding="utf-8") as f:
@@ -201,10 +201,10 @@ load_character_prompt = lambda sid, role: load_casting_prompt(role, sid)
 # ---------------------------------------------------------------------------
 
 def is_bot_driven(sid: str) -> bool:
-    """True iff `sid` is a known persona AND no live session has claimed its
-    chat_slot (i.e. no human is currently typing as this persona)."""
+    """True iff `sid` is a known bot AND no live session has claimed its
+    chat_slot (i.e. no human is currently typing as this bot)."""
     from dynamic_functions.Home.session import chat_slot_claimed
-    if _load_persona_config(sid) is None:
+    if _load_bot_config(sid) is None:
         return False
     return not chat_slot_claimed(sid)
 
@@ -218,18 +218,18 @@ def _load_characters(game_key: Optional[str] = None) -> List[Dict[str, Any]]:
         rows: List[Dict[str, Any]] = []
         for slot in _list_slot_keys():
             cfg = _slot_config(slot)
-            persona = cfg.get("defaultPersona", "")
-            if not persona:
+            bot = cfg.get("defaultBot", "")
+            if not bot:
                 continue
-            loaded = _load_persona_config(persona)
+            loaded = _load_bot_config(bot)
             if not loaded:
                 continue
             pcfg, _ = loaded
             rows.append({
-                "sid": persona,
+                "sid": bot,
                 "role": slot,
-                "displayName": pcfg.get("displayName", persona),
-                "prompt": load_casting_prompt(slot, persona),
+                "displayName": pcfg.get("displayName", bot),
+                "prompt": load_casting_prompt(slot, bot),
             })
         return rows
 
@@ -252,7 +252,7 @@ def _find_character(sid: str, game_key: Optional[str] = None) -> Dict[str, Any]:
         if ch["sid"] == sid:
             return ch
     raise ValueError(
-        f"No casting found for sid: {sid!r}. Set a defaultPersona in a slot, "
+        f"No casting found for sid: {sid!r}. Set a defaultBot in a slot, "
         f"or use set_casting() to bind them."
     )
 
@@ -292,28 +292,28 @@ def build_casting_prompt(game_key: str, slot: str, caller: str = "") -> Dict[str
             "note": "Slot is filled by a human — no AI system prompt is assembled.",
         }
 
-    persona_sid = info["occupant"]
+    bot_sid = info["occupant"]
 
     from dynamic_functions.Home.prompt_common import (
-        build_system_prompt, load_persona, load_appearance,
+        build_system_prompt, load_bot, load_appearance,
         load_slot_system_prompt,
     )
     from dynamic_functions.Home.location import compose_setting, position_get
     from dynamic_functions.Home.interactions import read_interaction
 
-    persona_md = load_persona(persona_sid)
-    appearance_md = load_appearance(persona_sid)
+    bot_md = load_bot(bot_sid)
+    appearance_md = load_appearance(bot_sid)
     job_md = load_slot_system_prompt(slot)
-    flavor_md = load_casting_prompt(slot, persona_sid)
+    flavor_md = load_casting_prompt(slot, bot_sid)
 
-    pos = position_get(game_key, persona_sid) or _slot_config(slot).get("defaultLocation", "")
+    pos = position_get(game_key, bot_sid) or _slot_config(slot).get("defaultLocation", "")
     setting = compose_setting(pos) if pos else ""
 
-    history = read_interaction(game_key, persona_sid, caller) if caller else {}
+    history = read_interaction(game_key, bot_sid, caller) if caller else {}
 
     prompt = build_system_prompt(
         base_prompt=job_md,
-        persona=persona_md,
+        bot=bot_md,
         appearance=appearance_md,
         character_prompt=flavor_md,
         setting=setting,
@@ -325,16 +325,16 @@ def build_casting_prompt(game_key: str, slot: str, caller: str = "") -> Dict[str
 
     return {
         "slot": slot,
-        "occupant": persona_sid,
+        "occupant": bot_sid,
         "kind": "ai",
-        "displayName": info.get("displayName", persona_sid),
+        "displayName": info.get("displayName", bot_sid),
         "location": pos,
         "prompt": prompt,
         "sources": {
-            "persona":    f"Game/Personas/{persona_sid}/persona.md"      if persona_md   else "(missing)",
-            "appearance": f"Game/Personas/{persona_sid}/appearance.md"   if appearance_md else "(missing)",
+            "bot":    f"Game/Bots/{bot_sid}/bot.md"      if bot_md   else "(missing)",
+            "appearance": f"Game/Bots/{bot_sid}/appearance.md"   if appearance_md else "(missing)",
             "job":        f"Game/Slots/{slot}/system_prompt.md"          if job_md       else "(missing)",
-            "casting":    f"Game/Slots/{slot}/casting/{persona_sid}.md"  if flavor_md    else "(none — optional)",
+            "casting":    f"Game/Slots/{slot}/casting/{bot_sid}.md"  if flavor_md    else "(none — optional)",
             "setting":    f"composed from location chain rooted at {pos!r}" if setting else "(no location)",
         },
     }

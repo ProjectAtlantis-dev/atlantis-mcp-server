@@ -7,7 +7,7 @@ from dynamic_functions.Home.chat_common import (
     analyze_participants, fetch_transcript,
 )
 from dynamic_functions.Home.location import position_get, position_query
-from dynamic_functions.Home.casting import _load_characters, is_bot_driven
+from dynamic_functions.Home.casting import casting_for_occupant, is_bot_driven
 from dynamic_functions.Home.prompt_common import prompt_assemble
 from dynamic_functions.Home.interactions import record_interaction
 from dynamic_functions.Home.turn import bot_turn
@@ -37,15 +37,15 @@ async def chat_callback(game_key: str):
 
 
 async def _handle_chat(game_key: str):
-    from dynamic_functions.Home.session import get_session_room
+    from dynamic_functions.Home.session import session_room
 
-    location = get_session_room(game_key)
+    location = session_room(game_key)
 
     raw_transcript, transcript = await fetch_transcript(game_key)
     logger.info(f"Chat: {len(raw_transcript)} raw / {len(transcript)} filtered (room={location})")
 
     occupants = position_query(game_key, location)
-    occupant_sids = {ch["sid"] for ch in occupants}
+    occupant_sids = {ch["occupant"] for ch in occupants}
 
     speaker_sid = None
     for msg in reversed(raw_transcript):
@@ -66,19 +66,19 @@ async def _handle_chat(game_key: str):
         await atlantis.client_log(f"📍 {speaker_sid} is alone in {location}")
         return
 
-    names = [ch.get("displayName", ch["sid"]) for ch in occupants]
+    names = [ch.get("displayName", ch["occupant"]) for ch in occupants]
     await atlantis.client_log(f"🏠 Room [{location}]: {', '.join(names)}")
 
     bots_heard = [
         ch for ch in occupants
-        if ch["sid"] != speaker_sid and is_bot_driven(ch["sid"])
+        if ch["occupant"] != speaker_sid and is_bot_driven(ch["occupant"])
     ]
     if not bots_heard:
         await atlantis.client_log("🎤 No bots heard it")
         return
 
     next_up = bots_heard[0]
-    await atlantis.client_log(f"🎤 Heard by: {next_up.get('displayName', next_up['sid'])}")
+    await atlantis.client_log(f"🎤 Heard by: {next_up.get('displayName', next_up['occupant'])}")
 
     await _respond_as_bot(
         game_key=game_key,
@@ -106,18 +106,18 @@ async def greet_entrant(game_key: str, entrant_sid: str, location: str):
     occupants = position_query(game_key, location)
     bots_here = [
         ch for ch in occupants
-        if ch["sid"] != entrant_sid and is_bot_driven(ch["sid"])
+        if ch["occupant"] != entrant_sid and is_bot_driven(ch["occupant"])
     ]
     if not bots_here:
         return
 
     greeter = bots_here[0]
-    request_id = atlantis.get_request_id() or f"greet:{entrant_sid}->{greeter['sid']}"
+    request_id = atlantis.get_request_id() or f"greet:{entrant_sid}->{greeter['occupant']}"
     atlantis.session_shared.set(_BUSY_KEY, request_id)
     try:
         _, transcript = await fetch_transcript(game_key)
         await atlantis.client_log(
-            f"\U0001f44b {greeter.get('displayName', greeter['sid'])} greets the arrival"
+            f"\U0001f44b {greeter.get('displayName', greeter['occupant'])} greets the arrival"
         )
         await _respond_as_bot(
             game_key=game_key,
@@ -130,7 +130,7 @@ async def greet_entrant(game_key: str, entrant_sid: str, location: str):
 
 
 async def _respond_as_bot(*, game_key: str, bot_record: dict, speaker_sid: str, transcript: list):
-    bot_sid = bot_record["sid"]
+    bot_sid = bot_record["occupant"]
     system_prompt = prompt_assemble(game_key, bot_sid, speaker_sid)
 
     await bot_turn(
@@ -139,9 +139,8 @@ async def _respond_as_bot(*, game_key: str, bot_record: dict, speaker_sid: str, 
         transcript=transcript,
     )
 
-    # Seed speaker's display name into interaction history on first encounter
-    speaker_name = next(
-        (ch.get("displayName", "") for ch in _load_characters(game_key) if ch.get("sid") == speaker_sid),
-        "",
-    )
+    try:
+        speaker_name = casting_for_occupant(game_key, speaker_sid).get("displayName", "")
+    except ValueError:
+        speaker_name = ""
     record_interaction(game_key, bot_sid, speaker_sid, first_name=speaker_name)

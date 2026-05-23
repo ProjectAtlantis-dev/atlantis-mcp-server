@@ -6,8 +6,8 @@ import os
 import uuid
 from typing import Dict, Any
 
-from dynamic_functions.Home.location import _location_rows
-from dynamic_functions.Home.casting import _character_rows
+from dynamic_functions.Home.location import _location_rows, get_positions
+from dynamic_functions.Home.casting import get_casting
 from dynamic_functions.Home.modal import modal_string
 from dynamic_functions.Home.slot import _slot_rows
 from dynamic_functions.Home.bot import _bot_rows
@@ -121,18 +121,28 @@ async def game_overview(game_key: str) -> None:
     bot_rows = _bot_rows()
     loc_rows = _location_rows()
     role_rows = _slot_rows()
-    char_rows = _character_rows(game_key)
+    positions = get_positions(game_key)
+    casting_rows = [
+        {**info, "location": positions.get(info.get("occupant", ""), "")}
+        for info in get_casting(game_key).values()
+    ]
 
     # Build an HTML table
+    def _trunc(s, n=40):
+        s = str(s or "")
+        return s[:n] if len(s) > n else s
+
     def _esc(s):
         return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
     uid = uuid.uuid4().hex[:8]
 
-    def _table(entity_id, title, headers, rows):
+    def _table(entity_id, title, headers, rows, dynamic=False):
         """Build one entity table"""
         scoped_id = f"{entity_id}-{uid}"
         cls = f"er-entity-{uid}"
+        if dynamic:
+            cls += f" er-dynamic-{uid}"
         h = "".join(f"<th>{_esc(c)}</th>" for c in headers)
         body = ""
         for row in rows:
@@ -146,15 +156,15 @@ async def game_overview(game_key: str) -> None:
         )
 
     tables = []
-    tables.append(_table("ent-game", "GAME", ["key"], [[game_key]]))
+    tables.append(_table("ent-game", "GAME", ["key"], [[game_key]], dynamic=True))
     tables.append(_table("ent-bot", "BOT", ["sid", "displayName", "bot", "appearance"],
-        [[b["sid"], b["displayName"], (b.get("bot", "")[:40] + "…") if len(b.get("bot", "")) > 40 else b.get("bot", ""), (b.get("appearance", "")[:40] + "…") if len(b.get("appearance", "")) > 40 else b.get("appearance", "")] for b in bot_rows]))
+        [[b["sid"], b["displayName"], _trunc(b.get("bot", "")), _trunc(b.get("appearance", ""))] for b in bot_rows]))
     tables.append(_table("ent-location", "LOCATION", ["name", "displayName", "parent", "connects_to", "description"],
-        [[l["name"], l["displayName"], l.get("parent", ""), l["connects_to"], (l.get("description", "")[:40] + "…") if len(l.get("description", "")) > 40 else l.get("description", "")] for l in loc_rows]))
+        [[l["name"], l["displayName"], l.get("parent", ""), l["connects_to"], _trunc(l.get("description", ""))] for l in loc_rows]))
     tables.append(_table("ent-role", "SLOT", ["name", "displayName", "defaultLocation", "systemPrompt"],
-        [[r["name"], r["displayName"], r.get("defaultLocation", ""), "system_prompt.md" if r.get("systemPrompt") else ""] for r in role_rows]))
-    tables.append(_table("ent-character", "CASTING", ["slot", "occupant", "displayName", "casting", "location"],
-        [[c["role"], c["sid"], c["displayName"], "casting.md" if c.get("prompt") else "", c["location"]] for c in char_rows]))
+        [[r["name"], r["displayName"], r.get("defaultLocation", ""), _trunc(r.get("systemPrompt", ""))] for r in role_rows]))
+    tables.append(_table("ent-character", "CASTING", ["slot", "occupant", "displayName", "kind", "location"],
+        [[c["slot"], c.get("occupant", ""), c.get("displayName", ""), c.get("kind", ""), c.get("location", "")] for c in casting_rows], dynamic=True))
 
     # Relationships
     relationships = [
@@ -209,6 +219,14 @@ async def game_overview(game_key: str) -> None:
     font-size: 13px;
     letter-spacing: 1px;
   }}
+  #er-wrapper-{uid} .er-dynamic-{uid} {{
+    background: #1e2e22;
+    border-color: #4a7a5a;
+  }}
+  #er-wrapper-{uid} .er-dynamic-{uid} .er-title-{uid} {{
+    background: #2f5c42;
+    color: #d0ffe0;
+  }}
   #er-wrapper-{uid} .er-entity-{uid} table {{
     width: 100%;
     border-collapse: collapse;
@@ -223,6 +241,10 @@ async def game_overview(game_key: str) -> None:
     border-bottom: 1px solid #444;
     font-weight: normal;
     font-size: 11px;
+  }}
+  #er-wrapper-{uid} .er-dynamic-{uid} th {{
+    background: #223a2c;
+    color: #a8c8b0;
   }}
   #er-wrapper-{uid} .er-entity-{uid} td {{
     padding: 3px 8px;

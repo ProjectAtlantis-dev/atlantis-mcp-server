@@ -48,9 +48,9 @@ async def chat(game_key: str):
     names = []
     bots = []
     for ch in occupants:
-        display = ch.get("displayName", ch["sid"])
+        display = ch.get("displayName", ch["occupant"])
         names.append(display)
-        if ch["sid"] != speaker_sid and is_bot_driven(ch["sid"]):
+        if ch["occupant"] != speaker_sid and is_bot_driven(ch["occupant"]):
             bots.append(ch)
 
     await atlantis.client_log(
@@ -61,7 +61,7 @@ async def chat(game_key: str):
     if bots:
         next_up = bots[0]
         await atlantis.client_log(
-            f"🎤 Next to speak: {next_up.get('displayName', next_up['sid'])}"
+            f"🎤 Next to speak: {next_up.get('displayName', next_up['occupant'])}"
         )
     else:
         await atlantis.client_log("🎤 No bots present")

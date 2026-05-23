@@ -1,7 +1,8 @@
 """Per-session state, keyed by atlantis.get_session_key() = f"{user_game_id}:{caller_sid}".
 
 One binding per session:
-  - chat_slot:   sid → whose mouth my typed text comes out of
+  - casting: occupant sid → identifies which casting record this session is
+    driving (i.e. whose mouth my typed text comes out of).
 
 Viewing location ("where am I looking right now") is a per-terminal thing,
 not per-session — see `terminal.py`. One session can have several shells open
@@ -35,29 +36,31 @@ def require_session() -> Dict[str, Any]:
     return s
 
 
-# --- chat_slot ---------------------------------------------------------
+# --- casting binding ---------------------------------------------------
 
-def set_chat_slot(sid: str) -> None:
-    _slot()["chat_slot"] = sid
+def casting_claim(sid: str) -> None:
+    """Bind this session to the casting whose occupant is `sid`. Typed text
+    comes out of that occupant's mouth."""
+    _slot()["casting"] = sid
 
 
-def chat_slot_claimed(sid: str) -> bool:
-    """Is some live session currently claiming this sid as its chat_slot?"""
-    return any(s.get("chat_slot") == sid for s in _state.values())
+def casting_is_claimed(sid: str) -> bool:
+    """Is some live session currently driving the casting whose occupant is `sid`?"""
+    return any(s.get("casting") == sid for s in _state.values())
 
 
 # --- room resolution ---------------------------------------------------
 
-def get_session_room(game_key: str) -> str:
-    """Resolve this session's chat room from its chat_slot's position. Raises if unset."""
+def session_room(game_key: str) -> str:
+    """Resolve this session's chat room from its casting's position. Raises if unset."""
     s = require_session()
-    chat_slot = s.get("chat_slot")
-    if not chat_slot:
-        raise RuntimeError("Session has no chat_slot.")
+    casting = s.get("casting")
+    if not casting:
+        raise RuntimeError("Session has no casting.")
     from dynamic_functions.Home.location import position_get
-    loc = position_get(game_key, chat_slot)
+    loc = position_get(game_key, casting)
     if not loc:
-        raise RuntimeError(f"chat_slot '{chat_slot}' has no position.")
+        raise RuntimeError(f"casting '{casting}' has no position.")
     return loc
 
 
@@ -66,7 +69,7 @@ def get_session_room(game_key: str) -> str:
 @visible
 async def session_show() -> Dict[str, Any]:
     """Show the current session's identity — user_game_id, caller sid,
-    caller shell path, and the slot the user is currently typing as."""
+    caller shell path, and the casting the user is currently driving."""
     sk = atlantis.get_session_key()
     info: Dict[str, Any] = {
         "session_key": sk or "",
@@ -75,10 +78,10 @@ async def session_show() -> Dict[str, Any]:
         "caller_shell_path": atlantis.get_caller_shell_path() or "",
         "exec_shell_path": atlantis.get_exec_shell_path() or "",
         "request_id": atlantis.get_request_id() or "",
-        "chat_slot": "",
+        "casting": "",
     }
     if sk and sk in _state:
-        info["chat_slot"] = _state[sk].get("chat_slot", "") or ""
+        info["casting"] = _state[sk].get("casting", "") or ""
     from dynamic_functions.Home.terminal import get_terminal_location
     info["terminal_location"] = get_terminal_location() or ""
     await atlantis.client_data("Session", [info])
@@ -87,7 +90,7 @@ async def session_show() -> Dict[str, Any]:
 
 @visible
 def session_list(game_key: str = "") -> List[Dict[str, Any]]:
-    """List live sessions and their chat_slot. Pass game_key to scope to one game."""
+    """List live sessions and their casting. Pass game_key to scope to one game."""
     rows: List[Dict[str, Any]] = []
 
     target_uid: Optional[int] = None
@@ -113,6 +116,6 @@ def session_list(game_key: str = "") -> List[Dict[str, Any]]:
             "session_key": sk,
             "user_game_id": user_game_id,
             "caller_sid": caller_sid,
-            "chat_slot": s.get("chat_slot"),
+            "casting": s.get("casting"),
         })
     return rows

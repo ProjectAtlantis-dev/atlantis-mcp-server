@@ -80,7 +80,7 @@ The `description` field on each location is in-world prose. At prompt time the e
 
 ## Movement: first entry is special
 
-`character_move` (yes, the function is still called that — it moves an occupant) has two distinct modes:
+`casting_move` has two distinct modes:
 
 1. **First entry** — no position record yet. The occupant *must* spawn at their entry location (their slot's `defaultLocation`, falling back to the location marked `"default": true`). Passing any other location raises. This is the only way to enter the world.
 2. **Subsequent moves** — `connects_to` adjacency is enforced. You can only go to a location that the current location lists as reachable.

@@ -27,8 +27,9 @@ Replaces the old `character.py` and the `Game/Characters/` folder.
 - `clear_casting(game_key, slot)`
 - `slot_for_occupant(game_key, sid)` → slot or None  (reverse lookup)
 - `load_casting_prompt(slot, bot)` — reads `Slots/<slot>/casting/<bot>.md`
-- Legacy shims used by older callers: `_load_characters`, `_find_character`,
-  `_character_rows`, `is_bot_driven`, `load_character_prompt`.
+- Iteration helpers: `casting_records(game_key, include_empty=False)`,
+  `casting_for_occupant(game_key, sid)`.
+- Internal: `is_bot_driven`.
 """
 
 import atlantis
@@ -192,80 +193,40 @@ def load_casting_prompt(slot: str, bot: str) -> str:
         return f.read().strip()
 
 
-# Back-compat alias (old name).
-load_character_prompt = lambda sid, role: load_casting_prompt(role, sid)
-
-
 # ---------------------------------------------------------------------------
-# Legacy shims used elsewhere in the codebase
+# Internal helpers used elsewhere in the codebase
 # ---------------------------------------------------------------------------
 
 def is_bot_driven(sid: str) -> bool:
-    """True iff `sid` is a known bot AND no live session has claimed its
-    chat_slot (i.e. no human is currently typing as this bot)."""
-    from dynamic_functions.Home.session import chat_slot_claimed
+    """True iff `sid` is a known bot AND no live session is driving its
+    casting (i.e. no human is currently typing as this bot)."""
+    from dynamic_functions.Home.session import casting_is_claimed
     if _load_bot_config(sid) is None:
         return False
-    return not chat_slot_claimed(sid)
+    return not casting_is_claimed(sid)
 
 
-def _load_characters(game_key: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Return one record per filled slot in this game (or, if game_key is None,
-    a synthetic view from slot defaults — used by the legacy `character.py`
-    shape, where the binding came purely from the filesystem)."""
-    if game_key is None:
-        # Pre-game: derive from slot defaults only.
-        rows: List[Dict[str, Any]] = []
-        for slot in _list_slot_keys():
-            cfg = _slot_config(slot)
-            bot = cfg.get("defaultBot", "")
-            if not bot:
-                continue
-            loaded = _load_bot_config(bot)
-            if not loaded:
-                continue
-            pcfg, _ = loaded
-            rows.append({
-                "sid": bot,
-                "role": slot,
-                "displayName": pcfg.get("displayName", bot),
-                "prompt": load_casting_prompt(slot, bot),
-            })
-        return rows
-
+def casting_records(game_key: str, include_empty: bool = False) -> List[Dict[str, Any]]:
+    """Flat list of casting records for this game. Each record is the shape
+    returned by `get_casting()`: {slot, slotDisplayName, occupant, kind,
+    displayName, source}. Empty slots are excluded unless `include_empty=True`."""
     rows: List[Dict[str, Any]] = []
-    for slot, info in get_casting(game_key).items():
-        if info.get("kind") == "empty":
+    for info in get_casting(game_key).values():
+        if not include_empty and info.get("kind") == "empty":
             continue
-        rows.append({
-            "sid": info["occupant"],
-            "role": slot,
-            "displayName": info.get("displayName", info["occupant"]),
-            "prompt": load_casting_prompt(slot, info["occupant"]) if info.get("kind") == "ai" else "",
-        })
+        rows.append(info)
     return rows
 
 
-def _find_character(sid: str, game_key: Optional[str] = None) -> Dict[str, Any]:
-    """Find a casting record by occupant sid."""
-    for ch in _load_characters(game_key):
-        if ch["sid"] == sid:
-            return ch
+def casting_for_occupant(game_key: str, sid: str) -> Dict[str, Any]:
+    """Return the casting record whose occupant is `sid`. Raises if not cast."""
+    for info in get_casting(game_key).values():
+        if info.get("kind") != "empty" and info.get("occupant") == sid:
+            return info
     raise ValueError(
         f"No casting found for sid: {sid!r}. Set a defaultBot in a slot, "
         f"or use set_casting() to bind them."
     )
-
-
-def _character_rows(game_key: str) -> List[Dict[str, Any]]:
-    """Pure data: characters with current positions. No client side effects."""
-    require_game_dir(game_key)
-    from dynamic_functions.Home.location import get_positions
-    positions = get_positions(game_key)
-    return [
-        {**ch, "location": positions.get(ch["sid"], "")}
-        for ch in _load_characters(game_key)
-    ]
 
 
 # ---------------------------------------------------------------------------

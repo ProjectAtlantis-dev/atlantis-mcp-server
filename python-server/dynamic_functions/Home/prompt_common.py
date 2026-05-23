@@ -117,7 +117,7 @@ def prompt_assemble(
 ) -> str:
     """One-stop prompt assembly. Returns the full system-prompt string."""
     from dynamic_functions.Home.casting import (
-        _load_characters, load_casting_prompt, _slot_config, slot_for_occupant,
+        casting_for_occupant, load_casting_prompt, _slot_config, slot_for_occupant,
     )
     from dynamic_functions.Home.interactions import read_interaction
     from dynamic_functions.Home.location import compose_setting, position_get
@@ -141,11 +141,11 @@ def prompt_assemble(
     # Resolve speaker's display name from casting records, fall back to history
     first_name = ""
     if speaker_sid:
-        first_name = next(
-            (ch.get("displayName", "") or ""
-             for ch in _load_characters(game_key) if ch.get("sid") == speaker_sid),
-            "",
-        ) or history.get("first_name", "")
+        try:
+            first_name = casting_for_occupant(game_key, speaker_sid).get("displayName", "") or ""
+        except ValueError:
+            first_name = ""
+        first_name = first_name or history.get("first_name", "")
 
     return build_system_prompt(
         base_prompt=base_prompt,

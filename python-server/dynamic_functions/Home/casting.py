@@ -94,35 +94,23 @@ def _write_overrides(game_key: str, data: Dict[str, Dict[str, Any]]) -> None:
 
 
 def get_casting(game_key: str) -> Dict[str, Dict[str, Any]]:
-    """Return current casting for every slot. Merges per-game overrides on top
-    of each slot's defaultBot. Slots with no occupant at all are still
-    included with kind="empty" (which only happens when there is no default
-    AND no override)."""
-    overrides = _read_overrides(game_key)
+    """Return current casting for every slot. casting.json is the source of
+    truth — slots with no entry are empty (kind="empty"). The slot's
+    `defaultBot` is only a suggestion for an explicit cast; nothing is cast
+    until `set_casting` writes it."""
+    castings = _read_overrides(game_key)
     out: Dict[str, Dict[str, Any]] = {}
     for slot in _list_slot_keys():
         cfg = _slot_config(slot)
         slot_display = cfg.get("displayName", slot)
-        ov = overrides.get(slot)
-        if ov and ov.get("occupant"):
+        c = castings.get(slot)
+        if c and c.get("occupant"):
             out[slot] = {
                 "slot": slot,
                 "slotDisplayName": slot_display,
-                "occupant": ov["occupant"],
-                "kind": ov.get("kind", "ai"),
-                "displayName": ov.get("displayName") or _occupant_display_name(ov["occupant"], ov.get("kind", "ai")),
-                "source": "override",
-            }
-            continue
-        default_bot = cfg.get("defaultBot", "")
-        if default_bot:
-            out[slot] = {
-                "slot": slot,
-                "slotDisplayName": slot_display,
-                "occupant": default_bot,
-                "kind": "ai",
-                "displayName": _occupant_display_name(default_bot, "ai"),
-                "source": "default",
+                "occupant": c["occupant"],
+                "kind": c.get("kind", "ai"),
+                "displayName": c.get("displayName") or _occupant_display_name(c["occupant"], c.get("kind", "ai")),
             }
             continue
         out[slot] = {
@@ -131,7 +119,6 @@ def get_casting(game_key: str) -> Dict[str, Dict[str, Any]]:
             "occupant": "",
             "kind": "empty",
             "displayName": "",
-            "source": "empty",
         }
     return out
 
@@ -146,29 +133,44 @@ def _occupant_display_name(occupant: str, kind: str) -> str:
 
 
 def set_casting(game_key: str, slot: str, occupant: str, kind: str = "ai", displayName: str = "") -> None:
-    """Cast a slot. `kind` is "ai" (occupant is a bot sid) or "human"
-    (occupant is a user sid)."""
+    """Cast `occupant` into `slot`. `kind` is "ai" (occupant is a bot sid)
+    or "human" (occupant is a user sid). Side effect: the occupant is placed
+    at the slot's `defaultLocation` (they walk in)."""
     if slot not in _list_slot_keys():
         raise ValueError(f"Unknown slot: {slot}")
     if kind not in ("ai", "human"):
         raise ValueError(f"Unknown kind: {kind}")
     if kind == "ai" and not _load_bot_config(occupant):
         raise ValueError(f"Unknown bot: {occupant}")
-    overrides = _read_overrides(game_key)
-    overrides[slot] = {
+    castings = _read_overrides(game_key)
+    castings[slot] = {
         "occupant": occupant,
         "kind": kind,
         "displayName": displayName or _occupant_display_name(occupant, kind),
     }
-    _write_overrides(game_key, overrides)
+    _write_overrides(game_key, castings)
+
+    default_loc = _slot_config(slot).get("defaultLocation", "")
+    if default_loc:
+        from dynamic_functions.Home.location import set_player_position
+        set_player_position(game_key, occupant, default_loc)
 
 
 def clear_casting(game_key: str, slot: str) -> None:
-    """Drop the per-game override so the slot falls back to its defaultBot."""
-    overrides = _read_overrides(game_key)
-    if slot in overrides:
-        del overrides[slot]
-        _write_overrides(game_key, overrides)
+    """Remove the casting for this slot. The occupant leaves — their position
+    is cleared."""
+    castings = _read_overrides(game_key)
+    cleared = castings.pop(slot, None)
+    if cleared is None:
+        return
+    _write_overrides(game_key, castings)
+
+    occupant = cleared.get("occupant", "")
+    if occupant:
+        from dynamic_functions.Home.location import get_positions, set_positions
+        positions = get_positions(game_key)
+        if positions.pop(occupant, None) is not None:
+            set_positions(game_key, positions)
 
 
 def slot_for_occupant(game_key: str, sid: str) -> Optional[str]:
@@ -261,7 +263,7 @@ def build_casting_prompt(game_key: str, slot: str, caller: str = "") -> Dict[str
     )
     from dynamic_functions.Home.location import position_get
 
-    pos = position_get(game_key, bot_sid) or _slot_config(slot).get("defaultLocation", "")
+    pos = position_get(game_key, bot_sid) or ""
     prompt = prompt_assemble(game_key, bot_sid, caller)
 
     # Load individual pieces only for the sources breakdown
@@ -290,20 +292,24 @@ def build_casting_prompt(game_key: str, slot: str, caller: str = "") -> Dict[str
 @visible
 async def casting_list(game_key: str) -> List[Dict[str, Any]]:
     """Show the cast list for this game — one row per slot. The lobby view:
-    who's in each seat, are they AI or human, is this the slot's default or an
-    explicit override. Empty slots show kind="empty".
+    who's in each seat, are they AI or human, where they currently stand,
+    is this the slot's default or an explicit override. Empty slots show kind="empty".
     """
+    from dynamic_functions.Home.location import get_positions
+    positions = get_positions(game_key)
     casting = get_casting(game_key)
     rows: List[Dict[str, Any]] = []
     for slot_key in _list_slot_keys():
         cfg = _slot_config(slot_key)
         info = casting.get(slot_key, {})
+        occupant = info.get("occupant", "")
         rows.append({
             "slot": slot_key,
             "slotDisplayName": cfg.get("displayName", slot_key),
-            "occupant": info.get("occupant", ""),
+            "occupant": occupant,
             "displayName": info.get("displayName", ""),
             "kind": info.get("kind", "empty"),
+            "location": positions.get(occupant, "") if occupant else "",
         })
     await atlantis.client_data("Casting", rows)
     return rows

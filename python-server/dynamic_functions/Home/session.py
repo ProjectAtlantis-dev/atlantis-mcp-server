@@ -38,10 +38,20 @@ def require_session() -> Dict[str, Any]:
 
 # --- casting binding ---------------------------------------------------
 
-def casting_claim(sid: str) -> None:
+@visible
+def casting_claim(game_key: str, sid: str) -> Dict[str, str]:
     """Bind this session to the casting whose occupant is `sid`. Typed text
-    comes out of that occupant's mouth."""
+    comes out of that occupant's mouth. The occupant must already be cast
+    via `set_casting`."""
+    from dynamic_functions.Home.casting import slot_for_occupant
+    from dynamic_functions.Home.location import position_get
+
+    slot = slot_for_occupant(game_key, sid)
+    if not slot:
+        raise ValueError(f"{sid!r} is not cast in any slot for game {game_key!r}.")
+
     _slot()["casting"] = sid
+    return {"casting": sid, "slot": slot, "location": position_get(game_key, sid) or ""}
 
 
 def casting_is_claimed(sid: str) -> bool:

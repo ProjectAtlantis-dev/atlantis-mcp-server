@@ -115,6 +115,17 @@ def slot_default_location(slot: str) -> Optional[str]:
     return str(location).strip() or None
 
 
+def slot_entry_location(slot: str) -> str:
+    """Return the entry location for a slot, or raise if not configured."""
+    location = slot_default_location(slot)
+    if not location:
+        raise ValueError(
+            f"No defaultLocation configured for slot {slot!r}. "
+            f"Set defaultLocation in the slot config.json."
+        )
+    return location
+
+
 def _validate_slot(slot: str) -> None:
     """Validate a slot folder"""
     if not os.path.isdir(os.path.join(_slots_dir(), slot)):

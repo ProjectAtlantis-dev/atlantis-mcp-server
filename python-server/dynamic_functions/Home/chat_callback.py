@@ -6,8 +6,7 @@ import logging
 from dynamic_functions.Home.chat_common import (
     analyze_participants, fetch_transcript,
 )
-from dynamic_functions.Home.location import position_get, position_query
-from dynamic_functions.Home.casting import casting_for_occupant, is_bot_driven
+from dynamic_functions.Home.casting import casting_at_location, casting_for_occupant, is_bot_driven
 from dynamic_functions.Home.prompt_common import prompt_assemble
 from dynamic_functions.Home.interactions import record_interaction
 from dynamic_functions.Home.turn import bot_turn
@@ -44,7 +43,7 @@ async def _handle_chat(game_key: str):
     raw_transcript, transcript = await fetch_transcript(game_key)
     logger.info(f"Chat: {len(raw_transcript)} raw / {len(transcript)} filtered (room={location})")
 
-    occupants = position_query(game_key, location)
+    occupants = casting_at_location(game_key, location)
     occupant_sids = {ch["occupant"] for ch in occupants}
 
     speaker_sid = None
@@ -103,7 +102,7 @@ async def greet_entrant(game_key: str, entrant_sid: str, location: str):
         logger.debug("greet_entrant: chat busy, skipping")
         return
 
-    occupants = position_query(game_key, location)
+    occupants = casting_at_location(game_key, location)
     bots_here = [
         ch for ch in occupants
         if ch["occupant"] != entrant_sid and is_bot_driven(ch["occupant"])

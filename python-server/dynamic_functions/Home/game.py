@@ -6,7 +6,7 @@ import os
 import uuid
 from typing import Dict, Any
 
-from dynamic_functions.Home.location import _location_rows, get_positions
+from dynamic_functions.Home.location import _location_rows
 from dynamic_functions.Home.casting import get_casting
 from dynamic_functions.Home.modal import modal_string
 from dynamic_functions.Home.slot import _slot_rows
@@ -121,11 +121,7 @@ async def game_overview(game_key: str) -> None:
     bot_rows = _bot_rows()
     loc_rows = _location_rows()
     role_rows = _slot_rows()
-    positions = get_positions(game_key)
-    casting_rows = [
-        {**info, "location": positions.get(info.get("occupant", ""), "")}
-        for info in get_casting(game_key).values()
-    ]
+    casting_rows = list(get_casting(game_key).values())
 
     # Build an HTML table
     def _trunc(s, n=40):

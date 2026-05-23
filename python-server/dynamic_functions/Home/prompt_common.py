@@ -120,7 +120,8 @@ def prompt_assemble(
         casting_for_occupant, load_casting_prompt, slot_for_occupant,
     )
     from dynamic_functions.Home.interactions import read_interaction
-    from dynamic_functions.Home.location import compose_setting, position_get
+    from dynamic_functions.Home.location import location_compose_descriptions
+    from dynamic_functions.Home.casting import casting_location
 
     slot = slot_for_occupant(game_key, bot_sid)
     if not slot:
@@ -132,8 +133,8 @@ def prompt_assemble(
     character_prompt = load_casting_prompt(slot, bot_sid)
 
     # Location / setting
-    pos = position_get(game_key, bot_sid) or ""
-    setting = compose_setting(pos) if pos else ""
+    pos = casting_location(game_key, bot_sid) or ""
+    setting = location_compose_descriptions(pos) if pos else ""
 
     # Interaction history with speaker
     history = read_interaction(game_key, bot_sid, speaker_sid) if speaker_sid else {}

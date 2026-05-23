@@ -8,10 +8,7 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from dynamic_functions.Home.casting import (
-    casting_for_occupant, casting_records, slot_for_occupant,
-)
-from dynamic_functions.Home.common import _ensure_thumb, home_path, require_game_dir
+from dynamic_functions.Home.common import _ensure_thumb, home_path
 
 logger = logging.getLogger("mcp_server")
 
@@ -79,32 +76,6 @@ def _require_leaf(location_name: str) -> None:
         )
 
 
-def _default_location() -> str:
-    """Get the default location (must be a leaf — containers aren't valid)"""
-    loc_dir = _locations_dir()
-    for entry in os.listdir(loc_dir):
-        cfg = os.path.join(loc_dir, entry, "config.json")
-        if not os.path.isfile(cfg):
-            continue
-        with open(cfg, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if data.get("default"):
-            _require_leaf(entry)
-            return entry
-    raise RuntimeError(f"No default location found in {loc_dir}")
-
-
-def _entry_location(game_key: str, sid: str) -> str:
-    """Get the first location for an occupant based on the slot they're cast in."""
-    from dynamic_functions.Home.slot import slot_default_location
-
-    slot = slot_for_occupant(game_key, sid)
-    if slot:
-        role_location = slot_default_location(slot)
-        if role_location:
-            return role_location
-    return _default_location()
-
 
 # =========================================================================
 # Thumbnails (location-specific)
@@ -129,153 +100,7 @@ def location_thumb(loc_name: str) -> str:
     return _ensure_thumb(image_path)
 
 
-# =========================================================================
-# Positions — {sid: location_name}, persisted per game
-# =========================================================================
 
-def _positions_path(game_key: str) -> str:
-    return os.path.join(require_game_dir(game_key), "positions.json")
-
-
-def get_positions(game_key: str) -> Dict[str, str]:
-    """Get all player positions"""
-    path = _positions_path(game_key)
-    if not os.path.isfile(path):
-        return {}
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def set_positions(game_key: str, positions: Dict[str, str]) -> None:
-    """Save all player positions"""
-    path = _positions_path(game_key)
-    tmp = f"{path}.tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(positions, f, indent=2)
-    os.replace(tmp, path)
-
-
-@visible
-def position_get(game_key: str, sid: str) -> Optional[str]:
-    """Get a player's location"""
-    require_game_dir(game_key)
-    return get_positions(game_key).get(sid)
-
-
-def set_player_position(game_key: str, sid: str, location: str) -> None:
-    """Set a player's location"""
-    positions = get_positions(game_key)
-    positions[sid] = location
-    set_positions(game_key, positions)
-
-
-def get_players_at(game_key: str, location: str) -> List[str]:
-    """List players at a location"""
-    return [s for s, loc in get_positions(game_key).items() if loc == location]
-
-
-# =========================================================================
-# Background
-# =========================================================================
-
-async def _set_location_background(loc_name: str, location_data: Dict[str, Any]) -> None:
-    """Set the location background"""
-    image_name = location_data.get("image")
-    if not image_name:
-        return
-    image_path = os.path.join(_location_dir(loc_name), image_name)
-    if os.path.exists(image_path):
-        await atlantis.set_background(image_path)
-    else:
-        logger.warning(f"Location image not found: {image_path}")
-
-
-# =========================================================================
-# Movement
-# =========================================================================
-
-@visible
-async def casting_move(game_key: str, location: str = "", sid: str = "") -> str:
-    """Move an occupant to a location. sid defaults to the caller."""
-    require_game_dir(game_key)
-
-    if not sid:
-        sid = atlantis.get_caller() or ""
-    if not sid:
-        raise ValueError("Unable to determine character to move (no sid and no caller).")
-
-    location = location or ""
-    entry = casting_for_occupant(game_key, sid)
-    display_name = entry.get("displayName", sid)
-    display = f"{display_name} ({sid})" if display_name != sid else sid
-
-    current = position_get(game_key, sid)
-
-    # New characters start in their configured entry location.
-    if current is None:
-        entry_location = _entry_location(game_key, sid)
-        location = location or entry_location
-        if location != entry_location:
-            raise ValueError(
-                f"New characters must start in {entry_location} "
-                f"before moving to {location}"
-            )
-        dest = _load_location(location)
-        if not dest:
-            raise ValueError(f"Unknown location: {location}")
-        _require_leaf(location)
-        desc = dest.get("displayName", location)
-        set_player_position(game_key, sid, location)
-        await atlantis.client_log(f"\U0001f3db\ufe0f New player {display} has entered {desc} for the first time")
-        await atlantis.client_description(
-            "Someone has entered.",
-            location=location,
-        )
-        logger.info(f"[game] New player {sid} entered {entry_location}")
-        if atlantis.get_caller() == sid:
-            await _set_location_background(location, dest)
-        from dynamic_functions.Home.chat_callback import greet_entrant
-        await greet_entrant(game_key, sid, location)
-        return location
-
-
-    if not location:
-        raise ValueError("location is required for players who have already entered")
-
-    dest = _load_location(location)
-    if not dest:
-        raise ValueError(f"Unknown location: {location}")
-    _require_leaf(location)
-
-    desc = dest.get("description", location)
-
-    # No-op when already there
-    if current == location:
-        await atlantis.client_log(f"\U0001f4cd {display} is already in {desc}")
-        return location
-
-    # Enforce adjacency
-    reachable = _connects_to(current)
-    if location not in reachable:
-        raise ValueError(
-            f"Cannot reach {location} from {current}. "
-            f"Reachable: {reachable}"
-        )
-
-    # Apply movement
-    current_desc = (_load_location(current) or {}).get("displayName", current)
-    set_player_position(game_key, sid, location)
-    await atlantis.client_log(f"\U0001f6b6 {display} moved from {current_desc} to {desc}")
-    await atlantis.client_description(
-        "Someone has entered.",
-        location=location,
-    )
-    logger.info(f"[game] {sid} moved from {current} to {location}")
-    if atlantis.get_caller() == sid:
-        await _set_location_background(location, dest)
-    from dynamic_functions.Home.chat_callback import greet_entrant
-    await greet_entrant(game_key, sid, location)
-    return location
 
 
 # =========================================================================
@@ -323,14 +148,16 @@ def _location_rows() -> List[Dict[str, str]]:
         })
     return locations
 
-
-def compose_setting(location_name: str) -> str:
+@visible
+def location_compose_descriptions(location_name: str) -> str:
     """Walk from the root down to `location_name` and concatenate descriptions.
 
     Returns one paragraph per level (root first), so the prompt reads
     outer-context → inner-context. Empty string if the location has no
     description and no ancestors with one.
     """
+    if not _load_location(location_name):
+        raise ValueError(f"Unknown location: {location_name}")
     chain: List[str] = []
     seen: set = set()
     current = location_name
@@ -360,20 +187,6 @@ async def location_list() -> List[Dict[str, str]]:
     })
     return locations
 
-
-@visible
-def position_query(game_key: str, location: str) -> List[Dict[Any, Any]]:
-    """List characters at a location"""
-    require_game_dir(game_key)
-    sids_at = get_players_at(game_key, location)
-    result = []
-    for entry in casting_records(game_key):
-        if entry["occupant"] not in sids_at:
-            continue
-        row = dict(entry)
-        row["location"] = location
-        result.append(row)
-    return result
 
 
 # camera_look / camera_follow are gone — use terminal.terminal_move(game_key, location)

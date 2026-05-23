@@ -36,24 +36,6 @@ def require_session() -> Dict[str, Any]:
     return s
 
 
-# --- casting binding ---------------------------------------------------
-
-@visible
-def casting_claim(game_key: str, sid: str) -> Dict[str, str]:
-    """Bind this session to the casting whose occupant is `sid`. Typed text
-    comes out of that occupant's mouth. The occupant must already be cast
-    via `set_casting`."""
-    from dynamic_functions.Home.casting import slot_for_occupant
-    from dynamic_functions.Home.location import position_get
-
-    slot = slot_for_occupant(game_key, sid)
-    if not slot:
-        raise ValueError(f"{sid!r} is not cast in any slot for game {game_key!r}.")
-
-    _slot()["casting"] = sid
-    return {"casting": sid, "slot": slot, "location": position_get(game_key, sid) or ""}
-
-
 def casting_is_claimed(sid: str) -> bool:
     """Is some live session currently driving the casting whose occupant is `sid`?"""
     return any(s.get("casting") == sid for s in _state.values())
@@ -67,8 +49,8 @@ def session_room(game_key: str) -> str:
     casting = s.get("casting")
     if not casting:
         raise RuntimeError("Session has no casting.")
-    from dynamic_functions.Home.location import position_get
-    loc = position_get(game_key, casting)
+    from dynamic_functions.Home.casting import casting_location
+    loc = casting_location(game_key, casting)
     if not loc:
         raise RuntimeError(f"casting '{casting}' has no position.")
     return loc

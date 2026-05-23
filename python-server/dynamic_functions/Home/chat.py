@@ -3,9 +3,7 @@
 import atlantis
 import logging
 
-from dynamic_functions.Home.location import position_get, get_players_at
-from dynamic_functions.Home.location import position_query
-from dynamic_functions.Home.casting import is_bot_driven
+from dynamic_functions.Home.casting import casting_location, casting_at_location, is_bot_driven
 from dynamic_functions.Home.chat_common import analyze_participants, fetch_transcript
 
 logger = logging.getLogger("mcp_server")
@@ -33,13 +31,13 @@ async def chat(game_key: str):
         return
 
     # Find the speaker location
-    location = position_get(game_key, speaker_sid)
+    location = casting_location(game_key, speaker_sid)
     if not location:
         await atlantis.client_log(f"📍 {speaker_sid} has no position — nowhere to chat")
         return
 
     # Find room occupants
-    occupants = position_query(game_key, location)
+    occupants = casting_at_location(game_key, location)
     if not occupants:
         await atlantis.client_log(f"📍 {speaker_sid} is alone in {location}")
         return

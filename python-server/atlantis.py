@@ -234,7 +234,8 @@ async def client_log(message: Any, level: str = "INFO", message_type: str = "tex
                 logger_name=caller_name,  # Pass the caller function name
                 seq_num=current_seq_to_send, # Pass the obtained sequence number
                 is_private=is_private,
-                location=location
+                location=location,
+                caller_sid=get_caller()
             )
             # task is the asyncio.Task returned by utils.client_log
 

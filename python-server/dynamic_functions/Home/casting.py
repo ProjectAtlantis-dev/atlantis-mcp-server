@@ -426,7 +426,8 @@ async def casting_list(game_key: str) -> List[Dict[str, Any]]:
     """Show the cast list for this game — one row per slot. The lobby view:
     who's in each seat, are they AI or human, where they currently stand,
     is this the slot's default or an explicit override. Empty slots show kind="empty".
-    """
+   """
+    await atlantis.client_log("foo")   
     casting = get_casting(game_key)
     rows: List[Dict[str, Any]] = []
     for slot_key in _list_slot_keys():

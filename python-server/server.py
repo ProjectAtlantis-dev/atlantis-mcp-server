@@ -1953,7 +1953,8 @@ class DynamicAdditionServer(Server):
                               message_type: str = "text", # Message content type
                               stream_id: Optional[str] = None, # Stream identifier
                               is_private: bool = True,  # If False, broadcast to all clients
-                              location: Optional[str] = None # Optional location tag for chat/description events
+                              location: Optional[str] = None, # Optional location tag for chat/description events
+                              caller_sid: Optional[str] = None # Caller sid who initiated the request
                               ):
         """Send a log message notification to connected clients using direct WebSocket communication.
 
@@ -1999,6 +2000,9 @@ class DynamicAdditionServer(Server):
             # Add location if provided (for chat/description event routing)
             if location is not None:
                 params["location"] = location
+
+            if caller_sid is not None:
+                params["caller_sid"] = caller_sid
 
             notification = {
                 "jsonrpc": "2.0",

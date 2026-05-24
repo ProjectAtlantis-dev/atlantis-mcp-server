@@ -55,20 +55,18 @@ def _mcp_identity_decorator(f):
 # --- Text Decorator Definition ---
 def text(content_type: Optional[str] = None):
     """Decorator that marks a function as returning text content.
-    Can be used bare (@text) or with an optional content type string (@text("markdown")).
+    Requires a content type string so callers can infer the file suffix.
 
-    Usage: @text
-           @text("markdown")
-           @text("text/html")
+    Usage: @text("md")
+           @text("txt")
            def my_text_function():
                ...
     """
-    # Handle bare @text (no parentheses) - func is passed directly
     if callable(content_type):
-        func = content_type
-        setattr(func, '_text_content_type', None)
-        return func
-    # Handle @text("markdown") or @text() - returns a decorator
+        raise TypeError("@text requires a content type string, e.g. @text(\"md\")")
+    if not isinstance(content_type, str) or not content_type:
+        raise TypeError("@text requires a content type string, e.g. @text(\"md\")")
+
     def decorator(func):
         setattr(func, '_text_content_type', content_type)
         return func
@@ -998,18 +996,19 @@ class DynamicFunctionManager:
                                         # Add 'price' to decorator_names
                                         decorator_names.append('price')
                                     elif decorator_func_name == 'text':
-                                        # Extract optional content type from @text("markdown") or @text(content_type="markdown")
+                                        # Extract required content type from @text("md") or @text(content_type="md")
                                         if decorator_node.keywords:
                                             for kw in decorator_node.keywords:
                                                 if kw.arg == 'content_type' and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
                                                     text_content_type_from_decorator = kw.value.value
-                                        # Positional argument like @text("markdown")
+                                        # Positional argument like @text("md")
                                         if not text_content_type_from_decorator and decorator_node.args:
                                             if len(decorator_node.args) == 1 and isinstance(decorator_node.args[0], ast.Constant) and isinstance(decorator_node.args[0].value, str):
                                                 text_content_type_from_decorator = decorator_node.args[0].value
                                             elif decorator_node.args:
-                                                logger.error(f"❌ @text decorator for {func_def_node.name} has unexpected positional arguments. Expected an optional single string.")
-                                        # @text() with no args is valid - just means plain text
+                                                logger.error(f"❌ @text decorator for {func_def_node.name} has unexpected positional arguments. Expected a single string.")
+                                        if text_content_type_from_decorator is None:
+                                            logger.error(f"❌ @text decorator used on {func_def_node.name} but content type was not found or not a string.")
                                         # Add 'text' to decorator_names
                                         decorator_names.append('text')
                                     else: # It's a call decorator but not 'app', 'location', 'protected', 'price', or 'text'
@@ -1105,6 +1104,59 @@ async def {name}():
 """
         logger.debug(f"⚙️ Generated code stub for function: {name}")
         return stub
+
+    def _code_generate_text_loader(self, name: str, text_filename: str) -> str:
+        """
+        Generates a Python loader function for a sibling text/markdown asset.
+        """
+        lower_name = text_filename.lower()
+        content_type = "md" if lower_name.endswith(".md") else "txt"
+        text_decorator = f'@text("{content_type}")'
+
+        return f"""\
+from pathlib import Path
+
+{text_decorator}
+@visible
+async def {name}():
+    text_path = Path(__file__).parent / {text_filename!r}
+    return text_path.read_text(encoding="utf-8")
+
+"""
+
+    def _get_app_target_dir(self, app: Optional[str] = None) -> str:
+        if app:
+            app_path = self._app_name_to_path(app)
+            assert app_path is not None
+            return os.path.join(self.functions_dir, app_path)
+        return self.functions_dir
+
+    def _validate_text_asset_filename(self, filename: str) -> None:
+        if not filename or os.path.basename(filename) != filename:
+            raise ValueError(f"Invalid text filename '{filename}'")
+
+        lower_name = filename.lower()
+        if not lower_name.endswith(".md") and not lower_name.endswith(".txt"):
+            raise ValueError(f"Unsupported text filename '{filename}'; expected .md or .txt")
+
+    async def _fs_add_text_asset(self, filename: str, content: str = "", app: Optional[str] = None) -> str:
+        """
+        Creates a sibling text asset used by generated @text loader functions.
+        """
+        self._validate_text_asset_filename(filename)
+
+        target_dir = self._get_app_target_dir(app)
+        os.makedirs(target_dir, exist_ok=True)
+        file_path = os.path.join(target_dir, filename)
+
+        if os.path.exists(file_path):
+            raise ValueError(f"Text asset '{filename}' already exists")
+
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+        logger.debug(f"💾 Added text asset to {file_path}")
+        return file_path
 
     # Cache management
     async def invalidate_function_mapping_cache(self):
@@ -1233,24 +1285,28 @@ async def {name}():
                                 decorators_from_info = func_info.get("decorators", [])
                                 protection_name = func_info.get("protection_name")
                                 button_title = func_info.get("button_title")
+                                text_content_type = func_info.get("text_content_type")
                                 is_internal = func_name.startswith('_function') or func_name.startswith('_server') or func_name.startswith('_admin')
                                 is_visible = any(dec in decorators_from_info for dec in VISIBILITY_DECORATORS) if decorators_from_info else False
 
                                 # Check if @protected has a valid protection name (required parameter)
                                 has_invalid_protected = "protected" in decorators_from_info and not protection_name
                                 has_invalid_button = "button" in decorators_from_info and not button_title
+                                has_invalid_text = "text" in decorators_from_info and not text_content_type
 
                                 # Skip if not visible and not internal OR if decorators have invalid required args
-                                if (not is_visible and not is_internal) or has_invalid_protected or has_invalid_button:
+                                if (not is_visible and not is_internal) or has_invalid_protected or has_invalid_button or has_invalid_text:
                                     if has_invalid_protected:
                                         skip_reason = "invalid @protected (missing required protection name)"
                                     elif has_invalid_button:
                                         skip_reason = "invalid @button (missing required title string)"
+                                    elif has_invalid_text:
+                                        skip_reason = "invalid @text (missing required content type string)"
                                     else:
                                         skip_reason = "missing visibility decorator (e.g. @visible, @public, @chat, @text, ...)"
 
                                     # Use error level for invalid required decorator args, info level for others
-                                    log_level = logger.error if (has_invalid_protected or has_invalid_button) else logger.info
+                                    log_level = logger.error if (has_invalid_protected or has_invalid_button or has_invalid_text) else logger.info
                                     log_level(f"🙈 SKIPPING NON-VISIBLE FUNCTION: {CYAN}{func_name}{RESET} -> {rel_path} ({skip_reason})")
                                     # Determine app_path for tracking (slash notation)
                                     app_name_from_decorator = func_info.get('app_name')
@@ -1493,13 +1549,23 @@ async def {name}():
         except Exception as e:
             raise IOError(f"Failed to write file {file_path}: {e}")
 
-    async def function_add(self, name: str, code: Optional[str] = None, app: Optional[str] = None, location: Optional[str] = None, description: Optional[str] = None) -> bool:
+    async def function_add(
+        self,
+        name: str,
+        code: Optional[str] = None,
+        app: Optional[str] = None,
+        location: Optional[str] = None,
+        description: Optional[str] = None,
+        text_filename: Optional[str] = None,
+        text_content: Optional[str] = None,
+    ) -> bool:
         '''
         Creates a new function or re-enables a hidden one.
         If the function exists but has no decorators (was "removed"), adds @visible to re-enable it.
         If code is provided, it saves it. Otherwise, generates and saves a stub.
         If app is provided, creates the function in the app-specific subdirectory (supports dot notation).
         If location is provided, adds @location() decorator to the generated stub.
+        If text_filename is provided, creates that sibling text asset and generates a loader.
         Returns True on success, raises ValueError/IOError/RuntimeError on failure.
         '''
         secure_name = utils.clean_filename(name)
@@ -1536,9 +1602,23 @@ async def {name}():
             logger.info(f"Function '{secure_name}' exists but is hidden, re-enabling with @visible")
             return await self._add_visible_decorator(secure_name, file_path)
 
+        if text_filename:
+            self._validate_text_asset_filename(text_filename)
+            target_dir = self._get_app_target_dir(app)
+            text_path = os.path.join(target_dir, text_filename)
+            if os.path.exists(text_path):
+                raise ValueError(f"Text asset '{text_filename}' already exists")
+
         # Function doesn't exist anywhere - create new
-        code_to_save = code if code is not None else self._code_generate_stub(secure_name, location, description)
+        if code is not None:
+            code_to_save = code
+        elif text_filename:
+            code_to_save = self._code_generate_text_loader(secure_name, text_filename)
+        else:
+            code_to_save = self._code_generate_stub(secure_name, location, description)
         await self._fs_add_code(secure_name, code_to_save, app)
+        if text_filename:
+            await self._fs_add_text_asset(text_filename, text_content or "", app)
         logger.info(f"Function '{secure_name}' created successfully.")
         return True
 

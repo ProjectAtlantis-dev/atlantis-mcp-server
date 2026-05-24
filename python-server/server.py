@@ -1146,6 +1146,9 @@ class DynamicAdditionServer(Server):
                     "properties": {
                         "app": {"type": "string", "description": "Optional: The app name to create the function in a specific app directory"},
                         "name": {"type": "string", "description": "The name to register the new placeholder function under."},
+                        "code": {"type": "string", "description": "Optional: Full Python source for the new function. If omitted, a placeholder stub is generated."},
+                        "text_filename": {"type": "string", "description": "Optional: Create a sibling .md or .txt asset and generate a @text loader for it."},
+                        "text_content": {"type": "string", "description": "Optional: Initial content for text_filename."},
                         "location": {"type": "string", "description": "Optional: Adds @location() decorator with the specified location value to the generated function."},
                         "comment": {"type": "string", "description": "Optional: Custom comment for the function's docstring. Defaults to a placeholder message if not provided."}
                     },
@@ -2242,6 +2245,9 @@ class DynamicAdditionServer(Server):
 
             func_name = args.get("name")
             app_name = args.get("app")
+            code_value = args.get("code")
+            text_filename = args.get("text_filename")
+            text_content = args.get("text_content")
             location_value = args.get("location")
             comment_value = args.get("comment")
             if not func_name:
@@ -2271,7 +2277,15 @@ class DynamicAdditionServer(Server):
                     return f"Function '{func_name}' already exists in: {locations_list}. Specify an app parameter."
                 return f"Function '{func_name}' already exists."
 
-            await self.function_manager.function_add(func_name, None, app_name, location_value, comment_value)
+            await self.function_manager.function_add(
+                func_name,
+                code_value,
+                app_name,
+                location_value,
+                comment_value,
+                text_filename,
+                text_content,
+            )
             try:
                 await self._notify_tool_list_changed(change_type="added", tool_name=func_name)
             except Exception as e:

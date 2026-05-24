@@ -61,7 +61,7 @@ def update_log_level(level_name):
     logger.info(f"Log level updated to {level_name}")
 
 # Directory to store dynamic function files
-FUNCTIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dynamic_functions")
+FUNCTIONS_DIR = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "dynamic_functions"))
 
 # Create functions directory if it doesn't exist, and scaffold starter files
 # for new users who haven't set up their own functions repo yet.

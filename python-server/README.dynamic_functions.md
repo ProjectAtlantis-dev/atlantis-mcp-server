@@ -32,16 +32,33 @@ Tool schemas are generated from type hints and docstrings. Untyped parameters de
 
 ## Decorators
 
-The current decorator set is defined near the top of `DynamicFunctionManager.py` and installed into dynamic-function modules at load time. Use the source as the canonical list.
+### Visibility Decorators
+- **`@visible`** - Make function visible in tools list (owner-only access)
+- **`@public`** - Make function publicly accessible to all users (no authorization)
+- **`@protected("func_name")`** - Make function visible with custom authorization
+- **No decorator** - Function is hidden by default, not exposed as tool
 
-The important split is:
+### Callback Decorators (auto-visible)
+- **`@chat`** - Chat callback that receives transcript/tools and calls LLM
+- **`@tick`** - Tick scheduling is managed by the MCP server; this decorator lets a user trigger a tick manually for debugging
+- **`@session`** - Session callback, fired when a user resumes or joins an existing game
+- **`@game`** - Game callback, fired once when a brand new game is created (zero events, first session)
 
-- `@visible` exposes an owner-facing tool.
-- `@public` exposes a tool for public calling.
-- `@protected("auth_function")` exposes a tool behind a custom authorization function.
-- `@copy` affects whether non-owners can retrieve source through `_function_get`; it does not affect call permissions.
+### Structural Decorators (auto-visible)
+- **`@index`** - Marks a directory index tool
+- **`@text("content_type")`** - Text content tool (e.g. `@text("markdown")`)
+- **`@location(name="location_name")`** - Associate with a location
+- **`@price(per_call=X, per_sec=Y)`** - Set pricing per call or per second
+- **`@copy`** - Allow non-owners to view function source via `_function_get` (based on visibility rules)
 
-Other decorators provide metadata or specialized behavior. They exist in the runtime; avoid re-documenting their full behavior here unless the code changes to make that useful.
+### Modifier Decorators (require a visibility decorator)
+- **`@exclude`** - Exclude function from fuzzy search results (still visible in tool catalog/listing)
+- **`@button`** - Adds button on dashboard card
+- **`@dynamic`** - Marks index whose folder contents are dynamically generated
+
+### Deprecated
+- **`@hidden`** - Obsolete (functions are hidden by default without @visible)
+- **`@app(name="app_name")`** - Obsolete (folder name determines app)
 
 ## Atlantis Runtime
 

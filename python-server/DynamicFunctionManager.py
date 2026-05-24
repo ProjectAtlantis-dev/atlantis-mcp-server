@@ -119,21 +119,6 @@ def location(name: str):
 # that dynamic functions can import from, or injecting it into their global scope upon loading.
 # For now, this definition here allows _code_validate_syntax to recognize decorators by name.
 
-# --- Shared Module Decorator Definition ---
-def shared(func_or_module):
-    """
-    Decorator that marks a function or module as 'shared'.
-    When applied, the function/module will not be reloaded when dynamic functions are invalidated.
-
-    Usage: @shared
-           def my_persistent_function():
-               # This function will maintain its state
-               ...
-    """
-    # Mark the function/module as shared by setting an attribute
-    setattr(func_or_module, '_is_shared', True)
-    return func_or_module
-
 # --- Visible Decorator Definition ---
 def visible(func):
     """
@@ -325,8 +310,6 @@ class DynamicFunctionManager:
 
         # Create directories if they don't exist
         os.makedirs(self.functions_dir, exist_ok=True)
-        self.old_dir = os.path.join(self.functions_dir, "OLD")
-        os.makedirs(self.old_dir, exist_ok=True)
 
     # Helper functions for app name <-> path conversion
     @staticmethod
@@ -1189,7 +1172,7 @@ async def {name}():
             all_occurrences = {}
 
             # Scan all Python files in the functions directory and subdirectories
-            ignore_dirs = ['OLD', '__pycache__']
+            ignore_dirs = ['__pycache__']
             for root, dirs, files in os.walk(self.functions_dir, followlinks=True):
                 # Skip ignored directories and any directories starting with dot
                 dirs_to_remove = []

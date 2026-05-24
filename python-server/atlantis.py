@@ -295,10 +295,6 @@ def get_session_key() -> Optional[str]:
     ctx = get_context()
     return ctx.get_session_key() if ctx else None
 
-def get_session_id() -> Optional[str]:
-    """Backward-compatible alias for get_session_key."""
-    return get_session_key()
-
 def get_caller() -> Optional[str]:
     """Returns the caller sid who called this function."""
     ctx = get_context()

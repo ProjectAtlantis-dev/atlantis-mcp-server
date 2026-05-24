@@ -38,6 +38,8 @@ async def chat_callback(game_key: str):
 async def _handle_chat(game_key: str):
     from dynamic_functions.Home.session import session_room
 
+    # this is wrong, it should be converting the user:caller shell path to a location
+    # this file has outdated concept of session
     location = session_room(game_key)
 
     raw_transcript, transcript = await fetch_transcript(game_key)

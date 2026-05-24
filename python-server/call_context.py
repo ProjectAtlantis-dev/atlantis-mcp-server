@@ -9,7 +9,6 @@ class ToolCallPayload(BaseModel):
     name: Optional[str] = None
     arguments: dict[str, Any] = Field(default_factory=dict)
     caller_sid: Optional[str] = None
-    user: Optional[str] = None
     user_game_id: Optional[int] = None
     exec_shell_path: Optional[str] = None
     caller_shell_path: Optional[str] = None
@@ -41,13 +40,7 @@ class CallContext(BaseModel):
 
     @property
     def caller_sid(self) -> Optional[str]:
-        """Caller sid. Cloud legacy wire format may send this as params.user."""
-        return self.payload.caller_sid or self.payload.user
-
-    @property
-    def user(self) -> Optional[str]:
-        """Backward-compatible alias for caller_sid."""
-        return self.caller_sid
+        return self.payload.caller_sid
 
     @property
     def user_game_id(self) -> Optional[int]:

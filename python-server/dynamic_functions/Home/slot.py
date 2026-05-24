@@ -89,24 +89,6 @@ async def slot_list(game_key: str = "") -> List[Dict[str, Any]]:
     return slots
 
 
-@visible
-async def slot_take(game_key: str, slot: str, displayName: str = "") -> Dict[str, Any]:
-    """Claim a slot for the calling user (human). Overrides any AI default."""
-    import atlantis as _a
-    from dynamic_functions.Home.casting import set_casting, get_casting
-    user_sid = _a.get_caller() or ""
-    if not user_sid:
-        raise RuntimeError("No caller identity available.")
-    set_casting(game_key, slot, user_sid, kind="human", displayName=displayName or user_sid)
-    return get_casting(game_key)[slot]
-
-
-@visible
-async def slot_release(game_key: str, slot: str) -> Dict[str, Any]:
-    """Release a slot back to its AI default."""
-    from dynamic_functions.Home.casting import clear_casting, get_casting
-    clear_casting(game_key, slot)
-    return get_casting(game_key).get(slot, {"slot": slot, "kind": "empty"})
 
 
 def slot_default_location(slot: str) -> Optional[str]:

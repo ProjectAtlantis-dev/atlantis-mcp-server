@@ -638,9 +638,8 @@ class DynamicAdditionServer(Server):
                     cloud_notification_params["localLobsterCall"] = True
 
                 # Add caller sid, sessionKey, and shellPath for request context.
-                # Cloud still expects the legacy wire key "user".
                 if caller_sid is not None:
-                    cloud_notification_params["user"] = caller_sid
+                    cloud_notification_params["caller_sid"] = caller_sid
                 if session_key is not None:
                     cloud_notification_params["sessionKey"] = session_key
                 if shell_path is not None:
@@ -2122,7 +2121,7 @@ class DynamicAdditionServer(Server):
                         name=protection_name,
                         ctx=ctx,
                         app=None,
-                        args={'user': caller_sid},
+                        args={'caller_sid': caller_sid},
                     )
 
                     if not is_allowed:

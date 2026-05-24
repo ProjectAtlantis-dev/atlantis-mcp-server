@@ -2104,7 +2104,7 @@ async def {name}():
                         name=protection_name,
                         ctx=ctx,
                         app=None,
-                        args={'user': caller_sid},
+                        args={'caller_sid': caller_sid},
                     )
 
                     # Check the result

@@ -290,6 +290,23 @@ def casting_claim(game_key: str, sid: str) -> Dict[str, Any]:
     return {"casting": sid, "slot": slot, "location": casting_location(game_key, sid) or ""}
 
 
+@visible
+async def casting_take(game_key: str, slot: str, displayName: str = "") -> Dict[str, Any]:
+    """Claim a slot for the calling user (human). Overrides any AI default."""
+    user_sid = atlantis.get_caller() or ""
+    if not user_sid:
+        raise RuntimeError("No caller identity available.")
+    set_casting(game_key, slot, user_sid, kind="human", displayName=displayName or user_sid)
+    return get_casting(game_key)[slot]
+
+
+@visible
+async def casting_release(game_key: str, slot: str) -> Dict[str, Any]:
+    """Release a slot back to its AI default."""
+    clear_casting(game_key, slot)
+    return get_casting(game_key).get(slot, {"slot": slot, "kind": "empty"})
+
+
 def slot_for_occupant(game_key: str, sid: str) -> Optional[str]:
     """Reverse lookup: which slot is this sid currently filling in this game?"""
     for slot, info in get_casting(game_key).items():

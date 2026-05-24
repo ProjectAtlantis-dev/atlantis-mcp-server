@@ -217,7 +217,7 @@ async def client_log(message: Any, level: str = "INFO", message_type: str = "tex
             # If current_seq_to_send is -1, the helper function already logged the error
 
             # Get context values with null checks
-            client_id = get_client_id()
+            client_id = _get_client_id()
             request_id = get_request_id()
 
             if client_id is None or request_id is None:
@@ -280,8 +280,8 @@ def get_request_id() -> Optional[str]:
     ctx = get_context()
     return ctx.request_id if ctx else None
 
-def get_client_id() -> Optional[str]:
-    """Returns the client_id"""
+def _get_client_id() -> Optional[str]:
+    """Returns the client_id (internal plumbing for routing messages)."""
     ctx = get_context()
     return ctx.client_id if ctx else None
 
@@ -497,7 +497,7 @@ async def stream_start(sid: str, who: str) -> str:
 
     """
     stream_id_to_send = str(uuid.uuid4())
-    actual_client_id = get_client_id()
+    actual_client_id = _get_client_id()
     request_id = get_request_id()
     entry_point_name = get_entry_point_name() or "unknown_entry_point"
 
@@ -557,7 +557,7 @@ async def stream_start(sid: str, who: str) -> str:
 async def stream(message: str, stream_id_param: str):
     """Sends a stream message snippet back to the client using a provided stream_id.
     """
-    actual_client_id = get_client_id()
+    actual_client_id = _get_client_id()
     request_id = get_request_id()
     entry_point_name = get_entry_point_name() or "unknown_entry_point"
 
@@ -615,7 +615,7 @@ async def stream(message: str, stream_id_param: str):
 async def stream_end(stream_id_param: str):
     """Sends a stream_end message to the client, indicating the end of a stream, using a provided stream_id.
     """
-    actual_client_id = get_client_id()
+    actual_client_id = _get_client_id()
     request_id = get_request_id()
     entry_point_name = get_entry_point_name() or "unknown_entry_point"
 
@@ -698,7 +698,7 @@ async def _client_command(
         McpError: Propagated from underlying calls if timeouts or client-side errors occur.
     """
     # Get necessary context for routing and correlation
-    client_id = get_client_id()
+    client_id = _get_client_id()
     request_id = get_request_id()
     entry_point_name = get_entry_point_name()
     caller_sid = get_caller()

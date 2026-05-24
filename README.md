@@ -62,7 +62,7 @@ To add Atlantis Open Weather for testing:
 
 7. Your remote(s) should autoconnect using email and default api key = 'foobar' (see 'api' command to generate a new key later). The first server to connect will be assigned your 'default' unless you manually change it later
 
-8. The `dynamic_functions/` directory does not ship with this repo — create your own repo for your functions and symlink it into `python-server/dynamic_functions` (see **Dynamic Functions** below). The `dynamic_servers/` folder will be empty except for an example weather config
+8. The `dynamic_functions/` directory does not ship with this repo — on first run, the server auto-scaffolds a starter `Home` app with a demo function. We recommend moving these into your own git repo and symlinking back (see **Dynamic Functions** below). The `dynamic_servers/` folder will be empty except for an example weather config
 
 9. You can run this standalone MCP or accessed from the cloud or both
 
@@ -134,6 +134,15 @@ cd python-server
 git init ~/my-atlantis-functions
 
 # symlink it into the server
+ln -s ~/my-atlantis-functions dynamic_functions
+```
+
+If no `dynamic_functions/` directory exists when the server starts, it will auto-scaffold a starter `Home` app with a demo function so you have something to play with immediately. From there, we recommend moving those files into your own repo and symlinking back:
+
+```bash
+cd python-server
+mv dynamic_functions ~/my-atlantis-functions
+git -C ~/my-atlantis-functions init
 ln -s ~/my-atlantis-functions dynamic_functions
 ```
 

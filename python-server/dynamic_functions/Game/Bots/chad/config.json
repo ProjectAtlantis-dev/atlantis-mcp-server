@@ -1,8 +1,0 @@
-{
-  "displayName": "Chad",
-  "image": "image.png",
-  "provider": "openrouter",
-  "model": "z-ai/glm-5",
-  "baseUrl": "https://openrouter.ai/api/v1",
-  "apiKeyEnv": "OPENROUTER_API_KEY"
-}

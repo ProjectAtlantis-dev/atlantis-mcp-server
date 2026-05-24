@@ -62,7 +62,7 @@ To add Atlantis Open Weather for testing:
 
 7. Your remote(s) should autoconnect using email and default api key = 'foobar' (see 'api' command to generate a new key later). The first server to connect will be assigned your 'default' unless you manually change it later
 
-8. Initially the functions and servers folders will be empty except for some examples
+8. The `dynamic_functions/` directory does not ship with this repo — create your own repo for your functions and symlink it into `python-server/dynamic_functions` (see **Dynamic Functions** below). The `dynamic_servers/` folder will be empty except for an example weather config
 
 9. You can run this standalone MCP or accessed from the cloud or both
 
@@ -121,7 +121,23 @@ For dynamic function authoring details, see [Dynamic Functions Documentation](py
 
 #### Dynamic Functions
 
-Dynamic functions give users the ability to create and maintain custom functions-as-tools, which are kept in the `dynamic_functions/` folder. Functions are loaded on start and automatically reloaded when modified.
+Dynamic functions give users the ability to create and maintain custom functions-as-tools. Functions are loaded on start and automatically reloaded when modified.
+
+The `dynamic_functions/` directory is **not part of this repo** — it is gitignored. You are expected to maintain your own functions in a separate repository and symlink it in.
+
+**Why the separation matters:** Everything in this repo is Atlantis platform code — the MCP server, runtime, client. Everything under `dynamic_functions/` is **your code** — your tools, your apps, your data. Keeping them in separate repos makes this boundary explicit, which is especially important when working with AI coding agents (Claude Code, Codex, etc.) that need to understand what is platform infrastructure vs. what is user-authored tool code they can freely create and modify. It also means you can update the Atlantis server without touching your functions, and version your functions independently.
+
+```bash
+cd python-server
+
+# create your own repo for your functions (or use an existing one)
+git init ~/my-atlantis-functions
+
+# symlink it into the server
+ln -s ~/my-atlantis-functions dynamic_functions
+```
+
+The server doesn't care where the symlink points as long as the directory structure follows the expected layout (see below).
 
 For detailed information about creating and using dynamic functions, see the [Dynamic Functions Documentation](python-server/README.dynamic_functions.md). For an example of wiring a UI button back into a Python callback, see [Onclick Callbacks](python-server/README.onclick_callbacks.md).
 

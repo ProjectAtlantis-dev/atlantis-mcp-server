@@ -1,6 +1,6 @@
 # Dynamic Functions
 
-Dynamic functions are Python files under `dynamic_functions/` that Atlantis exposes as MCP tools. The runtime scans the tree, reads top-level functions, builds MCP schemas from signatures/docstrings, and loads the target module when a tool is called.
+Dynamic functions are Python files under `dynamic_functions/` that Atlantis exposes as MCP tools. This directory is not part of the server repo — it is gitignored and should be your own separate repository, symlinked into `python-server/dynamic_functions` (see the main README for setup). The runtime scans the tree, reads top-level functions, builds MCP schemas from signatures/docstrings, and loads the target module when a tool is called.
 
 This document is intentionally an orientation guide, not a full API dump. The authoritative implementation lives in `DynamicFunctionManager.py`; the runtime helpers are in `atlantis.py`. Browser callback and security details are documented separately in `README.onclick_callbacks.md` and `README_SECURITY.md`.
 

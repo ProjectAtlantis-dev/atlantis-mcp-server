@@ -1277,35 +1277,27 @@ async def {name}():
                                 has_invalid_button = "button" in decorators_from_info and not button_title
                                 has_invalid_text = "text" in decorators_from_info and not text_content_type
 
-                                # Skip if not visible and not internal OR if decorators have invalid required args
-                                if (not is_visible and not is_internal) or has_invalid_protected or has_invalid_button or has_invalid_text:
+                                # Skip functions with invalid required decorator args
+                                if has_invalid_protected or has_invalid_button or has_invalid_text:
                                     if has_invalid_protected:
                                         skip_reason = "invalid @protected (missing required protection name)"
                                     elif has_invalid_button:
                                         skip_reason = "invalid @button (missing required title string)"
-                                    elif has_invalid_text:
-                                        skip_reason = "invalid @text (missing required content type string)"
                                     else:
-                                        skip_reason = "missing visibility decorator (e.g. @visible, @public, @chat, @text, ...)"
+                                        skip_reason = "invalid @text (missing required content type string)"
 
-                                    # Use error level for invalid required decorator args, info level for others
-                                    log_level = logger.error if (has_invalid_protected or has_invalid_button or has_invalid_text) else logger.info
-                                    log_level(f"🙈 SKIPPING NON-VISIBLE FUNCTION: {CYAN}{func_name}{RESET} -> {rel_path} ({skip_reason})")
-                                    # Determine app_path for tracking (slash notation)
+                                    logger.error(f"🙈 SKIPPING INVALID FUNCTION: {CYAN}{func_name}{RESET} -> {rel_path} ({skip_reason})")
                                     app_name_from_decorator = func_info.get('app_name')
                                     if app_name_from_decorator:
-                                        # Convert decorator's dot notation to slash path immediately
                                         track_app_path = self._app_name_to_path(app_name_from_decorator)
                                     else:
-                                        # Extract directory from file path
                                         track_app_path = os.path.dirname(rel_path) if '/' in rel_path else None
-                                    # Track this skipped function
                                     self._skipped_functions.append({
                                         'name': func_name,
-                                        'app': track_app_path,  # Store slash path
+                                        'app': track_app_path,
                                         'file': rel_path,
                                         'reason': skip_reason,
-                                        'is_error': has_invalid_protected or has_invalid_button,  # True if error condition, False if intentional hiding
+                                        'is_error': True,
                                         'decorators': decorators_from_info
                                     })
                                     continue

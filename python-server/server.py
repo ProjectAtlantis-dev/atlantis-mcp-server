@@ -846,7 +846,7 @@ class DynamicAdditionServer(Server):
                 logger.warning(f"🧹 Final cleanup: Future for stream {correlation_id} was still in awaitable_requests.")
                 self.awaitable_requests.pop(correlation_id, None)
 
-    async def _create_tools_from_app_mappings(self) -> list[Tool]:
+    async def _create_tools_from_app_mappings(self, include_hidden: bool = False) -> list[Tool]:
         """Create tools from app-specific function mappings, showing all function variants"""
         tools_list = []
 
@@ -911,13 +911,11 @@ class DynamicAdditionServer(Server):
                                 logger.debug(f"🙈 Skipping function not in mapping for app '{app_name}': {tool_name} from {file_path}")
                                 continue
 
-                            # NEW OPT-IN VISIBILITY: Check if function has a visibility decorator or is internal
                             decorators_from_info = func_info.get("decorators", [])
                             is_internal = tool_name.startswith('_function') or tool_name.startswith('_server') or tool_name.startswith('_admin') or tool_name.startswith('_public')
                             is_visible = any(dec in decorators_from_info for dec in VISIBILITY_DECORATORS) if decorators_from_info else False
 
-                            # Skip if not visible and not internal
-                            if not is_visible and not is_internal:
+                            if not is_visible and not is_internal and not include_hidden:
                                 logger.debug(f"🙈 Skipping non-visible function in tool creation: {tool_name} from {file_path}")
                                 continue
 
@@ -928,6 +926,8 @@ class DynamicAdditionServer(Server):
                             tool_annotations["type"] = "text_file" if func_info.get('is_text_file') else "function"
                             tool_annotations["validationStatus"] = "VALID"
                             tool_annotations["sourceFile"] = file_path
+                            if not is_visible and not is_internal:
+                                tool_annotations["hidden"] = True
 
                             # Add decorator info if present (decorators_from_info already retrieved above)
                             if decorators_from_info:
@@ -1028,12 +1028,13 @@ class DynamicAdditionServer(Server):
 
         return tools_list
 
-    async def _get_tools_list(self, caller_context: str = "unknown", for_local_client: bool = False) -> list[Tool]:
+    async def _get_tools_list(self, caller_context: str = "unknown", for_local_client: bool = False, include_hidden: bool = False) -> list[Tool]:
         """Core logic to return a list of available tools
 
         Args:
             caller_context: Description of who/what is calling (for logging)
             for_local_client: True if request is from a LOCAL client, False if from cloud or internal
+            include_hidden: If True, also include functions without visibility decorators
 
         Three scenarios:
         1. Cloud requests tool list (for_local_client=False) → return FULL local tool list
@@ -1403,11 +1404,11 @@ class DynamicAdditionServer(Server):
                         # Use the function mapping to get all discovered functions
             await self.function_manager._build_function_file_mapping()
             # Get all functions from app-specific mappings to show all variants
-            dynamic_tools = await self._create_tools_from_app_mappings()
+            dynamic_tools = await self._create_tools_from_app_mappings(include_hidden=include_hidden)
             tools_list.extend(dynamic_tools)
         except Exception as e:
             logger.error(f"❌ Error scanning for dynamic functions: {str(e)}")
-            # Continue with just the built-in tools
+            raise
 
         # Function-to-file mapping was already built at the beginning of this method
 
@@ -3323,12 +3324,12 @@ async def index():
                 logger.warning(f"Failed to send notifications/tools/list_changed notification to client {client_id}: {e}")
                 # Consider removing the client connection if sending fails repeatedly?
 
-async def get_all_tools_for_response(server: 'DynamicAdditionServer', caller_context: str) -> List[Dict[str, Any]]:
+async def get_all_tools_for_response(server: 'DynamicAdditionServer', caller_context: str, include_hidden: bool = False) -> List[Dict[str, Any]]:
     """
     Fetches all tools from the server and prepares them as dictionaries for a JSON response.
     """
     logger.debug(f"Helper: Calling _get_tools_list for all tools from {caller_context}")
-    raw_tool_list: List[Tool] = await server._get_tools_list(caller_context=caller_context)
+    raw_tool_list: List[Tool] = await server._get_tools_list(caller_context=caller_context, include_hidden=include_hidden)
     tools_dict_list: List[Dict[str, Any]] = []
     for tool in raw_tool_list:
         try:
@@ -3416,13 +3417,13 @@ async def get_all_tools_for_response(server: 'DynamicAdditionServer', caller_con
     logger.debug(f"Helper: Prepared {len(tools_dict_list)} tool dictionaries.")
     return tools_dict_list
 
-async def get_filtered_tools_for_response(server: 'DynamicAdditionServer', caller_context: str) -> List[Dict[str, Any]]:
+async def get_filtered_tools_for_response(server: 'DynamicAdditionServer', caller_context: str, include_hidden: bool = False) -> List[Dict[str, Any]]:
     """
     Fetches tools, filters out server-type tools, and prepares them for a JSON response.
     Used for cloud Socket.IO connections.
     """
     logger.debug(f"Helper: Calling get_all_tools_for_response for filtering from {caller_context}")
-    all_tools_dict_list = await get_all_tools_for_response(server, caller_context)
+    all_tools_dict_list = await get_all_tools_for_response(server, caller_context, include_hidden=include_hidden)
 
     filtered_tools_dict_list: List[Dict[str, Any]] = []
     filtered_out_names: List[str] = []
@@ -3745,49 +3746,44 @@ class ServiceClient:
             for _, _, formatted_line in hidden_info_list:
                 logger.info(f"    {formatted_line}")
 
-        # Report skipped functions (split into Hidden and Invalid/Errors)
-        if hasattr(self.mcp_server.function_manager, '_skipped_functions') and self.mcp_server.function_manager._skipped_functions:
-            # Separate hidden functions from invalid/error functions
-            hidden_functions = []
-            invalid_functions = []
+        # Report hidden functions (in the mapping but lacking visibility decorators)
+        hidden_functions = []
+        fm = self.mcp_server.function_manager
+        for app_path, func_map in fm._function_metadata_by_app.items():
+            for func_name, func_info in func_map.items():
+                decorators = func_info.get("decorators", [])
+                is_internal = func_name.startswith('_function') or func_name.startswith('_server') or func_name.startswith('_admin') or func_name.startswith('_public')
+                is_visible = any(dec in VISIBILITY_DECORATORS for dec in decorators)
+                if not is_visible and not is_internal:
+                    file_path = fm._function_file_mapping_by_app.get(app_path, {}).get(func_name, "")
+                    hidden_functions.append({'name': func_name, 'app': app_path, 'file': file_path})
 
-            for item in self.mcp_server.function_manager._skipped_functions:
-                # Check if this is an error condition vs. intentional hiding using explicit flag
-                if item.get('is_error', False):
-                    invalid_functions.append(item)
-                else:
-                    hidden_functions.append(item)
+        if hidden_functions:
+            logger.info(f"")
+            logger.info(f"  {BOLD_COLOR}Hidden: {len(hidden_functions)}{RESET_COLOR}")
+            for item in sorted(hidden_functions, key=lambda x: ((x['app'] or 'top-level').lower(), x['name'].lower())):
+                app_display = fm._path_to_app_name(item['app']) if item['app'] else 'top-level'
+                logger.info(f"    {BOLD_COLOR}{app_display:{COL_WIDTH_APP}}{RESET_COLOR} {item['name']:{COL_WIDTH_FUNCTION}} {GREY_COLOR}{item['file']:{COL_WIDTH_FILEPATH}}{RESET_COLOR}")
 
-            # Report intentionally hidden functions
-            if hidden_functions:
-                logger.info(f"")
-                logger.info(f"  {BOLD_COLOR}Hidden: {len(hidden_functions)}{RESET_COLOR}")
-                for item in sorted(hidden_functions, key=lambda x: ((x['app'] or 'top-level').lower(), x['name'].lower())):
-                    # Convert slash path to dot notation for display
-                    app_display = self.mcp_server.function_manager._path_to_app_name(item['app']) if item['app'] else 'top-level'
-                    logger.info(f"    {BOLD_COLOR}{app_display:{COL_WIDTH_APP}}{RESET_COLOR} {item['name']:{COL_WIDTH_FUNCTION}} {GREY_COLOR}{item['file']:{COL_WIDTH_FILEPATH}}{RESET_COLOR}")
+        # Report invalid/error functions (from _skipped_functions)
+        if fm._skipped_functions:
+            logger.info(f"")
+            logger.error(f"  {BOLD_COLOR}❌ INVALID FUNCTIONS: {len(fm._skipped_functions)}{RESET_COLOR}")
+            for item in sorted(fm._skipped_functions, key=lambda x: ((x['app'] or 'top-level').lower(), x['name'].lower())):
+                app_display = fm._path_to_app_name(item['app']) if item['app'] else 'top-level'
+                reason = item.get('reason', 'unknown error')
+                logger.error(f"    {BOLD_COLOR}{app_display:{COL_WIDTH_APP}}{RESET_COLOR} {item['name']:{COL_WIDTH_FUNCTION}} {GREY_COLOR}{item['file']:{COL_WIDTH_FILEPATH}}{RESET_COLOR} {RED}[{reason}]{RESET_COLOR}")
 
-            # Report invalid/error functions
-            if invalid_functions:
-                logger.info(f"")
-                logger.error(f"  {BOLD_COLOR}❌ INVALID FUNCTIONS: {len(invalid_functions)}{RESET_COLOR}")
-                for item in sorted(invalid_functions, key=lambda x: ((x['app'] or 'top-level').lower(), x['name'].lower())):
-                    # Convert slash path to dot notation for display
-                    app_display = self.mcp_server.function_manager._path_to_app_name(item['app']) if item['app'] else 'top-level'
-                    reason = item.get('reason', 'unknown error')
-                    logger.error(f"    {BOLD_COLOR}{app_display:{COL_WIDTH_APP}}{RESET_COLOR} {item['name']:{COL_WIDTH_FUNCTION}} {GREY_COLOR}{item['file']:{COL_WIDTH_FILEPATH}}{RESET_COLOR} {RED}[{reason}]{RESET_COLOR}")
-
-            # Report duplicate functions
-            duplicate_functions = self.mcp_server.function_manager._duplicate_functions
-            if duplicate_functions:
-                logger.info(f"")
-                logger.error(f"  {BOLD_COLOR}❌ DUPLICATE FUNCTIONS (REMOVED): {len(duplicate_functions)}{RESET_COLOR}")
-                for app_path, func_name, file_paths in sorted(duplicate_functions, key=lambda x: ((x[0] or 'top-level').lower(), x[1].lower())):
-                    # Convert slash path to dot notation for display
-                    app_display = self.mcp_server.function_manager._path_to_app_name(app_path) if app_path else 'top-level'
-                    logger.error(f"    {BOLD_COLOR}{app_display:{COL_WIDTH_APP}}{RESET_COLOR} {func_name:{COL_WIDTH_FUNCTION}}")
-                    for i, file_path in enumerate(file_paths, 1):
-                        logger.error(f"      {GREY_COLOR}Occurrence {i}: {file_path}{RESET_COLOR}")
+        # Report duplicate functions
+        duplicate_functions = fm._duplicate_functions
+        if duplicate_functions:
+            logger.info(f"")
+            logger.error(f"  {BOLD_COLOR}❌ DUPLICATE FUNCTIONS (REMOVED): {len(duplicate_functions)}{RESET_COLOR}")
+            for app_path, func_name, file_paths in sorted(duplicate_functions, key=lambda x: ((x[0] or 'top-level').lower(), x[1].lower())):
+                app_display = fm._path_to_app_name(app_path) if app_path else 'top-level'
+                logger.error(f"    {BOLD_COLOR}{app_display:{COL_WIDTH_APP}}{RESET_COLOR} {func_name:{COL_WIDTH_FUNCTION}}")
+                for i, file_path in enumerate(file_paths, 1):
+                    logger.error(f"      {GREY_COLOR}Occurrence {i}: {file_path}{RESET_COLOR}")
 
         if server_info_list:
             logger.info(f"")
@@ -4209,12 +4205,13 @@ class ServiceClient:
         try:
 
             if method == "tools/list":
-                include_all = params.get("all", False) if params else False
-                logger.info(f"🧰 Processing 'tools/list' request via helper (all={include_all})")
-                if include_all:
-                    tools_dict_list = await get_all_tools_for_response(self.mcp_server, caller_context="process_mcp_request_websocket")
+                include_servers = params.get("include_servers", False) if params else False
+                include_hidden = params.get("include_hidden", False) if params else False
+                logger.info(f"🧰 Processing 'tools/list' request via helper (include_servers={include_servers}, include_hidden={include_hidden})")
+                if include_servers:
+                    tools_dict_list = await get_all_tools_for_response(self.mcp_server, caller_context="process_mcp_request_websocket", include_hidden=include_hidden)
                 else:
-                    tools_dict_list = await get_filtered_tools_for_response(self.mcp_server, caller_context="process_mcp_request_websocket")
+                    tools_dict_list = await get_filtered_tools_for_response(self.mcp_server, caller_context="process_mcp_request_websocket", include_hidden=include_hidden)
                 response = {
                     "jsonrpc": "2.0",
                     "id": request_id,

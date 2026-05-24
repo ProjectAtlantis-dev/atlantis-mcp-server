@@ -39,15 +39,10 @@ yarn-error.log
 *.pid
 
 *.OLD
-python-server/dynamic_functions/*
+python-server/dynamic_functions
 
 python-server/dynamic_functions copy/*
 python-server/dynamic_functions.TEST/
-
-!python-server/dynamic_functions/Home
-!python-server/dynamic_functions/Game
-!python-server/dynamic_functions/Data
-python-server/dynamic_functions/.gitignore
 
 python-server/dynamic_servers/*
 !python-server/dynamic_servers/weather.json
@@ -59,9 +54,6 @@ log/
 
 *.db
 python-server/**/*.json
-!python-server/dynamic_functions/Game/Roles/**/*.json
-!python-server/dynamic_functions/Game/Bots/**/*.json
-!python-server/dynamic_functions/Game/Locations/**/*.json
 python-server/**/*.log
 
 

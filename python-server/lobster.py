@@ -387,34 +387,30 @@ async def process_mcp_request(
             logger.info("Successfully processed 'initialize' request")
             return {"jsonrpc": "2.0", "id": req_id, "result": result}
         if method == "tools/list":
-            logger.info("Processing 'tools/list' request via helper for local WebSocket connection")
-            lobster_tools_list = get_lobster_tools_for_response(server)
-            if not lobster_tools_list:
-                logger.error(
-                    f"EMPTY TOOL LIST being returned for tools/list request (ID: {req_id})! "
-                    f"Cloud has not sent lobsterTools in welcome event. "
-                    f"The MCP client will see zero tools available."
+            include_all = params.get("all", False) if params else False
+            if include_all:
+                logger.info("Processing 'tools/list' (all=True) request via helper")
+                tools_list = await get_all_tools_for_response(server, "process_mcp_request_websocket")
+            else:
+                logger.info("Processing 'tools/list' request via helper for local WebSocket connection")
+                tools_list = get_lobster_tools_for_response(server)
+                if not tools_list:
+                    logger.error(
+                        f"EMPTY TOOL LIST being returned for tools/list request (ID: {req_id})! "
+                        f"Cloud has not sent lobsterTools in welcome event. "
+                        f"The MCP client will see zero tools available."
+                    )
+            response = {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {"tools": tools_list},
+            }
+            write_tools_debug_file(response)
+            if not include_all:
+                tool_names = [t.get("name", "?") for t in tools_list]
+                logger.info(
+                    f"Prepared tools/list response (ID: {req_id}) with {len(tools_list)} lobster tools: {tool_names}"
                 )
-            response = {
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "result": {"tools": lobster_tools_list},
-            }
-            write_tools_debug_file(response)
-            lobster_tool_names = [t.get("name", "?") for t in lobster_tools_list]
-            logger.info(
-                f"Prepared tools/list response (ID: {req_id}) with {len(lobster_tools_list)} lobster tools: {lobster_tool_names}"
-            )
-            return response
-        if method == "tools/list_all":
-            logger.info("Processing 'tools/list_all' request via helper")
-            all_tools_dict_list = await get_all_tools_for_response(server, "process_mcp_request_websocket")
-            response = {
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "result": {"tools": all_tools_dict_list},
-            }
-            write_tools_debug_file(response)
             return response
         if method == "prompts/list":
             result = await server._get_prompts_list()

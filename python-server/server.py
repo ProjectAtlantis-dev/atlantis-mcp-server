@@ -4209,28 +4209,19 @@ class ServiceClient:
         try:
 
             if method == "tools/list":
-                logger.info(f"🧰 Processing 'tools/list' request via helper")
-                filtered_tools_dict_list = await get_filtered_tools_for_response(self.mcp_server, caller_context="process_mcp_request_websocket")
+                include_all = params.get("all", False) if params else False
+                logger.info(f"🧰 Processing 'tools/list' request via helper (all={include_all})")
+                if include_all:
+                    tools_dict_list = await get_all_tools_for_response(self.mcp_server, caller_context="process_mcp_request_websocket")
+                else:
+                    tools_dict_list = await get_filtered_tools_for_response(self.mcp_server, caller_context="process_mcp_request_websocket")
                 response = {
                     "jsonrpc": "2.0",
                     "id": request_id,
-                    "result": {"tools": filtered_tools_dict_list}
+                    "result": {"tools": tools_dict_list}
                 }
                 write_tools_debug_file(response)
-                logger.debug(f"📦 Prepared tools/list response (ID: {request_id}) with {len(filtered_tools_dict_list)} tools.")
-                return response
-            elif method == "tools/list_all": # Handling for list_all in direct connections
-                # get all tools including internal
-                # get servers including those not running
-                # Call the core logic method directly (pass client_id)
-                logger.info(f"🧰 Processing 'tools/list_all' request via helper")
-                all_tools_dict_list = await get_all_tools_for_response(self.mcp_server, caller_context="process_mcp_request_websocket")
-                response = {
-                    "jsonrpc": "2.0",
-                    "id": request_id,
-                    "result": {"tools": all_tools_dict_list}
-                }
-                write_tools_debug_file(response)
+                logger.debug(f"📦 Prepared tools/list response (ID: {request_id}) with {len(tools_dict_list)} tools.")
                 return response
 
             elif method == "tools/call":

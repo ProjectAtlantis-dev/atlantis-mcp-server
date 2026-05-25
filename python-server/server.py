@@ -846,7 +846,7 @@ class DynamicAdditionServer(Server):
                 logger.warning(f"🧹 Final cleanup: Future for stream {correlation_id} was still in awaitable_requests.")
                 self.awaitable_requests.pop(correlation_id, None)
 
-    async def _create_tools_from_app_mappings(self, include_hidden: bool = False) -> list[Tool]:
+    async def _create_tools_from_app_mappings(self) -> list[Tool]:
         """Create tools from app-specific function mappings, showing all function variants"""
         tools_list = []
 
@@ -915,9 +915,8 @@ class DynamicAdditionServer(Server):
                             is_internal = tool_name.startswith('_function') or tool_name.startswith('_server') or tool_name.startswith('_admin') or tool_name.startswith('_public')
                             is_visible = any(dec in decorators_from_info for dec in VISIBILITY_DECORATORS) if decorators_from_info else False
 
-                            if not is_visible and not is_internal and not include_hidden:
-                                logger.debug(f"🙈 Skipping non-visible function in tool creation: {tool_name} from {file_path}")
-                                continue
+                            if not is_visible and not is_internal:
+                                logger.debug(f"🙈 Hidden function included in catalog: {tool_name} from {file_path}")
 
                             tool_description = func_info.get('description', f"Dynamic function '{tool_name}'")
                             tool_input_schema = func_info.get('inputSchema', {"type": "object", "properties": {}})
@@ -1028,13 +1027,12 @@ class DynamicAdditionServer(Server):
 
         return tools_list
 
-    async def _get_tools_list(self, caller_context: str = "unknown", for_local_client: bool = False, include_hidden: bool = False) -> list[Tool]:
-        """Core logic to return a list of available tools
+    async def _get_tools_list(self, caller_context: str = "unknown", for_local_client: bool = False) -> list[Tool]:
+        """Core logic to return a list of available tools (always includes hidden tools).
 
         Args:
             caller_context: Description of who/what is calling (for logging)
             for_local_client: True if request is from a LOCAL client, False if from cloud or internal
-            include_hidden: If True, also include functions without visibility decorators
 
         Three scenarios:
         1. Cloud requests tool list (for_local_client=False) → return FULL local tool list
@@ -1404,7 +1402,7 @@ class DynamicAdditionServer(Server):
                         # Use the function mapping to get all discovered functions
             await self.function_manager._build_function_file_mapping()
             # Get all functions from app-specific mappings to show all variants
-            dynamic_tools = await self._create_tools_from_app_mappings(include_hidden=include_hidden)
+            dynamic_tools = await self._create_tools_from_app_mappings()
             tools_list.extend(dynamic_tools)
         except Exception as e:
             logger.error(f"❌ Error scanning for dynamic functions: {str(e)}")
@@ -1928,7 +1926,7 @@ class DynamicAdditionServer(Server):
                 else:
                     seen_keys.add(tool_key)
 
-        self._cached_tools = list(tools_list) # Store a copy
+        self._cached_tools = list(tools_list) # Store a copy (always includes hidden)
         self._last_functions_dir_mtime = current_mtime
         self._last_servers_dir_mtime = server_mtime
         # First identify running vs. non-running servers using proper accessor
@@ -3329,7 +3327,9 @@ async def get_all_tools_for_response(server: 'DynamicAdditionServer', caller_con
     Fetches all tools from the server and prepares them as dictionaries for a JSON response.
     """
     logger.debug(f"Helper: Calling _get_tools_list for all tools from {caller_context}")
-    raw_tool_list: List[Tool] = await server._get_tools_list(caller_context=caller_context, include_hidden=include_hidden)
+    raw_tool_list: List[Tool] = await server._get_tools_list(caller_context=caller_context)
+    if not include_hidden:
+        raw_tool_list = [t for t in raw_tool_list if not getattr(getattr(t, 'annotations', None), 'hidden', False)]
     tools_dict_list: List[Dict[str, Any]] = []
     for tool in raw_tool_list:
         try:

@@ -267,6 +267,16 @@ async def client_description(message: Any, level: str = "INFO", is_private: bool
         location=location
     )
 
+async def client_warning(message: Any, level: str = "WARNING", is_private: bool = True, location: Optional[str] = None):
+    """Sends a warning message back to the requesting client for the current context."""
+    return await client_log(
+        message,
+        level=level,
+        message_type="warning",
+        is_private=is_private,
+        location=location
+    )
+
 async def tool_result(name: str, result: Any):
     """Sends a tool call result back to the requesting client to be added to the transcript.
     This allows the LLM to see tool results in the next conversation turn.

@@ -74,6 +74,29 @@ class CallContext(BaseModel):
         except ValueError:
             return None
 
+    @property
+    def terminal_key(self) -> str:
+        """Stable identifier for one terminal within a session.
+
+        A session (user_game_id, caller_sid) is shared across all of a human's
+        terminals; the terminal_key re-adds caller_shell_path - the user's root
+        shell - to identify the single originating terminal. Uses caller_shell_path
+        (attribution) intentionally, NOT exec_shell_path (where work runs). Raises
+        if any component is missing.
+        """
+        return self.derive_terminal_key(
+            user_game_id=self.user_game_id,
+            caller_sid=self.caller_sid,
+            caller_shell_path=self.caller_shell_path,
+        )
+
+    def get_terminal_key(self) -> Optional[str]:
+        """Return the canonical terminal key, or None when context is incomplete."""
+        try:
+            return self.terminal_key
+        except ValueError:
+            return None
+
     @staticmethod
     def derive_session_key(
         *,
@@ -90,6 +113,22 @@ class CallContext(BaseModel):
         if missing:
             raise ValueError(f"Cannot derive session_key: missing {missing}")
         return f"{user_game_id}:{caller_sid}"
+
+    @staticmethod
+    def derive_terminal_key(
+        *,
+        user_game_id: Optional[int],
+        caller_sid: Optional[str],
+        caller_shell_path: Optional[str],
+    ) -> str:
+        """Canonical terminal key factory: session key narrowed to one terminal."""
+        session_key = CallContext.derive_session_key(
+            user_game_id=user_game_id,
+            caller_sid=caller_sid,
+        )
+        if not caller_shell_path:
+            raise ValueError("Cannot derive terminal_key: missing ['caller_shell_path']")
+        return f"{session_key}:{caller_shell_path}"
 
     def with_payload_updates(self, **updates: Any) -> "CallContext":
         """Return a copy with selected wire payload keys overridden."""

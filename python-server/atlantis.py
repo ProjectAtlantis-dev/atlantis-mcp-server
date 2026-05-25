@@ -296,6 +296,15 @@ def get_session_key() -> Optional[str]:
     ctx = get_context()
     return ctx.get_session_key() if ctx else None
 
+# session key narrowed to the originating terminal — see CallContext.terminal_key
+def get_terminal_key() -> Optional[str]:
+    """Returns the terminal_key for this function call (None if any component missing).
+
+    A terminal is one of a human's terminals within a session: session_key plus
+    caller_shell_path (the user's root shell)."""
+    ctx = get_context()
+    return ctx.get_terminal_key() if ctx else None
+
 def get_caller() -> Optional[str]:
     """Returns the caller sid who called this function."""
     ctx = get_context()

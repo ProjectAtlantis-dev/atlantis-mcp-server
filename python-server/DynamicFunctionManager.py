@@ -1013,7 +1013,7 @@ class DynamicFunctionManager:
 
                     function_info = {
                         "name": func_name,
-                        "description": docstring or "(No description provided)", # Provide default
+                        "description": docstring or "",
                         "inputSchema": input_schema,
                         "decorators": decorator_names, # Add extracted decorators here
                         "app_name": app_name_from_decorator, # Add extracted app_name

@@ -304,6 +304,6 @@ tail -1000 python-server/runServer.log
 Visitor-related log lines include `"Visitor:"`, `"New conversation for"`, and `"Injected time-gap message"`.
 
 ## Our Greenland Terrain Server
-![happy](/happy.png)
+![lobby](/lobby.png)
 
 The goal is to use this system as the main bot infrastructure (tool etc.) for our [Greenland terrain server](https://github.com/ProjectAtlantis-dev/atlantis-terrain-server)

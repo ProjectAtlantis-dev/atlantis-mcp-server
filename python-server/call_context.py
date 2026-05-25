@@ -58,7 +58,7 @@ class CallContext(BaseModel):
     def session_key(self) -> str:
         """Stable, locally-derived session identifier.
 
-        Composed from (user_game_id, caller sid). Shell path is intentionally NOT included —
+        Composed from (caller sid, user_game_id). Shell path is intentionally NOT included —
         we want one session per (game, sid) so multiple terminals of the same human share state
         (e.g. the chat busy-lock). Raises if any component is missing.
         """
@@ -112,7 +112,7 @@ class CallContext(BaseModel):
         ]
         if missing:
             raise ValueError(f"Cannot derive session_key: missing {missing}")
-        return f"{user_game_id}:{caller_sid}"
+        return f"{caller_sid}:{user_game_id}"
 
     @staticmethod
     def derive_terminal_key(

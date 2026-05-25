@@ -8,10 +8,11 @@ from typing import Callable, Optional
 logger = logging.getLogger("mcp_server")
 
 # --- Game Ticks ---
-# Tick support is explicit: callers must pass a game_key into every tick API.
-# No implicit contextvar fallback — game_key is MCP-local state, not cloud-supplied.
+# Tick support is explicit: callers must pass a user_game_id into every tick API.
+# The tick registry is keyed by user_game_id (the cloud-supplied game identity),
+# not any MCP-local uuid game key; that belongs in the apps.
 #
-# Shape: {game_key: {
+# Shape: {user_game_id: {
 #     "ctx": contextvars.Context,   — snapshot for running callbacks in game context
 #     "caller": str,                — user who registered the tick
 #     "tick_callback": Callable,    — async fn to call each tick
@@ -24,11 +25,11 @@ _tick_task: Optional[asyncio.Task] = None
 _tick_interval: float = 1.0
 
 
-def _require_game_key(game_key: str) -> str:
-    """Validate that game_key is provided."""
-    if not game_key:
-        raise RuntimeError("A valid game_key is required")
-    return game_key
+def _require_user_game_id(user_game_id: int) -> int:
+    """Validate that user_game_id is provided."""
+    if not user_game_id:
+        raise RuntimeError("A valid user_game_id is required")
+    return user_game_id
 
 
 def get_active_game_ticks() -> dict:
@@ -43,20 +44,20 @@ def set_tick_interval(seconds: float) -> None:
     logger.info(f"tick interval set to {_tick_interval}s")
 
 
-def deactivate_game_tick(game_key: str) -> bool:
+def deactivate_game_tick(user_game_id: int) -> bool:
     """Remove a game from the tick registry."""
-    if game_key and game_key in _active_game_ticks:
-        del _active_game_ticks[game_key]
-        logger.info(f"deactivate_game_tick: removed game={game_key} (remaining: {len(_active_game_ticks)})")
+    if user_game_id and user_game_id in _active_game_ticks:
+        del _active_game_ticks[user_game_id]
+        logger.info(f"deactivate_game_tick: removed game={user_game_id} (remaining: {len(_active_game_ticks)})")
         if not _active_game_ticks:
             _stop_tick_loop()
         return True
     return False
 
 
-def register_tick(game_key: str, callback: Callable) -> None:
-    """Register a tick callback for the given game_key."""
-    gid = _require_game_key(game_key)
+def register_tick(user_game_id: int, callback: Callable) -> None:
+    """Register a tick callback for the given user_game_id."""
+    gid = _require_user_game_id(user_game_id)
     _active_game_ticks[gid] = {
         # TBD
         "ctx": contextvars.copy_context(),
@@ -67,12 +68,12 @@ def register_tick(game_key: str, callback: Callable) -> None:
     _ensure_tick_loop()
 
 
-def unregister_tick(game_key: str) -> None:
+def unregister_tick(user_game_id: int) -> None:
     """Remove the tick callback for a game."""
-    deactivate_game_tick(game_key)
+    deactivate_game_tick(user_game_id)
 
 
-async def _run_one_tick(gid: str, entry: dict) -> None:
+async def _run_one_tick(gid: int, entry: dict) -> None:
     """Run a single game's tick callback inside its saved context."""
     entry["tick_busy"] = True
     try:
@@ -115,8 +116,8 @@ def _ensure_tick_loop() -> None:
     """Start the global tick loop if it isn't already running."""
     global _tick_task
     if _tick_task is not None and not _tick_task.done():
-        game_keys = list(_active_game_ticks.keys())
-        logger.info(f"tick loop already running ({len(game_keys)} game tick(s): {game_keys})")
+        game_ids = list(_active_game_ticks.keys())
+        logger.info(f"tick loop already running ({len(game_ids)} game tick(s): {game_ids})")
         return
     try:
         loop = asyncio.get_running_loop()

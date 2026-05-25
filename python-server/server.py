@@ -3103,10 +3103,10 @@ async def index():
                     if self.cloud_client is None:
                         raise RuntimeError("Cloud client missing for local lobster tool call")
                     lobster_shell = self.cloud_client.lobster_shell_path
-                    lobster_game_key = self.cloud_client.lobster_game_key
+                    lobster_routing_key = self.cloud_client.lobster_routing_key
                     lobster_ctx = ctx.with_payload_updates(
                         caller_sid=atlantis._owner,
-                        user_game_id=lobster_game_key or ctx.user_game_id,
+                        user_game_id=lobster_routing_key or ctx.user_game_id,
                         caller_shell_path=lobster_shell or ctx.caller_shell_path,
                     ).model_copy(update={
                         "client_log_func": lambda message, level="INFO", message_type="text": None,
@@ -3501,8 +3501,8 @@ class ServiceClient:
         self.lobster_request_id = None
         # Store the lobster shell path received from cloud welcome
         self.lobster_shell_path = None
-        # Store the lobster game key received from lobsterShell event
-        self.lobster_game_key = None
+        # Store the lobster routing key received from lobsterShell event
+        self.lobster_routing_key = None
         # Throttle repeated identical connect_error logs while the cloud is down.
         self._connect_error_signature = None
         self._connect_error_last_logged_at = None
@@ -4013,11 +4013,11 @@ class ServiceClient:
         @self.sio.event(namespace=self.namespace)
         async def lobsterShell(data):
             shell_path = data.get("shellPath") if isinstance(data, dict) else None
-            game_key = data.get("gameKey") if isinstance(data, dict) else None
+            routing_key = data.get("gameKey") if isinstance(data, dict) else None
             if shell_path:
                 self.lobster_shell_path = shell_path
-                self.lobster_game_key = game_key
-                logger.info(f"\033[1;91m🦞 Lobster shell path: {shell_path}" + (f" (game {game_key})" if game_key else "") + "\033[0m")
+                self.lobster_routing_key = routing_key
+                logger.info(f"\033[1;91m🦞 Lobster shell path: {shell_path}" + (f" (routing {routing_key})" if routing_key else "") + "\033[0m")
             else:
                 logger.warning(f"🦞 Received lobsterShell event with no shellPath: {data}")
 

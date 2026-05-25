@@ -483,10 +483,10 @@ async def handle_lobster_socket(
         lobster.info(f"  {r}🦞 ANOTHER LOBSTER IN THE TRAP! ({connection_count} total) 🦞{x}")
     else:
         lobster.info(f"  {r}🦞 FRESH CATCH! NEW MCP CLIENT HAULED ABOARD! 🦞{x}")
-    lobster_game_key = getattr(mcp_server.cloud_client, 'lobster_game_key', None) if mcp_server.cloud_client else None
+    lobster_routing_key = getattr(mcp_server.cloud_client, 'lobster_routing_key', None) if mcp_server.cloud_client else None
     lobster.info(f"  {r}  Host:         {websocket.client.host}{x}")
     lobster.info(f"  {r}  Client ID:    {client_id}{x}")
-    lobster.info(f"  {r}  Game:         {lobster_game_key if lobster_game_key is not None else 'unknown'}{x}")
+    lobster.info(f"  {r}  Routing:      {lobster_routing_key if lobster_routing_key is not None else 'unknown'}{x}")
     lobster.info(f"  {r}  Trap count:   {connection_count}{x}")
     lobster.info(f"  {r}  Cloud:        {'⛵ AYE' if has_cloud else '🌊 NAY'}{x}")
     lobster.info(f"  {r}  Tools in pot: {lobster_count}{x}")

@@ -263,9 +263,9 @@ async def client_log(
                     logger.error(f"❌ Exception details: {type(task_e).__name__}: {task_e}")
                     logger.error(f"❌ Traceback: {traceback.format_exc()}")
 
-            asyncio.create_task(send_log_task())
+            task = asyncio.create_task(send_log_task())
             #logger.debug(f"📋 CLIENT LOG/COMMAND TASK CREATED for client_id={client_id_for_routing}, request_id={request_id}, seq_num={seq_num}")
-            return None # Return immediately, indicating task creation
+            return task # Return the task so callers can track/gather it
         except Exception as e:
             logger.error(f"❌ Error in awaitable client_log: {e}")
             logger.error(f"❌ Exception details: {type(e).__name__}: {e}")

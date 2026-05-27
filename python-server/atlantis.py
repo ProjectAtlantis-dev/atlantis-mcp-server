@@ -845,13 +845,15 @@ async def client_script(content: str, is_private: bool = True):
     result = await client_command("script", content, message_type="script", is_private=is_private)
     return result
 
-async def set_background(image_path: str, image_format: Optional[str] = None):
+async def set_background(image_path: str, image_format: Optional[str] = None, vertical_align: str = "bottom"):
     """Sets the background image for the client UI.
 
     Args:
         image_path: Path to the image file
         image_format: Optional MIME type of the image (e.g., "image/png", "image/jpeg").
                      If not provided, will be auto-detected from file extension.
+        vertical_align: Vertical alignment for background-position ("top", "center", "bottom",
+                       or a CSS length/percentage). Defaults to "bottom".
     """
     # Auto-detect MIME type from file extension if not provided
     if image_format is None:
@@ -868,7 +870,12 @@ async def set_background(image_path: str, image_format: Optional[str] = None):
     # Format as proper data URL
     prefixed_data = f"data:{image_format};base64,{base64_data}"
 
-    result = await client_command("background", prefixed_data, message_type="background")
+    result = await _client_command(
+        "background",
+        prefixed_data,
+        message_type="background",
+        notification_params={"verticalAlign": vertical_align},
+    )
     return result
 
 async def client_markdown(content: str):

@@ -878,6 +878,60 @@ async def set_background(image_path: str, image_format: Optional[str] = None, ve
     )
     return result
 
+async def set_background_video(
+    video_source: str,
+    video_format: Optional[str] = None,
+    vertical_align: str = "center",
+    loop: bool = False,
+    muted: bool = True,
+    autoplay: bool = True,
+    plays_inline: bool = True,
+    remove_on_ended: bool = True,
+    toggle_audio: bool = True,
+):
+    """Sets a background video for the client UI.
+
+    Args:
+        video_source: URL, data URL, or local path to a video file.
+        video_format: Optional MIME type for local files (e.g., "video/mp4", "video/webm").
+                     If not provided, will be auto-detected from file extension.
+        vertical_align: Vertical alignment for object-position ("top", "center", "bottom",
+                       or a CSS length/percentage). Defaults to "center".
+        loop: Whether the video should loop. Defaults to False.
+        muted: Whether the video starts muted. Defaults to True for browser autoplay.
+        autoplay: Whether the video should autoplay. Defaults to True.
+        plays_inline: Whether mobile browsers should play inline. Defaults to True.
+        remove_on_ended: Whether to remove the video when playback ends. Defaults to True.
+        toggle_audio: Whether clicking the background toggles mute. Defaults to True.
+    """
+    if video_source.startswith(("http://", "https://", "data:")):
+        video_data = video_source
+    else:
+        if video_format is None:
+            mime_type, _ = mimetypes.guess_type(video_source)
+            if not mime_type or not mime_type.startswith("video/"):
+                video_format = "video/mp4"
+            else:
+                video_format = mime_type
+        base64_data = video_to_base64(video_source)
+        video_data = f"data:{video_format};base64,{base64_data}"
+
+    result = await _client_command(
+        "background_video",
+        video_data,
+        message_type="background_video",
+        notification_params={
+            "verticalAlign": vertical_align,
+            "loop": loop,
+            "muted": muted,
+            "autoplay": autoplay,
+            "playsInline": plays_inline,
+            "removeOnEnded": remove_on_ended,
+            "toggleAudio": toggle_audio,
+        },
+    )
+    return result
+
 async def client_markdown(content: str):
     """Sends Markdown content back to the requesting client for rendering
 

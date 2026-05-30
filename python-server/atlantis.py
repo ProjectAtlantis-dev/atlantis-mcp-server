@@ -845,6 +845,23 @@ async def client_script(content: str, is_private: bool = True):
     result = await client_command("script", content, message_type="script", is_private=is_private)
     return result
 
+async def client_terminal_script(content: str, is_private: bool = True):
+    """Sends Javascript that re-runs on every render (a 'terminal' event).
+
+    Unlike client_script, which is one-shot (the client skips it once its event
+    has a completed_at), terminal events are not deduped, so the script re-applies
+    after page reloads. Use this for cosmetic DOM effects that must survive a
+    reload — frosted styling, terminal-mode chrome, etc.
+
+    Args:
+        content: The Javascript content to send.
+        is_private: If True (default), script only runs on the requesting client.
+    """
+    # Same "script" command, but message_type "terminal" routes it to the
+    # client's re-runnable terminal-event path instead of the one-shot script path.
+    result = await client_command("script", content, message_type="terminal", is_private=is_private)
+    return result
+
 async def set_background(image_path: str, image_format: Optional[str] = None, vertical_align: str = "bottom"):
     """Sets the background image for the client UI.
 

@@ -16,7 +16,7 @@ while true; do
     --cloud-host=wss://projectatlantis.ai  \
     --cloud-port=443  \
     --service-name=home \
-    --app-name=pa
+    --app-name=pa    \
     --description="Project Atlantis" \
     --image=../lobby.png
 

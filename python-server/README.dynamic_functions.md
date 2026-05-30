@@ -79,6 +79,8 @@ caller = atlantis.get_caller()
 
 For the full helper surface, read `atlantis.py`; the functions there are short and usually self-describing.
 
+Generally however, it is preferable to run cloud commands directly instead of loading up atlantis.py w wrappers that do the same thing.
+
 ## Browser Callbacks
 
 Rendered HTML can call back into Python with `sendChatter(window._accessToken, target, data)`. The payload keys become keyword arguments, so JavaScript key names must exactly match the Python callback parameters.

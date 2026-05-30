@@ -883,6 +883,7 @@ async def set_background_video(
     video_format: Optional[str] = None,
     vertical_align: str = "center",
     playback_rate: Optional[float] = None,
+    brightness: Optional[float] = None,
     loop: bool = False,
     muted: bool = True,
     autoplay: bool = True,
@@ -900,6 +901,8 @@ async def set_background_video(
                        or a CSS length/percentage). Defaults to "center".
         playback_rate: Optional playback speed multiplier. Use values below 1.0 to slow
                        the video down, e.g. 0.5 for half speed.
+        brightness: Optional brightness multiplier. Use values below 1.0 to darken
+                    the video, e.g. 0.6 for 60% brightness.
         loop: Whether the video should loop. Defaults to False.
         muted: Whether the video starts muted. Defaults to True for browser autoplay.
         autoplay: Whether the video should autoplay. Defaults to True.
@@ -926,6 +929,7 @@ async def set_background_video(
         notification_params={
             "verticalAlign": vertical_align,
             "playbackRate": playback_rate,
+            "brightness": brightness,
             "loop": loop,
             "muted": muted,
             "autoplay": autoplay,

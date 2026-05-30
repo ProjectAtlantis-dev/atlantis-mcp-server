@@ -17,6 +17,8 @@ while true; do
     --cloud-port=443  \
     --service-name=home \
     --app-name=pa
+    --description="Project Atlantis" \
+    --image=../lobby.png
 
   exit_code=$?
   echo "Server exited with code $exit_code"

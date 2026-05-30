@@ -882,6 +882,7 @@ async def set_background_video(
     video_source: str,
     video_format: Optional[str] = None,
     vertical_align: str = "center",
+    playback_rate: Optional[float] = None,
     loop: bool = False,
     muted: bool = True,
     autoplay: bool = True,
@@ -897,6 +898,8 @@ async def set_background_video(
                      If not provided, will be auto-detected from file extension.
         vertical_align: Vertical alignment for object-position ("top", "center", "bottom",
                        or a CSS length/percentage). Defaults to "center".
+        playback_rate: Optional playback speed multiplier. Use values below 1.0 to slow
+                       the video down, e.g. 0.5 for half speed.
         loop: Whether the video should loop. Defaults to False.
         muted: Whether the video starts muted. Defaults to True for browser autoplay.
         autoplay: Whether the video should autoplay. Defaults to True.
@@ -922,6 +925,7 @@ async def set_background_video(
         message_type="background_video",
         notification_params={
             "verticalAlign": vertical_align,
+            "playbackRate": playback_rate,
             "loop": loop,
             "muted": muted,
             "autoplay": autoplay,

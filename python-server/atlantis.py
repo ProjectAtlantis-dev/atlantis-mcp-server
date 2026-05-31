@@ -907,6 +907,7 @@ async def set_background_video(
     plays_inline: bool = True,
     remove_on_ended: bool = True,
     toggle_audio: bool = True,
+    replay: bool = False,
 ):
     """Sets a background video for the client UI.
 
@@ -926,6 +927,7 @@ async def set_background_video(
         plays_inline: Whether mobile browsers should play inline. Defaults to True.
         remove_on_ended: Whether to remove the video when playback ends. Defaults to True.
         toggle_audio: Whether clicking the background toggles mute. Defaults to True.
+        replay: Whether the completed background video should replay on refresh. Defaults to False.
     """
     if video_source.startswith(("http://", "https://", "data:")):
         video_data = video_source
@@ -953,6 +955,7 @@ async def set_background_video(
             "playsInline": plays_inline,
             "removeOnEnded": remove_on_ended,
             "toggleAudio": toggle_audio,
+            "replay": replay,
         },
     )
     return result

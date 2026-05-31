@@ -19,8 +19,8 @@ logger = logging.getLogger("mcp_server")
 # --- Context Variables ---
 _current_context: contextvars.ContextVar[Optional[CallContext]] = contextvars.ContextVar("current_call_context", default=None)
 
-# Owner of the remote server instance
-_owner: Optional[str] = ""
+# Default owner of the remote server instance
+_default_owner: Optional[str] = ""
 _owner_usernames: List[str] = []  # List of owner usernames for permission checks
 
 # Simple task collection for logging tasks
@@ -351,16 +351,20 @@ def get_owner_usernames() -> List[str]:
     """Returns the list of owner usernames for permission checks"""
     return _owner_usernames
 
+def get_default_owner() -> Optional[str]:
+    """Returns the default owner username for this remote server instance."""
+    return _default_owner
+
 def is_owner(username: str) -> bool:
     """Check if the given username is an owner"""
     return username in _owner_usernames
 
 # --- Setter Functions (primarily for internal use by dynamic_function_manager) ---
 
-def _set_owner(new_owner: str):
-    """Sets the owner of the remote server instance. For internal use."""
-    global _owner
-    _owner = new_owner
+def _set_default_owner(new_owner: Optional[str]):
+    """Sets the default owner username. For internal use."""
+    global _default_owner
+    _default_owner = new_owner
 
 def _set_owner_usernames(usernames: List[str]):
     """Sets the list of owner usernames. For internal use."""

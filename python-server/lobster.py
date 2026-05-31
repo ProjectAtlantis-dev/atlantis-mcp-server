@@ -279,7 +279,21 @@ async def handle_local_lobster_tool_call(
 def apply_cloud_welcome(service_client: Any, data: Any) -> None:
     """Apply cloud welcome payload and update lobster-related state."""
     if isinstance(data, dict):
-        owner_usernames = data.get("usernames", [])
+        owner_records = data.get("usernames", [])
+        owner_usernames = [
+            item.get("username") if isinstance(item, dict) else item
+            for item in owner_records
+        ]
+        owner_usernames = [username for username in owner_usernames if username]
+        default_owner = next(
+            (
+                item.get("username")
+                for item in owner_records
+                if isinstance(item, dict) and item.get("isDefault") and item.get("username")
+            ),
+            None,
+        )
+        selected_owner = default_owner or (owner_usernames[0] if owner_usernames else service_client.email)
         lobster_request_id = data.get("lobsterRequestId")
         # NOTE: lobsterTools from the welcome message is logged but not used.
         # We use hardcoded pseudo tools (readme, command) that pass through to the cloud client.
@@ -292,13 +306,13 @@ def apply_cloud_welcome(service_client: Any, data: Any) -> None:
         logger.info(f"  {r}{'=' * 59}{x}")
         logger.info(f"  {r}   🦞 WELCOME FROM THE CLOUD! LOBSTER BOAT IS IN PORT! 🦞   {x}")
         logger.info(f"  {r}{'=' * 59}{x}")
-        logger.info(f"  {r}   Captain:    {(', '.join(owner_usernames) if owner_usernames else 'unknown'):<44}{x}")
+        logger.info(f"  {r}   Captain:    {(selected_owner or 'unknown'):<44}{x}")
         logger.info(f"  {r}   Trap tag:   {(lobster_request_id or 'MISSING!'):<44}{x}")
         logger.info(f"  {r}{'=' * 59}{x}")
         logger.info("")
 
         atlantis._set_owner_usernames(owner_usernames)
-        atlantis._set_owner(owner_usernames[0] if owner_usernames else service_client.email)
+        atlantis._set_default_owner(selected_owner)
         shell_path = data.get("shellPath")
         if shell_path:
             service_client.lobster_shell_path = shell_path
@@ -321,11 +335,11 @@ def apply_cloud_welcome(service_client: Any, data: Any) -> None:
         logger.warning("Welcome message using LEGACY format (array of usernames) - missing lobsterRequestId and lobsterTools!")
         owner_usernames = data
         atlantis._set_owner_usernames(owner_usernames)
-        atlantis._set_owner(owner_usernames[0] if owner_usernames else service_client.email)
+        atlantis._set_default_owner(owner_usernames[0] if owner_usernames else service_client.email)
         return
 
     logger.warning("Welcome message using LEGACY format (single string) - missing lobsterRequestId and lobsterTools!")
-    atlantis._set_owner(data)
+    atlantis._set_default_owner(data)
     atlantis._set_owner_usernames([data] if data else [])
 
 

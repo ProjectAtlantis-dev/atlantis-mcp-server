@@ -2998,7 +2998,7 @@ async def index():
 
                     # --- ADDED: Log error to owner ---
                     try:
-                        owner_to_log = atlantis._owner # Get current owner
+                        owner_to_log = atlantis.get_default_owner()
                         if owner_to_log:
                             error_message_for_owner = f"Error in tool '{name}': {str(e)}"
                             # Construct a unique reference for this error instance if possible
@@ -3105,7 +3105,7 @@ async def index():
                     lobster_shell = self.cloud_client.lobster_shell_path
                     lobster_routing_key = self.cloud_client.lobster_routing_key
                     lobster_ctx = ctx.with_payload_updates(
-                        caller_sid=atlantis._owner,
+                        caller_sid=atlantis.get_default_owner(),
                         user_game_id=lobster_routing_key or ctx.user_game_id,
                         caller_shell_path=lobster_shell or ctx.caller_shell_path,
                     ).model_copy(update={
@@ -3122,7 +3122,7 @@ async def index():
                         request_id=request_id,
                         cloud_client_id=cloud_client_id,
                         lobster_request_id=lobster_req_id,
-                        caller_sid=atlantis._owner
+                        caller_sid=atlantis.get_default_owner()
                     )
                 except Exception as e:
                     logger.error(f"❌ Error sending {tool_name} to cloud: {e}")
@@ -3986,7 +3986,7 @@ class ServiceClient:
                 logger.info(f"{BOLD}{BRIGHT_WHITE}DESCRIPTION : {self.description}{RESET}")
             if self.image:
                 logger.info(f"{BOLD}{BRIGHT_WHITE}IMAGE       : <set>{RESET}")
-            logger.info(f"{BOLD}{BRIGHT_WHITE}OWNER       : {atlantis._owner}{RESET}")
+            logger.info(f"{BOLD}{BRIGHT_WHITE}OWNER       : {atlantis.get_default_owner()}{RESET}")
             logger.info(f"{BOLD}{BRIGHT_WHITE}OWNER USERS : {atlantis._owner_usernames}{RESET}")
             logger.info(f"{BOLD}{BRIGHT_WHITE}LOGIN       : {self.email}{RESET}")
             logger.info(f"{BOLD}{BRIGHT_WHITE}VERSION     : {SERVER_VERSION}{RESET}")

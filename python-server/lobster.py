@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import traceback
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 import atlantis
@@ -17,6 +18,8 @@ if TYPE_CHECKING:
 
 
 lobster = logging.getLogger("lobster")
+
+LOBSTER_README_PATH = Path(__file__).parent / "dynamic_functions" / "Home" / "MULTIX.md"
 
 
 def get_default_lobster_tools() -> List[Tool]:
@@ -197,12 +200,7 @@ async def handle_local_lobster_tool_call(
     message_type = "command"
 
     if tool_name == "readme":
-        # Read MULTIX.md directly from disk instead of routing through ~*Home**README
-        # because if multiple remotes are connected, the search term would match multiple
-        # README functions and the cloud would return an ambiguity error
-        from pathlib import Path
-        md_path = Path(__file__).parent / "dynamic_functions" / "Home" / "MULTIX.md"
-        readme_text = md_path.read_text()
+        readme_text = LOBSTER_README_PATH.read_text(encoding="utf-8")
         combined_response = {"transcript": [], "returnValue": readme_text}
         result = {
             "content": [{"type": "text", "text": format_json_log(combined_response, colored=False)}],

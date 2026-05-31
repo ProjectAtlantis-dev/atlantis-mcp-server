@@ -279,13 +279,20 @@ update_image                          ✅ Works fine!
 
 ## Bot Runtime
 
-Bot content lives under `python-server/dynamic_functions/Bot/Content/`, and player-specific interaction history is stored per user in `python-server/dynamic_functions/Data/players/{username}/interactions.json`.
+The bot/chat runtime is not platform code in this repo. It lives in a separate dynamic-functions repo, normally linked into:
 
-### Key files
+```bash
+python-server/dynamic_functions/atlantis-mcp-chat -> /path/to/atlantis-mcp-chat
+```
 
-- **`python-server/dynamic_functions/Home/MULTIX.md`** — User-facing documentation for the Atlantis MCP tools (commands, search terms, tool prefixes, etc.). This is the file served by the `readme` MCP tool.
-- **`python-server/dynamic_functions/Bot/Runtime/chat.py`** — Bot chat dispatch, system prompt assembly, and tool wiring.
-- **`python-server/dynamic_functions/Data/main.py`** — Player folder data and bot interaction history helpers.
+That repo contains the game/chat tools, bot runtime, content, and player data helpers. The Atlantis MCP server treats it like any other dynamic-functions app: it scans the linked folder, exposes decorated functions as tools, and reloads them when files change.
+
+### Key Files
+
+- **`python-server/dynamic_functions/Home/`** — small platform-owned Home app used for Lobster/Multix readme entry points.
+- **`python-server/dynamic_functions/atlantis-mcp-chat/`** — symlink to the separate bot/chat dynamic-functions repo.
+- **`python-server/dynamic_functions/atlantis-mcp-chat/Home/`** — chat/game app code in the external repo.
+- **`python-server/dynamic_functions/atlantis-mcp-chat/Data/`** — data helpers and player/session state in the external repo.
 
 ### Troubleshooting
 

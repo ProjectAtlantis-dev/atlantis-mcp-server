@@ -39,7 +39,12 @@ yarn-error.log
 *.pid
 
 *.OLD
-python-server/dynamic_functions
+python-server/dynamic_functions/*
+!python-server/dynamic_functions/
+!python-server/dynamic_functions/Home/
+!python-server/dynamic_functions/Home/**
+python-server/dynamic_functions/Home/__pycache__/
+python-server/dynamic_functions/Home/*.py[cod]
 
 python-server/dynamic_functions copy/*
 python-server/dynamic_functions.TEST/

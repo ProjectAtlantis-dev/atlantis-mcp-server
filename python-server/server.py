@@ -289,26 +289,48 @@ class DynamicConfigEventHandler(FileSystemEventHandler):
         self._debounce_timer = None
         self._debounce_interval = 1.0 # seconds
         self._last_triggered_path = None # Store path for _do_reload
-        self.watched_function_dirs = watched_function_dirs or []
-        self.watched_server_dirs = watched_server_dirs or []
+        self.watched_function_dirs = self._normalize_watch_dirs(watched_function_dirs or [])
+        self.watched_server_dirs = self._normalize_watch_dirs(watched_server_dirs or [])
+
+    @staticmethod
+    def _normalize_watch_dirs(paths):
+        normalized = []
+        seen = set()
+        for path in paths:
+            real_path = os.path.realpath(path)
+            if real_path not in seen:
+                normalized.append(real_path)
+                seen.add(real_path)
+        return normalized
+
+    @staticmethod
+    def _path_is_under(path: str, parent: str) -> bool:
+        try:
+            real_path = os.path.realpath(path)
+            real_parent = os.path.realpath(parent)
+            return os.path.commonpath([real_path, real_parent]) == real_parent
+        except ValueError:
+            return False
+
+    def _is_watched_function_path(self, event_path: str) -> bool:
+        if event_path.endswith((".py", ".txt")):
+            return any(self._path_is_under(event_path, watched_dir) for watched_dir in self.watched_function_dirs)
+        if os.path.splitext(event_path)[1]:
+            return False
+        return any(self._path_is_under(event_path, watched_dir) for watched_dir in self.watched_function_dirs)
+
+    def _is_watched_server_path(self, event_path: str) -> bool:
+        if not event_path.endswith(".json"):
+            return False
+        return any(self._path_is_under(event_path, watched_dir) for watched_dir in self.watched_server_dirs)
 
     def _trigger_reload(self, event_path):
         # Ignore __pycache__ directories
         if '__pycache__' in event_path:
             return
 
-        # Check if the change is relevant (Python file in any watched function dir or JSON file in any watched server dir)
-        # Also handle directory changes (for directory deletions/additions)
-        is_function_change = any(
-            event_path.endswith(".py") and
-            (event_path.startswith(watched_dir + os.sep) or os.path.dirname(event_path) == watched_dir)
-            for watched_dir in self.watched_function_dirs
-        )
-        is_server_change = any(
-            (event_path.endswith(".json") or event_path.startswith(watched_dir + os.sep)) and
-            (event_path.startswith(watched_dir + os.sep) or os.path.dirname(event_path) == watched_dir)
-            for watched_dir in self.watched_server_dirs
-        )
+        is_function_change = self._is_watched_function_path(event_path)
+        is_server_change = self._is_watched_server_path(event_path)
 
         if not is_function_change and not is_server_change:
             # logger.debug(f"Ignoring irrelevant change: {event_path}")
@@ -343,10 +365,8 @@ class DynamicConfigEventHandler(FileSystemEventHandler):
             # --- Invalidate ALL Dynamic Function Runtime Caches ---
             # Check if the change was in the functions or servers directory
             # Also handle directory changes (not just .py files) for directory deletions/additions
-            is_function_change = file_path.endswith(".py") and \
-                                 (os.path.dirname(file_path) == FUNCTIONS_DIR or file_path.startswith(FUNCTIONS_DIR + os.sep))
-            is_server_change = file_path.endswith(".json") and (os.path.dirname(file_path) == SERVERS_DIR or
-                                                                file_path.startswith(SERVERS_DIR + os.sep))
+            is_function_change = self._is_watched_function_path(file_path)
+            is_server_change = self._is_watched_server_path(file_path)
 
             if is_function_change:
                 logger.info(f"⚡ File watcher triggering flush of all dynamic function runtime caches due to change in {os.path.basename(file_path)}.")
@@ -402,7 +422,7 @@ class DynamicConfigEventHandler(FileSystemEventHandler):
         if not event.is_directory:
             self._trigger_reload(event.src_path)
         # Also trigger on directory deletion (removed app directories)
-        elif str(event.src_path).startswith(FUNCTIONS_DIR + os.sep):
+        elif self._is_watched_function_path(str(event.src_path)):
             logger.info(f"📁 Directory deleted: {event.src_path}. Triggering reload...")
             self._trigger_reload(event.src_path)
 

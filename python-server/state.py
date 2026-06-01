@@ -67,16 +67,28 @@ FUNCTIONS_DIR = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__
 # for new users who haven't set up their own functions repo yet.
 os.makedirs(FUNCTIONS_DIR, exist_ok=True)
 
+def _write_starter_file_if_missing(target_dir: str, filename: str, contents: str) -> bool:
+    path = os.path.join(target_dir, filename)
+    if os.path.exists(path):
+        return False
+    with open(path, "w") as f:
+        f.write(contents)
+    return True
+
 def _scaffold_starter_functions():
-    """Populate an empty dynamic_functions dir with a minimal Home app so new users have something to play with."""
-    if os.listdir(FUNCTIONS_DIR):
+    """Populate a Demo app once so new users have something to play with."""
+    marker_path = os.path.join(FUNCTIONS_DIR, ".demo_scaffolded")
+    if os.path.exists(marker_path):
         return
 
-    home_dir = os.path.join(FUNCTIONS_DIR, "Home")
-    os.makedirs(home_dir, exist_ok=True)
+    demo_dir = os.path.join(FUNCTIONS_DIR, "Demo")
+    os.makedirs(demo_dir, exist_ok=True)
+    created = []
 
-    with open(os.path.join(home_dir, "README.md"), "w") as f:
-        f.write(
+    if _write_starter_file_if_missing(
+        demo_dir,
+        "README.md",
+        (
             "# Dynamic Functions\n\n"
             "This is your personal tool code directory. Everything here is YOUR code,\n"
             "separate from the Atlantis server platform.\n\n"
@@ -87,30 +99,28 @@ def _scaffold_starter_functions():
             "This makes it clear to both you and AI coding agents (Claude, Codex, etc.)\n"
             "where Atlantis platform code ends and your tool code begins.\n\n"
             "See README.dynamic_functions.md in the server directory for authoring details.\n"
-        )
+        ),
+    ):
+        created.append("README.md")
 
-    with open(os.path.join(home_dir, "README.py"), "w") as f:
-        f.write(
-            "from pathlib import Path\n\n\n"
-            "@text(\"md\")\n"
-            "@visible\n"
-            "async def README():\n"
-            '    """Simple README"""\n'
-            "    return Path(__file__).with_name(\"README.md\").read_text(encoding=\"utf-8\")\n"
-        )
-
-    with open(os.path.join(home_dir, "main.py"), "w") as f:
-        f.write(
+    if _write_starter_file_if_missing(
+        demo_dir,
+        "main.py",
+        (
             "import atlantis\n\n\n"
             "@index\n"
             "@visible\n"
             "async def index():\n"
-            '    """Demo Home folder"""\n'
-            '    return "Welcome to Atlantis!"\n'
-        )
+            '    """Demo app"""\n'
+            '    return "Welcome to the Atlantis demo app!"\n'
+        ),
+    ):
+        created.append("main.py")
 
-    with open(os.path.join(home_dir, "bar.py"), "w") as f:
-        f.write(
+    if _write_starter_file_if_missing(
+        demo_dir,
+        "bar.py",
+        (
             "import atlantis\n\n\n"
             "@visible\n"
             "async def bar():\n"
@@ -125,10 +135,14 @@ def _scaffold_starter_functions():
             '        f"entry_point:  {atlantis.get_entry_point_name()}",\n'
             "    ]\n"
             '    return "\\n".join(lines)\n'
-        )
+        ),
+    ):
+        created.append("bar.py")
 
-    with open(os.path.join(home_dir, "myTable.py"), "w") as f:
-        f.write(
+    if _write_starter_file_if_missing(
+        demo_dir,
+        "myTable.py",
+        (
             "@visible\n"
             "async def myTable():\n"
             '    """Return a table of Disney characters"""\n'
@@ -140,10 +154,14 @@ def _scaffold_starter_functions():
             '        {"id": 4, "name": "Stitch", "favorite_food": "coconut cake"},\n'
             '        {"id": 5, "name": "Ratatouille", "favorite_food": "ratatouille"},\n'
             "    ]\n"
-        )
+        ),
+    ):
+        created.append("myTable.py")
 
-    with open(os.path.join(home_dir, "myImage.py"), "w") as f:
-        f.write(
+    if _write_starter_file_if_missing(
+        demo_dir,
+        "myImage.py",
+        (
             "import os\n"
             "import atlantis\n\n\n"
             "@visible\n"
@@ -151,18 +169,26 @@ def _scaffold_starter_functions():
             '    """Display the happy.png image"""\n'
             "    img_path = os.path.join(os.path.dirname(__file__), \"..\", \"..\", \"..\", \"happy.png\")\n"
             "    await atlantis.client_image(img_path)\n"
-        )
+        ),
+    ):
+        created.append("myImage.py")
 
-    with open(os.path.join(home_dir, "foo.py"), "w") as f:
-        f.write(
+    if _write_starter_file_if_missing(
+        demo_dir,
+        "foo.py",
+        (
             "@visible\n"
             "async def foo(a: int, b: int):\n"
             '    """Add two integers"""\n'
             "    return a + b\n"
-        )
+        ),
+    ):
+        created.append("foo.py")
 
-    with open(os.path.join(home_dir, "hello.py"), "w") as f:
-        f.write(
+    if _write_starter_file_if_missing(
+        demo_dir,
+        "hello.py",
+        (
             "import atlantis\n\n\n"
             "@visible\n"
             "async def hello():\n"
@@ -170,9 +196,14 @@ def _scaffold_starter_functions():
             "    caller = atlantis.get_caller() or \"stranger\"\n"
             "    await atlantis.client_log(f\"Hello, {caller}!\")\n"
             '    return f"Hello, {caller}!"\n'
-        )
+        ),
+    ):
+        created.append("hello.py")
 
-    logger.info("📦 Scaffolded starter dynamic functions in Home/")
+    if created:
+        logger.info(f"📦 Scaffolded starter dynamic functions in Demo/: {', '.join(created)}")
+    with open(marker_path, "a"):
+        pass
 
 _scaffold_starter_functions()
 

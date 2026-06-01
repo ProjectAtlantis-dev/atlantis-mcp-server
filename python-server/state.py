@@ -77,16 +77,8 @@ def _write_starter_file_if_missing(target_dir: str, filename: str, contents: str
 
 def _scaffold_starter_functions():
     """Populate a Demo app once so new users have something to play with."""
-    marker_path = os.path.join(FUNCTIONS_DIR, ".demo_scaffolded")
-    if os.path.exists(marker_path):
-        return
-
-    demo_dir = os.path.join(FUNCTIONS_DIR, "Demo")
-    os.makedirs(demo_dir, exist_ok=True)
-    created = []
-
-    if _write_starter_file_if_missing(
-        demo_dir,
+    _write_starter_file_if_missing(
+        FUNCTIONS_DIR,
         "README.md",
         (
             "# Dynamic Functions\n\n"
@@ -100,8 +92,15 @@ def _scaffold_starter_functions():
             "where Atlantis platform code ends and your tool code begins.\n\n"
             "See README.dynamic_functions.md in the server directory for authoring details.\n"
         ),
-    ):
-        created.append("README.md")
+    )
+
+    marker_path = os.path.join(FUNCTIONS_DIR, ".demo_scaffolded")
+    if os.path.exists(marker_path):
+        return
+
+    demo_dir = os.path.join(FUNCTIONS_DIR, "Demo")
+    os.makedirs(demo_dir, exist_ok=True)
+    created = []
 
     if _write_starter_file_if_missing(
         demo_dir,

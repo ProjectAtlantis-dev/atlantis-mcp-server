@@ -377,7 +377,8 @@ async def execute_stream_awaitable(
     seq_num: Optional[int] = None,
     entry_point_name: Optional[str] = None,
     level: str = "INFO",
-    logger_name: Optional[str] = None
+    logger_name: Optional[str] = None,
+    caller_sid: Optional[str] = None
     ) -> Any:
     """
     Sends a stream message to a specific client via the server and waits for acknowledgment.
@@ -421,7 +422,8 @@ async def execute_stream_awaitable(
             seq_num=seq_num,
             entry_point_name=entry_point_name,
             level=level,
-            logger_name=logger_name
+            logger_name=logger_name,
+            caller_sid=caller_sid
         )
         #logger.info(f"✅ Utils: Received ack for awaitable stream '{message_type}' (stream_id={stream_id}): {result}")
         return result

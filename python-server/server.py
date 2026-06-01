@@ -743,7 +743,8 @@ class DynamicAdditionServer(Server):
                                     seq_num: Optional[int] = None,
                                     entry_point_name: Optional[str] = None,
                                     level: str = "INFO",
-                                    logger_name: Optional[str] = None
+                                    logger_name: Optional[str] = None,
+                                    caller_sid: Optional[str] = None
                                     ) -> Any:
         """Sends a stream message to a specific client and waits for acknowledgment.
 
@@ -790,6 +791,8 @@ class DynamicAdditionServer(Server):
             notification_params["entryPoint"] = entry_point_name
         if logger_name is not None:
             notification_params["loggerName"] = logger_name
+        if caller_sid is not None:
+            notification_params["caller_sid"] = caller_sid
 
         global client_connections
 

@@ -538,6 +538,8 @@ async def stream_start(sid: str, who: str) -> str:
     except Exception as inspect_err:
         logger.warning(f"Could not inspect caller frame for stream_start: {inspect_err}")
 
+    caller_sid = get_caller()
+
     # Get and increment sequence number using the per-stream helper function
     current_seq_to_send = await get_and_increment_stream_seq_num(stream_id_to_send)
 
@@ -556,7 +558,8 @@ async def stream_start(sid: str, who: str) -> str:
                 seq_num=current_seq_to_send,
                 entry_point_name=entry_point_name,
                 level="INFO",
-                logger_name=caller_name
+                logger_name=caller_name,
+                caller_sid=caller_sid
             )
             #logger.info(f"🌊 stream_start ack received: {ack_result}")
         else:
@@ -570,7 +573,8 @@ async def stream_start(sid: str, who: str) -> str:
                 client_id_for_routing=actual_client_id, # Route using actual client_id
                 entry_point_name=entry_point_name,
                 message_type='stream_start',
-                stream_id=stream_id_to_send # Pass the generated stream_id separately
+                stream_id=stream_id_to_send, # Pass the generated stream_id separately
+                caller_sid=caller_sid
             )
         return stream_id_to_send # Return the generated stream_id to the caller
     except Exception as e:
@@ -598,6 +602,8 @@ async def stream(message: str, stream_id_param: str):
     except Exception as inspect_err:
         logger.warning(f"Could not inspect caller frame for stream: {inspect_err}")
 
+    caller_sid = get_caller()
+
     # Get and increment sequence number using the per-stream helper function
     current_seq_to_send = await get_and_increment_stream_seq_num(stream_id_param)
 
@@ -614,7 +620,8 @@ async def stream(message: str, stream_id_param: str):
                 seq_num=current_seq_to_send,
                 entry_point_name=entry_point_name,
                 level="INFO",
-                logger_name=caller_name
+                logger_name=caller_name,
+                caller_sid=caller_sid
             )
             #logger.debug(f"🌊 stream ack received for seq {current_seq_to_send}: {result}")
         else:
@@ -628,7 +635,8 @@ async def stream(message: str, stream_id_param: str):
                 client_id_for_routing=actual_client_id, # Route using actual client_id
                 entry_point_name=entry_point_name,
                 message_type='stream',
-                stream_id=stream_id_param # Pass the provided stream_id separately
+                stream_id=stream_id_param, # Pass the provided stream_id separately
+                caller_sid=caller_sid
             )
         return result
     except Exception as e:
@@ -656,6 +664,8 @@ async def stream_end(stream_id_param: str):
     except Exception as inspect_err:
         logger.warning(f"Could not inspect caller frame for stream_end: {inspect_err}")
 
+    caller_sid = get_caller()
+
     # Get and increment sequence number using the per-stream helper function
     current_seq_to_send = await get_and_increment_stream_seq_num(stream_id_param)
 
@@ -672,7 +682,8 @@ async def stream_end(stream_id_param: str):
                 seq_num=current_seq_to_send,
                 entry_point_name=entry_point_name,
                 level="INFO",
-                logger_name=caller_name
+                logger_name=caller_name,
+                caller_sid=caller_sid
             )
             #logger.info(f"🌊 stream_end ack received: {result}")
         else:
@@ -686,7 +697,8 @@ async def stream_end(stream_id_param: str):
                 client_id_for_routing=actual_client_id, # Route using actual client_id
                 entry_point_name=entry_point_name,
                 message_type='stream_end',
-                stream_id=stream_id_param # Pass the provided stream_id separately
+                stream_id=stream_id_param, # Pass the provided stream_id separately
+                caller_sid=caller_sid
             )
         return result
     except Exception as e:

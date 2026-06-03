@@ -177,9 +177,9 @@ def _scaffold_starter_functions():
         "foo.py",
         (
             "@visible\n"
-            "async def foo(a: int, b: int):\n"
+            "async def foo(x: int, y: int):\n"
             '    """Add two integers"""\n'
-            "    return a + b\n"
+            "    return x + y\n"
         ),
     ):
         created.append("foo.py")

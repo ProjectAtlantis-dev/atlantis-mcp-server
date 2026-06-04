@@ -976,6 +976,71 @@ async def set_background_video(
     )
     return result
 
+async def set_background_player(
+    video_source: str,
+    video_format: Optional[str] = None,
+    vertical_align: str = "center",
+    playback_rate: Optional[float] = None,
+    brightness: Optional[float] = None,
+    loop: bool = False,
+    muted: bool = False,
+    autoplay: bool = False,
+    plays_inline: bool = True,
+    remove_on_ended: bool = True,
+    controls: bool = True,
+    replay: bool = False,
+):
+    """Sets a controllable background video player for the client UI.
+
+    Args:
+        video_source: URL, data URL, or local path to a video file.
+        video_format: Optional MIME type for local files (e.g., "video/mp4", "video/webm").
+                     If not provided, will be auto-detected from file extension.
+        vertical_align: Vertical alignment for object-position ("top", "center", "bottom",
+                       or a CSS length/percentage). Defaults to "center".
+        playback_rate: Optional playback speed multiplier. Use values below 1.0 to slow
+                       the video down, e.g. 0.5 for half speed.
+        brightness: Optional brightness multiplier. Use values below 1.0 to darken
+                    the video, e.g. 0.6 for 60% brightness.
+        loop: Whether the video should loop. Defaults to False.
+        muted: Whether the player starts muted. Defaults to False.
+        autoplay: Whether the player should autoplay. Defaults to False.
+        plays_inline: Whether mobile browsers should play inline. Defaults to True.
+        remove_on_ended: Whether to remove the player when playback ends. Defaults to True.
+        controls: Whether browser video controls are shown. Defaults to True.
+        replay: Whether the completed background player should replay on refresh. Defaults to False.
+    """
+    if video_source.startswith(("http://", "https://", "data:")):
+        video_data = video_source
+    else:
+        if video_format is None:
+            mime_type, _ = mimetypes.guess_type(video_source)
+            if not mime_type or not mime_type.startswith("video/"):
+                video_format = "video/mp4"
+            else:
+                video_format = mime_type
+        base64_data = video_to_base64(video_source)
+        video_data = f"data:{video_format};base64,{base64_data}"
+
+    result = await _client_command(
+        "background_player",
+        video_data,
+        message_type="background_player",
+        notification_params={
+            "verticalAlign": vertical_align,
+            "playbackRate": playback_rate,
+            "brightness": brightness,
+            "loop": loop,
+            "muted": muted,
+            "autoplay": autoplay,
+            "playsInline": plays_inline,
+            "removeOnEnded": remove_on_ended,
+            "controls": controls,
+            "replay": replay,
+        },
+    )
+    return result
+
 async def client_markdown(content: str):
     """Sends Markdown content back to the requesting client for rendering
 

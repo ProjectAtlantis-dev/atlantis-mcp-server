@@ -10,7 +10,7 @@ logger = logging.getLogger("mcp_server")
 @index
 @visible
 async def index(session_key: str):
-    """Game logic engine"""
+    """Docs n stuff"""
     pass
 
 
@@ -46,3 +46,22 @@ Common command prefixes:
 - `@`: tool/function call.
 - `~`: routed tool/function call.
 """
+
+import atlantis
+import logging
+
+logger = logging.getLogger("mcp_server")
+
+
+@visible
+async def chicago():
+    """
+    This is a placeholder function for 'chicago'
+    """
+    logger.info(f"Executing placeholder function: chicago...")
+
+    await atlantis.client_log("chicago running")
+
+    # Replace this return statement with your function's result
+    return f"Placeholder function 'chicago' executed successfully."
+

@@ -4,7 +4,7 @@ Atlantis is designed around a local MCP server that can optionally connect outwa
 
 Related docs:
 - [Dynamic Functions](./README.dynamic_functions.md)
-- [Onclick Callbacks](./README.onclick_callbacks.md)
+- [atlantis API](./README.atlantis_api.md)
 
 ## Network Boundary
 

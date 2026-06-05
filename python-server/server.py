@@ -135,6 +135,57 @@ class ToolAnnotations(McpToolAnnotations):
     # ⛔ NO FIELDS HERE - SERIOUSLY, DON'T DO IT ⛔
 
 
+def _append_unique(items: List[str], item: str) -> None:
+    if item not in items:
+        items.append(item)
+
+
+def _dynamic_folder_app_name(base_app_name: Optional[str], function_name: str) -> str:
+    if base_app_name:
+        return f"{base_app_name}.{function_name}"
+    return function_name
+
+
+def _create_dynamic_folder_index_tool(
+    provider_name: str,
+    description: str,
+    file_path: str,
+    full_file_path: str,
+    base_app_name: Optional[str],
+    app_source: str,
+    provider_decorators: List[str],
+) -> Tool:
+    folder_decorators = list(provider_decorators)
+    _append_unique(folder_decorators, "index")
+    _append_unique(folder_decorators, "dynamic")
+
+    tool_annotations: Dict[str, Any] = {
+        "type": "function",
+        "validationStatus": "VALID",
+        "sourceFile": file_path,
+        "decorators": folder_decorators,
+        "app_name": _dynamic_folder_app_name(base_app_name, provider_name),
+        "app_source": app_source,
+        "is_index": True,
+        "dynamic_provider": provider_name,
+    }
+
+    try:
+        tool_annotations["lastModified"] = datetime.datetime.fromtimestamp(
+            os.path.getmtime(full_file_path),
+            tz=datetime.timezone.utc
+        ).isoformat()
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to get lastModified for dynamic folder provider {provider_name}: {e}")
+
+    return Tool(
+        name="index",
+        description=description or f"Dynamic folder '{provider_name}'",
+        inputSchema={"type": "object", "properties": {}},
+        annotations=ToolAnnotations(**tool_annotations)
+    )
+
+
 @dataclass
 class ToolResult:
     """Intermediate result from tool execution before MCP response formatting.
@@ -978,6 +1029,19 @@ class DynamicAdditionServer(Server):
                             elif tool_name in self._temporarily_visible_functions:
                                 logger.info(f"{PINK}👁️ Showing temporarily visible function: {tool_name} (app: {actual_app_name}){RESET}")
                                 tool_annotations["temporarilyVisible"] = True
+
+                            if "dynamic" in decorators_from_info:
+                                folder_index_tool = _create_dynamic_folder_index_tool(
+                                    provider_name=tool_name,
+                                    description=tool_description,
+                                    file_path=file_path,
+                                    full_file_path=full_file_path,
+                                    base_app_name=tool_annotations["app_name"],
+                                    app_source=app_source,
+                                    provider_decorators=decorators_from_info,
+                                )
+                                app_tools.append(folder_index_tool)
+                                logger.debug(f"🧩 Added dynamic folder '{tool_name}' (app: {tool_annotations['app_name'] or 'top-level'})")
 
                             # Add location_name to annotations if present in function_info
                             location_name_from_info = func_info.get("location_name")
@@ -2195,7 +2259,7 @@ class DynamicAdditionServer(Server):
             return decorators_list
 
         decorators_list = func_metadata.get('decorators', [])
-        has_required_decorator = any(dec in decorators_list for dec in VISIBILITY_DECORATORS)
+        has_required_decorator = any(dec in decorators_list for dec in VISIBILITY_DECORATORS) or 'dynamic' in decorators_list
 
         if not has_required_decorator:
             error_msg = f"Access denied: Function '{actual_function_name}' cannot be called remotely without a visibility decorator"

@@ -2,7 +2,7 @@
 
 Dynamic functions are Python files under `dynamic_functions/` that Atlantis exposes as MCP tools. This directory is not part of the server repo — it is gitignored and should be your own separate repository, symlinked into `python-server/dynamic_functions` (see the main README for setup). The runtime scans the tree, reads top-level functions, builds MCP schemas from signatures/docstrings, and loads the target module when a tool is called.
 
-This document is intentionally an orientation guide, not a full API dump. The authoritative implementation lives in `DynamicFunctionManager.py`; the runtime helpers are in `atlantis.py`. Browser callback and security details are documented separately in `README.onclick_callbacks.md` and `README_SECURITY.md`.
+This document is intentionally an orientation guide, not a full API dump. The authoritative implementation lives in `DynamicFunctionManager.py`; the runtime helpers are in `atlantis.py`. The full `atlantis.*` API (including browser callbacks) is documented in `README.atlantis_api.md`, and security details in `README_SECURITY.md`.
 
 ## Minimal Tool
 
@@ -51,10 +51,10 @@ Tool schemas are generated from type hints and docstrings. Untyped parameters de
 - **`@price(per_call=X, per_sec=Y)`** - Set pricing per call or per second
 - **`@copy`** - Allow non-owners to view function source via `_function_get` (based on visibility rules)
 
-### Modifier Decorators (require a visibility decorator)
+### Modifier Decorators
 - **`@exclude`** - Exclude function from fuzzy search results (still visible in tool catalog/listing)
 - **`@button`** - Adds button on dashboard card
-- **`@dynamic`** - Marks index whose folder contents are dynamically generated
+- **`@dynamic`** - Marks a function as a dynamic folder provider. The function appears as a subfolder; generated child tools are not emitted yet.
 
 ### Deprecated
 - **`@hidden`** - Obsolete (functions are hidden by default without @visible)
@@ -93,7 +93,7 @@ await sendChatter(window._accessToken, '$**Home**handle_click', {
 });
 ```
 
-Use `README.onclick_callbacks.md` for the current callback contract and examples. The old `html_response` pattern is not the current canonical path.
+See the **Browser → Dynamic Function callbacks** section of `README.atlantis_api.md` for the current callback contract and examples. The old `html_response` pattern is not the current canonical path.
 
 There is also a runtime-registered callback path in `atlantis.py`: `client_onclick(key, callback)` and `client_upload(key, callback)` register Python callables under a key, and the built-in `_public_click` / `_public_upload` tools route browser events back to those callbacks. Use this when the UI only needs to trigger a server-side callable by key instead of addressing a named dynamic function with `sendChatter`.
 

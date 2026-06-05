@@ -45,7 +45,7 @@ import utils  # Utility module for dynamic functions
 PARENT_PACKAGE_NAME = "dynamic_functions"
 
 # Visibility decorators that allow remote function calls
-VISIBILITY_DECORATORS = ['visible', 'public', 'protected', 'tick', 'chat', 'text', 'button', 'session', 'game', 'index', 'price', 'location', 'app', 'copy', 'dynamic']
+VISIBILITY_DECORATORS = ['visible', 'public', 'protected', 'tick', 'chat', 'text', 'button', 'session', 'game', 'index', 'price', 'location', 'app', 'copy']
 
 # --- Identity Decorator Definition ---
 def _mcp_identity_decorator(f):

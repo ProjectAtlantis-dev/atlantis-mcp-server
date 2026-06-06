@@ -75,8 +75,147 @@ def _write_starter_file_if_missing(target_dir: str, filename: str, contents: str
         f.write(contents)
     return True
 
+# Canonical source for the Home app. Home is NOT tracked in git — it is scaffolded
+# here so users can edit it freely without ever hitting merge conflicts on pull.
+_HOME_MAIN_PY = '''\
+import atlantis
+import logging
+from pathlib import Path
+
+logger = logging.getLogger("dynamic_function")
+
+# % whoami
+
+
+@index
+@visible
+async def index(session_key: str):
+    """Docs n stuff"""
+    pass
+
+
+@text("md")
+@visible
+async def README():
+    """Show MULTIX instructions"""
+
+    await atlantis.client_log("README running")
+
+    md_path = Path(__file__).parent / "MULTIX.md"
+    return md_path.read_text()
+
+
+@text("md")
+@visible
+async def README_LOBSTER():
+    """Show Lobster MCP tool instructions."""
+
+    await atlantis.client_log("README_LOBSTER running")
+
+    return """# Atlantis Lobster MCP Tools
+
+Lobster exposes a small local MCP surface that forwards work to the connected Atlantis cloud session.
+
+Tools:
+- `readme`: show the Multix help text.
+- `command`: send an Atlantis command. If the command has no prefix, `/` is added automatically.
+- `chat`: send a plain chat message.
+
+Common command prefixes:
+- `/`: Atlantis slash command.
+- `@`: tool/function call.
+- `~`: routed tool/function call.
+"""
+'''
+
+_HOME_MULTIX_MD = '''\
+# Atlantis MCP tools
+
+## Overview
+
+Each Atlantis MCP acts as a filesystem node for Multix, our nix-like 'operating system' for future Greenland. However, since bots rely on tools, each folder in Multix contains functions instead of files. We feel this approach is closer to the original 1960s vision for UNIX, namely Multics.
+
+- **readme** - this file
+- **command** - use this to enter an Atlantis command
+- **chat** - use this to just talk into the chat
+
+## Commands
+
+`command` lets humans or bots send commands to Multix. All commands should start with `/`. They kinda follow a Linux style shell approach. In fact, you can enable terminal mode to enter the Multix terminal directly and avoid having to prefix everything with slashes. The main difference is that each MCP exposes a virtual filesystem of sorts but of functions instead of files. The file containers are essentially unwrapped and then hotloaded so they are call ready. Note that the default container is usually main.py and more than one function can be in the same file. Generally, you should not have to care about the containing file except for versioning.
+
+Some interesting commands to get you started:
+
+- `help` - shows all the keywords (**warning:** calling with no arguments dumps a LOT of output; prefer `help <topic>` instead)
+- `help <topic>` - does fuzzy search of both keywords and tools
+- `ls` - list contents of current folder
+- `dir` - list contents from root (ignores current folder)
+- `tree` - list all contents from current location
+- `pwd` - show current directory (if reconnecting)
+- `search` - search functions by description
+- `history` - show shell history
+- `whoami` - show your username
+- `cd` - change into a folder, some special notes:
+  - `cd /` - go to root, root is arranged by user
+  - `cd ~` - go to your home, arranged by connected servers
+  - `cd ..` - go back up one folder
+- `add` - add a function in the current location
+- `edit` - DO NOT USE, use `codeset` instead (see below)
+- `rls` - list the connected remotes
+
+## Tools
+
+You will start at the root of the Atlantis virtual filesystem arranged by usernames, and then you go into a user's home folder, and then connected MCP server for that user. You cannot go into disconnected servers.
+
+To run a tool in the current folder, you can simply use `@name` plus any params, much like a JavaScript function e.g. `@foo` or `@foo(3,100)`
+
+- `cat` - retrieves the text of a function
+- `codeset` - sets the content of a function
+
+## Tool Prefixes
+
+- `@foo` - run in current folder, assuming you navigated your way down
+- `%*foo` - run from global root; needs wildcard search term (e.g. `%*coffee` finds the first `coffee` across all users)
+- `~*foo` - run from user home folder; the path after `~` starts at remote level (`remote*app**function`), so `~coffee` looks for a *remote* called `coffee`. Use `~*coffee` to wildcard the remote, or be explicit: `~terrain*Tools**coffee`
+
+Note: `%` and `~` require search term syntax (with `*` wildcards) — a bare name like `%foo` or `~foo` will try to match a remote/user, not a function. See Search Terms below.
+
+## Search Terms
+
+Search terms allow you to specify a function using wildcards without having to cd to that folder first, assuming it resolves uniquely e.g. `brickhouse*terrain*InWork**foo` could also be called via `*Inwork*foo`
+
+If you just say `foo` from the top-level it could be ambiguous which one you mean.
+
+## Named Function Parameters
+
+While purely positional parameters usually work, it is better to use explicitly named JSON arguments (parentheses are optional) to avoid escaping issues:
+
+- `foo { x: 3, name: "chicago" }`
+- `codeset { searchTerm: "bar", contents: "async def bar(): ... rest of code here ..." }`
+
+The `help` command also provides parameter info.
+
+## How the Description Field Is Populated
+
+The first comment in a Python function is the description displayed in `search` and other various commands.
+
+## SQL Select
+
+When a command or tool returns tabular data, that is saved into a pseudo-table called `prior` and you can run `/select <cols> from prior where ...` if you want to narrow down prior results.
+
+## MCP Servers
+
+Be aware you can list, start, and stop classic MCP servers as well (which are more like plug-ins).
+
+## Cursors
+
+In practical programming terms, a cursor does what a call stack what normally do - it's simply a place to hold function parameters so you don't have to constantly type them in.  That is if you have a function `foo(x,y)` and the cursor already hold `x=3` then you only need to supply `y` on the command line.
+
+Why cursors? Well although tools are functions, we don't have an interactive way to compose functions in a categories (think category theory) since there's no functional programming (FP) here and everyone hates FP anyway. So cursors play the role of monads ie the 'glue' btw functions. If you are familiar with Scala ZIO, think ZLayers; if you are familiar with Unison, think ability stack. Setting x=3 and then x=4 pushes two structures onto the Multix cursor stack and you can pop later.
+'''
+
+
 def _scaffold_starter_functions():
-    """Populate a Demo app once so new users have something to play with."""
+    """Populate the Home and Demo apps once so new users have something to play with."""
     _write_starter_file_if_missing(
         FUNCTIONS_DIR,
         "README.md",
@@ -94,19 +233,32 @@ def _scaffold_starter_functions():
         ),
     )
 
+    # One-time marker. Despite the legacy name it gates BOTH the Home and Demo
+    # scaffolds; existing installs that already have it keep their on-disk apps.
     marker_path = os.path.join(FUNCTIONS_DIR, ".demo_scaffolded")
     if os.path.exists(marker_path):
         return
 
+    created = []
+
+    # Home app — landing page plus the Multix/lobster help text.
+    home_dir = os.path.join(FUNCTIONS_DIR, "Home")
+    os.makedirs(home_dir, exist_ok=True)
+    if _write_starter_file_if_missing(home_dir, "main.py", _HOME_MAIN_PY):
+        created.append("Home/main.py")
+    if _write_starter_file_if_missing(home_dir, "MULTIX.md", _HOME_MULTIX_MD):
+        created.append("Home/MULTIX.md")
+
     demo_dir = os.path.join(FUNCTIONS_DIR, "Demo")
     os.makedirs(demo_dir, exist_ok=True)
-    created = []
 
     if _write_starter_file_if_missing(
         demo_dir,
         "main.py",
         (
-            "import atlantis\n\n\n"
+            "import atlantis\n"
+            "import logging\n\n"
+            'logger = logging.getLogger("dynamic_function")\n\n\n'
             "@index\n"
             "@visible\n"
             "async def index():\n"
@@ -114,13 +266,15 @@ def _scaffold_starter_functions():
             '    return "Welcome to the Atlantis demo app!"\n'
         ),
     ):
-        created.append("main.py")
+        created.append("Demo/main.py")
 
     if _write_starter_file_if_missing(
         demo_dir,
         "bar.py",
         (
-            "import atlantis\n\n\n"
+            "import atlantis\n"
+            "import logging\n\n"
+            'logger = logging.getLogger("dynamic_function")\n\n\n'
             "@visible\n"
             "async def bar():\n"
             '    """Print caller context info"""\n'
@@ -136,12 +290,15 @@ def _scaffold_starter_functions():
             '    return "\\n".join(lines)\n'
         ),
     ):
-        created.append("bar.py")
+        created.append("Demo/bar.py")
 
     if _write_starter_file_if_missing(
         demo_dir,
         "myTable.py",
         (
+            "import atlantis\n"
+            "import logging\n\n"
+            'logger = logging.getLogger("dynamic_function")\n\n\n'
             "@visible\n"
             "async def myTable():\n"
             '    """Return a table of Disney characters"""\n'
@@ -155,14 +312,16 @@ def _scaffold_starter_functions():
             "    ]\n"
         ),
     ):
-        created.append("myTable.py")
+        created.append("Demo/myTable.py")
 
     if _write_starter_file_if_missing(
         demo_dir,
         "myImage.py",
         (
             "import os\n"
-            "import atlantis\n\n\n"
+            "import atlantis\n"
+            "import logging\n\n"
+            'logger = logging.getLogger("dynamic_function")\n\n\n'
             "@visible\n"
             "async def myImage():\n"
             '    """Display the happy.png image"""\n'
@@ -170,25 +329,30 @@ def _scaffold_starter_functions():
             "    await atlantis.client_image(img_path)\n"
         ),
     ):
-        created.append("myImage.py")
+        created.append("Demo/myImage.py")
 
     if _write_starter_file_if_missing(
         demo_dir,
         "foo.py",
         (
+            "import atlantis\n"
+            "import logging\n\n"
+            'logger = logging.getLogger("dynamic_function")\n\n\n'
             "@visible\n"
             "async def foo(x: int, y: int):\n"
             '    """Add two integers"""\n'
             "    return x + y\n"
         ),
     ):
-        created.append("foo.py")
+        created.append("Demo/foo.py")
 
     if _write_starter_file_if_missing(
         demo_dir,
         "hello.py",
         (
-            "import atlantis\n\n\n"
+            "import atlantis\n"
+            "import logging\n\n"
+            'logger = logging.getLogger("dynamic_function")\n\n\n'
             "@visible\n"
             "async def hello():\n"
             '    """Say hello to the caller"""\n'
@@ -197,10 +361,10 @@ def _scaffold_starter_functions():
             '    return f"Hello, {caller}!"\n'
         ),
     ):
-        created.append("hello.py")
+        created.append("Demo/hello.py")
 
     if created:
-        logger.info(f"📦 Scaffolded starter dynamic functions in Demo/: {', '.join(created)}")
+        logger.info(f"📦 Scaffolded starter dynamic functions: {', '.join(created)}")
     with open(marker_path, "a"):
         pass
 

@@ -47,14 +47,22 @@ PARENT_PACKAGE_NAME = "dynamic_functions"
 # Visibility decorators that allow remote function calls
 VISIBILITY_DECORATORS = ['visible', 'public', 'protected', 'tick', 'chat', 'text', 'button', 'session', 'game', 'index', 'price', 'location', 'app', 'copy']
 
-# Module-level preamble shared by every generated main.py. It belongs to the
-# FILE, not to each function, so it is written exactly once when a main.py is
-# created and never again when more functions are appended.
+# Module-level statements shared by every generated main.py. They belong to the
+# FILE, not to each function. Checked for presence INDIVIDUALLY (not as one
+# block) so that a hand-edit dropping a single line is repaired without
+# duplicating the lines that are still there.
+MODULE_PREAMBLE_LINES = (
+    "import atlantis",
+    "import logging",
+    'logger = logging.getLogger("dynamic_function")',
+)
+
+# The same statements as a formatted block, for writing a fresh file.
 MODULE_PREAMBLE = '''\
 import atlantis
 import logging
 
-logger = logging.getLogger("mcp_server")
+logger = logging.getLogger("dynamic_function")
 '''
 
 # --- Identity Decorator Definition ---
@@ -422,17 +430,36 @@ class DynamicFunctionManager:
                 mode = 'w'
 
             if mode == 'a':
-                # When appending, ensure there's a newline separator
-                # First check if file ends with newline
                 with open(file_path, 'r', encoding='utf-8') as f:
                     existing_content = f.read()
 
-                with open(file_path, 'a', encoding='utf-8') as f:
-                    # Add newline separator if file doesn't end with one
+                # Repair the preamble: re-add only the required statements that
+                # are actually missing, so body-only code we append still has its
+                # imports/logger even if the file was edited. The logger is matched
+                # by ANY module-level assignment (not the exact name) so a legacy
+                # file keeps its own logger instead of gaining a conflicting second.
+                missing_preamble = []
+                if include_preamble:
+                    stripped_lines = [line.strip() for line in existing_content.splitlines()]
+                    existing_lines = set(stripped_lines)
+                    has_logger = any(line.startswith("logger = logging.getLogger(") for line in stripped_lines)
+                    for line in MODULE_PREAMBLE_LINES:
+                        if line.startswith("logger = "):
+                            if not has_logger:
+                                missing_preamble.append(line)
+                        elif line not in existing_lines:
+                            missing_preamble.append(line)
+
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    if missing_preamble:
+                        f.write("\n".join(missing_preamble))
+                        f.write("\n\n\n")
+                    f.write(existing_content)
+                    # Ensure a blank-line separator before the appended function
                     if existing_content and not existing_content.endswith('\n'):
                         f.write('\n\n')
                     elif existing_content:
-                        f.write('\n')  # Just one newline if already has one
+                        f.write('\n')
                     f.write(code)
             else:
                 # mode='w', create the file. Write the shared preamble first so the

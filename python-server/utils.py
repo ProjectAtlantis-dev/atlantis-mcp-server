@@ -70,6 +70,15 @@ class ParsedSearchTerm(TypedDict):
     filename: str               # Derived filename (e.g., "Home/chat.py")
 
 
+def _none_if_blank_or_null(value: str) -> Optional[str]:
+    """Treat empty and serialized null sentinels as missing fields."""
+    if not value:
+        return None
+    if value.strip().lower() in {"null", "none", "undefined"}:
+        return None
+    return value
+
+
 def parse_search_term(search_term: str) -> ParsedSearchTerm:
     """
     Parse a compound search term into its components.
@@ -103,7 +112,7 @@ def parse_search_term(search_term: str) -> ParsedSearchTerm:
     owner = parts[0] if parts[0] else None
     remote = parts[1] if parts[1] else None
     app = parts[2] if parts[2] else None
-    location = parts[3] if parts[3] else None
+    location = _none_if_blank_or_null(parts[3])
     function = parts[4] if parts[4] else None
 
     # Validate required fields

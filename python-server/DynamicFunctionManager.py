@@ -47,6 +47,16 @@ PARENT_PACKAGE_NAME = "dynamic_functions"
 # Visibility decorators that allow remote function calls
 VISIBILITY_DECORATORS = ['visible', 'public', 'protected', 'tick', 'chat', 'text', 'button', 'session', 'game', 'index', 'price', 'location', 'app', 'copy']
 
+# Module-level preamble shared by every generated main.py. It belongs to the
+# FILE, not to each function, so it is written exactly once when a main.py is
+# created and never again when more functions are appended.
+MODULE_PREAMBLE = '''\
+import atlantis
+import logging
+
+logger = logging.getLogger("mcp_server")
+'''
+
 # --- Identity Decorator Definition ---
 def _mcp_identity_decorator(f):
     """A simple identity decorator that returns the function unchanged. Used as a placeholder for @chat, @public, etc."""
@@ -369,7 +379,7 @@ class DynamicFunctionManager:
         return False
 
     # File operations
-    async def _fs_add_code(self, name: str, code: str, app: Optional[str] = None) -> str:
+    async def _fs_add_code(self, name: str, code: str, app: Optional[str] = None, include_preamble: bool = False) -> str:
         """
         Adds a NEW function to a file (used by function_add).
         The function should NOT already exist (caller must check first).
@@ -379,8 +389,11 @@ class DynamicFunctionManager:
 
         Args:
             name: Function name
-            code: The function code to add
+            code: The function-body code to add (no module preamble)
             app: App name in dot notation (e.g., "Examples.Markdown"), or None for root-level
+            include_preamble: When creating a brand-new main.py, prepend MODULE_PREAMBLE.
+                Ignored when appending — an existing file already carries its preamble.
+                Set False for self-contained code that supplies its own imports.
 
         Returns:
             Full path if successful.
@@ -422,8 +435,12 @@ class DynamicFunctionManager:
                         f.write('\n')  # Just one newline if already has one
                     f.write(code)
             else:
-                # mode='w', just write
+                # mode='w', create the file. Write the shared preamble first so the
+                # file's imports/logger exist exactly once at the top.
                 with open(file_path, 'w', encoding='utf-8') as f:
+                    if include_preamble:
+                        f.write(MODULE_PREAMBLE)
+                        f.write('\n\n')
                     f.write(code)
 
             logger.debug(f"💾 Added function to {file_path}")
@@ -1054,7 +1071,10 @@ class DynamicFunctionManager:
 
     def _code_generate_stub(self, name: str, location: Optional[str] = None, description: Optional[str] = None) -> str:
         """
-        Generates a string containing a basic Python function stub with the given name.
+        Generates the function-body stub for the given name (no module preamble).
+
+        The shared imports/logger live in MODULE_PREAMBLE and are written once per
+        file by _fs_add_code, so the stub itself only contains the function.
         """
         if not name or not isinstance(name, str):
             name = "unnamed_function" # Default name if invalid
@@ -1066,12 +1086,6 @@ class DynamicFunctionManager:
         docstring = description if description else f"This is a placeholder function for '{name}'"
 
         stub = f"""\
-import atlantis
-import logging
-
-logger = logging.getLogger("mcp_server")
-
-
 {location_decorator}@visible
 async def {name}():
     \"\"\"
@@ -1087,6 +1101,28 @@ async def {name}():
 """
         logger.debug(f"⚙️ Generated code stub for function: {name}")
         return stub
+
+    def _code_generate_index_stub(self) -> str:
+        """
+        Generates a complete, self-contained main.py for a brand-new app: the
+        shared MODULE_PREAMBLE plus an @index entry-point function.
+        """
+        return f"""\
+{MODULE_PREAMBLE}
+
+@visible
+@index
+async def index():
+    \"\"\"
+    This is the entry point for the app
+    \"\"\"
+    logger.info("Executing app index function...")
+
+    await atlantis.client_log("index running")
+
+    # Replace this return statement with your function's result
+    return "App index executed successfully."
+"""
 
     def _code_generate_text_loader(self, name: str, text_filename: str) -> str:
         """
@@ -1584,14 +1620,19 @@ async def {name}():
             if os.path.exists(text_path):
                 raise ValueError(f"Text asset '{text_filename}' already exists")
 
-        # Function doesn't exist anywhere - create new
+        # Function doesn't exist anywhere - create new.
+        # User-supplied code is taken verbatim (it carries its own imports);
+        # generated code is body-only and relies on the shared preamble.
         if code is not None:
             code_to_save = code
+            include_preamble = False
         elif text_filename:
             code_to_save = self._code_generate_text_loader(secure_name, text_filename)
+            include_preamble = True
         else:
             code_to_save = self._code_generate_stub(secure_name, location, description)
-        await self._fs_add_code(secure_name, code_to_save, app)
+            include_preamble = True
+        await self._fs_add_code(secure_name, code_to_save, app, include_preamble=include_preamble)
         if text_filename:
             await self._fs_add_text_asset(text_filename, text_content or "", app)
         logger.info(f"Function '{secure_name}' created successfully.")
@@ -1741,7 +1782,9 @@ async def {name}():
                 )
 
         # Add to destination
-        dest_file_path = await self._fs_add_code(secure_dest_name, func_code, dest_app)
+        # func_code is the extracted function body only; if the destination main.py
+        # doesn't exist yet it needs the shared preamble for its imports/logger.
+        dest_file_path = await self._fs_add_code(secure_dest_name, func_code, dest_app, include_preamble=True)
 
         # Remove from source by deleting those lines
         new_lines = lines[:start_line] + lines[end_line:]

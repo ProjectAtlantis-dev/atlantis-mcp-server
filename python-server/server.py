@@ -2726,27 +2726,7 @@ class DynamicAdditionServer(Server):
                 raise ValueError(error_msg)
 
             function_name = "index"
-            index_stub = """\
-import atlantis
-import logging
-
-logger = logging.getLogger("mcp_server")
-
-
-@visible
-@index
-async def index():
-    \"\"\"
-    This is the entry point for the app
-    \"\"\"
-    logger.info("Executing app index function...")
-
-    await atlantis.client_log("index running")
-
-    # Replace this return statement with your function's result
-    return "App index executed successfully."
-
-"""
+            index_stub = self.function_manager._code_generate_index_stub()
             await self.function_manager.function_add(function_name, index_stub, app_name)
             try:
                 await self._notify_tool_list_changed(change_type="added", tool_name=function_name)

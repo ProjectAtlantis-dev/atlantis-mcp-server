@@ -61,6 +61,9 @@ class CallContext(BaseModel):
         Composed from (caller sid, user_game_id). Shell path is intentionally NOT included —
         we want one session per (game, sid) so multiple terminals of the same human share state
         (e.g. the chat busy-lock). Raises if any component is missing.
+
+        Format: "{caller_sid}:{user_game_id}"
+        Example: caller_sid="brickhouse", user_game_id=24 -> "brickhouse:24"
         """
         return self.derive_session_key(
             user_game_id=self.user_game_id,
@@ -83,6 +86,10 @@ class CallContext(BaseModel):
         shell - to identify the single originating terminal. Uses caller_shell_path
         (attribution) intentionally, NOT exec_shell_path (where work runs). Raises
         if any component is missing.
+
+        Format: "{caller_sid}:{user_game_id}:{caller_shell_path}"
+        Example: caller_sid="brickhouse", user_game_id=24, caller_shell_path="8"
+                 -> "brickhouse:24:8"
         """
         return self.derive_terminal_key(
             user_game_id=self.user_game_id,
@@ -103,7 +110,10 @@ class CallContext(BaseModel):
         user_game_id: Optional[int],
         caller_sid: Optional[str],
     ) -> str:
-        """Canonical session key factory for cloud tool-call context."""
+        """Canonical session key factory for cloud tool-call context.
+
+        Returns "{caller_sid}:{user_game_id}", e.g. "brickhouse:24".
+        """
         missing = [
             n for n, v in (
                 ("user_game_id", user_game_id),
@@ -121,7 +131,11 @@ class CallContext(BaseModel):
         caller_sid: Optional[str],
         caller_shell_path: Optional[str],
     ) -> str:
-        """Canonical terminal key factory: session key narrowed to one terminal."""
+        """Canonical terminal key factory: session key narrowed to one terminal.
+
+        Returns "{caller_sid}:{user_game_id}:{caller_shell_path}", e.g.
+        "brickhouse:24:8".
+        """
         session_key = CallContext.derive_session_key(
             user_game_id=user_game_id,
             caller_sid=caller_sid,

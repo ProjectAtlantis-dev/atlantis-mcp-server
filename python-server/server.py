@@ -2917,12 +2917,13 @@ class DynamicAdditionServer(Server):
         client_id = ctx.client_id
         request_id = ctx.request_id
         caller_sid = ctx.caller_sid
-        logger.info(f"🔧 EXECUTING TOOL: {name}")
+        logger.info(
+            f"🔧 EXECUTING TOOL: {name} "
+            f"(session={ctx.get_session_key()}, terminal={ctx.get_terminal_key()})"
+        )
         logger.debug(f"WITH ARGUMENTS: {args}")
         if caller_sid:
             logger.debug(f"CALLED BY caller_sid: {caller_sid}")
-        if ctx.user_game_id and ctx.caller_sid:
-            logger.debug(f"SESSION KEY: {ctx.session_key}")
         # ---> ADDED: Log entry and raw args
         logger.debug(f"---> _execute_tool ENTERED. Name: '{name}', Raw Args:\n{format_json_log(args) if isinstance(args, dict) else args!r}") # <-- ADD THIS LINE
 
@@ -3105,12 +3106,14 @@ class DynamicAdditionServer(Server):
             }
 
         # Log the call
-        logger.info(f"🔧 Processing 'tools/call' for tool '{tool_name}' with args: {tool_args}")
+        logger.info(
+            f"🔧 Processing 'tools/call' for tool '{tool_name}' "
+            f"(session={ctx.get_session_key()}, terminal={ctx.get_terminal_key()}) "
+            f"with args: {tool_args}"
+        )
         logger.debug(f"Tool name: '{tool_name}', Arguments:\n{format_json_log(tool_args)}")
         if ctx.caller_sid:
             logger.debug(f"Call made by caller_sid: {ctx.caller_sid}")
-        if ctx.user_game_id and ctx.caller_sid:
-            logger.debug(f"Call made with session_key: {ctx.session_key}")
         if for_cloud:
             envelope = {"jsonrpc": "2.0", "id": request_id, "method": "tools/call", "params": params}
             logger.info(f"☁️ CLOUD TOOL CALL ENVELOPE:\n{format_json_log(envelope)}")
@@ -3224,7 +3227,7 @@ class DynamicAdditionServer(Server):
                 ctx=ctx,
             )
 
-            logger.info(f"🎯 Tool '{tool_name}' execution completed")
+            logger.info(f"🎯 Tool '{tool_name}' execution completed for session [{ctx.get_session_key()}]")
 
             # Format MCP response - THE ONE PLACE for all formatting
             # Per MCP spec 2025-11-25: result has content (array) and optionally structuredContent

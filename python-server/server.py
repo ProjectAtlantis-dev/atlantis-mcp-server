@@ -3717,6 +3717,8 @@ class ServiceClient:
                         visibility_str += f" {ORANGE}[@protected]{RESET_COLOR}"
                 if 'visible' in decorators:
                     visibility_str += f" {GREY_COLOR}[@visible]{RESET_COLOR}"
+                if 'homepage' in decorators:
+                    visibility_str += f" {CYAN_COLOR}[@homepage]{RESET_COLOR}"
                 if 'tick' in decorators:
                     visibility_str += f" {BRIGHT_WHITE}[@tick]{RESET_COLOR}"
                 if 'chat' in decorators:

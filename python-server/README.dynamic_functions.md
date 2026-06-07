@@ -46,6 +46,7 @@ Tool schemas are generated from type hints and docstrings. Untyped parameters de
 
 ### Structural Decorators (auto-visible)
 - **`@index`** - Marks a directory index tool
+- **`@homepage`** - Marks the remote's dashboard homepage renderer
 - **`@text("content_type")`** - Text content tool (e.g. `@text("markdown")`)
 - **`@location(name="location_name")`** - Associate with a location
 - **`@price(per_call=X, per_sec=Y)`** - Set pricing per call or per second

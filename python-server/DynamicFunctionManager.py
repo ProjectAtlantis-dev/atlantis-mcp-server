@@ -45,7 +45,7 @@ import utils  # Utility module for dynamic functions
 PARENT_PACKAGE_NAME = "dynamic_functions"
 
 # Visibility decorators that allow remote function calls
-VISIBILITY_DECORATORS = ['visible', 'public', 'protected', 'tick', 'chat', 'text', 'button', 'session', 'game', 'index', 'price', 'location', 'app', 'copy']
+VISIBILITY_DECORATORS = ['visible', 'public', 'protected', 'tick', 'chat', 'text', 'button', 'session', 'game', 'index', 'homepage', 'price', 'location', 'app', 'copy']
 
 # Module-level statements shared by every generated main.py. They belong to the
 # FILE, not to each function. Checked for presence INDIVIDUALLY (not as one
@@ -151,6 +151,13 @@ def visible(func):
     """
     # Mark the function as visible by setting an attribute
     setattr(func, '_is_visible', True)
+    return func
+
+# --- Homepage Decorator Definition ---
+def homepage(func):
+    """Mark a function as the remote's dashboard homepage renderer."""
+    setattr(func, '_is_visible', True)
+    setattr(func, '_is_homepage', True)
     return func
 
 # --- Tick Decorator Definition ---
@@ -288,6 +295,7 @@ class DynamicFunctionManager:
         import builtins
         for _name, _val in (
             ("visible", visible),
+            ("homepage", homepage),
             ("chat", _mcp_identity_decorator),
             ("text", text),
             ("public", _mcp_identity_decorator),
@@ -2164,6 +2172,7 @@ async def {name}():
                         module.__dict__['button'] = button
                         # Add visible decorator
                         module.__dict__['visible'] = visible
+                        module.__dict__['homepage'] = homepage
                         # Add tick decorator
                         module.__dict__['tick'] = tick
                         # Add protected decorator

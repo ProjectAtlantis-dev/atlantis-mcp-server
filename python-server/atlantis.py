@@ -300,6 +300,20 @@ def get_entry_point_name() -> Optional[str]:
     ctx = get_context()
     return ctx.entry_point_name if ctx else None
 
+def get_script_folder() -> Optional[str]:
+    """Return the executing dynamic function's folder relative to dynamic_functions.
+
+    Nested folders use slash notation. Returns None for top-level functions or
+    when there is no active dynamic-function context.
+    """
+    ctx = get_context()
+    return ctx.script_folder if ctx else None
+
+def get_script_name() -> Optional[str]:
+    """Return the executing dynamic function's filename, including its extension."""
+    ctx = get_context()
+    return ctx.script_name if ctx else None
+
 # locally-derived stable session identifier — see CallContext.session_key
 def get_session_key() -> Optional[str]:
     """Returns the session_key for this function call (None if any component missing)."""

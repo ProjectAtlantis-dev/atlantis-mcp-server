@@ -2269,6 +2269,8 @@ async def {name}():
                 context_ctx = ctx.model_copy(update={
                     "client_log_func": bound_client_log,
                     "entry_point_name": actual_function_name,
+                    "script_folder": os.path.dirname(target_file).replace(os.sep, "/") or None,
+                    "script_name": os.path.basename(target_file),
                 })
                 atlantis.set_context(context_ctx)
             else:

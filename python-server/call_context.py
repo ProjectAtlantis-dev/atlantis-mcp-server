@@ -37,6 +37,8 @@ class CallContext(BaseModel):
     # These are distinct on purpose - don't swap them.
     client_log_func: Optional[Callable[..., Any]] = None
     entry_point_name: Optional[str] = None
+    script_folder: Optional[str] = None
+    script_name: Optional[str] = None
 
     @property
     def caller_sid(self) -> Optional[str]:

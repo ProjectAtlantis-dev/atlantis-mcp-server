@@ -31,6 +31,8 @@ They take no arguments and return `None` when there is no active context.
 | `get_caller()` | `str` | The **sid** (username) of whoever invoked this function. |
 | `get_request_id()` | `str` | Correlation id for this request — used to route messages back. |
 | `get_entry_point_name()` | `str` | Name of the originally invoked (entry point) function. |
+| `get_script_folder()` | `str` | Executing dynamic function's folder relative to `dynamic_functions`, using slash notation. `None` for top-level functions or outside dynamic-function context. |
+| `get_script_name()` | `str` | Executing dynamic function's filename, including its extension. `None` outside dynamic-function context. |
 | `get_session_key()` | `str` | Stable per-session identifier. `None` if any component is missing. |
 | `get_terminal_key()` | `str` | Session narrowed to one terminal: `session_key` + the user's root shell. |
 | `get_caller_shell_path()` | `str` | The user's **root** shell path (used for attribution). |

@@ -4632,6 +4632,7 @@ if __name__ == "__main__":
 
     # Initialize PID Manager with service name if provided
     pid_manager = PIDManager(service_name=args.service_name)
+    atlantis._set_remote_name(args.service_name)
 
     # Check if server is already running
     existing_pid = pid_manager.check_server_running()

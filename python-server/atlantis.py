@@ -22,6 +22,7 @@ _current_context: contextvars.ContextVar[Optional[CallContext]] = contextvars.Co
 # Default owner of the remote server instance
 _default_owner: Optional[str] = ""
 _owner_usernames: List[str] = []  # List of owner usernames for permission checks
+_remote_name: Optional[str] = None
 
 # Simple task collection for logging tasks
 _current_log_tasks: contextvars.ContextVar[Optional[List[asyncio.Task]]] = contextvars.ContextVar("current_log_tasks", default=None)
@@ -301,10 +302,11 @@ def get_entry_point_name() -> Optional[str]:
     return ctx.entry_point_name if ctx else None
 
 def get_script_folder() -> Optional[str]:
-    """Return the executing dynamic function's folder relative to dynamic_functions.
+    """Return the executing dynamic function's stable /username/remote/folder path.
 
-    Nested folders use slash notation. Returns None for top-level functions or
-    when there is no active dynamic-function context.
+    Nested folders use slash notation. Root-level scripts return
+    "/username/remote". Returns None when there is no active dynamic-function
+    context.
     """
     ctx = get_context()
     return ctx.script_folder if ctx else None
@@ -369,6 +371,10 @@ def get_default_owner() -> Optional[str]:
     """Returns the default owner username for this remote server instance."""
     return _default_owner
 
+def _get_remote_name() -> Optional[str]:
+    """Returns this remote server instance's configured service name."""
+    return _remote_name
+
 def is_owner(username: str) -> bool:
     """Check if the given username is an owner"""
     return username in _owner_usernames
@@ -379,6 +385,11 @@ def _set_default_owner(new_owner: Optional[str]):
     """Sets the default owner username. For internal use."""
     global _default_owner
     _default_owner = new_owner
+
+def _set_remote_name(new_remote_name: Optional[str]):
+    """Sets this remote server instance's configured service name. For internal use."""
+    global _remote_name
+    _remote_name = new_remote_name
 
 def _set_owner_usernames(usernames: List[str]):
     """Sets the list of owner usernames. For internal use."""

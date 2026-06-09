@@ -2266,10 +2266,17 @@ async def {name}():
                 logger.debug(f"Prepared bound_client_log for context. Request ID: {request_id}, Client ID: {client_id}")
                 logger.debug(f"Setting context variables via atlantis. caller_sid: {caller_sid}")
 
+                owner = atlantis.get_default_owner()
+                remote_name = atlantis._get_remote_name()
+                if not owner or not remote_name:
+                    raise RuntimeError("Cannot establish script folder: username and remote name are required")
+
+                relative_folder = os.path.dirname(target_file).replace(os.sep, "/")
+                script_folder = "/" + "/".join(part for part in (owner, remote_name, relative_folder) if part)
                 context_ctx = ctx.model_copy(update={
                     "client_log_func": bound_client_log,
                     "entry_point_name": actual_function_name,
-                    "script_folder": os.path.dirname(target_file).replace(os.sep, "/") or None,
+                    "script_folder": script_folder,
                     "script_name": os.path.basename(target_file),
                 })
                 atlantis.set_context(context_ctx)

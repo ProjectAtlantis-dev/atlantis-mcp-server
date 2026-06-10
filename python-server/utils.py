@@ -175,6 +175,7 @@ async def client_log(
     message_type: str = "text",
     stream_id: Optional[str] = None,
     is_private: bool = True,
+    visibility_scope: Optional[str] = None,
     location: Optional[str] = None,
     caller_sid: Optional[str] = None
     ):
@@ -203,6 +204,7 @@ async def client_log(
         message_type: Type of message content ("text", "json", "image/png", etc.). Default is "text"
         is_private: If True (default), send only to requesting client.
                    If False, broadcast to all connected clients (used by scripts).
+        visibility_scope: Explicit event visibility scope for clients that persist events.
     """
     # Log locally first (always using INFO level for local display)
     seq_prefix = f"(Seq: {seq_num}) " if seq_num is not None else ""
@@ -263,6 +265,7 @@ async def client_log(
                         message_type,
                         stream_id,
                         is_private,
+                        visibility_scope,
                         location,
                         caller_sid
                     )

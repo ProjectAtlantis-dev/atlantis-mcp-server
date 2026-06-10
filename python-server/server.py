@@ -31,7 +31,7 @@ import traceback
 from collections import defaultdict
 
 # Version
-SERVER_VERSION = "4.3.1"
+SERVER_VERSION = "5.0.0"
 
 # Tool list display column widths
 COL_WIDTH_APP = 30
@@ -2042,6 +2042,7 @@ class DynamicAdditionServer(Server):
                               message_type: str = "text", # Message content type
                               stream_id: Optional[str] = None, # Stream identifier
                               is_private: bool = True,  # If False, broadcast to all clients
+                              visibility_scope: Optional[str] = None, # Explicit event visibility scope
                               location: Optional[str] = None, # Optional location tag for chat/description events
                               caller_sid: Optional[str] = None # Caller sid who initiated the request
                               ):
@@ -2085,6 +2086,9 @@ class DynamicAdditionServer(Server):
             # Add streamId if provided
             if stream_id is not None:
                 params["streamId"] = stream_id
+
+            if visibility_scope is not None:
+                params["visibilityScope"] = visibility_scope
 
             # Add location if provided (for chat/description event routing)
             if location is not None:

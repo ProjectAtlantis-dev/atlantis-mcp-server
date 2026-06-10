@@ -235,6 +235,7 @@ async def client_log(message: Any, level: str = "INFO", message_type: str = "tex
                 logger_name=caller_name,  # Pass the caller function name
                 seq_num=current_seq_to_send, # Pass the obtained sequence number
                 is_private=is_private,
+                visibility_scope="sid" if is_private else "game",
                 location=location,
                 caller_sid=get_caller()
             )
@@ -882,8 +883,18 @@ async def client_script(content: str, is_private: bool = True):
         is_private: If True (default), script only runs on the requesting client.
                    If False, pass a cloud-side routing hint.
     """
+    notification_params = {
+        "visibilityScope": "sid" if is_private else "game",
+    }
+
     # Use client_command for awaitable response with proper message_type
-    result = await client_command("script", content, message_type="script", is_private=is_private)
+    result = await _client_command(
+        "script",
+        content,
+        message_type="script",
+        is_private=is_private,
+        notification_params=notification_params,
+    )
     return result
 
 async def client_terminal_script(content: str, is_private: bool = True):
@@ -900,7 +911,13 @@ async def client_terminal_script(content: str, is_private: bool = True):
     """
     # Same "script" command, but message_type "terminal" routes it to the
     # client's re-runnable terminal-event path instead of the one-shot script path.
-    result = await client_command("script", content, message_type="terminal", is_private=is_private)
+    result = await _client_command(
+        "script",
+        content,
+        message_type="terminal",
+        is_private=is_private,
+        notification_params={"visibilityScope": "shell"},
+    )
     return result
 
 async def set_background(image_path: str, image_format: Optional[str] = None, vertical_align: str = "bottom"):
@@ -932,7 +949,10 @@ async def set_background(image_path: str, image_format: Optional[str] = None, ve
         "background",
         prefixed_data,
         message_type="background",
-        notification_params={"verticalAlign": vertical_align},
+        notification_params={
+            "verticalAlign": vertical_align,
+            "visibilityScope": "game",
+        },
     )
     return result
 
@@ -997,6 +1017,7 @@ async def set_background_video(
             "removeOnEnded": remove_on_ended,
             "toggleAudio": toggle_audio,
             "replay": replay,
+            "visibilityScope": "game",
         },
     )
     return result
@@ -1062,6 +1083,7 @@ async def set_background_player(
             "removeOnEnded": remove_on_ended,
             "controls": controls,
             "replay": replay,
+            "visibilityScope": "game",
         },
     )
     return result

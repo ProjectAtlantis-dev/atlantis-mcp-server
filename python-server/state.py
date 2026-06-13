@@ -158,6 +158,7 @@ Some interesting commands to get you started:
   - `cd /` - go to root, root is arranged by user
   - `cd ~` - go to your home, arranged by connected servers
   - `cd ..` - go back up one folder
+  - `cd H*me` - globs work within a segment (`*` never crosses `/`)
 - `add` - add a function in the current location
 - `edit` - DO NOT USE, use `codeset` instead (see below)
 - `rls` - list the connected remotes
@@ -171,19 +172,37 @@ To run a tool in the current folder, you can simply use `@name` plus any params,
 - `cat` - retrieves the text of a function
 - `codeset` - sets the content of a function
 
+## Paths and Globs
+
+Paths follow Linux conventions. `/` is the ONLY path separator; dots are ordinary name characters.
+
+- `*` and `?` glob WITHIN a single path segment — `*` never crosses a `/`
+- `**` as a whole segment spans any number of folders (globstar)
+- `.` and `..` resolve against your current directory
+- Matching prefers the exact case first, then falls back to case-insensitive
+
+Anchors (where a path starts):
+
+- no prefix - relative to your current folder
+- `/` or `%` - global root (root is arranged by user, so the first segment is a username)
+- `~` - your home; `~name` is user *name*'s home (like Linux)
+- `$` - root of the remote you are currently inside
+
 ## Tool Prefixes
 
-- `@foo` - run in current folder, assuming you navigated your way down
-- `%*foo` - run from global root; needs wildcard search term (e.g. `%*coffee` finds the first `coffee` across all users)
-- `~*foo` - run from user home folder; the path after `~` starts at remote level (`remote*app**function`), so `~coffee` looks for a *remote* called `coffee`. Use `~*coffee` to wildcard the remote, or be explicit: `~terrain*Tools**coffee`
-
-Note: `%` and `~` require search term syntax (with `*` wildcards) — a bare name like `%foo` or `~foo` will try to match a remote/user, not a function. See Search Terms below.
+- `@foo` - run `foo` from the current folder (searches PATH folders, nearest match wins)
+- `@App/foo` - run `foo` in the App subfolder of the current folder
+- `%user/remote/App/foo` or `/user/remote/App/foo` - fully qualified call
+- `~/**/coffee` - your own `coffee`, anywhere under your home
+- `%**/coffee` - the first `coffee` across all users (anywhere in the tree)
+- `%*foo` - note: a single `*` is one segment, so this matches *users* ending in `foo`, not functions
+- `$Tools/coffee` - `coffee` inside the `Tools` folder at the current remote's root
 
 ## Search Terms
 
-Search terms allow you to specify a function using wildcards without having to cd to that folder first, assuming it resolves uniquely e.g. `brickhouse*terrain*InWork**foo` could also be called via `*Inwork*foo`
+Search terms are just glob paths. You can call a deep function without cd-ing to it first, as long as it resolves uniquely, e.g. `/brickhouse/terrain/InWork/foo` or `**/InWork/foo`.
 
-If you just say `foo` from the top-level it could be ambiguous which one you mean.
+If you just say `foo` from the top level it could be ambiguous which one you mean; the shell will show the candidates so you can pick a fuller path.
 
 ## Named Function Parameters
 

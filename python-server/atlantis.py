@@ -1,6 +1,7 @@
 import contextvars
 import inspect # Ensure inspect is imported
 import asyncio # Added for Lock
+import ast
 from typing import Callable, Optional, Any, List # Added List
 from call_context import CallContext, ToolCallPayload
 from utils import client_log as util_client_log # For client_log, client_image, client_html
@@ -409,6 +410,86 @@ def reset_context() -> None:
 
 
 # --- Utility Functions ---
+
+def get_uncalled_dynamic_functions(functions_dir: Optional[str] = None) -> List[dict]:
+    """Return dynamic functions with no static call sites.
+
+    The result is a list of {"filename": "relative/path.py", "function": "qualname"} objects.
+    This is a static AST name match over the dynamic_functions tree; Atlantis
+    tool routing, decorators, getattr/registry calls, and browser callbacks may
+    still invoke functions that appear here.
+    """
+    root = os.path.realpath(
+        functions_dir
+        or os.path.join(os.path.dirname(os.path.abspath(__file__)), "dynamic_functions")
+    )
+    skip_dirs = {"__pycache__", ".git", ".venv", "venv", "node_modules"}
+    definitions = []
+    calls_by_name = {}
+
+    class _CallVisitor(ast.NodeVisitor):
+        def __init__(self, file_path: str):
+            self.file_path = file_path
+            self.function_stack = []
+            self.scope_stack = []
+
+        def visit_ClassDef(self, node):
+            self.scope_stack.append(node.name)
+            self.generic_visit(node)
+            self.scope_stack.pop()
+
+        def visit_FunctionDef(self, node):
+            self._visit_function(node)
+
+        def visit_AsyncFunctionDef(self, node):
+            self._visit_function(node)
+
+        def _visit_function(self, node):
+            qualname = ".".join(self.scope_stack + [node.name])
+            definitions.append((self.file_path, node.lineno, node.name, qualname))
+            self.scope_stack.append(node.name)
+            self.function_stack.append(node.name)
+            self.generic_visit(node)
+            self.function_stack.pop()
+            self.scope_stack.pop()
+
+        def visit_Call(self, node):
+            if isinstance(node.func, ast.Name):
+                name = node.func.id
+            elif isinstance(node.func, ast.Attribute):
+                name = node.func.attr
+            else:
+                name = None
+
+            if name:
+                enclosing = ".".join(self.scope_stack) if self.scope_stack else None
+                calls_by_name.setdefault(name, []).append((self.file_path, enclosing))
+            self.generic_visit(node)
+
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=True):
+        dirnames[:] = [name for name in dirnames if name not in skip_dirs]
+        for filename in filenames:
+            if not filename.endswith(".py"):
+                continue
+            file_path = os.path.join(dirpath, filename)
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    tree = ast.parse(f.read(), filename=file_path)
+            except (OSError, SyntaxError, UnicodeDecodeError):
+                continue
+            _CallVisitor(file_path).visit(tree)
+
+    uncalled = []
+    for file_path, _line, name, qualname in definitions:
+        called_elsewhere = any(
+            not (call_file == file_path and enclosing == qualname)
+            for call_file, enclosing in calls_by_name.get(name, [])
+        )
+        if not called_elsewhere:
+            rel_path = os.path.relpath(file_path, root)
+            uncalled.append({"filename": rel_path, "function": qualname})
+
+    return sorted(uncalled, key=lambda item: (item["filename"], item["function"]))
 
 async def client_image(image_path: str, image_format: Optional[str] = None):
     """Sends an image back to the requesting client for the current context.

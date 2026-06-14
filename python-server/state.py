@@ -352,6 +352,23 @@ def _scaffold_starter_functions():
 
     if _write_starter_file_if_missing(
         demo_dir,
+        "myVideo.py",
+        (
+            "import os\n"
+            "import atlantis\n"
+            "import logging\n\n"
+            'logger = logging.getLogger("dynamic_function")\n\n\n'
+            "@visible\n"
+            "async def myVideo():\n"
+            '    """Display the TaffyWide.mp4 video"""\n'
+            "    video_path = os.path.join(os.path.dirname(__file__), \"..\", \"..\", \"..\", \"TaffyWide.mp4\")\n"
+            "    await atlantis.client_video(video_path)\n"
+        ),
+    ):
+        created.append("Demo/myVideo.py")
+
+    if _write_starter_file_if_missing(
+        demo_dir,
         "foo.py",
         (
             "import atlantis\n"

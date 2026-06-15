@@ -2274,7 +2274,7 @@ class DynamicAdditionServer(Server):
         has_required_decorator = any(dec in decorators_list for dec in VISIBILITY_DECORATORS) or 'dynamic' in decorators_list
 
         if not has_required_decorator:
-            error_msg = f"Access denied: Function '{actual_function_name}' cannot be called remotely without a visibility decorator"
+            error_msg = f"Access denied: Function '{actual_function_name}'"
             logger.warning(f"🚨 SECURITY: {error_msg}")
             raise PermissionError(error_msg)
 

@@ -6,6 +6,7 @@ from typing import Callable, Optional, Any, List # Added List
 from call_context import CallContext, ToolCallPayload
 from utils import client_log as util_client_log # For client_log, client_image, client_html
 from utils import execute_client_command_awaitable, execute_stream_awaitable, format_json_log # For client_command and streaming
+from utils import get_server_instance
 import uuid
 import os
 import os.path
@@ -414,29 +415,69 @@ def reset_context() -> None:
 def get_uncalled_dynamic_functions(functions_dir: Optional[str] = None) -> List[dict]:
     """Return dynamic functions with no static call sites.
 
-    The result is a list of {"filename": "relative/path.py", "function": "qualname"} objects.
+    The result is a list of
+    {"filename": "relative/path.py", "function": "qualname", "visibility": "..."} objects.
+    Visibility comes from the live function manager metadata used by the tool
+    inventory report.
     This is a static AST name match over the dynamic_functions tree; Atlantis
     tool routing, decorators, getattr/registry calls, and browser callbacks may
     still invoke functions that appear here.
     """
-    root = os.path.realpath(
-        functions_dir
-        or os.path.join(os.path.dirname(os.path.abspath(__file__)), "dynamic_functions")
-    )
+    server = get_server_instance()
+    if server is None or not hasattr(server, "function_manager"):
+        raise RuntimeError("get_uncalled_dynamic_functions requires a live Atlantis server")
+
+    function_manager = server.function_manager
+    root = os.path.realpath(functions_dir or function_manager.functions_dir)
+    if root != os.path.realpath(function_manager.functions_dir):
+        raise ValueError("get_uncalled_dynamic_functions can only inspect the live server's dynamic_functions directory")
+
     skip_dirs = {"__pycache__", ".git", ".venv", "venv", "node_modules"}
-    definitions = []
+    definitions = {}
     calls_by_name = {}
+
+    from DynamicFunctionManager import VISIBILITY_DECORATORS
+
+    for app_path, func_map in function_manager._function_file_mapping_by_app.items():
+        for func_name, rel_path in func_map.items():
+            decorators = (
+                function_manager._function_metadata_by_app
+                .get(app_path, {})
+                .get(func_name, {})
+                .get("decorators", [])
+            )
+            if "public" in decorators:
+                visibility = "public"
+            elif any(dec in VISIBILITY_DECORATORS for dec in decorators):
+                visibility = "visible"
+            else:
+                visibility = "hidden"
+            definitions[(os.path.realpath(os.path.join(root, rel_path)), func_name)] = {
+                "filename": rel_path,
+                "function": func_name,
+                "visibility": visibility,
+            }
+
+    def _dynamic_function_info(file_path: str, name: str) -> Optional[dict]:
+        info = definitions.get((file_path, name))
+        if info is not None:
+            return info
+        # Decorator-based app names can make source files appear under a
+        # different app in the inventory; fall back to the only matching
+        # top-level function name in that file.
+        matches = [
+            item for (definition_file, definition_name), item in definitions.items()
+            if definition_file == file_path and definition_name == name
+        ]
+        if len(matches) == 1:
+            return matches[0]
+        return None
 
     class _CallVisitor(ast.NodeVisitor):
         def __init__(self, file_path: str):
             self.file_path = file_path
-            self.function_stack = []
             self.scope_stack = []
-
-        def visit_ClassDef(self, node):
-            self.scope_stack.append(node.name)
-            self.generic_visit(node)
-            self.scope_stack.pop()
+            self.inventory_definitions = []
 
         def visit_FunctionDef(self, node):
             self._visit_function(node)
@@ -445,12 +486,12 @@ def get_uncalled_dynamic_functions(functions_dir: Optional[str] = None) -> List[
             self._visit_function(node)
 
         def _visit_function(self, node):
-            qualname = ".".join(self.scope_stack + [node.name])
-            definitions.append((self.file_path, node.lineno, node.name, qualname))
+            if not self.scope_stack:
+                inventory_info = _dynamic_function_info(self.file_path, node.name)
+                if inventory_info:
+                    self.inventory_definitions.append((node.name, inventory_info))
             self.scope_stack.append(node.name)
-            self.function_stack.append(node.name)
             self.generic_visit(node)
-            self.function_stack.pop()
             self.scope_stack.pop()
 
         def visit_Call(self, node):
@@ -466,28 +507,31 @@ def get_uncalled_dynamic_functions(functions_dir: Optional[str] = None) -> List[
                 calls_by_name.setdefault(name, []).append((self.file_path, enclosing))
             self.generic_visit(node)
 
+    scanned_definitions = []
     for dirpath, dirnames, filenames in os.walk(root, followlinks=True):
         dirnames[:] = [name for name in dirnames if name not in skip_dirs]
         for filename in filenames:
             if not filename.endswith(".py"):
                 continue
-            file_path = os.path.join(dirpath, filename)
+            file_path = os.path.realpath(os.path.join(dirpath, filename))
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
                     tree = ast.parse(f.read(), filename=file_path)
             except (OSError, SyntaxError, UnicodeDecodeError):
                 continue
-            _CallVisitor(file_path).visit(tree)
+            visitor = _CallVisitor(file_path)
+            visitor.visit(tree)
+            for name, info in visitor.inventory_definitions:
+                scanned_definitions.append((file_path, name, info))
 
     uncalled = []
-    for file_path, _line, name, qualname in definitions:
+    for file_path, name, info in scanned_definitions:
         called_elsewhere = any(
-            not (call_file == file_path and enclosing == qualname)
+            not (call_file == file_path and enclosing == name)
             for call_file, enclosing in calls_by_name.get(name, [])
         )
         if not called_elsewhere:
-            rel_path = os.path.relpath(file_path, root)
-            uncalled.append({"filename": rel_path, "function": qualname})
+            uncalled.append(dict(info))
 
     return sorted(uncalled, key=lambda item: (item["filename"], item["function"]))
 

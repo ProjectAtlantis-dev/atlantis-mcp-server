@@ -3559,6 +3559,15 @@ class ServiceClient:
             logger.warning(f"⚠️ Could not read image '{image_path}': {e}")
             return ""
 
+    @staticmethod
+    def _image_display_value(image: str) -> str:
+        """Return a readable image source for operator logs."""
+        if not image:
+            return ""
+        if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", image):
+            return image
+        return os.path.abspath(os.path.expanduser(image))
+
     def __init__(self, appName:str, server_url: str, namespace: str, email: str, api_key: str, serviceName: str, server_uuid: str, mcp_server: 'DynamicAdditionServer', port: int, description: str = "", image: str = ""):
         self.server_url = server_url
         self.namespace = namespace
@@ -3568,6 +3577,7 @@ class ServiceClient:
         self.serviceName = serviceName
         self.server_uuid = server_uuid
         self.description = description
+        self.image_display = self._image_display_value(image)
         self.image = self._encode_image(image)
         self.mcp_server = mcp_server
         self.server_port = port # Store the server's listening port
@@ -4068,8 +4078,8 @@ class ServiceClient:
             logger.info(f"{BOLD}{BRIGHT_WHITE}APP NAME    : {self.appName}{RESET}")
             if self.description:
                 logger.info(f"{BOLD}{BRIGHT_WHITE}DESCRIPTION : {self.description}{RESET}")
-            if self.image:
-                logger.info(f"{BOLD}{BRIGHT_WHITE}IMAGE       : <set>{RESET}")
+            if self.image_display:
+                logger.info(f"{BOLD}{BRIGHT_WHITE}IMAGE       : {self.image_display}{RESET}")
             logger.info(f"{BOLD}{BRIGHT_WHITE}OWNER       : {atlantis.get_default_owner()}{RESET}")
             logger.info(f"{BOLD}{BRIGHT_WHITE}OWNER USERS : {atlantis._owner_usernames}{RESET}")
             logger.info(f"{BOLD}{BRIGHT_WHITE}LOGIN       : {self.email}{RESET}")

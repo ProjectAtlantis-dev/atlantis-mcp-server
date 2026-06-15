@@ -1037,7 +1037,14 @@ async def client_terminal_script(content: str, is_private: bool = True):
     )
     return result
 
-async def set_background(image_path: str, image_format: Optional[str] = None, vertical_align: str = "bottom"):
+async def set_background(
+    image_path: str,
+    image_format: Optional[str] = None,
+    vertical_align: str = "bottom",
+    horizontal_align: str = "center",
+    background_repeat: str = "no-repeat",
+    background_size: str = "cover",
+):
     """Sets the background image for the client UI.
 
     Args:
@@ -1046,6 +1053,9 @@ async def set_background(image_path: str, image_format: Optional[str] = None, ve
                      If not provided, will be auto-detected from file extension.
         vertical_align: Vertical alignment for background-position ("top", "center", "bottom",
                        or a CSS length/percentage). Defaults to "bottom".
+        horizontal_align: Horizontal alignment for background-position. Defaults to "center".
+        background_repeat: CSS background-repeat value. Defaults to "no-repeat".
+        background_size: CSS background-size value. Defaults to "cover".
     """
     # Auto-detect MIME type from file extension if not provided
     if image_format is None:
@@ -1068,6 +1078,9 @@ async def set_background(image_path: str, image_format: Optional[str] = None, ve
         message_type="background",
         notification_params={
             "verticalAlign": vertical_align,
+            "horizontalAlign": horizontal_align,
+            "backgroundRepeat": background_repeat,
+            "backgroundSize": background_size,
             "visibilityScope": "game",
         },
     )

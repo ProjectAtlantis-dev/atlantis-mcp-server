@@ -154,6 +154,7 @@ def _create_dynamic_folder_index_tool(
     base_app_name: Optional[str],
     app_source: str,
     provider_decorators: List[str],
+    last_modified: Optional[str] = None,
 ) -> Tool:
     folder_decorators = list(provider_decorators)
     _append_unique(folder_decorators, "index")
@@ -170,13 +171,16 @@ def _create_dynamic_folder_index_tool(
         "dynamic_provider": provider_name,
     }
 
-    try:
-        tool_annotations["lastModified"] = datetime.datetime.fromtimestamp(
-            os.path.getmtime(full_file_path),
-            tz=datetime.timezone.utc
-        ).isoformat()
-    except Exception as e:
-        logger.warning(f"⚠️ Failed to get lastModified for dynamic folder provider {provider_name}: {e}")
+    if last_modified:
+        tool_annotations["lastModified"] = last_modified
+    else:
+        try:
+            tool_annotations["lastModified"] = datetime.datetime.fromtimestamp(
+                os.path.getmtime(full_file_path),
+                tz=datetime.timezone.utc
+            ).isoformat()
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to get lastModified for dynamic folder provider {provider_name}: {e}")
 
     return Tool(
         name="index",
@@ -995,6 +999,8 @@ class DynamicAdditionServer(Server):
                             tool_description = func_info.get('description', f"Dynamic function '{tool_name}'")
                             tool_input_schema = func_info.get('inputSchema', {"type": "object", "properties": {}})
                             tool_annotations = {}
+                            stored_metadata = self.function_manager._function_metadata_by_app.get(app_name, {}).get(tool_name, {})
+                            granular_last_modified = stored_metadata.get("last_modified")
 
                             tool_annotations["type"] = "text_file" if func_info.get('is_text_file') else "function"
                             tool_annotations["validationStatus"] = "VALID"
@@ -1039,6 +1045,7 @@ class DynamicAdditionServer(Server):
                                     base_app_name=tool_annotations["app_name"],
                                     app_source=app_source,
                                     provider_decorators=decorators_from_info,
+                                    last_modified=granular_last_modified,
                                 )
                                 app_tools.append(folder_index_tool)
                                 logger.debug(f"🧩 Added dynamic folder '{tool_name}' (app: {tool_annotations['app_name'] or 'top-level'})")
@@ -1082,15 +1089,16 @@ class DynamicAdditionServer(Server):
                                 tool_annotations["errorMessage"] = self.server_manager._server_load_errors[tool_name]
 
                             # Add common annotations
-                            try:
-                                tool_annotations["lastModified"] = datetime.datetime.fromtimestamp(
-                                    os.path.getmtime(full_file_path),
-                                    tz=datetime.timezone.utc
-                                ).isoformat()
-                                #logger.debug(f"🔍 SET lastModified for {tool_name}: {tool_annotations['lastModified']}")
-                            except Exception as e:
-                                logger.warning(f"⚠️ Failed to get lastModified for {tool_name}: {e}")
-                                pass
+                            if granular_last_modified:
+                                tool_annotations["lastModified"] = granular_last_modified
+                            else:
+                                try:
+                                    tool_annotations["lastModified"] = datetime.datetime.fromtimestamp(
+                                        os.path.getmtime(full_file_path),
+                                        tz=datetime.timezone.utc
+                                    ).isoformat()
+                                except Exception as e:
+                                    logger.warning(f"⚠️ Failed to get lastModified for {tool_name}: {e}")
 
                             # Create and add the tool object
                             custom_annotations = ToolAnnotations(**tool_annotations)

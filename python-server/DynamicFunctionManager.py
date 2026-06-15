@@ -9,6 +9,7 @@ import sys
 import re
 import ast
 import json
+import hashlib
 import asyncio
 import logging
 import pathlib
@@ -43,6 +44,10 @@ import utils  # Utility module for dynamic functions
 
 # Directory to store dynamic function files
 PARENT_PACKAGE_NAME = "dynamic_functions"
+FUNCTION_TIMESTAMP_CACHE_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    ".function_timestamp_cache.json",
+)
 
 # Visibility decorators that allow remote function calls
 VISIBILITY_DECORATORS = ['visible', 'public', 'protected', 'tick', 'chat', 'text', 'button', 'session', 'game', 'index', 'homepage', 'price', 'location', 'app', 'copy']
@@ -327,6 +332,8 @@ class DynamicFunctionManager:
         self._function_file_mapping_mtime = 0.0  # track when mapping was last built
         self._skipped_functions = []  # Track functions skipped (syntax errors, missing decorators, etc.)
         self._duplicate_functions = []  # Track duplicates: [(app_path, func_name, [file_paths])]
+        self._function_timestamp_cache = self._load_function_timestamp_cache()
+        self._function_timestamp_cache_dirty = False
 
         # Per-function execution queues for automatic serialization
         # Key is fully qualified function name (e.g., "Home/kitty" or "App.Module/function")
@@ -336,6 +343,70 @@ class DynamicFunctionManager:
 
         # Create directories if they don't exist
         os.makedirs(self.functions_dir, exist_ok=True)
+
+    @staticmethod
+    def _load_function_timestamp_cache() -> Dict[str, Dict[str, str]]:
+        try:
+            with open(FUNCTION_TIMESTAMP_CACHE_PATH, "r", encoding="utf-8") as cache_file:
+                cache = json.load(cache_file)
+            if isinstance(cache, dict):
+                return cache
+            logger.warning("⚠️ Function timestamp cache is not a JSON object; ignoring it")
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            logger.warning(f"⚠️ Could not load function timestamp cache: {e}")
+        return {}
+
+    def _save_function_timestamp_cache(self) -> None:
+        if not self._function_timestamp_cache_dirty:
+            return
+
+        cache_root, cache_ext = os.path.splitext(FUNCTION_TIMESTAMP_CACHE_PATH)
+        temp_path = f"{cache_root}.tmp{cache_ext}"
+        try:
+            with open(temp_path, "w", encoding="utf-8") as cache_file:
+                json.dump(self._function_timestamp_cache, cache_file, indent=2, sort_keys=True)
+                cache_file.write("\n")
+            os.replace(temp_path, FUNCTION_TIMESTAMP_CACHE_PATH)
+            self._function_timestamp_cache_dirty = False
+        except Exception as e:
+            logger.warning(f"⚠️ Could not save function timestamp cache: {e}")
+            try:
+                os.remove(temp_path)
+            except FileNotFoundError:
+                pass
+
+    def _set_granular_last_modified(
+        self,
+        rel_path: str,
+        function_info: Dict[str, Any],
+        file_mtime: float,
+    ) -> None:
+        fingerprint = function_info.get("source_fingerprint")
+        if not isinstance(fingerprint, str):
+            return
+
+        cache_key = f"{rel_path}::{function_info['name']}"
+        cached = self._function_timestamp_cache.get(cache_key)
+        last_modified = None
+        if isinstance(cached, dict) and cached.get("fingerprint") == fingerprint:
+            last_modified = cached.get("lastModified")
+
+        if not isinstance(last_modified, str):
+            last_modified = datetime.datetime.fromtimestamp(
+                file_mtime,
+                tz=datetime.timezone.utc,
+            ).isoformat()
+
+        function_info["last_modified"] = last_modified
+        new_cache_entry = {
+            "fingerprint": fingerprint,
+            "lastModified": last_modified,
+        }
+        if cached != new_cache_entry:
+            self._function_timestamp_cache[cache_key] = new_cache_entry
+            self._function_timestamp_cache_dirty = True
 
     # Helper functions for app name <-> path conversion
     @staticmethod
@@ -1077,7 +1148,8 @@ class DynamicFunctionManager:
                         "price_per_call": price_per_call_from_decorator, # Add extracted price_per_call
                         "price_per_sec": price_per_sec_from_decorator, # Add extracted price_per_sec
                         "text_content_type": text_content_type_from_decorator, # Add extracted text content type (e.g. "markdown")
-                        "is_dynamic": is_dynamic_from_decorator # Add extracted is_dynamic flag
+                        "is_dynamic": is_dynamic_from_decorator, # Add extracted is_dynamic flag
+                        "source_fingerprint": self._function_source_fingerprint(code_buffer, func_def_node),
                     }
                     functions_info.append(function_info)
 
@@ -1102,6 +1174,20 @@ class DynamicFunctionManager:
         except Exception as e:
             logger.error(f"❌ Unexpected error during validation or AST processing: {str(e)}\n{traceback.format_exc()}")
             raise
+
+    @staticmethod
+    def _function_source_fingerprint(
+        code_buffer: str,
+        func_def_node: Union[ast.FunctionDef, ast.AsyncFunctionDef],
+    ) -> str:
+        """Hash one top-level function, including its decorators."""
+        start_line = func_def_node.lineno
+        if func_def_node.decorator_list:
+            start_line = min(decorator.lineno for decorator in func_def_node.decorator_list)
+        end_line = func_def_node.end_lineno or func_def_node.lineno
+        source_lines = code_buffer.splitlines(keepends=True)
+        function_source = "".join(source_lines[start_line - 1:end_line])
+        return hashlib.sha256(function_source.encode("utf-8")).hexdigest()
 
 
     def _code_generate_stub(self, name: str, location: Optional[str] = None, description: Optional[str] = None) -> str:
@@ -1289,7 +1375,13 @@ async def {name}():
                                 'decorators': ["text"],
                                 'text_content_type': "txt",
                                 'is_text_file': True,
+                                'source_fingerprint': hashlib.sha256(content.encode("utf-8")).hexdigest(),
                             }
+                            self._set_granular_last_modified(
+                                rel_path,
+                                func_info,
+                                os.path.getmtime(file_path),
+                            )
 
                             # Determine app_path from directory
                             app_path = os.path.dirname(rel_path) if '/' in rel_path else None
@@ -1332,8 +1424,10 @@ async def {name}():
                             continue
 
                         if is_valid and functions_info:
+                            file_mtime = os.path.getmtime(file_path)
                             for func_info in functions_info:
                                 func_name = func_info['name']
+                                self._set_granular_last_modified(rel_path, func_info, file_mtime)
 
                                 # NEW OPT-IN VISIBILITY: Check if function has a visibility decorator or is internal
                                 decorators_from_info = func_info.get("decorators", [])
@@ -1439,6 +1533,7 @@ async def {name}():
                         self._function_file_mapping[func_name] = rel_path
 
             self._function_file_mapping_mtime = current_mtime
+            self._save_function_timestamp_cache()
 
             # Final summary
             if duplicate_count > 0:

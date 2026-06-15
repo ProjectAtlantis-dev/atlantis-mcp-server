@@ -30,6 +30,8 @@ Function names must be unique within the same app. If the same function appears 
 
 Tool schemas are generated from type hints and docstrings. Untyped parameters default to strings. Parameters without defaults are required; parameters with defaults are optional.
 
+Tool `lastModified` timestamps are tracked per function. Atlantis hashes each top-level function, including its decorators, and stores the fingerprint/timestamp pairs in the ignored `python-server/.function_timestamp_cache.json` file. Editing one function in a shared Python file therefore does not advance the timestamps of the other functions. On a cache miss or invalid cache entry, the function falls back to its containing file's modification time.
+
 ## Decorators
 
 ### Visibility Decorators

@@ -75,6 +75,15 @@ def _write_starter_file_if_missing(target_dir: str, filename: str, contents: str
         f.write(contents)
     return True
 
+def _copy_starter_asset_if_missing(target_dir: str, filename: str) -> bool:
+    source_path = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", filename))
+    target_path = os.path.join(target_dir, filename)
+    if os.path.exists(target_path) or not os.path.exists(source_path):
+        return False
+    with open(source_path, "rb") as source, open(target_path, "wb") as target:
+        target.write(source.read())
+    return True
+
 # Canonical source for the Home app. Home is NOT tracked in git — it is scaffolded
 # here so users can edit it freely without ever hitting merge conflicts on pull.
 _HOME_MAIN_PY = '''\
@@ -366,6 +375,52 @@ def _scaffold_starter_functions():
         ),
     ):
         created.append("Demo/myVideo.py")
+
+    if _write_starter_file_if_missing(
+        demo_dir,
+        "win.py",
+        (
+            "import base64\n"
+            "import json\n"
+            "import mimetypes\n"
+            "import os\n\n"
+            "import atlantis\n\n\n"
+            "def _audio_data_url(audio_path: str) -> str:\n"
+            "    mime_type, _ = mimetypes.guess_type(audio_path)\n"
+            "    if not mime_type or not mime_type.startswith(\"audio/\"):\n"
+            "        mime_type = \"audio/mpeg\"\n"
+            "    with open(audio_path, \"rb\") as audio:\n"
+            "        encoded = base64.b64encode(audio.read()).decode(\"ascii\")\n"
+            "    return f\"data:{mime_type};base64,{encoded}\"\n\n\n"
+            "@visible\n"
+            "async def win_background() -> None:\n"
+            "    \"\"\"Test the Windows 95 forest tile as a repeated terminal background.\"\"\"\n"
+            "    forest_path = os.path.join(os.path.dirname(__file__), \"win_forest.jpg\")\n"
+            "    await atlantis.set_background(\n"
+            "        forest_path,\n"
+            "        vertical_align=\"top\",\n"
+            "        horizontal_align=\"left\",\n"
+            "        background_repeat=\"repeat\",\n"
+            "        background_size=\"auto\",\n"
+            "    )\n"
+            "    chime_path = os.path.join(os.path.dirname(__file__), \"win95chime.mp3\")\n"
+            "    chime_url = _audio_data_url(chime_path)\n"
+            "    await atlantis.client_terminal_script(f\"\"\"\n"
+            "(function(){{\n"
+            "  var audio = new Audio({json.dumps(chime_url)});\n"
+            "  audio.preload = \"auto\";\n"
+            "  audio.play().catch(function(err) {{\n"
+            "    console.warn(\"Unable to play Windows 95 chime\", err);\n"
+            "  }});\n"
+            "}})();\n"
+            "\"\"\")\n"
+        ),
+    ):
+        created.append("Demo/win.py")
+    if _copy_starter_asset_if_missing(demo_dir, "win_forest.jpg"):
+        created.append("Demo/win_forest.jpg")
+    if _copy_starter_asset_if_missing(demo_dir, "win95chime.mp3"):
+        created.append("Demo/win95chime.mp3")
 
     if _write_starter_file_if_missing(
         demo_dir,

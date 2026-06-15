@@ -71,7 +71,7 @@ Common patterns:
 await atlantis.client_log("status")
 await atlantis.client_markdown("# Markdown")
 await atlantis.client_html("<button>OK</button>")
-await atlantis.client_image("/path/to/image.png")
+await atlantis.client_image("/path/to/image.png", content="Rendered preview", who="my_tool")
 
 caller = atlantis.get_caller()
 ```

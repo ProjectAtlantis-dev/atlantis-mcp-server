@@ -491,7 +491,12 @@ def get_uncalled_dynamic_functions(functions_dir: Optional[str] = None) -> List[
 
     return sorted(uncalled, key=lambda item: (item["filename"], item["function"]))
 
-async def client_image(image_path: str, image_format: Optional[str] = None):
+async def client_image(
+    image_path: str,
+    image_format: Optional[str] = None,
+    content: Optional[str] = None,
+    who: Optional[str] = None,
+):
     """Sends an image back to the requesting client for the current context.
     This is a wrapper around client_log that automatically loads the image,
     converts it to base64, and sets the appropriate message type.
@@ -500,6 +505,8 @@ async def client_image(image_path: str, image_format: Optional[str] = None):
         image_path: Path to the image file to send
         image_format: Optional MIME type of the image (e.g., "image/png", "image/jpeg").
                      If not provided, will be auto-detected from file extension.
+        content: Optional text content/caption to display with the image event.
+        who: Optional display-name override for the image event.
 
     Raises:
         FileNotFoundError: If the image file doesn't exist
@@ -520,8 +527,19 @@ async def client_image(image_path: str, image_format: Optional[str] = None):
     # Format as proper data URL
     prefixed_data = f"data:{image_format};base64,{base64_data}"
 
+    notification_params: dict[str, Any] = {}
+    if content is not None:
+        notification_params["content"] = content
+    if who is not None:
+        notification_params["who"] = who
+
     # Send via client_command with appropriate message_type for awaitable behavior
-    result = await client_command("image", prefixed_data, message_type=image_format)
+    result = await _client_command(
+        "image",
+        prefixed_data,
+        message_type=image_format,
+        notification_params=notification_params or None,
+    )
     return result
 
 def image_to_base64(image_path: str) -> str:
@@ -554,7 +572,12 @@ def image_to_base64(image_path: str) -> str:
         # Re-raise to allow caller to handle
         raise
 
-async def client_video(video_path: str, video_format: Optional[str] = None):
+async def client_video(
+    video_path: str,
+    video_format: Optional[str] = None,
+    content: Optional[str] = None,
+    who: Optional[str] = None,
+):
     """Sends a video back to the requesting client for the current context.
     This is a wrapper around client_log that automatically loads the video,
     converts it to base64, and sets the appropriate message type.
@@ -563,6 +586,8 @@ async def client_video(video_path: str, video_format: Optional[str] = None):
         video_path: Path to the video file to send
         video_format: Optional MIME type of the video (e.g., "video/mp4", "video/webm").
                      If not provided, will be auto-detected from file extension.
+        content: Optional text content/caption to display with the video event.
+        who: Optional display-name override for the video event.
 
     Raises:
         FileNotFoundError: If the video file doesn't exist
@@ -583,8 +608,19 @@ async def client_video(video_path: str, video_format: Optional[str] = None):
     # Format as proper data URL
     prefixed_data = f"data:{video_format};base64,{base64_data}"
 
+    notification_params: dict[str, Any] = {}
+    if content is not None:
+        notification_params["content"] = content
+    if who is not None:
+        notification_params["who"] = who
+
     # Send via client_command with appropriate message_type for awaitable behavior
-    result = await client_command("video", prefixed_data, message_type=video_format)
+    result = await _client_command(
+        "video",
+        prefixed_data,
+        message_type=video_format,
+        notification_params=notification_params or None,
+    )
     return result
 
 def video_to_base64(video_path: str) -> str:

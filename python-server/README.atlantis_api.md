@@ -79,7 +79,7 @@ All of these send content to the client and `await` its acknowledgment.
 | `client_modal(content, title=None)` | HTML in a modal; **returns the modal UUID**. |
 | `client_modal_close(modal_id)` | Closes a previously opened modal by id. |
 | `client_data(description, data, column_formatter=None)` | A JSON-serializable object for styled rendering. Arrays of objects auto-display as a table. `column_formatter` maps column names to display options. Raises `TypeError` if `data` isn't JSON-serializable. |
-| `client_image(image_path, image_format=None, content=None, who=None)` | An image file (base64-encoded). Mime auto-detected from extension if omitted. Optional `content` is displayed with the image event; optional `who` overrides the event display name. |
+| `client_image(image_path, image_format=None, content=None, who=None, max_width=None)` | An image file (base64-encoded). Mime auto-detected from extension if omitted. Optional `content` is displayed with the image event; optional `who` overrides the event display name; optional `max_width` sets CSS max-width (for example `"25vw"` or `"320px"`). |
 | `client_video(video_path, video_format=None, content=None, who=None)` | A video file (base64-encoded). Mime auto-detected if omitted. Optional `content` is displayed with the video event; optional `who` overrides the event display name. |
 | `client_script(content, is_private=True)` | JavaScript that runs **once** (deduped by event completion). |
 | `client_terminal_script(content, is_private=True)` | JavaScript that **re-runs on every render** — use for cosmetic DOM effects that must survive a page reload. |

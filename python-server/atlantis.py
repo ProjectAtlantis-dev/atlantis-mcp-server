@@ -540,6 +540,7 @@ async def client_image(
     image_format: Optional[str] = None,
     content: Optional[str] = None,
     who: Optional[str] = None,
+    max_width: Optional[str] = None,
 ):
     """Sends an image back to the requesting client for the current context.
     This is a wrapper around client_log that automatically loads the image,
@@ -551,6 +552,7 @@ async def client_image(
                      If not provided, will be auto-detected from file extension.
         content: Optional text content/caption to display with the image event.
         who: Optional display-name override for the image event.
+        max_width: Optional CSS max-width for the rendered image (e.g. "25vw", "320px").
 
     Raises:
         FileNotFoundError: If the image file doesn't exist
@@ -576,6 +578,8 @@ async def client_image(
         notification_params["content"] = content
     if who is not None:
         notification_params["who"] = who
+    if max_width is not None:
+        notification_params["maxWidth"] = max_width
 
     # Send via client_command with appropriate message_type for awaitable behavior
     result = await _client_command(

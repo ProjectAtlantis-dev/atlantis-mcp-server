@@ -1141,7 +1141,7 @@ async def set_background_video(
     playback_rate: Optional[float] = None,
     brightness: Optional[float] = None,
     loop: bool = False,
-    muted: bool = True,
+    muted: bool = False,
     autoplay: bool = True,
     plays_inline: bool = True,
     remove_on_ended: bool = True,
@@ -1161,7 +1161,7 @@ async def set_background_video(
         brightness: Optional brightness multiplier. Use values below 1.0 to darken
                     the video, e.g. 0.6 for 60% brightness.
         loop: Whether the video should loop. Defaults to False.
-        muted: Whether the video starts muted. Defaults to True for browser autoplay.
+        muted: Whether the video starts muted. Defaults to False.
         autoplay: Whether the video should autoplay. Defaults to True.
         plays_inline: Whether mobile browsers should play inline. Defaults to True.
         remove_on_ended: Whether to remove the video when playback ends. Defaults to True.
@@ -1207,7 +1207,7 @@ async def set_background_player(
     playback_rate: Optional[float] = None,
     brightness: Optional[float] = None,
     loop: bool = False,
-    muted: bool = True,
+    muted: bool = False,
     autoplay: bool = True,
     plays_inline: bool = True,
     remove_on_ended: bool = True,
@@ -1227,7 +1227,7 @@ async def set_background_player(
         brightness: Optional brightness multiplier. Use values below 1.0 to darken
                     the video, e.g. 0.6 for 60% brightness.
         loop: Whether the video should loop. Defaults to False.
-        muted: Whether the player starts muted. Defaults to True.
+        muted: Whether the player starts muted. Defaults to False.
         autoplay: Whether the player should autoplay. Defaults to True.
         plays_inline: Whether mobile browsers should play inline. Defaults to True.
         remove_on_ended: Whether to remove the player when playback ends. Defaults to True.

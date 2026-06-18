@@ -32,6 +32,7 @@ from collections import defaultdict
 
 # Version
 SERVER_VERSION = "5.0.0"
+MCP_SDK_VERSION = importlib.metadata.version("mcp")
 
 # Tool list display column widths
 COL_WIDTH_APP = 30
@@ -4084,6 +4085,8 @@ class ServiceClient:
             logger.info(f"{BOLD}{BRIGHT_WHITE}OWNER USERS : {atlantis._owner_usernames}{RESET}")
             logger.info(f"{BOLD}{BRIGHT_WHITE}LOGIN       : {self.email}{RESET}")
             logger.info(f"{BOLD}{BRIGHT_WHITE}VERSION     : {SERVER_VERSION}{RESET}")
+            logger.info(f"{BOLD}{BRIGHT_WHITE}MCP SDK     : {MCP_SDK_VERSION}{RESET}")
+            logger.info(f"{BOLD}{BRIGHT_WHITE}PYTHON      : {sys.version.split()[0]}{RESET}")
             logger.info(f"{BOLD}{BRIGHT_WHITE}CLOUD URL   : {self.server_url}{RESET}")
             logger.info(f"{BOLD}{BRIGHT_WHITE}LOCAL PORT  : {self.server_port}{RESET}")
             logger.info(f"{BOLD}{BRIGHT_WHITE}PID         : {os.getpid()}{RESET}")

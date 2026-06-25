@@ -647,9 +647,25 @@ class DynamicAdditionServer(Server):
                 "correlationId": correlation_id,
                 "command": command,
                 "data": command_data,
-                "requestId": request_id # Original request_id for client context
+                "requestId": request_id, # Original request_id for client context
+                "messageType": message_type,
+                "isPrivate": is_private,
             }
         }
+        if seq_num is not None:
+            payload["params"]["seqNum"] = seq_num
+        else:
+            logger.error(f"❌ Missing sequence number in send_awaitable_client_command for command '{command}', client {client_id_for_routing}, request {request_id}")
+        if entry_point_name is not None:
+            payload["params"]["entryPoint"] = entry_point_name
+        if local_lobster_call:
+            payload["params"]["localLobsterCall"] = True
+        if caller_sid is not None:
+            payload["params"]["caller_sid"] = caller_sid
+        if session_key is not None:
+            payload["params"]["sessionKey"] = session_key
+        if shell_path is not None:
+            payload["params"]["shellPath"] = shell_path
         if message_params:
             # Extra metadata such as modal/title must be direct siblings of data.
             payload["params"].update(message_params)

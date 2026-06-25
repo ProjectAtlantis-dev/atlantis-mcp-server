@@ -569,6 +569,7 @@ class DynamicAdditionServer(Server):
                                       command_data: Optional[Any] = None, # Optional data for the command
                                       seq_num: Optional[int] = None, # Sequence number for client-side ordering
                                       entry_point_name: Optional[str] = None, # Entry point name for logging
+                                      current_function_name: Optional[str] = None, # Function that emitted this command
                                       local_lobster_call: bool = False, # True if this is a lobster tool call from local client
                                       caller_sid: Optional[str] = None, # Caller sid who initiated the request
                                       session_key: Optional[str] = None, # Canonical session key for request isolation
@@ -585,6 +586,7 @@ class DynamicAdditionServer(Server):
             command_data → data
             seq_num → seqNum
             entry_point_name → entryPoint
+            current_function_name → currentFunction
             local_lobster_call → localLobsterCall
             session_key → sessionKey
             shell_path → shellPath
@@ -596,6 +598,7 @@ class DynamicAdditionServer(Server):
             command_data: Optional data payload for the command.
             seq_num: Optional sequence number for client-side ordering.
             entry_point_name: Optional name of the entry point function for logging.
+            current_function_name: Optional function that emitted this command.
             local_lobster_call: True if this is a lobster tool call from local client (readme/command).
             caller_sid: Optional caller sid who initiated the request (for request isolation).
             session_key: Optional canonical session key (for request isolation).
@@ -658,6 +661,8 @@ class DynamicAdditionServer(Server):
             logger.error(f"❌ Missing sequence number in send_awaitable_client_command for command '{command}', client {client_id_for_routing}, request {request_id}")
         if entry_point_name is not None:
             payload["params"]["entryPoint"] = entry_point_name
+        if current_function_name is not None:
+            payload["params"]["currentFunction"] = current_function_name
         if local_lobster_call:
             payload["params"]["localLobsterCall"] = True
         if caller_sid is not None:
@@ -724,6 +729,8 @@ class DynamicAdditionServer(Server):
                 # Add entryPoint if provided
                 if entry_point_name is not None:
                     cloud_notification_params["entryPoint"] = entry_point_name
+                if current_function_name is not None:
+                    cloud_notification_params["currentFunction"] = current_function_name
 
                 # Add localLobsterCall flag if true
                 if local_lobster_call:
@@ -2094,7 +2101,8 @@ class DynamicAdditionServer(Server):
             params = {
                 "level": level,
                 "data": data,
-                "logger": logger_name or "unknown_caller", # The immediate caller
+                "currentFunction": logger_name or "unknown_current_function",
+                "logger": logger_name or "unknown_caller", # Backward-compatible alias for currentFunction
                 "requestId": request_id,
                 "entryPoint": entry_point_name or "unknown_entry_point", # The original entry point
                 "messageType": message_type  # Type of content (text, json, image, etc.)
@@ -2171,7 +2179,13 @@ class DynamicAdditionServer(Server):
 
                 elif client_type == "cloud" and connection and hasattr(connection, 'is_connected') and connection.is_connected:
                     try:
-                        logger.info(f"☁️ Sending to cloud - seqNum={params.get('seqNum')}, entryPoint={params.get('entryPoint')}, data preview={str(params.get('data', ''))[:50]}")
+                        logger.info(
+                            "☁️ Sending to cloud - "
+                            f"seqNum={params.get('seqNum')}, "
+                            f"entryPoint={params.get('entryPoint')}, "
+                            f"currentFunction={params.get('currentFunction')}, "
+                            f"data preview={str(params.get('data', ''))[:50]}"
+                        )
                         await connection.send_message('mcp_notification', notification)
                         #logger.debug(f"☁️ Sent notification to cloud client: {client_id}")
                     except Exception as e:

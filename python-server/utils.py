@@ -237,7 +237,7 @@ async def client_log(
             else:
                 trimmed_message = message_str
 
-    log_suffix = f"(Client: {client_id_for_routing}, Req: {request_id}, Entry: {entry_point_name}, Logger: {logger_name}): {trimmed_message}{RESET}"
+    log_suffix = f"(Client: {client_id_for_routing}, Req: {request_id}, Entry: {entry_point_name}, CurrentFunction: {logger_name}): {trimmed_message}{RESET}"
     logger.info(f"{log_prefix}{log_suffix}") # Add seq_num to local log too
 
     # Send to client if server is available
@@ -294,6 +294,7 @@ async def execute_client_command_awaitable(
     command_data: Optional[Any] = None, # Optional data for the command
     seq_num: Optional[int] = None, # Sequence number for client-side ordering
     entry_point_name: Optional[str] = None, # Entry point name for logging
+    current_function_name: Optional[str] = None, # Function that emitted this command
     caller_sid: Optional[str] = None, # Caller sid who initiated the request
     session_key: Optional[str] = None, # Canonical session key for request isolation
     shell_path: Optional[str] = None, # Shell path for request isolation
@@ -313,6 +314,7 @@ async def execute_client_command_awaitable(
         command_data: Optional data payload for the command.
         seq_num: Optional sequence number for client-side ordering.
         entry_point_name: Optional name of the entry point function for logging.
+        current_function_name: Optional function that emitted this command.
         caller_sid: Optional caller sid who initiated the request (for request isolation).
         session_key: Optional canonical session key (for request isolation).
         shell_path: Optional shell path in the command tree (for request isolation).
@@ -365,6 +367,7 @@ async def execute_client_command_awaitable(
             command_data=command_data,
             seq_num=seq_num,
             entry_point_name=entry_point_name,
+            current_function_name=current_function_name,
             caller_sid=caller_sid,
             session_key=session_key,
             shell_path=shell_path,

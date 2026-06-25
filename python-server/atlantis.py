@@ -176,6 +176,22 @@ async def get_and_increment_seq_num(context_name: str = "operation") -> int:
     _request_seq_counters[counter_key] += 1
     return current_seq
 
+def _get_external_caller_name(default: str = "unknown_caller") -> str:
+    """Return the first caller outside this module's helper stack."""
+    frame = inspect.currentframe()
+    try:
+        if frame:
+            frame = frame.f_back
+        while frame:
+            if frame.f_code.co_filename != __file__:
+                return frame.f_code.co_name
+            frame = frame.f_back
+    except Exception as inspect_err:
+        logger.warning(f"Could not inspect caller frame: {inspect_err}")
+    finally:
+        del frame
+    return default
+
 # --- Accessor Functions ---
 
 async def client_log(message: Any, level: str = "INFO", message_type: str = "text", is_private: bool = True, location: Optional[str] = None):
@@ -202,17 +218,8 @@ async def client_log(message: Any, level: str = "INFO", message_type: str = "tex
     ctx = get_context()
     log_func = ctx.client_log_func if ctx else None
     if log_func:
-        caller_name = "unknown_caller" # Default for immediate caller
+        current_function_name = _get_external_caller_name()
         entry_point_name = get_entry_point_name() or "unknown_entry_point" # Get entry point from context
-
-        try:
-            # --- Get immediate caller function name ---
-            frame = inspect.currentframe()
-            if frame and frame.f_back:
-                caller_name = frame.f_back.f_code.co_name
-            del frame
-        except Exception as inspect_err:
-            logger.warning(f"Could not inspect caller frame for client_log: {inspect_err}")
 
         try:
             # Get current sequence number and increment it for the next call
@@ -234,7 +241,7 @@ async def client_log(message: Any, level: str = "INFO", message_type: str = "tex
                 message_type=message_type,
                 message=message,
                 level=level,
-                logger_name=caller_name,  # Pass the caller function name
+                logger_name=current_function_name,  # Compatibility alias for currentFunction
                 seq_num=current_seq_to_send, # Pass the obtained sequence number
                 is_private=is_private,
                 visibility_scope="sid" if is_private else "game",
@@ -927,11 +934,12 @@ async def _client_command(
     client_id = _get_client_id()
     request_id = get_request_id()
     entry_point_name = get_entry_point_name()
+    current_function_name = _get_external_caller_name()
     caller_sid = get_caller()
     session_key = get_session_key()
     exec_shell_path = get_exec_shell_path()
 
-    logger.info(f"📡 client_command '{command}' (entry={entry_point_name}, caller_sid={caller_sid})")
+    logger.info(f"📡 client_command '{command}' (entry={entry_point_name}, currentFunction={current_function_name}, caller_sid={caller_sid})")
     if isinstance(data, (dict, list)):
         logger.debug(f"   📦 data: {format_json_log(data, colored=True)}")
     elif data is not None:
@@ -962,6 +970,7 @@ async def _client_command(
             command_data=data,
             seq_num=current_seq_to_send,  # Pass the sequence number
             entry_point_name=entry_point_name,  # Pass the entry point name for logging
+            current_function_name=current_function_name,
             caller_sid=caller_sid,
             session_key=session_key,
             shell_path=exec_shell_path,  # Wire kwarg name is legacy; semantically this is exec_shell_path

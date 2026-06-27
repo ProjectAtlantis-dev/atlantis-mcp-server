@@ -1022,6 +1022,7 @@ class DynamicAdditionServer(Server):
 
                             tool_description = func_info.get('description', f"Dynamic function '{tool_name}'")
                             tool_input_schema = func_info.get('inputSchema', {"type": "object", "properties": {}})
+                            tool_output_schema = func_info.get('outputSchema')
                             tool_annotations = {}
                             stored_metadata = self.function_manager._function_metadata_by_app.get(app_name, {}).get(tool_name, {})
                             granular_last_modified = stored_metadata.get("last_modified")
@@ -1035,6 +1036,10 @@ class DynamicAdditionServer(Server):
                             # Add decorator info if present (decorators_from_info already retrieved above)
                             if decorators_from_info:
                                 tool_annotations["decorators"] = decorators_from_info
+
+                            return_type = func_info.get("return_type")
+                            if return_type is not None:
+                                tool_annotations["return_type"] = return_type
 
                             # Use app name from decorator or from app mapping
                             app_name_from_info = func_info.get("app_name")
@@ -1130,6 +1135,7 @@ class DynamicAdditionServer(Server):
                                 name=tool_name,
                                 description=tool_description,
                                 inputSchema=tool_input_schema,
+                                outputSchema=tool_output_schema,
                                 annotations=custom_annotations
                             )
 
@@ -1796,6 +1802,7 @@ class DynamicAdditionServer(Server):
                             original_name = tool_item.name
                             original_description = tool_item.description
                             original_schema = tool_item.inputSchema
+                            original_output_schema = getattr(tool_item, 'outputSchema', None)
                             original_annotations = getattr(tool_item, 'annotations', {}) or {}
                             # Convert ToolAnnotations object to dict if needed
                             if isinstance(original_annotations, (McpToolAnnotations, ToolAnnotations)):
@@ -1808,6 +1815,7 @@ class DynamicAdditionServer(Server):
                                 continue
                             original_description = tool_item.get('description', original_name)
                             original_schema = tool_item.get('inputSchema', {"type": "object"})
+                            original_output_schema = tool_item.get('outputSchema')
                             original_annotations = tool_item.get('annotations', {}) or {}
                             # Convert ToolAnnotations object to dict if needed
                             if isinstance(original_annotations, (McpToolAnnotations, ToolAnnotations)):
@@ -1834,6 +1842,7 @@ class DynamicAdditionServer(Server):
                             name=new_tool_name,
                             description=new_description,
                             inputSchema=original_schema,
+                            outputSchema=original_output_schema,
                             annotations=custom_annotations
                         )
                         # Check for duplicates before adding (server tools are prefixed with server name)
@@ -2584,7 +2593,8 @@ class DynamicAdditionServer(Server):
                     {
                         "name": tool.name,
                         "description": tool.description,
-                        "inputSchema": tool.inputSchema
+                        "inputSchema": tool.inputSchema,
+                        "outputSchema": getattr(tool, "outputSchema", None),
                     }
                     for tool in result_raw
                 ]

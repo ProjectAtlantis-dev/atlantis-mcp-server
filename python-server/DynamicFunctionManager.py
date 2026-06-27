@@ -714,6 +714,61 @@ class DynamicFunctionManager:
         else:
             return "ComplexType"
 
+    def _combine_json_schemas_as_union(self, schemas: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Combines JSON schema fragments, simplifying Optional-style unions."""
+        non_null_schemas = [s for s in schemas if s.get('type') != 'null']
+        has_null = len(schemas) > len(non_null_schemas)
+
+        if len(non_null_schemas) == 1:
+            final_schema = non_null_schemas[0]
+            if has_null:
+                existing_types = []
+                if 'type' in final_schema:
+                    existing_types = final_schema['type'] if isinstance(final_schema['type'], list) else [final_schema['type']]
+                elif 'anyOf' in final_schema:
+                    if not any(t.get('type') == 'null' for t in final_schema['anyOf']):
+                        final_schema['anyOf'].append({'type': 'null'})
+                    return final_schema
+                else:
+                    return {'anyOf': [final_schema, {'type': 'null'}]}
+
+                if 'null' not in existing_types:
+                    existing_types.append('null')
+                final_schema['type'] = existing_types
+            return final_schema
+
+        if len(non_null_schemas) > 1:
+            result_schema = {"anyOf": non_null_schemas}
+            if has_null:
+                result_schema['anyOf'].append({'type': 'null'})
+            return result_schema
+
+        if has_null:
+            return {'type': 'null'}
+
+        return {}
+
+    def _json_schema_allows_null(self, schema: Dict[str, Any]) -> bool:
+        """Returns True when a generated JSON schema accepts null."""
+        schema_type = schema.get('type')
+        if schema_type == 'null':
+            return True
+        if isinstance(schema_type, list) and 'null' in schema_type:
+            return True
+        any_of = schema.get('anyOf')
+        if isinstance(any_of, list):
+            return any(
+                isinstance(option, dict) and self._json_schema_allows_null(option)
+                for option in any_of
+            )
+        return False
+
+    def _ast_pep604_union_members(self, node: ast.expr) -> List[ast.expr]:
+        """Flattens PEP 604 union annotations like str | None."""
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+            return self._ast_pep604_union_members(node.left) + self._ast_pep604_union_members(node.right)
+        return [node]
+
 
     def _map_ast_type_to_json_schema(self, annotation_node: Optional[ast.expr]) -> Dict[str, Any]:
         """Maps an AST annotation node to a JSON Schema type component."""
@@ -755,6 +810,7 @@ class DynamicFunctionManager:
             slice_inner_node = annotation_node.slice
 
             container_name = self._ast_node_to_string(container_node) # e.g., 'List', 'Optional', 'Union', 'Dict'
+            container_base_name = container_name.rsplit('.', 1)[-1]
 
             # Extract inner types from the slice (could be single type or a tuple)
             inner_nodes = []
@@ -764,13 +820,13 @@ class DynamicFunctionManager:
                 inner_nodes = [slice_inner_node]
 
             # Map common container types
-            if container_name in ['List', 'list', 'Sequence', 'Iterable', 'Set', 'set']:
+            if container_base_name in ['List', 'list', 'Sequence', 'Iterable', 'Set', 'set']:
                 if inner_nodes and inner_nodes[0] is not None:
                     items_schema = self._map_ast_type_to_json_schema(inner_nodes[0])
                     return {"type": "array", "items": items_schema}
                 else:
                     return {"type": "array"} # List without specified item type
-            elif container_name in ['Dict', 'dict', 'Mapping']:
+            elif container_base_name in ['Dict', 'dict', 'Mapping']:
                 if len(inner_nodes) == 2 and inner_nodes[1] is not None:
                     # JSON Schema typically uses additionalProperties for value type
                     value_schema = self._map_ast_type_to_json_schema(inner_nodes[1])
@@ -778,7 +834,7 @@ class DynamicFunctionManager:
                     return {"type": "object", "additionalProperties": value_schema}
                 else:
                     return {"type": "object"} # Dict without specified types
-            elif container_name == 'Optional':
+            elif container_base_name == 'Optional':
                 if inner_nodes and inner_nodes[0] is not None:
                     schema = self._map_ast_type_to_json_schema(inner_nodes[0])
                     # Make it nullable: allow original type or null
@@ -801,44 +857,22 @@ class DynamicFunctionManager:
                 else:
                     # Optional without inner type, allow anything or null
                     return {"type": ["any", "null"], "description":"Optional type specified without inner type"}
-            elif container_name == 'Union':
+            elif container_base_name == 'Union':
                 schemas = [self._map_ast_type_to_json_schema(node) for node in inner_nodes if node is not None]
-                # Simplify if it reduces to Optional[T] (Union[T, None])
-                non_null_schemas = [s for s in schemas if s.get('type') != 'null']
-                has_null = len(schemas) > len(non_null_schemas)
-
-                if len(non_null_schemas) == 1:
-                    final_schema = non_null_schemas[0]
-                    if has_null: # Make it nullable if None was part of the Union
-                        existing_types = []
-                        if 'type' in final_schema:
-                            existing_types = final_schema['type'] if isinstance(final_schema['type'], list) else [final_schema['type']]
-                        elif 'anyOf' in final_schema:
-                            if not any(t.get('type') == 'null' for t in final_schema['anyOf']):
-                                final_schema['anyOf'].append({'type': 'null'})
-                            return final_schema
-                        else: # Fallback
-                            return {'anyOf': [final_schema, {'type': 'null'}]}
-
-                        if 'null' not in existing_types:
-                            existing_types.append('null')
-                        final_schema['type'] = existing_types
-                    return final_schema
-                elif len(non_null_schemas) > 1:
-                    # True Union[A, B, ...]
-                    result_schema = {"anyOf": non_null_schemas}
-                    if has_null: # Add null possibility if None was in the Union
-                        result_schema['anyOf'].append({'type': 'null'})
-                    return result_schema
-                elif has_null: # Only None was in the Union?
-                    return {'type': 'null'}
-                else: # Empty Union?
-                    return {}
+                return self._combine_json_schemas_as_union(schemas)
 
             else:
                 # Unhandled subscript type (e.g., Tuple[...], custom generics)
                 type_str = self._ast_node_to_string(annotation_node)
                 return {"description": f"Unhandled generic type: {type_str}"}
+
+        # PEP 604 union types, e.g. str | None
+        elif isinstance(annotation_node, ast.BinOp) and isinstance(annotation_node.op, ast.BitOr):
+            schemas = [
+                self._map_ast_type_to_json_schema(node)
+                for node in self._ast_pep604_union_members(annotation_node)
+            ]
+            return self._combine_json_schemas_as_union(schemas)
 
         # Fallback for other node types (e.g., ast.BinOp used in type hints?)
         else:
@@ -908,7 +942,7 @@ class DynamicFunctionManager:
 
             # Check if it's required (no default value)
             has_default = i >= defaults_start_index
-            if not has_default:
+            if not has_default and not self._json_schema_allows_null(param_schema):
                 required.append(name)
 
         # Process kwonlyargs
@@ -921,9 +955,11 @@ class DynamicFunctionManager:
 
             # Check if it's required (kw_defaults[i] is None means no default provided)
             if i < len(args_node.kw_defaults) and args_node.kw_defaults[i] is None:
-                required.append(name)
+                if not self._json_schema_allows_null(param_schema):
+                    required.append(name)
             elif i >= len(args_node.kw_defaults): # Should have a default or None
-                required.append(name)
+                if not self._json_schema_allows_null(param_schema):
+                    required.append(name)
 
         # Ignore *args (args_node.vararg) and **kwargs (args_node.kwarg)
 
@@ -1134,10 +1170,23 @@ class DynamicFunctionManager:
                          logger.error(f"❌ Could not generate input schema for {func_name}: {schema_e}")
                          input_schema["description"] = f"Schema generation error: {schema_e}"
 
+                    return_annotation = func_def_node.returns
+                    output_schema = None
+                    return_type = None
+                    if return_annotation is not None:
+                        return_type = self._ast_node_to_string(return_annotation)
+                        try:
+                            output_schema = self._map_ast_type_to_json_schema(return_annotation)
+                        except Exception as schema_e:
+                            logger.error(f"❌ Could not generate output schema for {func_name}: {schema_e}")
+                            output_schema = {"description": f"Schema generation error: {schema_e}"}
+
                     function_info = {
                         "name": func_name,
                         "description": docstring or "",
                         "inputSchema": input_schema,
+                        "outputSchema": output_schema,
+                        "return_type": return_type,
                         "decorators": decorator_names, # Add extracted decorators here
                         "app_name": app_name_from_decorator, # Add extracted app_name
                         "location_name": location_name_from_decorator, # Add extracted location_name
@@ -2391,6 +2440,24 @@ async def {name}():
                 logger.debug(f"Function '{actual_function_name}' will be called with caller_sid context: {caller_sid}")
 
             function_args = args or {}
+            if func_metadata:
+                input_schema = func_metadata.get('inputSchema') or {}
+                schema_properties = input_schema.get('properties') or {}
+                try:
+                    signature = inspect.signature(function_to_call)
+                    for param_name, param in signature.parameters.items():
+                        if param_name in function_args:
+                            continue
+                        if param.default is not inspect.Parameter.empty:
+                            continue
+                        if param.kind not in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY):
+                            continue
+                        param_schema = schema_properties.get(param_name)
+                        if isinstance(param_schema, dict) and self._json_schema_allows_null(param_schema):
+                            function_args[param_name] = None
+                except (TypeError, ValueError) as sig_err:
+                    logger.debug(f"Could not inspect signature for nullable argument defaults on '{actual_function_name}': {sig_err}")
+
             logger.info(f"Calling dynamic function '{actual_function_name}' with args: {function_args}")
             logger.info(f"📊 Args as JSON: {utils.format_json_log(function_args)}")
 

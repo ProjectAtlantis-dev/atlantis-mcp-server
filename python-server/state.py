@@ -304,18 +304,17 @@ def _scaffold_starter_functions():
             "import logging\n\n"
             'logger = logging.getLogger("dynamic_function")\n\n\n'
             "@visible\n"
-            "async def bar():\n"
-            '    """Print caller context info"""\n'
-            "    lines = [\n"
-            '        f"user_game_id: {atlantis.get_user_game_id()}",\n'
-            '        f"caller_sid:   {atlantis.get_caller()}",\n'
-            '        f"caller_shell: {atlantis.get_caller_shell_path()}",\n'
-            '        f"exec_shell:   {atlantis.get_exec_shell_path()}",\n'
-            '        f"request_id:   {atlantis.get_request_id()}",\n'
-            '        f"session_key:  {atlantis.get_session_key()}",\n'
-            '        f"entry_point:  {atlantis.get_entry_point_name()}",\n'
-            "    ]\n"
-            '    return "\\n".join(lines)\n'
+            "async def bar() -> dict[str, object]:\n"
+            '    """Return caller context info"""\n'
+            "    return {\n"
+            '        "user_game_id": atlantis.get_user_game_id(),\n'
+            '        "caller_sid": atlantis.get_caller(),\n'
+            '        "caller_shell": atlantis.get_caller_shell_path(),\n'
+            '        "exec_shell": atlantis.get_exec_shell_path(),\n'
+            '        "request_id": atlantis.get_request_id(),\n'
+            '        "session_key": atlantis.get_session_key(),\n'
+            '        "entry_point": atlantis.get_entry_point_name(),\n'
+            "    }\n"
         ),
     ):
         created.append("Demo/bar.py")
@@ -328,7 +327,7 @@ def _scaffold_starter_functions():
             "import logging\n\n"
             'logger = logging.getLogger("dynamic_function")\n\n\n'
             "@visible\n"
-            "async def myTable():\n"
+            "async def myTable() -> list[dict[str, object]]:\n"
             '    """Return a table of Disney characters"""\n'
             "    # this does not call client_data to display a nicely formatted table, it simply returns an array and lets Atlantis render w default formatting\n"
             "    return [\n"
@@ -431,7 +430,7 @@ def _scaffold_starter_functions():
             "import logging\n\n"
             'logger = logging.getLogger("dynamic_function")\n\n\n'
             "@visible\n"
-            "async def foo(x: int, y: int):\n"
+            "async def foo(x: int, y: int) -> int:\n"
             '    """Add two integers"""\n'
             "    return x + y\n"
         ),
@@ -446,11 +445,10 @@ def _scaffold_starter_functions():
             "import logging\n\n"
             'logger = logging.getLogger("dynamic_function")\n\n\n'
             "@visible\n"
-            "async def hello():\n"
+            "async def hello() -> None:\n"
             '    """Say hello to the caller"""\n'
             "    caller = atlantis.get_caller() or \"stranger\"\n"
             "    await atlantis.client_log(f\"Hello, {caller}!\")\n"
-            '    return f"Hello, {caller}!"\n'
         ),
     ):
         created.append("Demo/hello.py")

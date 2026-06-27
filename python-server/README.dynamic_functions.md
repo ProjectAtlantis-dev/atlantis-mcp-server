@@ -43,6 +43,7 @@ Tool `lastModified` timestamps are tracked per function. Atlantis hashes each to
 ### Callback Decorators (auto-visible)
 - **`@chat`** - Chat callback that receives transcript/tools and calls LLM
 - **`@tick`** - Tick scheduling is managed by the MCP server; this decorator lets a user trigger a tick manually for debugging
+- **`@preflight`** - Preflight callback, fired during session engagement before homepage, game, and session callbacks
 - **`@session`** - Session callback, fired when a user resumes or joins an existing game
 - **`@game`** - Game callback, fired once when a brand new game is created (zero events, first session)
 

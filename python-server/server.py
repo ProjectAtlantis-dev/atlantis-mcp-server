@@ -3780,6 +3780,8 @@ class ServiceClient:
                     visibility_str += f" {BRIGHT_WHITE}[@tick]{RESET_COLOR}"
                 if 'chat' in decorators:
                     visibility_str += f" {CORAL_PINK}[@chat]{RESET_COLOR}"
+                if 'preflight' in decorators:
+                    visibility_str += f" {BRIGHT_WHITE}[@preflight]{RESET_COLOR}"
                 if 'text' in decorators:
                     if text_content_type:
                         visibility_str += f" {CORAL_PINK}[@text(\"{text_content_type}\")]{RESET_COLOR}"

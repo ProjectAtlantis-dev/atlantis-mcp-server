@@ -789,7 +789,7 @@ class DynamicFunctionManager:
             elif type_name == 'bool':
                 return {"type": "boolean"}
             elif type_name == 'list' or type_name == 'List':
-                return {"type": "array"}
+                return {"type": "array", "items": {"description": "Item type not specified"}}
             elif type_name == 'dict' or type_name == 'Dict':
                 return {"type": "object"}
             elif type_name == 'Any':
@@ -825,7 +825,7 @@ class DynamicFunctionManager:
                     items_schema = self._map_ast_type_to_json_schema(inner_nodes[0])
                     return {"type": "array", "items": items_schema}
                 else:
-                    return {"type": "array"} # List without specified item type
+                    return {"type": "array", "items": {"description": "Item type not specified"}} # List without specified item type
             elif container_base_name in ['Dict', 'dict', 'Mapping']:
                 if len(inner_nodes) == 2 and inner_nodes[1] is not None:
                     # JSON Schema typically uses additionalProperties for value type
@@ -1172,9 +1172,7 @@ class DynamicFunctionManager:
 
                     return_annotation = func_def_node.returns
                     output_schema = None
-                    return_type = None
                     if return_annotation is not None:
-                        return_type = self._ast_node_to_string(return_annotation)
                         try:
                             output_schema = self._map_ast_type_to_json_schema(return_annotation)
                         except Exception as schema_e:
@@ -1186,7 +1184,6 @@ class DynamicFunctionManager:
                         "description": docstring or "",
                         "inputSchema": input_schema,
                         "outputSchema": output_schema,
-                        "return_type": return_type,
                         "decorators": decorator_names, # Add extracted decorators here
                         "app_name": app_name_from_decorator, # Add extracted app_name
                         "location_name": location_name_from_decorator, # Add extracted location_name

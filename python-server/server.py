@@ -1037,10 +1037,6 @@ class DynamicAdditionServer(Server):
                             if decorators_from_info:
                                 tool_annotations["decorators"] = decorators_from_info
 
-                            return_type = func_info.get("return_type")
-                            if return_type is not None:
-                                tool_annotations["return_type"] = return_type
-
                             # Use app name from decorator or from app mapping
                             app_name_from_info = func_info.get("app_name")
                             if app_name_from_info is not None:
@@ -1882,11 +1878,6 @@ class DynamicAdditionServer(Server):
             if not hasattr(tool, 'title') or tool.title is None:
                 tool.title = tool.name
                 #logger.debug(f"  -> Added title: {tool.title}")
-
-            # Add outputSchema if missing
-            if not hasattr(tool, 'outputSchema') or tool.outputSchema is None:
-                tool.outputSchema = {"type": "object"}
-                #logger.debug(f"  -> Added outputSchema")
 
             # Add annotations if missing
             if not hasattr(tool, 'annotations') or tool.annotations is None:

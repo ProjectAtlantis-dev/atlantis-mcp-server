@@ -39,9 +39,13 @@ yarn-error.log
 *.pid
 
 *.OLD
-# All dynamic_functions are user/scaffolded code, never tracked. The Home and
-# Demo apps are scaffolded on first run from python-server/state.py.
+# Dynamic functions are user/scaffolded code by default. The platform Home app
+# is tracked; Demo is scaffolded on first run from python-server/state.py.
 python-server/dynamic_functions/*
+!python-server/dynamic_functions/Home/
+!python-server/dynamic_functions/Home/**
+python-server/dynamic_functions/Home/__pycache__/
+python-server/dynamic_functions/Home/*.py[cod]
 
 python-server/dynamic_functions copy/*
 python-server/dynamic_functions.TEST/

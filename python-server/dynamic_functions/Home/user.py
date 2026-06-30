@@ -1,0 +1,97 @@
+"""User/session-scoped tools."""
+
+import atlantis
+import base64
+import json
+import mimetypes
+import os
+
+from .term import term_bg_video
+
+
+USER_DEFAULT_BG_ALIGN = "center"
+
+
+@visible
+def _user_default_bg_path() -> str:
+    return os.path.join(os.path.dirname(__file__), "builder.jpg")
+
+
+def _image_data_url(image_path: str) -> str:
+    mime_type, _ = mimetypes.guess_type(image_path)
+    if not mime_type or not mime_type.startswith("image/"):
+        mime_type = "image/jpeg"
+    with open(image_path, "rb") as image:
+        encoded = base64.b64encode(image.read()).decode("ascii")
+    return f"data:{mime_type};base64,{encoded}"
+
+
+async def _restore_user_default_bg_when_bg_video_ends() -> None:
+    bg_url = _image_data_url(_user_default_bg_path())
+    await atlantis.client_terminal_script(f"""
+(function(){{
+  var bgUrl = {json.dumps(bg_url)};
+  var verticalAlign = {json.dumps(USER_DEFAULT_BG_ALIGN)};
+
+  function restoreDefaultBg() {{
+    var chatFeedback = document.getElementById('chatFeedback');
+    if (!chatFeedback) return;
+
+    var oldMedia = document.querySelectorAll(
+      '#feedbackBgVideo, video[data-background-video="true"], iframe[data-background-player="true"]'
+    );
+    for (var i = 0; i < oldMedia.length; i++) {{
+      try {{
+        if (oldMedia[i].pause) oldMedia[i].pause();
+        oldMedia[i].removeAttribute('src');
+        if (oldMedia[i].load) oldMedia[i].load();
+      }} catch (_err) {{}}
+      oldMedia[i].remove();
+    }}
+
+    chatFeedback.style.background = 'black';
+    chatFeedback.style.backgroundImage = 'url(' + JSON.stringify(bgUrl) + ')';
+    chatFeedback.style.backgroundSize = 'cover';
+    chatFeedback.style.backgroundPosition = 'center ' + verticalAlign;
+    chatFeedback.style.backgroundRepeat = 'no-repeat';
+  }}
+
+  function attachBgVideoRestoreHook() {{
+    var bgVideos = document.querySelectorAll('video[data-background-video="true"]');
+    var bgVideo = bgVideos.length ? bgVideos[bgVideos.length - 1] : null;
+    if (!bgVideo) return false;
+    if (bgVideo.dataset.userDefaultRestoreAttached === 'true') return true;
+    bgVideo.dataset.userDefaultRestoreAttached = 'true';
+    bgVideo.addEventListener('ended', function() {{
+      setTimeout(restoreDefaultBg, 0);
+    }}, {{ once: true }});
+    bgVideo.addEventListener('error', function() {{
+      setTimeout(restoreDefaultBg, 0);
+    }}, {{ once: true }});
+    return true;
+  }}
+
+  if (attachBgVideoRestoreHook()) return;
+  var attempts = 0;
+  var timer = setInterval(function() {{
+    attempts += 1;
+    if (attachBgVideoRestoreHook() || attempts >= 300) clearInterval(timer);
+  }}, 100);
+}})();
+""")
+
+
+@public
+async def user_bg_video(video_name: str) -> None:
+    """Play the named user background video in the terminal."""
+    await term_bg_video(f"https://pub-59cb84bebe804fd1b3257bb6c283a2b3.r2.dev/{video_name}")
+    await _restore_user_default_bg_when_bg_video_ends()
+
+
+@public
+async def user_bg_default() -> None:
+    """Set the user default background image."""
+    await atlantis.set_background(
+        _user_default_bg_path(),
+        vertical_align=USER_DEFAULT_BG_ALIGN,
+    )

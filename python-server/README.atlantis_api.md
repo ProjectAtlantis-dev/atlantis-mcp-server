@@ -46,6 +46,7 @@ They take no arguments and return `None` when there is no active context.
 | `get_default_owner()` | `str` | Default owner username of this server instance. |
 | `get_owner_usernames()` | `List[str]` | All owner usernames. |
 | `is_owner(username)` | `bool` | Whether `username` is an owner. |
+| `get_server_info()` | `dict` | Runtime server settings such as remote name, server UUID, app name, description, image, owner users, login, versions, cloud URL, local host/port, PID, and cloud connection status. |
 
 ### Context setters
 

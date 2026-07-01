@@ -1,8 +1,10 @@
 import contextvars
 import inspect # Ensure inspect is imported
+import importlib.metadata
 import asyncio # Added for Lock
 import ast
-from typing import Callable, Optional, Any, List # Added List
+import sys
+from typing import Callable, Optional, Any, List, Dict # Added List
 from call_context import CallContext, ToolCallPayload
 from utils import client_log as util_client_log # For client_log, client_image, client_html
 from utils import execute_client_command_awaitable, execute_stream_awaitable, format_json_log # For client_command and streaming
@@ -380,6 +382,56 @@ def get_owner_usernames() -> List[str]:
 def get_default_owner() -> Optional[str]:
     """Returns the default owner username for this remote server instance."""
     return _default_owner
+
+def get_server_info() -> Dict[str, Any]:
+    """Return runtime information about this Atlantis server instance.
+
+    Values come from the active server and cloud client when available. Fields
+    that are not configured yet are returned as None so dynamic functions can
+    call this safely before the cloud connection has completed.
+    """
+    server = get_server_instance()
+    cloud_client = getattr(server, "cloud_client", None) if server else None
+
+    try:
+        mcp_sdk_version = importlib.metadata.version("mcp")
+    except importlib.metadata.PackageNotFoundError:
+        mcp_sdk_version = None
+
+    remote_name = (
+        getattr(cloud_client, "serviceName", None)
+        or _remote_name
+        or getattr(server, "name", None)
+    )
+    local_port = (
+        getattr(cloud_client, "server_port", None)
+        if cloud_client
+        else getattr(server, "local_port", None)
+    )
+    cloud_url = (
+        getattr(cloud_client, "server_url", None)
+        if cloud_client
+        else getattr(server, "cloud_url", None)
+    )
+
+    return {
+        "remote_name": remote_name,
+        "server_uuid": getattr(server, "server_uuid", None) if server else None,
+        "app_name": getattr(cloud_client, "appName", None) if cloud_client else getattr(server, "app_name", None),
+        "description": getattr(cloud_client, "description", None) if cloud_client else getattr(server, "description", None),
+        "image": getattr(cloud_client, "image_display", None) if cloud_client else getattr(server, "image", None),
+        "owner": get_default_owner(),
+        "owner_users": list(get_owner_usernames()),
+        "login": getattr(cloud_client, "email", None) if cloud_client else getattr(server, "login_email", None),
+        "version": getattr(server, "server_version", None) if server else None,
+        "mcp_sdk": getattr(server, "mcp_sdk_version", None) if server else mcp_sdk_version,
+        "python": sys.version.split()[0],
+        "cloud_url": cloud_url,
+        "local_host": getattr(server, "local_host", None) if server else None,
+        "local_port": local_port,
+        "pid": os.getpid(),
+        "cloud_connected": bool(getattr(cloud_client, "is_connected", False)) if cloud_client else False,
+    }
 
 def _get_remote_name() -> Optional[str]:
     """Returns this remote server instance's configured service name."""

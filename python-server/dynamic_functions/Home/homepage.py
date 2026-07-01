@@ -26,6 +26,7 @@ async def first_menu():
         return None
 
     script_folder = atlantis.get_script_folder()
+    await atlantis.client_log(f"first_menu: script_folder={script_folder}")
     if not script_folder:
         raise RuntimeError("Cannot determine homepage script folder")
 
@@ -57,6 +58,7 @@ async def homepage() -> dict:
     """Return startup commands."""
 
     script_folder = atlantis.get_script_folder()
+    await atlantis.client_log(f"homepage: script_folder={script_folder}")
     if not script_folder:
         raise RuntimeError("Cannot determine homepage script folder")
 

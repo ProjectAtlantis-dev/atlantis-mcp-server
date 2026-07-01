@@ -6,18 +6,21 @@ import json
 import mimetypes
 import os
 
-from .term import term_bg_video
+from .term import term_bg_video, term_brightness, term_desaturate
 
 
-USER_DEFAULT_BG_ALIGN = "center"
+USER_DEFAULT_BG_ALIGN = "bottom"
 
 
 @visible
 def _user_default_bg_path() -> str:
-    return os.path.join(os.path.dirname(__file__), "builder.jpg")
+    image_path = atlantis.get_server_info().get("image")
+    if not image_path:
+        raise RuntimeError("Server info does not include a default image path")
+    return image_path
 
 
-def _image_data_url(image_path: str) -> str:
+def _user_default_bg_data_url(image_path: str) -> str:
     mime_type, _ = mimetypes.guess_type(image_path)
     if not mime_type or not mime_type.startswith("image/"):
         mime_type = "image/jpeg"
@@ -27,7 +30,7 @@ def _image_data_url(image_path: str) -> str:
 
 
 async def _restore_user_default_bg_when_bg_video_ends() -> None:
-    bg_url = _image_data_url(_user_default_bg_path())
+    bg_url = _user_default_bg_data_url(_user_default_bg_path())
     await atlantis.client_terminal_script(f"""
 (function(){{
   var bgUrl = {json.dumps(bg_url)};
@@ -95,3 +98,5 @@ async def user_bg_default() -> None:
         _user_default_bg_path(),
         vertical_align=USER_DEFAULT_BG_ALIGN,
     )
+    await term_brightness(0.3)
+    await term_desaturate(1)

@@ -501,6 +501,15 @@ class DynamicAdditionServer(Server):
         self.awaitable_requests: Dict[str, asyncio.Future] = {} # For tracking awaitable commands
         self.awaitable_request_timeout: float = SERVER_REQUEST_TIMEOUT # Timeout for these commands
         self.server_uuid: Optional[str] = None
+        self.server_version: str = SERVER_VERSION
+        self.mcp_sdk_version: str = MCP_SDK_VERSION
+        self.local_host: str = HOST
+        self.local_port: int = PORT
+        self.cloud_url: str = CLOUD_SERVER_URL
+        self.login_email: Optional[str] = None
+        self.app_name: Optional[str] = None
+        self.description: str = ""
+        self.image: str = ""
 
         # DEBUG: Track command counts per execution context to detect infinite loops/duplicates
         # Unique execution context: client_id + caller_sid + session_key + shell_path
@@ -4683,6 +4692,12 @@ if __name__ == "__main__":
     # Update host and port from command line arguments
     HOST = args.host
     PORT = args.port
+    mcp_server.local_host = HOST
+    mcp_server.local_port = PORT
+    mcp_server.login_email = args.email
+    mcp_server.app_name = args.app_name
+    mcp_server.description = args.description
+    mcp_server.image = ServiceClient._image_display_value(args.image)
 
     # Update the logging level from command line argument
     from state import update_log_level
@@ -4712,6 +4727,7 @@ if __name__ == "__main__":
         CLOUD_SERVER_HOST = args.cloud_host
         CLOUD_SERVER_PORT = args.cloud_port
         CLOUD_SERVER_URL = f"{CLOUD_SERVER_HOST}:{CLOUD_SERVER_PORT}"
+    mcp_server.cloud_url = CLOUD_SERVER_URL
 
     # Set up the event loop
     loop = asyncio.new_event_loop()

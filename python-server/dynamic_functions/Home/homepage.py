@@ -1,34 +1,56 @@
 """Homepage menu for the local Home app."""
 
+import logging
 from pathlib import Path
 
 import atlantis
+from utils import format_json_log
 
 from .modal import modal_menu
+
+logger = logging.getLogger("dynamic_function")
 
 
 
 # % first_menu
 
 
+def _app_menu_items(tree_entries: list) -> list[dict]:
+    """Menu items for subfolders that expose a public Home/first_menu."""
+
+    items = {}
+    for entry in tree_entries:
+        parts = entry["filename"].split("/")
+        # <subfolder>/Home/<file>.py — a bare Home/... entry is this menu itself.
+        if len(parts) < 3 or parts[-2] != "Home":
+            continue
+        if "Public" not in entry["chatStatus"]:
+            continue
+        folder = parts[0]
+        items[folder] = {"id": f"app:{folder}", "text": entry["description"]}
+    return [items[folder] for folder in sorted(items)]
+
+
 @public
 async def first_menu():
     """Let the user choose where to go next."""
 
-    # Blur is script-owned, not modal-owned: raise it before the popup and
-    # guarantee release on any exit (cancel, error, cancellation).
+    items = [
+        {"id": "explore_demo_folder", "text": "Explore demo folder"},
+    ]
 
-    try:
-        choice = await modal_menu(
-            [
-                {"id": "explore_demo_folder", "text": "Explore demo folder"},
-            ],
-            title="Home",
-            heading="Where do you want to go?",
-        )
-    finally:
-        pass
+    cwd = await atlantis.client_command("pwd")
+    logger.info(f"pwd returned:\n{format_json_log(cwd, colored=True)}")
 
+    tree_entries = await atlantis.client_command("tree ../*/Home/first_menu")
+    logger.info(f"tree first_menu returned:\n{format_json_log(tree_entries, colored=True)}")
+    items.extend(_app_menu_items(tree_entries))
+
+    choice = await modal_menu(
+        items,
+        title="Home",
+        heading="Where do you want to go?",
+    )
 
     if choice is None:
         await atlantis.client_log("Home menu cancelled.")
@@ -39,6 +61,10 @@ async def first_menu():
         raise RuntimeError("Cannot determine homepage script folder")
 
     choice_id = str(choice["id"])
+    if choice_id.startswith("app:"):
+        await atlantis.client_log(f"'{choice_id[4:]}' selected — no action wired up yet.")
+        return None
+
     if choice_id == "explore_demo_folder":
         commands = [
             f"/cd {script_folder}",

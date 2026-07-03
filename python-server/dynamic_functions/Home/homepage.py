@@ -71,7 +71,7 @@ async def homepage() -> dict:
 
     return {
         "commands": [
-            "/terminal blur 8",
+            "/terminal blur 12",
             f"/cd {script_folder}",
             f"/path unshift {script_folder}",
             "/terminal on",

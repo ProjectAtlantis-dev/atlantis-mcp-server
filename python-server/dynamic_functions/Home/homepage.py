@@ -5,6 +5,7 @@ from pathlib import Path
 import atlantis
 
 from .modal import modal_menu
+from .term import term_blur
 
 
 # % first_menu
@@ -14,19 +15,24 @@ from .modal import modal_menu
 async def first_menu():
     """Let the user choose where to go next."""
 
-    choice = await modal_menu(
-        [
-            {"id": "explore_demo_folder", "text": "Explore demo folder"},
-        ],
-        title="Home",
-        heading="Where do you want to go?",
-    )
+    # Blur is script-owned, not modal-owned: raise it before the popup and
+    # guarantee release on any exit (cancel, error, cancellation).
+    await term_blur(8)
+    try:
+        choice = await modal_menu(
+            [
+                {"id": "explore_demo_folder", "text": "Explore demo folder"},
+            ],
+            title="Home",
+            heading="Where do you want to go?",
+        )
+    finally:
+        await term_blur(0)
     if choice is None:
         await atlantis.client_log("Home menu cancelled.")
         return None
 
     script_folder = atlantis.get_script_folder()
-    await atlantis.client_log(f"first_menu: script_folder={script_folder}")
     if not script_folder:
         raise RuntimeError("Cannot determine homepage script folder")
 
@@ -58,12 +64,12 @@ async def homepage() -> dict:
     """Return startup commands."""
 
     script_folder = atlantis.get_script_folder()
-    await atlantis.client_log(f"homepage: script_folder={script_folder}")
     if not script_folder:
         raise RuntimeError("Cannot determine homepage script folder")
 
     return {
         "commands": [
+            "/terminal blur 8",
             f"/cd {script_folder}",
             f"/path unshift {script_folder}",
             "/terminal on",

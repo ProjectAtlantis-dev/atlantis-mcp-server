@@ -62,21 +62,17 @@ async def term_bg_video_file(video_path: str) -> None:
     await term_bg_video(_local_video_path(video_path))
 
 
+# Background look helpers delegate to the /terminal commands rather than
+# injecting scripts, so the values persist in the shell's ui env vars and
+# the browser wiring stays in one place (see _shared/session.ts terminal).
+
 @public
 async def term_brightness(value: float) -> None:
     """Set terminal background brightness. 1 is normal, 0.6 is darker, values above 1 lighten."""
     brightness = float(value)
     if brightness < 0:
         raise ValueError("brightness must be non-negative")
-    await atlantis.client_terminal_script(f"""
-(function(){{
-  if (window._renderBackgroundBrightness) {{
-    window._renderBackgroundBrightness({brightness});
-  }} else {{
-    console.warn("Background brightness renderer is not available");
-  }}
-}})();
-""")
+    await atlantis.client_command(f"/terminal brightness {brightness}")
 
 
 @public
@@ -85,15 +81,16 @@ async def term_desaturate(value: float) -> None:
     desaturate = float(value)
     if desaturate < 0 or desaturate > 1:
         raise ValueError("desaturate must be between 0 and 1")
-    await atlantis.client_terminal_script(f"""
-(function(){{
-  if (window._renderBackgroundDesaturation) {{
-    window._renderBackgroundDesaturation({desaturate});
-  }} else {{
-    console.warn("Background desaturation renderer is not available");
-  }}
-}})();
-""")
+    await atlantis.client_command(f"/terminal desaturate {desaturate}")
+
+
+@public
+async def term_blur(value: float) -> None:
+    """Blur the entire screen (not just the background media). Pixels of blur; 0 is none."""
+    blur_px = float(value)
+    if blur_px < 0:
+        raise ValueError("blur must be non-negative")
+    await atlantis.client_command(f"/terminal blur {blur_px}")
 
 @public
 async def term_glass() -> None:

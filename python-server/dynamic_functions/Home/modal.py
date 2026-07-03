@@ -88,6 +88,28 @@ def _validated_modal_choices(choices: List[Dict[str, Any]]) -> Dict[str, Dict[st
     return choice_by_id
 
 
+async def _close_modal_if_open(shared_prefix: str) -> None:
+    """Best-effort modal close for abnormal exits (errors, cancellation).
+
+    On the normal path the settle handlers close the modal and drop the shared
+    modal_id key before the future resolves, so this is a no-op. If the key is
+    still present here, the modal is still up and must not be left behind.
+    (Backdrop blur is script-owned, not modal-owned — callers manage it with
+    their own try/finally, e.g. first_menu.)
+    """
+    modal_key = f"{shared_prefix}:modal_id"
+    modal_id = atlantis.session_shared.get(modal_key)
+    if not modal_id:
+        return
+    try:
+        await atlantis.client_modal_close(modal_id)
+    except BaseException:
+        # Swallow even CancelledError: we're on the unwind path, the original
+        # exception resumes propagating once this attempt finishes.
+        pass
+    atlantis.session_shared.remove(modal_key)
+
+
 @public
 @visible
 async def modal_string(
@@ -332,12 +354,12 @@ async def modal_string(
   requestAnimationFrame(function() {{ requestAnimationFrame(bind); }});
 }})()
 """
-    await atlantis.client_script(script)
     try:
+        await atlantis.client_script(script)
         return await future
     finally:
+        await _close_modal_if_open(modal_string_id)
         atlantis.session_shared.remove(f"{modal_string_id}:future")
-        atlantis.session_shared.remove(f"{modal_string_id}:modal_id")
 
 
 @public
@@ -525,12 +547,12 @@ async def modal_confirm(
   requestAnimationFrame(function() {{ requestAnimationFrame(bind); }});
 }})()
 """
-    await atlantis.client_script(script)
     try:
+        await atlantis.client_script(script)
         return await future
     finally:
+        await _close_modal_if_open(modal_confirm_id)
         atlantis.session_shared.remove(f"{modal_confirm_id}:future")
-        atlantis.session_shared.remove(f"{modal_confirm_id}:modal_id")
         atlantis.session_shared.remove(f"{modal_confirm_id}:cancel_raises")
 
 
@@ -801,12 +823,12 @@ async def modal_radio(
   requestAnimationFrame(function() {{ requestAnimationFrame(bind); }});
 }})()
 """
-    await atlantis.client_script(script)
     try:
+        await atlantis.client_script(script)
         return await future
     finally:
+        await _close_modal_if_open(modal_radio_id)
         atlantis.session_shared.remove(f"{modal_radio_id}:future")
-        atlantis.session_shared.remove(f"{modal_radio_id}:modal_id")
         atlantis.session_shared.remove(f"{modal_radio_id}:choices")
 
 
@@ -1211,12 +1233,12 @@ async def modal_menu(
   requestAnimationFrame(function() {{ requestAnimationFrame(bind); }});
 }})()
 """
-    await atlantis.client_script(script)
     try:
+        await atlantis.client_script(script)
         return await future
     finally:
+        await _close_modal_if_open(modal_menu_id)
         atlantis.session_shared.remove(f"{modal_menu_id}:future")
-        atlantis.session_shared.remove(f"{modal_menu_id}:modal_id")
         atlantis.session_shared.remove(f"{modal_menu_id}:choices")
 
 

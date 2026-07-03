@@ -5,7 +5,7 @@ from pathlib import Path
 import atlantis
 
 from .modal import modal_menu
-from .term import term_blur
+
 
 
 # % first_menu
@@ -17,7 +17,7 @@ async def first_menu():
 
     # Blur is script-owned, not modal-owned: raise it before the popup and
     # guarantee release on any exit (cancel, error, cancellation).
-    await term_blur(8)
+    await atlantis.client_command(f"/terminal blur 8")
     try:
         choice = await modal_menu(
             [
@@ -27,7 +27,8 @@ async def first_menu():
             heading="Where do you want to go?",
         )
     finally:
-        await term_blur(0)
+        await atlantis.client_command(f"/terminal blur 0")
+
     if choice is None:
         await atlantis.client_log("Home menu cancelled.")
         return None

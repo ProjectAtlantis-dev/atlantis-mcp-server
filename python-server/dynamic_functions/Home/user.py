@@ -7,7 +7,7 @@ import logging
 import mimetypes
 import os
 
-from .term import term_bg_video, term_brightness, term_desaturate
+from .term import term_bg_video
 
 logger = logging.getLogger("dynamic_function")
 
@@ -108,5 +108,5 @@ async def user_bg_default() -> None:
             bg_path,
             vertical_align=USER_DEFAULT_BG_ALIGN,
         )
-    await term_brightness(0.3)
-    await term_desaturate(1)
+    await atlantis.client_command(f"/terminal brightness 0.3")
+    await atlantis.client_command(f"/terminal desaturate 1")

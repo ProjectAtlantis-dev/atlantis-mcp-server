@@ -17,7 +17,7 @@ async def first_menu():
 
     # Blur is script-owned, not modal-owned: raise it before the popup and
     # guarantee release on any exit (cancel, error, cancellation).
-    await atlantis.client_command(f"/terminal blur 8")
+
     try:
         choice = await modal_menu(
             [
@@ -27,7 +27,8 @@ async def first_menu():
             heading="Where do you want to go?",
         )
     finally:
-        await atlantis.client_command(f"/terminal blur 0")
+        pass
+
 
     if choice is None:
         await atlantis.client_log("Home menu cancelled.")
@@ -78,5 +79,6 @@ async def homepage() -> dict:
             "term_default",
             "user_bg_default",
             "first_menu",
+            "/finally terminal blur 0",
         ],
     }

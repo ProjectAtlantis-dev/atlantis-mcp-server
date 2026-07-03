@@ -103,10 +103,10 @@ async def user_bg_video(video_name: str) -> None:
 async def user_bg_default() -> None:
     """Set the user default background image."""
     bg_path = _user_default_bg_path()
+    await atlantis.client_command(f"/terminal brightness 0.3")
+    await atlantis.client_command(f"/terminal desaturate 1")
     if bg_path:
         await atlantis.set_background(
             bg_path,
             vertical_align=USER_DEFAULT_BG_ALIGN,
         )
-    await atlantis.client_command(f"/terminal brightness 0.3")
-    await atlantis.client_command(f"/terminal desaturate 1")

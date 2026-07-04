@@ -27,7 +27,9 @@ def _app_menu_items(tree_entries: list) -> list[dict]:
         if "Public" not in entry["chatStatus"]:
             continue
         folder = parts[0]
-        items[folder] = {"id": f"app:{folder}", "text": entry["description"]}
+        # searchTerm is the absolute function path; its parent is the app's Home folder.
+        home_path = entry["searchTerm"].rsplit("/", 1)[0]
+        items[folder] = {"id": f"app:{home_path}", "text": entry["description"]}
     return [items[folder] for folder in sorted(items)]
 
 
@@ -43,7 +45,7 @@ async def first_menu():
     logger.info(f"pwd returned:\n{format_json_log(cwd, colored=True)}")
 
     tree_entries = await atlantis.client_command("tree ../*/Home/first_menu")
-    logger.info(f"tree first_menu returned:\n{format_json_log(tree_entries, colored=True)}")
+    logger.info(f"tree first_menu (from {cwd}) returned:\n{format_json_log(tree_entries, colored=True)}")
     items.extend(_app_menu_items(tree_entries))
 
     choice = await modal_menu(
@@ -62,7 +64,14 @@ async def first_menu():
 
     choice_id = str(choice["id"])
     if choice_id.startswith("app:"):
-        await atlantis.client_log(f"'{choice_id[4:]}' selected — no action wired up yet.")
+        home_path = choice_id[4:]
+        commands = [
+            f"/cd {home_path}",
+            "pwd",
+            "first_menu",
+        ]
+        logger.info(f"launching app script for '{home_path}':\n{format_json_log(commands, colored=True)}")
+        await atlantis.client_command("/script", {"commands": commands})
         return None
 
     if choice_id == "explore_demo_folder":
@@ -99,7 +108,7 @@ async def homepage() -> dict:
         "commands": [
             "/terminal blur 12",
             f"/cd {script_folder}",
-            f"/path unshift {script_folder}",
+            f"/path push {script_folder}",
             "/terminal on",
             "app on",
             "term_default",

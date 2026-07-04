@@ -777,23 +777,16 @@ class DynamicAdditionServer(Server):
                 )
                 raise McpError(error_data)
 
-            # Wait for the future to be resolved
-            logger.debug(f"⏳ Waiting for '{command}' (correlationId: {correlation_id}) timeout: {self.awaitable_request_timeout}s")
-            result = await asyncio.wait_for(future, timeout=self.awaitable_request_timeout)
+            # Wait for the future to be resolved. No timeout: an awaitable command
+            # may legitimately block on a human for days (e.g. a menu chain where
+            # each hop waits on a modal), and timing out would error the whole chain.
+            logger.debug(f"⏳ Waiting for '{command}' (correlationId: {correlation_id}) with no timeout")
+            result = await future
             logger.info(f"✅ Received response for '{command}' (correlationId: {correlation_id})")
             # Clear duplicate tracking on success so same command can be called again later
             # DISABLED: Duplicate tracking disabled
             # self._command_counts_per_context.pop(tracking_key, None)
             return result
-        except asyncio.TimeoutError:
-            logger.error(f"⏰ Timeout waiting for response for command '{command}' (correlationId {correlation_id}) from client {client_id_for_routing}")
-            self.awaitable_requests.pop(correlation_id, None)
-            # self._command_counts_per_context.pop(tracking_key, None)  # Clear tracking on timeout - DISABLED
-            error_data = ErrorData(
-                code=-32000,
-                message=f"Timeout waiting for client response for command: {command} (correlationId: {correlation_id})"
-            )
-            raise McpError(error_data)
         except Exception as e:
             logger.error(f"❌ Error during awaitable command '{command}' processing (correlationId {correlation_id}): {type(e).__name__} - {e}")
             self.awaitable_requests.pop(correlation_id, None) # Ensure cleanup

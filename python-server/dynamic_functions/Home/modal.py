@@ -4,12 +4,20 @@ import atlantis
 import asyncio
 import html as html_lib
 import json
+import logging
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
+
+logger = logging.getLogger("dynamic_function")
 
 
 class ModalGoBack(RuntimeError):
     """Raised when the user chooses Go back in a modal flow."""
+
+
+class ModalDismissed(RuntimeError):
+    """Raised when the user dismisses a modal without answering (X/Escape).
+    Aborts like an interrupt; Go back / cancel buttons stay in-flow answers."""
 
 
 def _modal_shell_css(
@@ -101,12 +109,13 @@ async def _close_modal_if_open(shared_prefix: str) -> None:
     modal_id = atlantis.session_shared.get(modal_key)
     if not modal_id:
         return
+    logger.warning(f"🛑 {shared_prefix}: abnormal exit with modal still open, closing {modal_id}")
     try:
         await atlantis.client_modal_close(modal_id)
     except BaseException:
         # Swallow even CancelledError: we're on the unwind path, the original
         # exception resumes propagating once this attempt finishes.
-        pass
+        logger.warning(f"⚠️ {shared_prefix}: modal close failed on unwind path", exc_info=True)
     atlantis.session_shared.remove(modal_key)
 
 
@@ -121,10 +130,10 @@ async def modal_string(
     empty_error: str = "Enter a value to continue.",
     input_type: str = "text",
     autocomplete: str = "off",
-) -> Optional[str]:
+) -> str:
     """Pop up a modal asking the caller for a string.
 
-    Returns None if the user closes/cancels the modal without submitting.
+    Raises ModalDismissed if the user closes the modal without submitting.
     """
     uid = uuid.uuid4().hex[:8]
     modal_string_id = f"modal_string:{uid}"
@@ -536,11 +545,11 @@ async def modal_confirm(
     root.addEventListener("keydown", function(event) {{
       if (event.key === "Escape") {{
         event.preventDefault();
-        settle("@modal_confirm_cancel");
+        settle("@modal_confirm_dismiss");
       }}
     }});
     observer = new MutationObserver(function() {{
-      if (!document.body.contains(root)) {{ settle("@modal_confirm_cancel"); }}
+      if (!document.body.contains(root)) {{ settle("@modal_confirm_dismiss"); }}
     }});
     observer.observe(document.body, {{ childList: true, subtree: true }});
   }}
@@ -812,11 +821,11 @@ async def modal_radio(
     root.addEventListener("keydown", function(event) {{
       if (event.key === "Escape") {{
         event.preventDefault();
-        settle("@modal_radio_cancel", "");
+        settle("@modal_radio_dismiss", "");
       }}
     }});
     observer = new MutationObserver(function() {{
-      if (!document.body.contains(root)) {{ settle("@modal_radio_cancel", ""); }}
+      if (!document.body.contains(root)) {{ settle("@modal_radio_dismiss", ""); }}
     }});
     observer.observe(document.body, {{ childList: true, subtree: true }});
   }}
@@ -838,10 +847,10 @@ async def modal_menu(
     choices: List[Dict[str, Any]],
     title: str = "",
     heading: str = "",
-) -> Optional[Dict[str, Any]]:
+) -> Dict[str, Any]:
     """Pop up a modal menu and return the selected choice object.
 
-    Returns None if the user closes/cancels the modal without selecting.
+    Raises ModalDismissed if the user closes the modal without selecting.
     """
     choice_by_id = _validated_modal_choices(choices)
     choice_buttons = []
@@ -1266,6 +1275,7 @@ async def modal_string_click(modal_string_id: str, display_name: str) -> None:
 @visible
 async def modal_string_cancel(modal_string_id: str) -> None:
     """Handle the user closing the modal without submitting."""
+    logger.warning(f"🛑 {modal_string_id}: dismissed by user without input")
     modal_key = f"{modal_string_id}:modal_id"
     future_key = f"{modal_string_id}:future"
     modal_id = atlantis.session_shared.get(modal_key)
@@ -1273,14 +1283,18 @@ async def modal_string_cancel(modal_string_id: str) -> None:
         try:
             await atlantis.client_modal_close(modal_id)
         except Exception:
-            pass
+            logger.warning(f"⚠️ {modal_string_id}: modal close failed during cancel", exc_info=True)
         atlantis.session_shared.remove(modal_key)
     future = atlantis.session_shared.get(future_key)
     if future is not None and not future.done():
-        future.set_result(None)
+        future.set_exception(ModalDismissed("Modal dismissed without input"))
+    else:
+        logger.warning(f"⚠️ {modal_string_id}: cancel arrived but future is "
+                       + ("already done" if future is not None else "missing"))
 
 
 async def _settle_modal_confirm(modal_confirm_id: str, result: bool) -> None:
+    logger.info(f"🛑 {modal_confirm_id}: user answered {'ok' if result else 'go-back'}")
     modal_key = f"{modal_confirm_id}:modal_id"
     future_key = f"{modal_confirm_id}:future"
     cancel_raises_key = f"{modal_confirm_id}:cancel_raises"
@@ -1289,7 +1303,7 @@ async def _settle_modal_confirm(modal_confirm_id: str, result: bool) -> None:
         try:
             await atlantis.client_modal_close(modal_id)
         except Exception:
-            pass
+            logger.warning(f"⚠️ {modal_confirm_id}: modal close failed during settle", exc_info=True)
         atlantis.session_shared.remove(modal_key)
     future = atlantis.session_shared.get(future_key)
     if future is not None and not future.done():
@@ -1297,6 +1311,9 @@ async def _settle_modal_confirm(modal_confirm_id: str, result: bool) -> None:
             future.set_exception(ModalGoBack("Modal flow cancelled by Go back"))
         else:
             future.set_result(result)
+    else:
+        logger.warning(f"⚠️ {modal_confirm_id}: settle arrived but future is "
+                       + ("already done" if future is not None else "missing"))
 
 
 @public
@@ -1309,8 +1326,30 @@ async def modal_confirm_ok(modal_confirm_id: str) -> None:
 @public
 @visible
 async def modal_confirm_cancel(modal_confirm_id: str) -> None:
-    """Handle cancel or close in a confirmation modal."""
+    """Handle a Go back / cancel button click in a confirmation modal."""
     await _settle_modal_confirm(modal_confirm_id, False)
+
+
+@public
+@visible
+async def modal_confirm_dismiss(modal_confirm_id: str) -> None:
+    """Handle X/Escape dismissal of a confirmation modal."""
+    logger.warning(f"🛑 {modal_confirm_id}: dismissed by user (X/Escape)")
+    modal_key = f"{modal_confirm_id}:modal_id"
+    future_key = f"{modal_confirm_id}:future"
+    modal_id = atlantis.session_shared.get(modal_key)
+    if modal_id:
+        try:
+            await atlantis.client_modal_close(modal_id)
+        except Exception:
+            logger.warning(f"⚠️ {modal_confirm_id}: modal close failed during dismiss", exc_info=True)
+        atlantis.session_shared.remove(modal_key)
+    future = atlantis.session_shared.get(future_key)
+    if future is not None and not future.done():
+        future.set_exception(ModalDismissed("Confirmation dismissed without answer"))
+    else:
+        logger.warning(f"⚠️ {modal_confirm_id}: dismiss arrived but future is "
+                       + ("already done" if future is not None else "missing"))
 
 
 @public
@@ -1340,8 +1379,9 @@ async def modal_radio_select(modal_radio_id: str, choice_id: str) -> None:
 
 @public
 @visible
-async def modal_radio_cancel(modal_radio_id: str, choice_id: str = "") -> None:
-    """Handle cancel or close in a radio modal."""
+async def modal_radio_dismiss(modal_radio_id: str, choice_id: str = "") -> None:
+    """Handle X/Escape dismissal of a radio modal."""
+    logger.warning(f"🛑 {modal_radio_id}: dismissed by user (X/Escape)")
     modal_key = f"{modal_radio_id}:modal_id"
     future_key = f"{modal_radio_id}:future"
     modal_id = atlantis.session_shared.get(modal_key)
@@ -1349,11 +1389,36 @@ async def modal_radio_cancel(modal_radio_id: str, choice_id: str = "") -> None:
         try:
             await atlantis.client_modal_close(modal_id)
         except Exception:
-            pass
+            logger.warning(f"⚠️ {modal_radio_id}: modal close failed during dismiss", exc_info=True)
+        atlantis.session_shared.remove(modal_key)
+    future = atlantis.session_shared.get(future_key)
+    if future is not None and not future.done():
+        future.set_exception(ModalDismissed("Radio modal dismissed without answer"))
+    else:
+        logger.warning(f"⚠️ {modal_radio_id}: dismiss arrived but future is "
+                       + ("already done" if future is not None else "missing"))
+
+
+@public
+@visible
+async def modal_radio_cancel(modal_radio_id: str, choice_id: str = "") -> None:
+    """Handle a Go back button click in a radio modal."""
+    logger.info(f"🛑 {modal_radio_id}: user clicked Go back")
+    modal_key = f"{modal_radio_id}:modal_id"
+    future_key = f"{modal_radio_id}:future"
+    modal_id = atlantis.session_shared.get(modal_key)
+    if modal_id:
+        try:
+            await atlantis.client_modal_close(modal_id)
+        except Exception:
+            logger.warning(f"⚠️ {modal_radio_id}: modal close failed during go-back", exc_info=True)
         atlantis.session_shared.remove(modal_key)
     future = atlantis.session_shared.get(future_key)
     if future is not None and not future.done():
         future.set_exception(ModalGoBack("Modal flow cancelled by Go back"))
+    else:
+        logger.warning(f"⚠️ {modal_radio_id}: go-back arrived but future is "
+                       + ("already done" if future is not None else "missing"))
 
 
 @public
@@ -1385,6 +1450,7 @@ async def modal_menu_select(modal_menu_id: str, choice_id: str) -> None:
 @visible
 async def modal_menu_cancel(modal_menu_id: str) -> None:
     """Handle the user closing a modal menu without selecting."""
+    logger.warning(f"🛑 {modal_menu_id}: modal dismissed by user without selection")
     modal_key = f"{modal_menu_id}:modal_id"
     future_key = f"{modal_menu_id}:future"
     modal_id = atlantis.session_shared.get(modal_key)
@@ -1392,8 +1458,11 @@ async def modal_menu_cancel(modal_menu_id: str) -> None:
         try:
             await atlantis.client_modal_close(modal_id)
         except Exception:
-            pass
+            logger.warning(f"⚠️ {modal_menu_id}: modal close failed during cancel", exc_info=True)
         atlantis.session_shared.remove(modal_key)
     future = atlantis.session_shared.get(future_key)
     if future is not None and not future.done():
-        future.set_result(None)
+        future.set_exception(ModalDismissed("Modal dismissed without selection"))
+    else:
+        logger.warning(f"⚠️ {modal_menu_id}: modal cancel arrived but future is "
+                       + ("already done" if future is not None else "missing"))

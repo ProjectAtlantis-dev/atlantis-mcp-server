@@ -991,7 +991,10 @@ async def _client_command(
     session_key = get_session_key()
     exec_shell_path = get_exec_shell_path()
 
-    logger.info(f"📡 client_command '{command}' (entry={entry_point_name}, currentFunction={current_function_name}, caller_sid={caller_sid})")
+    logger.info(
+        f"📡 client_command '{command}' (entry={entry_point_name}, currentFunction={current_function_name}, caller_sid={caller_sid})",
+        extra={"atlantis_event": "dynamic_function_call"},
+    )
     if isinstance(data, (dict, list)):
         logger.debug(f"   📦 data: {format_json_log(data, colored=True)}")
     elif data is not None:

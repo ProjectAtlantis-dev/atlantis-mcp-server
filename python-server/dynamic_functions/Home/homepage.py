@@ -54,10 +54,6 @@ async def first_menu():
         heading="Where do you want to go?",
     )
 
-    if choice is None:
-        await atlantis.client_log("Home menu cancelled.")
-        return None
-
     script_folder = atlantis.get_script_folder()
     if not script_folder:
         raise RuntimeError("Cannot determine homepage script folder")

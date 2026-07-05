@@ -2457,7 +2457,10 @@ async def {name}():
                 except (TypeError, ValueError) as sig_err:
                     logger.debug(f"Could not inspect signature for nullable argument defaults on '{actual_function_name}': {sig_err}")
 
-            logger.info(f"Calling dynamic function '{actual_function_name}' with args: {function_args}")
+            logger.info(
+                f"Calling dynamic function '{actual_function_name}' with args: {function_args}",
+                extra={"atlantis_event": "dynamic_function_call"},
+            )
             logger.info(f"📊 Args as JSON: {utils.format_json_log(function_args)}")
 
             if inspect.iscoroutinefunction(function_to_call):

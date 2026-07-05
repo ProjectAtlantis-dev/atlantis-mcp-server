@@ -500,6 +500,7 @@ class DynamicAdditionServer(Server):
         self.service_connections = {} # Store active Service connections (e.g. cloud)
         self.awaitable_requests: Dict[str, asyncio.Future] = {} # For tracking awaitable commands
         self.awaitable_request_timeout: float = SERVER_REQUEST_TIMEOUT # Timeout for these commands
+        self.running_tool_tasks: Dict[str, asyncio.Task] = {} # request_id -> task, for notifications/cancelled
         self.server_uuid: Optional[str] = None
         self.server_version: str = SERVER_VERSION
         self.mcp_sdk_version: str = MCP_SDK_VERSION
@@ -3265,6 +3266,11 @@ class DynamicAdditionServer(Server):
                 }
             }
 
+        # Register this task so notifications/cancelled can cancel it by request_id
+        current_task = asyncio.current_task()
+        if request_id is not None and current_task is not None:
+            self.running_tool_tasks[str(request_id)] = current_task
+
         try:
             # Execute the tool (cloud connections only reach here)
             tool_result: ToolResult = await self._execute_tool(
@@ -3279,8 +3285,20 @@ class DynamicAdditionServer(Server):
             # Per MCP spec 2025-11-25: result has content (array) and optionally structuredContent
             return self._format_mcp_response(tool_result, request_id, for_cloud)
 
+        except asyncio.CancelledError:
+            # Cancelled via notifications/cancelled: uncancel so the error
+            # response below can still be sent over the wire, then report.
+            if current_task is not None:
+                current_task.uncancel()
+            logger.warning(f"🛑 Tool call '{tool_name}' (request {request_id}) cancelled")
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {"code": -32000, "message": f"Tool call '{tool_name}' cancelled"}
+            }
         except Exception as e:
-            logger.error(f"❌ Error executing tool '{tool_name}': {str(e)}")
+            logger.error(f"❌ Error executing tool '{tool_name}' (request {request_id}): {type(e).__name__}: {str(e)}")
+            logger.error(f"Traceback:\n{traceback.format_exc()}")
             error_response = {
                 "jsonrpc": "2.0",
                 "id": request_id,
@@ -3288,6 +3306,9 @@ class DynamicAdditionServer(Server):
             }
             logger.debug(f"📤 Returning error response:\n{format_json_log(error_response)}")
             return error_response
+        finally:
+            if request_id is not None:
+                self.running_tool_tasks.pop(str(request_id), None)
 
     def _format_mcp_response(self, result: ToolResult, request_id: Optional[str], for_cloud: bool = False) -> dict:
         """Build MCP-compliant response with content + structuredContent.
@@ -4361,6 +4382,19 @@ class ServiceClient:
                     request_id=request_id,
                     for_cloud=True
                 )
+
+            elif method == "notifications/cancelled":
+                # Cloud requests cancellation of a running tool call (MCP spec
+                # names this a notification, but it's really a cancel request).
+                cancel_request_id = params.get("requestId")
+                reason = params.get("reason", "no reason given")
+                task = self.mcp_server.running_tool_tasks.get(str(cancel_request_id))
+                if task is not None and not task.done():
+                    logger.warning(f"🛑 Cancelling tool call (request {cancel_request_id}): {reason}")
+                    task.cancel()
+                else:
+                    logger.warning(f"🛑 Cancel requested for {cancel_request_id} but no running tool call found")
+                return None  # Notification: no response
 
             else:
                 # Unknown method

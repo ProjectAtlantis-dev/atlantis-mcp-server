@@ -84,13 +84,14 @@ class ColoredFormatter(logging.Formatter):
         if not hasattr(record, 'ctx'):
             record.ctx = "[----]"
 
+        if getattr(record, "atlantis_event", None) == "dynamic_function_call":
+            log_fmt = CORAL_PINK + "%(asctime)s [%(levelname)s] %(name)s %(ctx)s: %(message)s" + RESET
         # Special case for db logger INFO messages - use blue
-        if record.name == "db" and record.levelno == logging.INFO:
+        elif record.name == "db" and record.levelno == logging.INFO:
             log_fmt = CYAN + "%(asctime)s [%(levelname)s] %(name)s %(ctx)s: %(message)s" + RESET
         else:
             log_fmt = self.FORMATS.get(record.levelno, logging.BASIC_FORMAT)
         # Use a specific date format
         formatter = logging.Formatter(log_fmt, datefmt='%Y-%m-%d %H:%M:%S')
         return formatter.format(record)
-
 

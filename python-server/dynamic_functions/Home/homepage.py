@@ -105,6 +105,7 @@ async def homepage() -> dict:
             "/terminal blur 12",
             f"/cd {script_folder}",
             f"/path push {script_folder}",
+            "/env save",
             "/terminal on",
             "app on",
             "term_default",

@@ -1277,6 +1277,8 @@ async def set_background_player(
     remove_on_ended: bool = True,
     controls: bool = False,
     replay: bool = False,
+    frame: bool = False,
+    interactive: bool = False,
 ):
     """Sets a controllable background video player for the client UI.
 
@@ -1297,6 +1299,10 @@ async def set_background_player(
         remove_on_ended: Whether to remove the player when playback ends. Defaults to True.
         controls: Whether browser video controls are shown. Defaults to False.
         replay: Whether the completed background player should replay on refresh. Defaults to False.
+        frame: Embed the URL as a generic iframe (e.g. a locally-served WebGL/WebGPU
+               renderer) instead of treating it as video media. Defaults to False.
+        interactive: For frame=True only: let the frame receive pointer events.
+               Defaults to False (background stays click-through).
     """
     if video_source.startswith(("http://", "https://", "data:")):
         video_data = video_source
@@ -1325,6 +1331,8 @@ async def set_background_player(
             "removeOnEnded": remove_on_ended,
             "controls": controls,
             "replay": replay,
+            "frame": frame,
+            "interactive": interactive,
             "visibilityScope": "game",
         },
     )

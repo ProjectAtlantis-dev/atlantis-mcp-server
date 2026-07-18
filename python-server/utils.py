@@ -178,7 +178,7 @@ async def client_log(
     visibility_scope: Optional[str] = None,
     location: Optional[str] = None,
     caller_sid: Optional[str] = None
-    ):
+    ) -> Optional[asyncio.Task[None]]:
     """
     Send a log message to the client.
 
@@ -252,7 +252,7 @@ async def client_log(
             # Pass all parameters including message_type to the server's method
             # Create a task to send the client log without awaiting its completion here.
             # This makes utils.client_log effectively fire-and-forget from the caller's perspective.
-            async def send_log_task():
+            async def send_log_task() -> None:
                 try:
                     task_result = await _server_instance.send_client_log(
                         level,

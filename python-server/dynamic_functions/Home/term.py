@@ -26,8 +26,14 @@ async def term_bg_player(
     controls: bool = False,
     loop: bool = False,
     remove_on_ended: bool = True,
+    frame: bool = False,
+    interactive: bool = False,
 ) -> None:
-    """Play a YouTube/player URL in the terminal background."""
+    """Play a YouTube/player URL in the terminal background.
+
+    frame=True embeds the URL as a generic iframe instead of video media
+    (e.g. a locally-served WebGL/WebGPU renderer on http://localhost:5173).
+    interactive=True lets a frame receive pointer events."""
     url = str(url or "").strip()
     if not url:
         raise ValueError("url required")
@@ -42,6 +48,8 @@ async def term_bg_player(
         plays_inline=True,
         remove_on_ended=remove_on_ended,
         controls=controls,
+        frame=frame,
+        interactive=interactive,
     )
 
 

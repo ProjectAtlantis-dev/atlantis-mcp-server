@@ -46,6 +46,16 @@ python-server/dynamic_functions/*
 !python-server/dynamic_functions/Home/**
 python-server/dynamic_functions/Home/__pycache__/
 python-server/dynamic_functions/Home/*.py[cod]
+!python-server/dynamic_functions/Chat/
+!python-server/dynamic_functions/Chat/**
+python-server/dynamic_functions/Chat/__pycache__/
+python-server/dynamic_functions/Chat/*.py[cod]
+python-server/dynamic_functions/Chat/api_payload.json
+python-server/dynamic_functions/Chat/*_thumb.jpg
+
+# Scratch folders are personal notepads, never shipped. Must come after the
+# un-ignore rules above - last matching rule wins.
+scratch/
 
 python-server/dynamic_functions copy/*
 python-server/dynamic_functions.TEST/

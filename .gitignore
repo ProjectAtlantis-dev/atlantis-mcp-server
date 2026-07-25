@@ -49,9 +49,13 @@ python-server/dynamic_functions/Home/*.py[cod]
 !python-server/dynamic_functions/Chat/
 !python-server/dynamic_functions/Chat/**
 python-server/dynamic_functions/Chat/__pycache__/
-python-server/dynamic_functions/Chat/*.py[cod]
+python-server/dynamic_functions/Chat/**/__pycache__/
+python-server/dynamic_functions/Chat/**/*.py[cod]
 python-server/dynamic_functions/Chat/api_payload.json
-python-server/dynamic_functions/Chat/*_thumb.jpg
+python-server/dynamic_functions/Chat/**/*_thumb.jpg
+# Chat/Game holds static content (bots, locations, scenes) and is tracked.
+# Chat/Data holds live per-game state and is not.
+python-server/dynamic_functions/Chat/Data/
 
 # Scratch folders are personal notepads, never shipped. Must come after the
 # un-ignore rules above - last matching rule wins.
@@ -71,6 +75,9 @@ log/
 *.db
 python-server/**/*.json
 python-server/**/*.log
+# Chat/Game content is config-as-JSON (bot/location config.json, Scenes/*.json).
+# Must come after the blanket json rule above - last matching rule wins.
+!python-server/dynamic_functions/Chat/Game/**/*.json
 
 
 python-server/dynamic_functions copy 2/

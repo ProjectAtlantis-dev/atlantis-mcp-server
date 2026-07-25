@@ -1,0 +1,9 @@
+{
+  "displayName": "Project Atlantis",
+  "parent": "Greenland",
+  "image": null,
+  "connects_to": [],
+  "default": false,
+  "defaultCameraAlign": "bottom",
+  "description": ""
+}

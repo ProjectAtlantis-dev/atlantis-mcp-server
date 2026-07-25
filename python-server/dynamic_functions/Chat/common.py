@@ -16,12 +16,8 @@ APP_DEFAULT_BG_ALIGN = "75%"
 # Paths & JSON I/O
 # ---------------------------------------------------------------------------
 
-# Data/ and Game/ stay in the atlantis-mcp-chat app; these scripts live beside
-# it as a sibling app under dynamic_functions/. Named relatively so the symlink
-# keeps pointing wherever that repo actually is.
-GAME_HOME = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "atlantis-mcp-chat")
-)
+# Data/ and Game/ live inside this app, beside these scripts.
+GAME_HOME = os.path.abspath(os.path.dirname(__file__))
 
 
 def home_path(*parts: str) -> str:

@@ -7,7 +7,7 @@ from .common import home_path
 @text("md")
 @visible
 async def README():
-    """Show atlantis-mcp-chat runtime notes."""
+    """Show Chat runtime notes."""
 
     await atlantis.client_log("README running")
 

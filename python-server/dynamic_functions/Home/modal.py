@@ -6,7 +6,7 @@ import html as html_lib
 import json
 import logging
 import uuid
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("dynamic_function")
 
@@ -20,13 +20,35 @@ class ModalDismissed(RuntimeError):
     Aborts like an interrupt; Go back / cancel buttons stay in-flow answers."""
 
 
+# --- Modal type scale -------------------------------------------------------
+# One scale for every modal, so dialogs read as a single system rather than as
+# five dialogs that happen to sit on the same background. Sizes are px.
+# Anything drawing a modal — including apps outside Home — takes its sizes from
+# here rather than picking its own, so a change lands everywhere at once.
+MODAL_PADDING = 24
+MODAL_HEADING_MARGIN = "4px 0 16px"
+MODAL_HEADING_SIZE = 24
+MODAL_HEADING_LINE_HEIGHT = 1.15
+MODAL_TEXT_SIZE = 18            # choice titles, messages, table cells
+MODAL_TEXT_WEIGHT = 700         # the title of anything selectable
+MODAL_TEXT_LINE_HEIGHT = 1.25
+MODAL_CONTROL_SIZE = 16         # buttons, selects, text inputs
+MODAL_CONTROL_WEIGHT = 700
+MODAL_DESC_SIZE = 13            # secondary description and error text
+MODAL_DESC_LINE_HEIGHT = 1.3
+MODAL_LABEL_SIZE = 12           # column headers and section labels
+MODAL_LABEL_WEIGHT = 800
+MODAL_CHOICE_MIN_HEIGHT = 44    # menu buttons and radio-choice rows
+MODAL_CHOICE_PADDING = "10px 12px"
+
+
 def _modal_shell_css(
     selector: str,
     *,
-    padding: int,
-    heading_margin: str,
-    heading_font_size: int,
-    heading_line_height: float,
+    padding: int = MODAL_PADDING,
+    heading_margin: str = MODAL_HEADING_MARGIN,
+    heading_font_size: int = MODAL_HEADING_SIZE,
+    heading_line_height: float = MODAL_HEADING_LINE_HEIGHT,
 ) -> str:
     return f"""
   {selector} {{
@@ -56,10 +78,10 @@ def _modal_panel_css(
     shell_selector: str,
     *,
     ready_class: str,
-    padding: int,
-    heading_margin: str,
-    heading_font_size: int,
-    heading_line_height: float,
+    padding: int = MODAL_PADDING,
+    heading_margin: str = MODAL_HEADING_MARGIN,
+    heading_font_size: int = MODAL_HEADING_SIZE,
+    heading_line_height: float = MODAL_HEADING_LINE_HEIGHT,
 ) -> str:
     return f"""
   .jsPanel:has({shell_selector}:not(.{ready_class})) {{
@@ -94,6 +116,17 @@ def _validated_modal_choices(choices: List[Dict[str, Any]]) -> Dict[str, Dict[st
             raise ValueError(f"duplicate choice id: {choice_id!r}")
         choice_by_id[choice_id] = choice
     return choice_by_id
+
+
+def _sole_enabled_choice(choices: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """The only pickable choice, if there is exactly one.
+
+    A dialog offering a single answer is not a question. Callers use this to
+    take that answer directly instead of making the user confirm a foregone
+    conclusion. Disabled entries are not choices, so they do not count.
+    """
+    enabled = [choice for choice in choices if not choice.get("disabled")]
+    return enabled[0] if len(enabled) == 1 else None
 
 
 async def _close_modal_if_open(shared_prefix: str) -> None:
@@ -155,10 +188,6 @@ async def modal_string(
     f"#modal-string-panel-{uid}",
     f"#displayname-{uid}",
     ready_class="modal-string-ready",
-    padding=28,
-    heading_margin="10px 0 28px",
-    heading_font_size=30,
-    heading_line_height=1.1,
 )}
   #displayname-{uid} {{
     width: 100%;
@@ -171,8 +200,8 @@ async def modal_string(
   }}
   #displayname-{uid} label {{
     color: #fffaf0;
-    font-size: 22px;
-    font-weight: 700;
+    font-size: {MODAL_TEXT_SIZE}px;
+    font-weight: {MODAL_TEXT_WEIGHT};
   }}
   #displayname-{uid} input {{
     box-sizing: border-box;
@@ -184,7 +213,7 @@ async def modal_string(
     border: 1px solid rgba(20, 255, 208, 0.42);
     border-radius: 6px;
     font: inherit;
-    font-size: 20px;
+    font-size: {MODAL_CONTROL_SIZE}px;
   }}
   #displayname-{uid} input:focus {{
     outline: 2px solid rgba(20, 255, 208, 0.45);
@@ -192,7 +221,7 @@ async def modal_string(
   }}
   #displayname-{uid} .err {{
     color: #ffb4a8;
-    font-size: 13px;
+    font-size: {MODAL_DESC_SIZE}px;
   }}
   #displayname-{uid} .err:empty {{
     display: none;
@@ -206,7 +235,8 @@ async def modal_string(
     border: 0;
     border-radius: 6px;
     font: inherit;
-    font-weight: 700;
+    font-size: {MODAL_CONTROL_SIZE}px;
+    font-weight: {MODAL_CONTROL_WEIGHT};
     cursor: pointer;
   }}
   #displayname-{uid} button:hover {{
@@ -433,10 +463,6 @@ async def modal_confirm(
     f"#modal-confirm-panel-{uid}",
     f"#modalconfirm-{uid}",
     ready_class="modal-confirm-ready",
-    padding=26,
-    heading_margin="4px 0 12px",
-    heading_font_size=24,
-    heading_line_height=1.15,
 )}
   #modalconfirm-{uid} {{
     width: 100%;
@@ -457,8 +483,8 @@ async def modal_confirm(
   #modalconfirm-{uid} .confirm-message {{
     margin: 0;
     color: rgba(255, 250, 240, 0.86);
-    font-size: 18px;
-    line-height: 1.35;
+    font-size: {MODAL_TEXT_SIZE}px;
+    line-height: {MODAL_TEXT_LINE_HEIGHT};
   }}
   #modalconfirm-{uid} .confirm-actions {{
     display: flex;
@@ -476,8 +502,8 @@ async def modal_confirm(
     border: 1px solid rgba(20, 255, 208, 0.34);
     border-radius: 6px;
     font: inherit;
-    font-size: 16px;
-    font-weight: 700;
+    font-size: {MODAL_CONTROL_SIZE}px;
+    font-weight: {MODAL_CONTROL_WEIGHT};
     text-align: center;
     cursor: pointer;
   }}
@@ -611,8 +637,16 @@ async def modal_radio(
     cancel_label: str = "Go back",
     require_selection: bool = True,
 ) -> Dict[str, Any]:
-    """Pop up a radio-choice modal and return the selected choice object."""
+    """Pop up a radio-choice modal and return the selected choice object.
+
+    With exactly one enabled choice the modal is skipped and that choice is
+    returned directly.
+    """
     choice_by_id = _validated_modal_choices(choices)
+    sole = _sole_enabled_choice(choices)
+    if sole is not None:
+        logger.info(f"modal_radio: single choice {sole.get('id')!r}, skipping the dialog")
+        return sole
     current_id = str(current_id or "").strip()
     if current_id not in choice_by_id and require_selection:
         current_id = next(
@@ -672,10 +706,6 @@ async def modal_radio(
     f"#modal-radio-panel-{uid}",
     f"#modalradio-{uid}",
     ready_class="modal-radio-ready",
-    padding=24,
-    heading_margin="4px 0 16px",
-    heading_font_size=24,
-    heading_line_height=1.15,
 )}
   #modalradio-{uid} {{
     width: 100%;
@@ -704,8 +734,8 @@ async def modal_radio(
     align-items: center;
     box-sizing: border-box;
     width: 100%;
-    min-height: 44px;
-    padding: 10px 12px;
+    min-height: {MODAL_CHOICE_MIN_HEIGHT}px;
+    padding: {MODAL_CHOICE_PADDING};
     color: #fffaf0;
     background: rgba(7, 15, 22, 0.48);
     border: 1px solid rgba(20, 255, 208, 0.28);
@@ -760,16 +790,16 @@ async def modal_radio(
   #modalradio-{uid} .radio-text {{
     min-width: 0;
     overflow-wrap: anywhere;
-    font-size: 18px;
-    font-weight: 700;
-    line-height: 1.2;
+    font-size: {MODAL_TEXT_SIZE}px;
+    font-weight: {MODAL_TEXT_WEIGHT};
+    line-height: {MODAL_TEXT_LINE_HEIGHT};
   }}
   #modalradio-{uid} .radio-description {{
     min-width: 0;
     overflow-wrap: anywhere;
     color: rgba(255, 250, 240, 0.68);
-    font-size: 13px;
-    line-height: 1.25;
+    font-size: {MODAL_DESC_SIZE}px;
+    line-height: {MODAL_DESC_LINE_HEIGHT};
   }}
   #modalradio-{uid} .radio-actions {{
     display: flex;
@@ -787,8 +817,8 @@ async def modal_radio(
     border: 1px solid rgba(20, 255, 208, 0.34);
     border-radius: 6px;
     font: inherit;
-    font-size: 16px;
-    font-weight: 700;
+    font-size: {MODAL_CONTROL_SIZE}px;
+    font-weight: {MODAL_CONTROL_WEIGHT};
     cursor: pointer;
   }}
   #modalradio-{uid} .radio-ok {{
@@ -904,9 +934,15 @@ async def modal_menu(
 ) -> Dict[str, Any]:
     """Pop up a modal menu and return the selected choice object.
 
-    Raises ModalDismissed if the user closes the modal without selecting.
+    With exactly one enabled choice the modal is skipped and that choice is
+    returned directly. Raises ModalDismissed if the user closes the modal
+    without selecting.
     """
     choice_by_id = _validated_modal_choices(choices)
+    sole = _sole_enabled_choice(choices)
+    if sole is not None:
+        logger.info(f"modal_menu: single choice {sole.get('id')!r}, skipping the dialog")
+        return sole
     choice_buttons = []
     for choice in choices:
         choice_id = str(choice.get("id", "")).strip()
@@ -937,7 +973,11 @@ async def modal_menu(
                 + "</span>"
             )
         else:
-            button_content = html_lib.escape(choice_text)
+            description = str(choice.get("description") or "").strip()
+            button_content = (
+                f'<span class="menu-choice-title">{html_lib.escape(choice_text)}</span>'
+                f'<span class="menu-choice-description">{html_lib.escape(description)}</span>'
+            ) if description else html_lib.escape(choice_text)
         choice_buttons.append(
             '<button type="button" class="menu-choice" role="menuitem" '
             f'data-choice-id="{html_lib.escape(choice_id, quote=True)}"{disabled_attr}>'
@@ -974,10 +1014,6 @@ async def modal_menu(
     f"#modal-menu-panel-{uid}",
     f"#modalmenu-{uid}",
     ready_class="modal-menu-ready",
-    padding=22,
-    heading_margin="4px 0 16px",
-    heading_font_size=24,
-    heading_line_height=1.15,
 )}
   #modalmenu-{uid} {{
     width: 100%;
@@ -1010,8 +1046,8 @@ async def modal_menu(
     gap: 10px;
     padding: 0 14px 2px;
     color: rgba(255, 250, 240, 0.68);
-    font-size: 12px;
-    font-weight: 800;
+    font-size: {MODAL_LABEL_SIZE}px;
+    font-weight: {MODAL_LABEL_WEIGHT};
     letter-spacing: 0;
     text-transform: uppercase;
   }}
@@ -1024,20 +1060,41 @@ async def modal_menu(
   #modalmenu-{uid} .menu-choice {{
     box-sizing: border-box;
     width: 100%;
-    min-height: 42px;
-    padding: 0 14px;
+    min-height: {MODAL_CHOICE_MIN_HEIGHT}px;
+    padding: {MODAL_CHOICE_PADDING};
     color: #fffaf0;
     background: rgba(7, 15, 22, 0.58);
     border: 1px solid rgba(20, 255, 208, 0.34);
     border-radius: 6px;
     font: inherit;
-    font-size: 18px;
-    font-weight: 400;
+    font-size: {MODAL_TEXT_SIZE}px;
+    font-weight: {MODAL_TEXT_WEIGHT};
     text-align: left;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     cursor: pointer;
+  }}
+  /* A described choice needs two lines, so it opts out of the single-line
+     ellipsis the plain choices use. */
+  #modalmenu-{uid} .menu-choice:has(.menu-choice-description) {{
+    display: grid;
+    gap: 3px;
+    white-space: normal;
+    overflow: visible;
+  }}
+  #modalmenu-{uid} .menu-choice-title {{
+    min-width: 0;
+    overflow-wrap: anywhere;
+    line-height: {MODAL_TEXT_LINE_HEIGHT};
+  }}
+  #modalmenu-{uid} .menu-choice-description {{
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: rgba(255, 250, 240, 0.68);
+    font-size: {MODAL_DESC_SIZE}px;
+    font-weight: 400;
+    line-height: {MODAL_DESC_LINE_HEIGHT};
   }}
   #modalmenu-{uid} .menu-choice-grid {{
     display: grid;

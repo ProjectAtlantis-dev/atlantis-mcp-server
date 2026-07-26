@@ -262,12 +262,17 @@ async def camera_follow(game_key: str, slot_key: str) -> Dict[str, Any]:
 
 
 async def camera_slot_moved(game_key: str, slot_key: str, location: Optional[str]) -> List[str]:
-    """Refresh camera table after a followed slot moves.
+    """Repaint for a followed slot that just moved, spawned, or teleported.
 
-    Atlantis background painting is scoped to the calling terminal, so this
-    records the resolved state and refreshes the camera view. A terminal that is
-    following the moved slot will repaint on its next camera_follow/camera_bind
-    call unless Atlantis exposes a target-terminal paint primitive.
+    Following is a standing instruction, so it holds whoever caused the move:
+    a spawn from game_start, a bot's own step on a tick, another player's
+    action. Painting therefore depends only on *someone* following the slot,
+    never on the mover being the follower — that gate is what left a terminal
+    showing the wrong place until its owner happened to re-run camera_follow.
+
+    Note `atlantis.set_background` carries visibilityScope "game", so the paint
+    reaches every terminal in the game rather than just the followers listed
+    here. Per-follower painting needs a terminal-scoped background primitive.
     """
     moved: List[str] = []
     for terminal_key, entry in _load_cameras(game_key).items():
@@ -276,9 +281,14 @@ async def camera_slot_moved(game_key: str, slot_key: str, location: Optional[str
         if entry.get("slot_key") == slot_key:
             moved.append(terminal_key)
 
-    if location and atlantis.get_terminal_key() in moved:
-        await _paint_location(location)
+    if not moved:
+        return []
 
-    if moved:
-        await _render_cameras(game_key)
+    if location:
+        await atlantis.client_log(
+            f"camera_slot_moved slot={slot_key!r} location={location!r} "
+            f"followers={sorted(moved)!r}"
+        )
+        await _paint_location(location)
+    await _render_cameras(game_key)
     return sorted(moved)

@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, cast
 
 from .common import home_path, _read_json
 from .bot import load_bot
-from dynamic_functions.Home.modal import modal_radio
+from dynamic_functions.Home.modal import modal_menu
 
 logger = logging.getLogger("dynamic_function")
 
@@ -103,11 +103,12 @@ async def _scene_pick_dialog(
     choices = _scene_picker_choices()
     if not choices:
         raise RuntimeError("No scenes found")
-    choice = await modal_radio(
+    # A scene pick is a single act, not a selection to be confirmed, so this
+    # is a menu of buttons: one click chooses and closes.
+    choice = await modal_menu(
         choices,
         title=title,
         heading=heading,
-        cancel_label="",
     )
     scene = str(choice.get("scene") or choice.get("id") or "").strip()
     return scene or None

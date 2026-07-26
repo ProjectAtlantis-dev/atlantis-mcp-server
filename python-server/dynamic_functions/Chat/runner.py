@@ -11,8 +11,21 @@ import uuid
 from typing import Any, Dict, Optional
 from urllib.parse import urlencode
 
-from .bot import _bot_pick_dialog, bot_image_data
-from dynamic_functions.Home.modal import ModalGoBack, _modal_panel_css, modal_confirm, modal_menu, modal_radio, modal_string
+from .bot import _bot_pick_dialog, bot_image_data, bot_roster_name
+from dynamic_functions.Home.modal import (
+    MODAL_CONTROL_SIZE,
+    MODAL_CONTROL_WEIGHT,
+    MODAL_DESC_SIZE,
+    MODAL_LABEL_SIZE,
+    MODAL_LABEL_WEIGHT,
+    MODAL_TEXT_SIZE,
+    ModalGoBack,
+    _modal_panel_css,
+    modal_confirm,
+    modal_menu,
+    modal_radio,
+    modal_string,
+)
 from .game import (
     GAME_STATE_STOPPED,
     _caller_is_member,
@@ -34,6 +47,7 @@ from .roster import (
     KEY_AVAILABLE,
     STATE_AVAILABLE,
     STATE_KEYS,
+    STATE_HUMAN,
     STATE_KEY_BY_LABEL,
     _roster_row_label,
     _roster_row_state,
@@ -62,14 +76,17 @@ async def _roster_edit_modal() -> Optional[Dict[str, str]]:
     rows_html = []
     state_options = [("human", "Human"), ("ai", "AI"), (KEY_AVAILABLE, STATE_AVAILABLE)]
 
-    for row in roster:
+    for row_index, row in enumerate(roster):
         slot_key = str(row.get("key") or "").strip()
         if not slot_key:
             continue
         state = _roster_row_state(row)
         state_value = STATE_KEY_BY_LABEL[state]
-        display_name = "" if state == STATE_AVAILABLE else _roster_row_label(row)
         bot_sid = str(row.get("bot_sid") or "").strip()
+        display_name = _roster_row_label(
+            row,
+            available_label=(bot_roster_name(bot_sid) if bot_sid else slot_key),
+        )
         bot_image = bot_image_data(bot_sid) if bot_sid else ""
         bot_img_html = (
             f'<img class="roster-bot-thumb" src="{html_lib.escape(bot_image, quote=True)}" alt="{html_lib.escape(bot_sid, quote=True)}">'
@@ -80,9 +97,8 @@ async def _roster_edit_modal() -> Optional[Dict[str, str]]:
             for value, label in state_options
         )
         rows_html.append(f"""
-      <tr class="roster-row" data-slot-key="{html_lib.escape(slot_key, quote=True)}" data-bot-sid="{html_lib.escape(bot_sid, quote=True)}" data-state="{state_value}" data-name="{html_lib.escape(display_name, quote=True)}">
+      <tr class="roster-row" data-row-index="{row_index}" data-slot-key="{html_lib.escape(slot_key, quote=True)}" data-bot-sid="{html_lib.escape(bot_sid, quote=True)}" data-state="{state_value}" data-name="{html_lib.escape(display_name, quote=True)}">
         <td class="roster-bot-image">{bot_img_html}</td>
-        <td>{html_lib.escape(slot_key)}</td>
         <td>{html_lib.escape(bot_sid)}</td>
         <td class="roster-state">
         <select aria-label="{html_lib.escape(slot_key, quote=True)} state">
@@ -105,10 +121,6 @@ async def _roster_edit_modal() -> Optional[Dict[str, str]]:
     f"#roster-edit-panel-{uid}",
     f"#rosteredit-{uid}",
     ready_class="roster-edit-ready",
-    padding=22,
-    heading_margin="4px 0 16px",
-    heading_font_size=24,
-    heading_line_height=1.15,
 )}
   #rosteredit-{uid} {{
     width: max-content;
@@ -135,8 +147,8 @@ async def _roster_edit_modal() -> Optional[Dict[str, str]]:
   #rosteredit-{uid} th {{
     padding: 0 14px 2px;
     color: rgba(255, 250, 240, 0.68);
-    font-size: 12px;
-    font-weight: 800;
+    font-size: {MODAL_LABEL_SIZE}px;
+    font-weight: {MODAL_LABEL_WEIGHT};
     letter-spacing: 0;
     text-align: left;
     text-transform: uppercase;
@@ -147,7 +159,7 @@ async def _roster_edit_modal() -> Optional[Dict[str, str]]:
     padding: 0 14px;
     color: #fffaf0;
     background: rgba(7, 15, 22, 0.58);
-    font-size: 18px;
+    font-size: {MODAL_TEXT_SIZE}px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -194,7 +206,7 @@ async def _roster_edit_modal() -> Optional[Dict[str, str]]:
     border: 1px solid rgba(20, 255, 208, 0.34);
     border-radius: 6px;
     font: inherit;
-    font-size: 16px;
+    font-size: {MODAL_CONTROL_SIZE}px;
   }}
   #rosteredit-{uid} input {{
     width: 150px;
@@ -218,7 +230,7 @@ async def _roster_edit_modal() -> Optional[Dict[str, str]]:
     min-height: 16px;
     margin-top: 2px;
     color: #ffb4a8;
-    font-size: 13px;
+    font-size: {MODAL_DESC_SIZE}px;
   }}
   #rosteredit-{uid} .roster-error:empty {{
     display: none;
@@ -239,8 +251,8 @@ async def _roster_edit_modal() -> Optional[Dict[str, str]]:
     border: 1px solid rgba(20, 255, 208, 0.62);
     border-radius: 6px;
     font: inherit;
-    font-size: 16px;
-    font-weight: 700;
+    font-size: {MODAL_CONTROL_SIZE}px;
+    font-weight: {MODAL_CONTROL_WEIGHT};
     cursor: pointer;
   }}
   #rosteredit-{uid} .roster-ok:hover,
@@ -256,7 +268,6 @@ async def _roster_edit_modal() -> Optional[Dict[str, str]]:
     <thead>
       <tr>
         <th scope="col"></th>
-        <th scope="col">Slot</th>
         <th scope="col">Bot</th>
         <th scope="col">State</th>
         <th scope="col">Name</th>
@@ -331,12 +342,27 @@ async def _roster_edit_modal() -> Optional[Dict[str, str]]:
     host.style.transform = "translateX(-50%)";
     if (shouldReveal) reveal(root);
   }}
-  function scheduleCenter(root) {{
+  function scheduleCenter(root, onReady) {{
     centerDialog(root, false);
     requestAnimationFrame(function() {{
       centerDialog(root, false);
-      setTimeout(function() {{ centerDialog(root, true); }}, 180);
+      setTimeout(function() {{
+        centerDialog(root, true);
+        // Only now is the panel visible; focusing before reveal silently
+        // does nothing, since a hidden element cannot take focus.
+        if (onReady) onReady();
+      }}, 180);
     }});
+  }}
+  function focusFirstHumanName(root) {{
+    var input = root.querySelector('.roster-row[data-state="human"] .roster-name input');
+    if (input) {{
+      input.focus({{ preventScroll: true }});
+      input.select();
+      return;
+    }}
+    var firstSelect = root.querySelector(".roster-row select");
+    if (firstSelect) firstSelect.focus({{ preventScroll: true }});
   }}
   async function send(action, payload) {{
     if (settled) return;
@@ -381,6 +407,7 @@ async def _roster_edit_modal() -> Optional[Dict[str, str]]:
       input.value = rowName(row);
       input.placeholder = "Name";
       input.maxLength = 200;
+      input.id = "roster-name-{uid}-" + (row.getAttribute("data-row-index") || "0");
       input.setAttribute("aria-label", (row.getAttribute("data-slot-key") || "Slot") + " name");
       input.addEventListener("keydown", function(event) {{
         if (event.key === "Enter") {{
@@ -452,7 +479,7 @@ async def _roster_edit_modal() -> Optional[Dict[str, str]]:
   function bind() {{
     var root = document.getElementById("rosteredit-{uid}");
     if (!root) return;
-    scheduleCenter(root);
+    scheduleCenter(root, function() {{ focusFirstHumanName(root); }});
     Array.prototype.slice.call(root.querySelectorAll(".roster-row")).forEach(function(row) {{
       renderName(row, false);
     }});
@@ -484,8 +511,6 @@ async def _roster_edit_modal() -> Optional[Dict[str, str]]:
         send("@roster_edit_modal_ok", {{ roster_modal_id: {roster_modal_id_js} }});
       }});
     }}
-    var firstSelect = root.querySelector(".roster-row select");
-    if (firstSelect) firstSelect.focus({{ preventScroll: true }});
     observer = new MutationObserver(function() {{
       if (!document.body.contains(root)) {{ cancel(); }}
     }});
@@ -738,6 +763,21 @@ def _camera_slot_choices(roster: list, current: Dict[str, str]) -> list[Dict[str
     return choices
 
 
+# Camera mode is pinned to roster-slot for now, so setup never asks which kind
+# of thing to watch. Set this to None to bring the mode dialog back; the
+# location branch in _camera_edit is what that dialog selects between and is
+# deliberately left intact and working.
+CAMERA_PINNED_MODE: Optional[str] = "slot"
+
+
+def _first_human_slot_key(roster: list) -> str:
+    """The slot the user is most likely to want to watch: their own."""
+    for row in roster:
+        if _roster_row_state(row) == STATE_HUMAN:
+            return str(row.get("key") or "").strip()
+    return ""
+
+
 async def _camera_edit(roster: Optional[list] = None, game_key: Optional[str] = None) -> bool:
     game_key = str(game_key or await game_find_current()).strip()
     roster_rows = roster if roster is not None else await atlantis.client_command("@roster_list")
@@ -761,14 +801,19 @@ async def _camera_edit(roster: Optional[list] = None, game_key: Optional[str] = 
             f"current={current!r}"
         )
         slot_choices = _camera_slot_choices(roster_rows, current)
-        try:
-            mode = await _camera_mode_dialog(
-                current,
-                has_locations=has_locations,
-                has_slots=bool(slot_choices),
-            )
-        except ModalGoBack:
-            return False
+        if CAMERA_PINNED_MODE:
+            # Degrade to location only if the pinned mode is impossible; the
+            # "neither exists" case already raised above.
+            mode = CAMERA_PINNED_MODE if slot_choices else "location"
+        else:
+            try:
+                mode = await _camera_mode_dialog(
+                    current,
+                    has_locations=has_locations,
+                    has_slots=bool(slot_choices),
+                )
+            except ModalGoBack:
+                return False
         mode = str(mode or "").strip().lower()
 
         if mode == "location":
@@ -787,6 +832,18 @@ async def _camera_edit(roster: Optional[list] = None, game_key: Optional[str] = 
 
         if mode == "slot":
             current_slot = current.get("slot_key") if current.get("target_type") == "slot" else ""
+            # Nothing bound yet means this is setup, where the user has no
+            # opinion to override: take the human slot and ask nothing. Once a
+            # camera exists the call is a deliberate change, so it still asks.
+            if not current_slot:
+                human_slot = _first_human_slot_key(roster_rows)
+                if human_slot:
+                    await atlantis.client_log(
+                        f"camera_edit: binding to first human slot {human_slot!r} without prompting"
+                    )
+                    await camera_follow(game_key, human_slot)
+                    return True
+
             try:
                 choice = await modal_radio(
                     slot_choices,
@@ -795,6 +852,9 @@ async def _camera_edit(roster: Optional[list] = None, game_key: Optional[str] = 
                     current_id=str(current_slot or ""),
                 )
             except ModalGoBack:
+                if CAMERA_PINNED_MODE:
+                    # No mode dialog to go back to — backing out ends the flow.
+                    return False
                 continue
             slot_key = str(choice.get("slot_key") or choice.get("id") or "").strip()
             if not slot_key:
@@ -1051,21 +1111,12 @@ async def game_init(game_key: str):
     if not await _camera_edit(roster=roster, game_key=game_key):
         raise RuntimeError("Camera selection cancelled")
 
+    # Setting a game up is already the decision to play it, so the owner does
+    # not get asked again — game_stop is there for anyone who wants it stopped.
     meta = _game_read_from_dir(data_dir)
     if (
         atlantis.get_caller() == meta.get("owner")
         and str(meta.get("state") or GAME_STATE_STOPPED).strip().lower() == GAME_STATE_STOPPED
     ):
-        choice = await modal_menu(
-            [
-                {"id": "start", "text": "Start game"},
-                {"id": "keep_stopped", "text": "Keep stopped"},
-            ],
-            title="Game",
-            heading="Start the game?",
-        )
-        if choice is None:
-            raise RuntimeError("Game start selection cancelled")
-        if choice and choice.get("id") == "start":
-            await game_start(game_key)
-            meta = _game_read_from_dir(data_dir)
+        await game_start(game_key)
+        meta = _game_read_from_dir(data_dir)

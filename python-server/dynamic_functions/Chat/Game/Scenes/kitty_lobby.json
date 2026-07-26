@@ -1,0 +1,15 @@
+{
+  "description": "Kitty runs as a bot while a human plays Chad in the lobby",
+  "slots": [
+    {
+      "key": "Kitty",
+      "bot_sid": "kitty",
+      "state": "ai"
+    },
+    {
+      "key": "Chad",
+      "bot_sid": "chad",
+      "state": "human"
+    }
+  ]
+}

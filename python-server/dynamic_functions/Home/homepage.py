@@ -47,16 +47,16 @@ async def first_menu():
     if not script_folder:
         raise RuntimeError("Cannot determine homepage script folder")
 
-    items = [
-        {"id": "explore_demo_folder", "text": "Explore demo folder"},
-    ]
-
     cwd = await atlantis.client_command("pwd")
     logger.info(f"pwd returned:\n{format_json_log(cwd, colored=True)}")
 
     tree_entries = await atlantis.client_command("tree ../*/first_menu")
     logger.info(f"tree first_menu (from {cwd}) returned:\n{format_json_log(tree_entries, colored=True)}")
-    items.extend(_app_menu_items(tree_entries, script_folder))
+
+    # Discovered apps lead; the demo folder is the fallback for someone with
+    # nowhere better to go, so it sits last.
+    items = _app_menu_items(tree_entries, script_folder)
+    items.append({"id": "explore_demo_folder", "text": "Explore demo folder"})
 
     choice = await modal_menu(
         items,

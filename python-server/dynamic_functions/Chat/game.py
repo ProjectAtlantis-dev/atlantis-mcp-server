@@ -5,7 +5,7 @@ import humanize
 import os
 import re
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 from .common import home_path, _read_json, _write_json
 from dynamic_functions.Home.modal import modal_menu
@@ -405,10 +405,47 @@ async def _game_set_state(game_key: str, state: str) -> dict:
     return {"game_key": game_key, "state": state_key}
 
 
+async def _spawn_unspawned_slots(game_key: str, *, ai: bool) -> List[str]:
+    """Put every not-yet-placed slot of one kind at its character's entry location.
+
+    A slot with no location has nowhere to be seen, talked to, or ticked, so a
+    running game full of unplaced slots is an empty building. Slots already in
+    the world keep the location they are standing in — this only fills the gap.
+
+    Imported inside the function: roster imports this module, so a top-level
+    import would close the cycle.
+    """
+    from .bot import bot_entry_location
+    from .roster import _load_game_roster, roster_spawn
+
+    spawned: List[str] = []
+    for row in _load_game_roster(game_key):
+        if row.get("ai") is not ai:
+            continue
+        if row.get("location") and row.get("spawned_at"):
+            continue
+        slot_key = str(row.get("key") or "").strip()
+        bot_sid = str(row.get("bot_sid") or "").strip()
+        await roster_spawn(game_key, slot_key, bot_entry_location(bot_sid))
+        spawned.append(slot_key)
+    return spawned
+
+
 @public
 async def game_start(game_key: str) -> dict:
-    """Set a game state to running."""
-    return await _game_set_state(game_key, GAME_STATE_RUNNING)
+    """Set a game state to running, spawning anyone not already in the world."""
+    result = await _game_set_state(game_key, GAME_STATE_RUNNING)
+
+    # Bots first, so the world is already populated when a human arrives: their
+    # "entered" description lands last and the camera following them paints a
+    # room that has its cast in it.
+    bots = await _spawn_unspawned_slots(game_key, ai=True)
+    if bots:
+        await atlantis.client_log(f"spawned bots on start: {', '.join(bots)}")
+    humans = await _spawn_unspawned_slots(game_key, ai=False)
+    if humans:
+        await atlantis.client_log(f"spawned humans on start: {', '.join(humans)}")
+    return result
 
 
 @public

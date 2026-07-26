@@ -1,9 +1,0 @@
-{
-  "description": "Sven does his security rounds in an otherwise empty building",
-  "slots": [
-    {
-      "key": "Sven",
-      "bot_sid": "sven"
-    }
-  ]
-}

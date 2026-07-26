@@ -13,6 +13,26 @@ from dynamic_functions.Home.modal import modal_string
 from .scene import _load_scene, _scene_name, _scene_names
 
 
+# A slot nobody has taken is a role that is open, not a thing that is broken:
+# "available" throughout, key and label alike. The key is not persisted — a
+# row's state is derived from `ai` (None/True/False) — so it only ever travels
+# between the browser, roster_set_slot, and these helpers.
+KEY_AVAILABLE = "available"
+KEY_AI = "ai"
+KEY_HUMAN = "human"
+STATE_KEYS = (KEY_AVAILABLE, KEY_AI, KEY_HUMAN)
+
+STATE_AVAILABLE = "Available"
+STATE_AI = "AI"
+STATE_HUMAN = "Human"
+STATE_LABELS = {KEY_AVAILABLE: STATE_AVAILABLE, KEY_AI: STATE_AI, KEY_HUMAN: STATE_HUMAN}
+# Callers that hold a label and need the key must look it up here rather than
+# lower-casing: that only works while every label is its key capitalized.
+STATE_KEY_BY_LABEL = {label: key for key, label in STATE_LABELS.items()}
+# A row's state is stored as `ai`: None = nobody, True = bot, False = person.
+AI_BY_STATE_KEY = {KEY_AVAILABLE: None, KEY_AI: True, KEY_HUMAN: False}
+
+
 def _number_duplicate_display_names(rows: List[Dict[str, Any]]) -> None:
     used: set[str] = set()
     for row in rows:
@@ -36,6 +56,23 @@ def _number_duplicate_display_names(rows: List[Dict[str, Any]]) -> None:
         used.add(numbered_name)
 
 
+def _scene_slot_state_key(scene: str, index: int, slot: Dict[str, Any]) -> str:
+    """The state a scene declares for one slot, defaulting to available.
+
+    A scene describes the shape of a game — who is meant to be a bot and which
+    role is meant for a person. Unknown values are rejected rather than ignored,
+    so a typo in a scene file surfaces instead of silently producing a roster of
+    empty slots.
+    """
+    raw = str(slot.get("state") or KEY_AVAILABLE).strip().lower()
+    if raw not in STATE_KEYS:
+        raise ValueError(
+            f"Scene {scene!r} row {index} has unknown state {raw!r}; "
+            f"expected one of: {', '.join(STATE_KEYS)}"
+        )
+    return raw
+
+
 def _scene_roster_rows(scene: str) -> List[Dict[str, Any]]:
     """Convert a static scene into initial per-game roster rows."""
     rows: List[Dict[str, Any]] = []
@@ -54,7 +91,7 @@ def _scene_roster_rows(scene: str) -> List[Dict[str, Any]]:
         rows.append({
             "key": key,
             "bot_sid": bot_sid,
-            "ai": None,
+            "ai": AI_BY_STATE_KEY[_scene_slot_state_key(scene, index, slot)],
             "displayName": None,
             "location": None,
             "spawned_at": None,
@@ -64,6 +101,27 @@ def _scene_roster_rows(scene: str) -> List[Dict[str, Any]]:
             "bound_at": None,
         })
     return rows
+
+
+def _apply_scene_human_defaults(rows: List[Dict[str, Any]]) -> None:
+    """Name the scene's human slots after their role, and hand over the first.
+
+    The player is stepping into a character, so the slot keeps that character's
+    name — a human playing the `chad` slot is "Chad", not the caller's sid. Only
+    the creator is here when the roster is built, so they take the first such
+    slot outright; any further human slots stay unclaimed under the same
+    role-derived name until someone binds and renames them.
+    """
+    claimed = False
+    for row in rows:
+        if row.get("ai") is not False:
+            continue
+        name = bot_roster_name(str(row.get("bot_sid") or "").strip())
+        if claimed:
+            row["displayName"] = name
+            continue
+        _set_roster_slot_human(row, name)
+        claimed = True
 
 
 def _load_game_roster(game_key: str) -> List[Dict[str, Any]]:
@@ -118,24 +176,6 @@ def _roster_rows() -> List[Dict[str, Any]]:
             out["scene_name"] = scene_name
             rows.append(out)
     return rows
-
-
-# A slot nobody has taken is a role that is open, not a thing that is broken:
-# "available" throughout, key and label alike. The key is not persisted — a
-# row's state is derived from `ai` (None/True/False) — so it only ever travels
-# between the browser, roster_set_slot, and these helpers.
-KEY_AVAILABLE = "available"
-KEY_AI = "ai"
-KEY_HUMAN = "human"
-STATE_KEYS = (KEY_AVAILABLE, KEY_AI, KEY_HUMAN)
-
-STATE_AVAILABLE = "Available"
-STATE_AI = "AI"
-STATE_HUMAN = "Human"
-STATE_LABELS = {KEY_AVAILABLE: STATE_AVAILABLE, KEY_AI: STATE_AI, KEY_HUMAN: STATE_HUMAN}
-# Callers that hold a label and need the key must look it up here rather than
-# lower-casing: that only works while every label is its key capitalized.
-STATE_KEY_BY_LABEL = {label: key for key, label in STATE_LABELS.items()}
 
 
 def _roster_row_state(row: Dict[str, Any]) -> str:
@@ -303,6 +343,7 @@ async def roster_create(game_key: str, scene: str) -> List[Dict[str, Any]]:
     data_dir = require_membership(game_key)
     scene_name = _scene_name(scene)
     rows = _scene_roster_rows(scene)
+    _apply_scene_human_defaults(rows)
     _number_duplicate_display_names(rows)
     _write_json(os.path.join(data_dir, "roster.json"), rows)
     meta = _read_json(os.path.join(data_dir, "game.json")) or {}

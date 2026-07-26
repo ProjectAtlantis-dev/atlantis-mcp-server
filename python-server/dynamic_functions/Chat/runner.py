@@ -8,7 +8,6 @@ import html as html_lib
 import json
 import os
 import uuid
-from datetime import datetime
 from typing import Any, Dict, Optional
 from urllib.parse import urlencode
 
@@ -31,14 +30,21 @@ from .game import (
 )
 from .camera import _load_cameras, camera_bind, camera_follow
 from .location import _leaf_location_keys, _location_pick_dialog, load_location
-from .roster import _roster_row_label, _roster_row_state
+from .roster import (
+    KEY_AVAILABLE,
+    STATE_AVAILABLE,
+    STATE_KEYS,
+    STATE_KEY_BY_LABEL,
+    _roster_row_label,
+    _roster_row_state,
+)
 from .scene import _scene_pick_dialog
 from .common import app_bg_default
 
 
-async def _warn_empty_roster() -> None:
+async def _warn_unfilled_roster() -> None:
     await modal_confirm(
-        "All roster slots are empty",
+        "No roster slots are filled - every slot is still available",
         title="Roster",
         cancel_label="",
     )
@@ -54,15 +60,15 @@ async def _roster_edit_modal() -> Optional[Dict[str, str]]:
     roster_modal_id_js = json.dumps(roster_modal_id)
     heading_block = f"<h2>{html_lib.escape(heading)}</h2>" if heading else ""
     rows_html = []
-    state_options = [("human", "Human"), ("ai", "AI"), ("empty", "Empty")]
+    state_options = [("human", "Human"), ("ai", "AI"), (KEY_AVAILABLE, STATE_AVAILABLE)]
 
     for row in roster:
         slot_key = str(row.get("key") or "").strip()
         if not slot_key:
             continue
         state = _roster_row_state(row)
-        state_value = state.lower()
-        display_name = "" if state == "Empty" else _roster_row_label(row)
+        state_value = STATE_KEY_BY_LABEL[state]
+        display_name = "" if state == STATE_AVAILABLE else _roster_row_label(row)
         bot_sid = str(row.get("bot_sid") or "").strip()
         bot_image = bot_image_data(bot_sid) if bot_sid else ""
         bot_img_html = (
@@ -176,7 +182,7 @@ async def _roster_edit_modal() -> Optional[Dict[str, str]]:
     object-fit: cover;
     border-radius: 4px;
   }}
-  #rosteredit-{uid} .roster-empty-name {{
+  #rosteredit-{uid} .roster-available-name {{
     color: rgba(255, 250, 240, 0.52);
   }}
   #rosteredit-{uid} input,
@@ -349,7 +355,7 @@ async def _roster_edit_modal() -> Optional[Dict[str, str]]:
     if (node) node.textContent = message || "";
   }}
   function rowState(row) {{
-    return (row && row.getAttribute("data-state")) || "empty";
+    return (row && row.getAttribute("data-state")) || "available";
   }}
   function rowName(row) {{
     return (row && row.getAttribute("data-name")) || "";
@@ -396,8 +402,8 @@ async def _roster_edit_modal() -> Optional[Dict[str, str]]:
       return;
     }}
     var span = document.createElement("span");
-    if (state === "empty") {{
-      span.className = "roster-empty-name";
+    if (state === "available") {{
+      span.className = "roster-available-name";
       span.textContent = "-";
     }} else {{
       span.textContent = rowName(row) || "-";
@@ -501,10 +507,7 @@ async def _settle_roster_edit_modal(roster_modal_id: str, result: Optional[Dict[
     future_key = f"{roster_modal_id}:future"
     modal_id = atlantis.session_shared.get(modal_key)
     if modal_id:
-        try:
-            await atlantis.client_modal_close(modal_id)
-        except Exception:
-            pass
+        await atlantis.client_modal_close(modal_id)
         atlantis.session_shared.remove(modal_key)
     future = atlantis.session_shared.get(future_key)
     if future is None:
@@ -612,7 +615,7 @@ async def _roster_edit(
             return False
 
         state = str(modal_result.get("state") or "").strip().lower()
-        if state not in {"empty", "ai", "human"}:
+        if state not in STATE_KEYS:
             continue
 
         display_name = None
@@ -674,309 +677,37 @@ def _camera_location_label(location: str) -> str:
         return location
 
 
-def _camera_target_descriptions(current: Dict[str, str]) -> Dict[str, str]:
-    location_description = "Watch a fixed place in the scene."
-    slot_description = "Follow a roster slot as it moves."
-    target_type = current.get("target_type")
-    if target_type == "location" and current.get("location"):
-        location_description = f"Current: {_camera_location_label(current['location'])}"
-    elif target_type == "slot" and current.get("slot_key"):
-        slot_description = f"Current: {current['slot_key']}"
-    return {
-        "location": location_description,
-        "slot": slot_description,
-    }
-
-
 async def _camera_mode_dialog(
     current: Dict[str, str],
     *,
     has_locations: bool,
     has_slots: bool,
 ) -> str:
-    uid = uuid.uuid4().hex[:8]
-    camera_mode_id = f"camera_mode:{uid}"
-    camera_mode_id_js = json.dumps(camera_mode_id)
-    target_descriptions = _camera_target_descriptions(current)
-    current_target_type = str(current.get("target_type") or "")
-    modes = [
-        {
-            "id": "location",
-            "text": "Location",
-            "description": target_descriptions["location"] if has_locations else "No locations available.",
-            "enabled": has_locations,
-        },
+    """Ask which kind of thing this terminal's camera should watch."""
+    choices = [
         {
             "id": "slot",
             "text": "Roster slot",
-            "description": target_descriptions["slot"] if has_slots else "No roster slots available.",
-            "enabled": has_slots,
+            "description": "Follow a roster slot as it moves." if has_slots else "No roster slots available.",
+            "disabled": not has_slots,
+        },
+        {
+            "id": "location",
+            "text": "Location",
+            "description": "Watch a fixed place in the scene." if has_locations else "No locations available.",
+            "disabled": not has_locations,
         },
     ]
-    enabled_modes = {mode["id"]: mode for mode in modes if mode["enabled"]}
-    if not enabled_modes:
+    if not has_slots and not has_locations:
         raise RuntimeError("No camera targets found")
-    if current_target_type in {"location", "slot"}:
-        enabled_modes["__done__"] = {"id": "__done__", "enabled": True}
 
-    cards = []
-    for mode in modes:
-        mode_id = str(mode["id"])
-        is_active = mode_id == current_target_type
-        disabled_attr = "" if mode["enabled"] else " disabled aria-disabled=\"true\""
-        active_badge = '<span class="camera-mode-badge">Current mode</span>' if is_active else ""
-        cards.append(
-            f'<button type="button" class="camera-mode-card{" is-active" if is_active else ""}" '
-            f'data-mode="{html_lib.escape(mode_id, quote=True)}"{disabled_attr}>'
-            '<span class="camera-mode-topline">'
-            '<span class="camera-mode-mark" aria-hidden="true"></span>'
-            f'<span class="camera-mode-title">{html_lib.escape(str(mode["text"]))}</span>'
-            f'{active_badge}'
-            '</span>'
-            f'<span class="camera-mode-copy">{html_lib.escape(str(mode["description"]))}</span>'
-            '</button>'
-        )
-
-    loop = asyncio.get_running_loop()
-    future = loop.create_future()
-    atlantis.session_shared.set(f"{camera_mode_id}:future", future)
-    atlantis.session_shared.set(f"{camera_mode_id}:choices", enabled_modes)
-    done_button = (
-        '<div class="camera-mode-actions">'
-        '<button type="button" class="camera-mode-done" data-mode="__done__">Done</button>'
-        '</div>'
-        if current_target_type in {"location", "slot"} else ""
+    choice = await modal_radio(
+        choices,
+        title="Camera",
+        heading="Camera",
+        current_id=str(current.get("target_type") or ""),
     )
-    html = f"""
-<style>
-{_modal_panel_css(
-    f"#camera-mode-panel-{uid}",
-    f"#cameramode-{uid}",
-    ready_class="camera-mode-ready",
-    padding=24,
-    heading_margin="4px 0 16px",
-    heading_font_size=24,
-    heading_line_height=1.15,
-)}
-  #cameramode-{uid} {{
-    width: 100%;
-    min-width: 0;
-    visibility: hidden;
-  }}
-  .jsPanel:has(#cameramode-{uid}) {{
-    width: min(680px, calc(100vw - 32px)) !important;
-    min-width: 0 !important;
-    max-width: calc(100vw - 32px) !important;
-    left: 50% !important;
-    top: 50% !important;
-    right: auto !important;
-    bottom: auto !important;
-    transform: translate(-50%, -50%) !important;
-  }}
-  #cameramode-{uid} .camera-mode-grid {{
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
-    width: 100%;
-  }}
-  #cameramode-{uid} .camera-mode-card {{
-    display: grid;
-    align-content: start;
-    gap: 12px;
-    box-sizing: border-box;
-    width: 100%;
-    min-height: 132px;
-    padding: 16px;
-    color: #fffaf0;
-    background-color: rgba(7, 15, 22, 0.88);
-    background-image: linear-gradient(to bottom, rgba(7, 15, 22, 0.9), rgba(7, 15, 22, 0.74));
-    border: 1px solid rgba(20, 255, 208, 0.34);
-    border-radius: 6px;
-    font: inherit;
-    text-align: left;
-    cursor: pointer;
-  }}
-  #cameramode-{uid} .camera-mode-card.is-active {{
-    background-color: rgba(20, 255, 208, 0.16);
-    background-image: linear-gradient(to bottom, rgba(20, 255, 208, 0.18), rgba(7, 15, 22, 0.64));
-    border-color: rgba(20, 255, 208, 0.72);
-  }}
-  #cameramode-{uid} .camera-mode-card:hover,
-  #cameramode-{uid} .camera-mode-card:focus {{
-    background-color: rgba(20, 255, 208, 0.22);
-    background-image: linear-gradient(to bottom, rgba(20, 255, 208, 0.22), rgba(7, 15, 22, 0.66));
-    border-color: rgba(20, 255, 208, 0.82);
-    outline: none;
-  }}
-  #cameramode-{uid} .camera-mode-card:disabled {{
-    color: rgba(255, 250, 240, 0.42);
-    background-color: rgba(7, 15, 22, 0.62);
-    background-image: none;
-    border-color: rgba(255, 250, 240, 0.14);
-    cursor: default;
-    opacity: 0.62;
-  }}
-  #cameramode-{uid} .camera-mode-topline {{
-    display: grid;
-    grid-template-columns: 20px minmax(0, 1fr) auto;
-    align-items: flex-start;
-    gap: 10px;
-    min-width: 0;
-  }}
-  #cameramode-{uid} .camera-mode-mark {{
-    box-sizing: border-box;
-    width: 18px;
-    height: 18px;
-    margin-top: 2px;
-    border: 2px solid rgba(255, 250, 240, 0.7);
-    border-radius: 50%;
-    background: rgba(7, 15, 22, 0.72);
-  }}
-  #cameramode-{uid} .camera-mode-card.is-active .camera-mode-mark {{
-    border-color: #14ffd0;
-    box-shadow: inset 0 0 0 4px rgba(7, 15, 22, 0.88);
-    background: #14ffd0;
-  }}
-  #cameramode-{uid} .camera-mode-title {{
-    min-width: 0;
-    overflow-wrap: anywhere;
-    font-size: 21px;
-    font-weight: 800;
-    line-height: 1.15;
-  }}
-  #cameramode-{uid} .camera-mode-badge {{
-    flex: 0 0 auto;
-    max-width: 48%;
-    padding: 3px 7px;
-    color: #071016;
-    background: #14ffd0;
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 800;
-    line-height: 1.15;
-    text-transform: uppercase;
-  }}
-  #cameramode-{uid} .camera-mode-copy {{
-    min-width: 0;
-    overflow-wrap: anywhere;
-    color: rgba(255, 250, 240, 0.72);
-    font-size: 14px;
-    line-height: 1.35;
-  }}
-  #cameramode-{uid} .camera-mode-actions {{
-    display: flex;
-    justify-content: center;
-    margin-top: 18px;
-  }}
-  #cameramode-{uid} .camera-mode-done {{
-    box-sizing: border-box;
-    min-width: 96px;
-    min-height: 40px;
-    padding: 0 16px;
-    color: #fffaf0;
-    background: rgba(20, 255, 208, 0.16);
-    border: 1px solid rgba(20, 255, 208, 0.62);
-    border-radius: 6px;
-    font: inherit;
-    font-size: 16px;
-    font-weight: 700;
-    cursor: pointer;
-  }}
-  #cameramode-{uid} .camera-mode-done:hover,
-  #cameramode-{uid} .camera-mode-done:focus {{
-    background: rgba(20, 255, 208, 0.22);
-    border-color: rgba(20, 255, 208, 0.78);
-    outline: none;
-  }}
-  @media (max-width: 560px) {{
-    #cameramode-{uid} .camera-mode-grid {{
-      grid-template-columns: 1fr;
-    }}
-    #cameramode-{uid} .camera-mode-card {{
-      min-height: 104px;
-    }}
-  }}
-</style>
-<section id="cameramode-{uid}" aria-label="Camera mode">
-  <h2>Camera</h2>
-  <div class="camera-mode-grid">
-    {"".join(cards)}
-  </div>
-  {done_button}
-</section>
-"""
-    modal_id = await atlantis.client_modal(html, title="Camera")
-    atlantis.session_shared.set(f"{camera_mode_id}:modal_id", modal_id)
-    exec_shell_js = json.dumps(atlantis.get_exec_shell_path())
-    script = f"""
-(function() {{
-  var settled = false;
-  var observer = null;
-  function cleanup() {{ if (observer) {{ try {{ observer.disconnect(); }} catch (e) {{}} observer = null; }} }}
-  function reveal(root) {{
-    root.style.visibility = "visible";
-    root.classList.add("camera-mode-ready");
-  }}
-  function cancel() {{
-    if (settled) return;
-    settled = true;
-    cleanup();
-    if (!window._accessToken) return;
-    sendChatter(window._accessToken, "@camera_mode_cancel", {{
-      camera_mode_id: {camera_mode_id_js}
-    }}, {exec_shell_js}).catch(function() {{}});
-  }}
-  function bind() {{
-    var root = document.getElementById("cameramode-{uid}");
-    if (!root) return;
-    reveal(root);
-    var buttons = Array.prototype.slice.call(root.querySelectorAll(".camera-mode-card, .camera-mode-done"));
-    var enabledButtons = buttons.filter(function(button) {{ return !button.disabled; }});
-    if (enabledButtons[0]) enabledButtons[0].focus({{ preventScroll: true }});
-    buttons.forEach(function(button) {{
-      button.addEventListener("click", function() {{
-        if (settled || button.disabled || !window._accessToken) return;
-        settled = true;
-        cleanup();
-        buttons.forEach(function(btn) {{ btn.disabled = true; }});
-        sendChatter(window._accessToken, "@camera_mode_select", {{
-          camera_mode_id: {camera_mode_id_js},
-          mode: button.getAttribute("data-mode") || ""
-        }}, {exec_shell_js}).catch(function() {{}});
-      }});
-      button.addEventListener("keydown", function(event) {{
-        if (button.disabled) return;
-        var index = enabledButtons.indexOf(button);
-        if (event.key === "ArrowRight" || event.key === "ArrowDown") {{
-          event.preventDefault();
-          enabledButtons[(index + 1) % enabledButtons.length].focus({{ preventScroll: true }});
-        }} else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {{
-          event.preventDefault();
-          enabledButtons[(index + enabledButtons.length - 1) % enabledButtons.length].focus({{ preventScroll: true }});
-        }} else if (event.key === "Enter" || event.key === " ") {{
-          event.preventDefault();
-          button.click();
-        }} else if (event.key === "Escape") {{
-          event.preventDefault();
-          cancel();
-        }}
-      }});
-    }});
-    observer = new MutationObserver(function() {{
-      if (!document.body.contains(root)) cancel();
-    }});
-    observer.observe(document.body, {{ childList: true, subtree: true }});
-  }}
-  requestAnimationFrame(function() {{ requestAnimationFrame(bind); }});
-}})()
-"""
-    await atlantis.client_script(script)
-    try:
-        return await future
-    finally:
-        atlantis.session_shared.remove(f"{camera_mode_id}:future")
-        atlantis.session_shared.remove(f"{camera_mode_id}:modal_id")
-        atlantis.session_shared.remove(f"{camera_mode_id}:choices")
+    return str(choice.get("id") or "")
 
 
 def _camera_slot_choices(roster: list, current: Dict[str, str]) -> list[Dict[str, str]]:
@@ -989,7 +720,6 @@ def _camera_slot_choices(roster: list, current: Dict[str, str]) -> list[Dict[str
         state = _roster_row_state(row)
         name = _roster_row_label(row)
         label = slot_key
-        current_marker = "Current" if slot_key == current_slot else ""
         details = [state]
         if name and name != "-":
             details.append(name)
@@ -999,8 +729,6 @@ def _camera_slot_choices(roster: list, current: Dict[str, str]) -> list[Dict[str
         location = str(row.get("location") or "").strip()
         if location:
             details.append(f"at {_camera_location_label(location)}")
-        if current_marker:
-            details.append(current_marker.lower())
         choices.append({
             "id": slot_key,
             "text": label,
@@ -1019,6 +747,9 @@ async def _camera_edit(roster: Optional[list] = None, game_key: Optional[str] = 
     if not has_locations and not slot_choices:
         raise RuntimeError("No camera targets found")
 
+    # The loop exists only for backing *up* out of a target picker. Answering a
+    # picker is terminal: the camera is bound and we return, rather than
+    # bouncing the user back to the mode dialog they just came from.
     while True:
         current = _camera_current_target(game_key)
         terminal_key = atlantis.get_terminal_key() or ""
@@ -1039,8 +770,6 @@ async def _camera_edit(roster: Optional[list] = None, game_key: Optional[str] = 
         except ModalGoBack:
             return False
         mode = str(mode or "").strip().lower()
-        if mode == "__done__":
-            return True
 
         if mode == "location":
             current_location = ""
@@ -1054,7 +783,7 @@ async def _camera_edit(roster: Optional[list] = None, game_key: Optional[str] = 
             if not location:
                 continue
             await camera_bind(game_key, location)
-            continue
+            return True
 
         if mode == "slot":
             current_slot = current.get("slot_key") if current.get("target_type") == "slot" else ""
@@ -1071,51 +800,13 @@ async def _camera_edit(roster: Optional[list] = None, game_key: Optional[str] = 
             if not slot_key:
                 continue
             await camera_follow(game_key, slot_key)
-            continue
+            return True
         raise ValueError(f"Unknown camera target mode: {mode!r}")
 
 
 @visible
 async def camera_edit() -> bool:
     return await _camera_edit()
-
-
-@public
-@visible
-async def camera_mode_select(camera_mode_id: str, mode: str) -> None:
-    mode = str(mode or "").strip()
-    modal_key = f"{camera_mode_id}:modal_id"
-    future_key = f"{camera_mode_id}:future"
-    choices_key = f"{camera_mode_id}:choices"
-    modal_id = atlantis.session_shared.get(modal_key)
-    if modal_id:
-        await atlantis.client_modal_close(modal_id)
-        atlantis.session_shared.remove(modal_key)
-    choices = atlantis.session_shared.get(choices_key) or {}
-    if mode not in choices:
-        raise ValueError(f"Unknown camera mode: {mode!r}")
-    future = atlantis.session_shared.get(future_key)
-    if future is None:
-        raise ValueError("Camera mode modal is no longer active")
-    if not future.done():
-        future.set_result(mode)
-
-
-@public
-@visible
-async def camera_mode_cancel(camera_mode_id: str) -> None:
-    modal_key = f"{camera_mode_id}:modal_id"
-    future_key = f"{camera_mode_id}:future"
-    modal_id = atlantis.session_shared.get(modal_key)
-    if modal_id:
-        try:
-            await atlantis.client_modal_close(modal_id)
-        except Exception:
-            pass
-        atlantis.session_shared.remove(modal_key)
-    future = atlantis.session_shared.get(future_key)
-    if future is not None and not future.done():
-        future.set_exception(ModalGoBack("Camera mode selection cancelled"))
 
 
 @public
@@ -1354,8 +1045,8 @@ async def game_init(game_key: str):
     if not await roster_edit():
         raise RuntimeError("Roster selection cancelled")
     roster = await atlantis.client_command("@roster_list")
-    if roster and all(row.get("state") == "Empty" for row in roster):
-        await _warn_empty_roster()
+    if roster and all(row.get("state") == STATE_AVAILABLE for row in roster):
+        await _warn_unfilled_roster()
 
     if not await _camera_edit(roster=roster, game_key=game_key):
         raise RuntimeError("Camera selection cancelled")

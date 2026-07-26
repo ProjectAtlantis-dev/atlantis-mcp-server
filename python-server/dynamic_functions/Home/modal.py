@@ -141,6 +141,7 @@ async def modal_string(
     modal_text_html = html_lib.escape(modal_text or "Enter a value")
     heading_block = f"<h2>{html_lib.escape(heading)}</h2>" if heading else ""
     submit_label_html = html_lib.escape(submit_label)
+    submit_label_js = json.dumps(submit_label)
     submitting_label_js = json.dumps(submitting_label)
     empty_error_js = json.dumps(empty_error)
     input_type_html = html_lib.escape(input_type)
@@ -258,6 +259,7 @@ async def modal_string(
     script = f"""
 (function() {{
   var settled = false;
+  var sending = false;
   var observer = null;
   function cleanup() {{ if (observer) {{ try {{ observer.disconnect(); }} catch (e) {{}} observer = null; }} }}
   function reveal(root) {{
@@ -318,15 +320,27 @@ async def modal_string(
     }});
   }}
   async function cancel() {{
-    if (settled) return;
-    settled = true;
-    cleanup();
-    if (!window._accessToken) return;
+    if (settled || sending) return;
+    sending = true;
     try {{
+      if (!window._accessToken) throw new Error("missing access token");
       await sendChatter(window._accessToken, "@modal_string_cancel", {{
         modal_string_id: {modal_string_id_js}
       }}, {exec_shell_js});
-    }} catch (e) {{}}
+      settled = true;
+      cleanup();
+    }} catch (e) {{
+      // The answer never reached the server. Never swallow this: the Python
+      // side is blocked on a callback that is now not coming. If the dialog
+      // is still on screen, stay unsettled so the user can retry; if it is
+      // already gone there is nothing to retry and the server-side modal
+      // timeout is the only remaining backstop.
+      console.error({modal_string_id_js} + ": cancel did not reach the server: " + e);
+      var stillOpen = document.getElementById("displayname-{uid}");
+      if (!stillOpen || !document.body.contains(stillOpen)) {{ settled = true; cleanup(); }}
+    }} finally {{
+      sending = false;
+    }}
   }}
   function bind() {{
     var root = document.getElementById("displayname-{uid}");
@@ -346,14 +360,27 @@ async def modal_string(
       var value = input.value.trim();
       if (!value) {{ if (error) error.textContent = {empty_error_js}; input.focus(); return; }}
       if (error) error.textContent = "";
+      if (sending) return;
+      sending = true;
       button.disabled = true;
       button.textContent = {submitting_label_js};
-      settled = true;
-      cleanup();
-      await sendChatter(window._accessToken, "@modal_string_click", {{
-        modal_string_id: {modal_string_id_js},
-        display_name: value
-      }}, {exec_shell_js});
+      try {{
+        await sendChatter(window._accessToken, "@modal_string_click", {{
+          modal_string_id: {modal_string_id_js},
+          display_name: value
+        }}, {exec_shell_js});
+        settled = true;
+        cleanup();
+      }} catch (e) {{
+        // Submit never landed. Hand the dialog back to the user rather than
+        // leaving it stuck on the submitting label with nothing in flight.
+        console.error({modal_string_id_js} + ": submit did not reach the server: " + e);
+        button.disabled = false;
+        button.textContent = {submit_label_js};
+        if (error) error.textContent = "Could not reach the server - try again.";
+      }} finally {{
+        sending = false;
+      }}
     }});
     observer = new MutationObserver(function() {{
       if (!document.body.contains(root)) {{ cancel(); }}
@@ -485,6 +512,7 @@ async def modal_confirm(
     script = f"""
 (function() {{
   var settled = false;
+  var sending = false;
   var observer = null;
   function cleanup() {{ if (observer) {{ try {{ observer.disconnect(); }} catch (e) {{}} observer = null; }} }}
   function markHost(host) {{
@@ -512,15 +540,22 @@ async def modal_confirm(
     root.classList.add("modal-confirm-ready");
   }}
   async function settle(action) {{
-    if (settled) return;
-    settled = true;
-    cleanup();
-    if (!window._accessToken) return;
+    if (settled || sending) return;
+    sending = true;
     try {{
+      if (!window._accessToken) throw new Error("missing access token");
       await sendChatter(window._accessToken, action, {{
         modal_confirm_id: {modal_confirm_id_js}
       }}, {exec_shell_js});
-    }} catch (e) {{}}
+      settled = true;
+      cleanup();
+    }} catch (e) {{
+      console.error({modal_confirm_id_js} + ": '" + action + "' did not reach the server: " + e);
+      var stillOpen = document.getElementById("modalconfirm-{uid}");
+      if (!stillOpen || !document.body.contains(stillOpen)) {{ settled = true; cleanup(); }}
+    }} finally {{
+      sending = false;
+    }}
   }}
   function bind() {{
     var root = document.getElementById("modalconfirm-{uid}");
@@ -677,14 +712,23 @@ async def modal_radio(
     border-radius: 6px;
     cursor: pointer;
   }}
-  #modalradio-{uid} .radio-choice:has(input:checked) {{
-    background: rgba(20, 255, 208, 0.16);
-    border-color: rgba(20, 255, 208, 0.7);
-  }}
+  /* Hover/focus is only a weak pointer hint and must read as clearly *below*
+     the checked state, otherwise a hovered row looks as selected as the real
+     selection. Declared before the checked rule so checked always wins. */
   #modalradio-{uid} .radio-choice:focus-within,
   #modalradio-{uid} .radio-choice:hover {{
-    border-color: rgba(20, 255, 208, 0.72);
+    background: rgba(20, 255, 208, 0.06);
+    border-color: rgba(20, 255, 208, 0.42);
     outline: none;
+  }}
+  #modalradio-{uid} .radio-choice.is-disabled:hover {{
+    background: rgba(7, 15, 22, 0.48);
+    border-color: rgba(20, 255, 208, 0.28);
+  }}
+  #modalradio-{uid} .radio-choice:has(input:checked) {{
+    background: rgba(20, 255, 208, 0.16);
+    border-color: #14ffd0;
+    box-shadow: inset 0 0 0 1px #14ffd0;
   }}
   #modalradio-{uid} .radio-choice.is-disabled {{
     cursor: default;
@@ -777,21 +821,31 @@ async def modal_radio(
     script = f"""
 (function() {{
   var settled = false;
+  var sending = false;
   var observer = null;
   function cleanup() {{ if (observer) {{ try {{ observer.disconnect(); }} catch (e) {{}} observer = null; }} }}
   function reveal(root) {{
     root.style.visibility = "visible";
     root.classList.add("modal-radio-ready");
   }}
-  function settle(action, choiceId) {{
-    if (settled) return;
-    settled = true;
-    cleanup();
-    if (!window._accessToken) return;
-    sendChatter(window._accessToken, action, {{
-      modal_radio_id: {modal_radio_id_js},
-      choice_id: choiceId || ""
-    }}, {exec_shell_js}).catch(function() {{}});
+  async function settle(action, choiceId) {{
+    if (settled || sending) return;
+    sending = true;
+    try {{
+      if (!window._accessToken) throw new Error("missing access token");
+      await sendChatter(window._accessToken, action, {{
+        modal_radio_id: {modal_radio_id_js},
+        choice_id: choiceId || ""
+      }}, {exec_shell_js});
+      settled = true;
+      cleanup();
+    }} catch (e) {{
+      console.error({modal_radio_id_js} + ": '" + action + "' did not reach the server: " + e);
+      var stillOpen = document.getElementById("modalradio-{uid}");
+      if (!stillOpen || !document.body.contains(stillOpen)) {{ settled = true; cleanup(); }}
+    }} finally {{
+      sending = false;
+    }}
   }}
   function selectedValue(root) {{
     var selected = root.querySelector('input[type="radio"]:checked');
@@ -1039,6 +1093,7 @@ async def modal_menu(
     script = f"""
 (function() {{
   var settled = false;
+  var sending = false;
   var observer = null;
   function cleanup() {{ if (observer) {{ try {{ observer.disconnect(); }} catch (e) {{}} observer = null; }} }}
   function reveal(root) {{
@@ -1187,15 +1242,22 @@ async def modal_menu(
     }});
   }}
   async function cancel() {{
-    if (settled) return;
-    settled = true;
-    cleanup();
-    if (!window._accessToken) return;
+    if (settled || sending) return;
+    sending = true;
     try {{
+      if (!window._accessToken) throw new Error("missing access token");
       await sendChatter(window._accessToken, "@modal_menu_cancel", {{
         modal_menu_id: {modal_menu_id_js}
       }}, {exec_shell_js});
-    }} catch (e) {{}}
+      settled = true;
+      cleanup();
+    }} catch (e) {{
+      console.error({modal_menu_id_js} + ": cancel did not reach the server: " + e);
+      var stillOpen = document.getElementById("modalmenu-{uid}");
+      if (!stillOpen || !document.body.contains(stillOpen)) {{ settled = true; cleanup(); }}
+    }} finally {{
+      sending = false;
+    }}
   }}
   function bind() {{
     var root = document.getElementById("modalmenu-{uid}");

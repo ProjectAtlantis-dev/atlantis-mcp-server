@@ -15,27 +15,37 @@ logger = logging.getLogger("dynamic_function")
 # % first_menu
 
 
-def _app_menu_items(tree_entries: list) -> list[dict]:
-    """Menu items for subfolders that expose a public Home/first_menu."""
+def _app_menu_items(tree_entries: list, script_folder: str) -> list[dict]:
+    """Menu items for sibling app folders that expose a public first_menu.
+
+    `first_menu` is a per-folder entry point: an app declares one at its root
+    (e.g. Chat/runner.py) and we `/cd` into the folder to invoke it. This menu
+    is itself such an entry point, so `script_folder` names the one to skip.
+    """
 
     items = {}
     for entry in tree_entries:
         parts = entry["filename"].split("/")
-        # <subfolder>/Home/<file>.py — a bare Home/... entry is this menu itself.
-        if len(parts) < 3 or parts[-2] != "Home":
+        # <app>/<file>.py — the app folder is the first path segment.
+        if len(parts) != 2:
             continue
         if "Public" not in entry["chatStatus"]:
             continue
-        folder = parts[0]
-        # searchTerm is the absolute function path; its parent is the app's Home folder.
-        home_path = entry["searchTerm"].rsplit("/", 1)[0]
-        items[folder] = {"id": f"app:{home_path}", "text": entry["description"]}
+        # searchTerm is the absolute function path; its parent is the app folder.
+        app_path = entry["searchTerm"].rsplit("/", 1)[0]
+        if app_path == script_folder:
+            continue
+        items[parts[0]] = {"id": f"app:{app_path}", "text": entry["description"]}
     return [items[folder] for folder in sorted(items)]
 
 
 @public
 async def first_menu():
     """Let the user choose where to go next."""
+
+    script_folder = atlantis.get_script_folder()
+    if not script_folder:
+        raise RuntimeError("Cannot determine homepage script folder")
 
     items = [
         {"id": "explore_demo_folder", "text": "Explore demo folder"},
@@ -44,9 +54,9 @@ async def first_menu():
     cwd = await atlantis.client_command("pwd")
     logger.info(f"pwd returned:\n{format_json_log(cwd, colored=True)}")
 
-    tree_entries = await atlantis.client_command("tree ../*/Home/first_menu")
+    tree_entries = await atlantis.client_command("tree ../*/first_menu")
     logger.info(f"tree first_menu (from {cwd}) returned:\n{format_json_log(tree_entries, colored=True)}")
-    items.extend(_app_menu_items(tree_entries))
+    items.extend(_app_menu_items(tree_entries, script_folder))
 
     choice = await modal_menu(
         items,
@@ -54,19 +64,15 @@ async def first_menu():
         heading="Where do you want to go?",
     )
 
-    script_folder = atlantis.get_script_folder()
-    if not script_folder:
-        raise RuntimeError("Cannot determine homepage script folder")
-
     choice_id = str(choice["id"])
     if choice_id.startswith("app:"):
-        home_path = choice_id[4:]
+        app_path = choice_id[4:]
         commands = [
-            f"/cd {home_path}",
+            f"/cd {app_path}",
             "pwd",
             "first_menu",
         ]
-        logger.info(f"launching app script for '{home_path}':\n{format_json_log(commands, colored=True)}")
+        logger.info(f"launching app script for '{app_path}':\n{format_json_log(commands, colored=True)}")
         await atlantis.client_command("/script", {"commands": commands})
         return None
 

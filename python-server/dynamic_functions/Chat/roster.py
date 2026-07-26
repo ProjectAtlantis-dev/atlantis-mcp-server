@@ -120,30 +120,48 @@ def _roster_rows() -> List[Dict[str, Any]]:
     return rows
 
 
+# A slot nobody has taken is a role that is open, not a thing that is broken:
+# "available" throughout, key and label alike. The key is not persisted — a
+# row's state is derived from `ai` (None/True/False) — so it only ever travels
+# between the browser, roster_set_slot, and these helpers.
+KEY_AVAILABLE = "available"
+KEY_AI = "ai"
+KEY_HUMAN = "human"
+STATE_KEYS = (KEY_AVAILABLE, KEY_AI, KEY_HUMAN)
+
+STATE_AVAILABLE = "Available"
+STATE_AI = "AI"
+STATE_HUMAN = "Human"
+STATE_LABELS = {KEY_AVAILABLE: STATE_AVAILABLE, KEY_AI: STATE_AI, KEY_HUMAN: STATE_HUMAN}
+# Callers that hold a label and need the key must look it up here rather than
+# lower-casing: that only works while every label is its key capitalized.
+STATE_KEY_BY_LABEL = {label: key for key, label in STATE_LABELS.items()}
+
+
 def _roster_row_state(row: Dict[str, Any]) -> str:
     state = str(row.get("state") or "").strip().lower()
-    if state in {"empty", "ai", "human"}:
-        return {"empty": "Empty", "ai": "AI", "human": "Human"}[state]
+    if state in STATE_LABELS:
+        return STATE_LABELS[state]
     if row.get("ai") is True:
-        return "AI"
+        return STATE_AI
     if row.get("ai") is False or row.get("session_key") or row.get("sid"):
-        return "Human"
-    return "Empty"
+        return STATE_HUMAN
+    return STATE_AVAILABLE
 
 
 def _roster_row_name(row: Dict[str, Any], state: str) -> str:
-    if state == "Empty":
+    if state == STATE_AVAILABLE:
         return ""
-    if state == "AI":
+    if state == STATE_AI:
         bot_sid = str(row.get("bot_sid") or "").strip()
         if bot_sid:
             return str(row.get("displayName") or bot_roster_name(bot_sid) or bot_sid)
     return str(row.get("displayName") or row.get("sid") or row.get("bot_sid") or "")
 
 
-def _roster_row_label(row: Dict[str, Any], empty_label: str = "-") -> str:
+def _roster_row_label(row: Dict[str, Any], available_label: str = "-") -> str:
     state = _roster_row_state(row)
-    return _roster_row_name(row, state) or empty_label
+    return _roster_row_name(row, state) or available_label
 
 
 def _caller_roster_row(
@@ -158,7 +176,7 @@ def _caller_roster_row(
         return next(
             (
                 row for row in roster
-                if _roster_row_state(row) == "Human" and row.get("sid") == caller_sid
+                if _roster_row_state(row) == STATE_HUMAN and row.get("sid") == caller_sid
             ),
             None,
         )
@@ -207,7 +225,7 @@ def _reset_roster_slot(target: Dict[str, Any]) -> None:
     target["bound_at"] = None
 
 
-def _set_roster_slot_empty(target: Dict[str, Any]) -> None:
+def _set_roster_slot_available(target: Dict[str, Any]) -> None:
     _reset_roster_slot(target)
     target["ai"] = None
 
@@ -246,14 +264,14 @@ async def roster_set_slot(
     display_name: Optional[str] = None,
     bot_sid: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Set a roster slot to Empty, AI, or Human."""
+    """Set an available roster slot to AI or Human."""
     slot_key = str(slot_key or "").strip()
     if not slot_key:
         raise ValueError("slot_key required")
 
     state_key = str(state or "").strip().lower()
-    if state_key not in {"empty", "ai", "human"}:
-        raise ValueError("state must be one of: empty, ai, human")
+    if state_key not in STATE_KEYS:
+        raise ValueError("state must be one of: available, ai, human")
 
     rows = _load_game_roster(game_key)
     target = next((row for row in rows if row.get("key") == slot_key), None)
@@ -261,9 +279,9 @@ async def roster_set_slot(
         raise ValueError(f"Unknown roster slot: {slot_key!r}")
 
     moved_slots: List[tuple[Dict[str, Any], Optional[str]]] = [(target, target.get("location") or None)]
-    if state_key == "empty":
-        _set_roster_slot_empty(target)
-    elif state_key == "ai":
+    if state_key == KEY_AVAILABLE:
+        _set_roster_slot_available(target)
+    elif state_key == KEY_AI:
         _set_roster_slot_ai(target, bot_sid)
     else:
         _set_roster_slot_human(target, str(display_name or ""))

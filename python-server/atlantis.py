@@ -361,6 +361,11 @@ def get_caller_shell_path() -> Optional[str]:
     ctx = get_context()
     return ctx.caller_shell_path if ctx else None
 
+def get_display_shell_path() -> Optional[str]:
+    """Return the session-owned shell for script-driven user output."""
+    ctx = get_context()
+    return ctx.display_shell_path if ctx else None
+
 def get_user_game_id() -> Optional[int]:
     """Returns the user_game_id for this function call."""
     ctx = get_context()
@@ -961,7 +966,8 @@ async def _client_command(
     data: Any = None,
     message_type: str = "command",
     is_private: bool = True,
-    notification_params: Optional[dict[str, Any]] = None
+    notification_params: Optional[dict[str, Any]] = None,
+    shell: str = "exec",
 ) -> Any:
     """Sends a command message to the client and waits for a specific acknowledgment and result.
 
@@ -974,6 +980,7 @@ async def _client_command(
         message_type: The message type for the protocol (default "command").
         is_private: If True, send only to requesting client.
         notification_params: Internal-only params flattened beside messageType/data.
+        shell: Callback target: "exec" (default), "display", or "caller".
 
     Returns:
         The result returned by the client for the command.
@@ -989,7 +996,16 @@ async def _client_command(
     current_function_name = _get_external_caller_name()
     caller_sid = get_caller()
     session_key = get_session_key()
-    exec_shell_path = get_exec_shell_path()
+    shell_paths = {
+        "exec": get_exec_shell_path(),
+        "display": get_display_shell_path(),
+        "caller": get_caller_shell_path(),
+    }
+    if shell not in shell_paths:
+        raise ValueError(f"Unknown client_command shell {shell!r}; expected exec, display, or caller")
+    target_shell_path = shell_paths[shell]
+    if not target_shell_path:
+        raise RuntimeError(f"client_command shell {shell!r} is unavailable in the current call context")
 
     logger.info(
         f"📡 client_command '{command}' (entry={entry_point_name}, currentFunction={current_function_name}, caller_sid={caller_sid})",
@@ -1028,7 +1044,7 @@ async def _client_command(
             current_function_name=current_function_name,
             caller_sid=caller_sid,
             session_key=session_key,
-            shell_path=exec_shell_path,  # Wire kwarg name is legacy; semantically this is exec_shell_path
+            shell_path=target_shell_path,
             message_type=message_type,  # Pass message_type for the protocol
             is_private=is_private,  # Pass is_private for broadcast control
             message_params=notification_params
@@ -1043,9 +1059,25 @@ async def _client_command(
         raise
 
 
-async def client_command(command: str, data: Any = None, message_type: str = "command", is_private: bool = True) -> Any:
-    """Sends a command message to the client and waits for acknowledgment."""
-    return await _client_command(command, data=data, message_type=message_type, is_private=is_private)
+async def client_command(
+    command: str,
+    data: Any = None,
+    message_type: str = "command",
+    is_private: bool = True,
+    shell: str = "exec",
+) -> Any:
+    """Send a command and wait for its result.
+
+    Set shell="display" to route user-facing output to the session's dedicated
+    display surface. Existing callers continue to use the isolated exec shell.
+    """
+    return await _client_command(
+        command,
+        data=data,
+        message_type=message_type,
+        is_private=is_private,
+        shell=shell,
+    )
 
 
 async def client_html(content: str, modal: bool = False, title: Optional[str] = None):

@@ -436,15 +436,22 @@ async def game_start(game_key: str) -> dict:
     """Set a game state to running, spawning anyone not already in the world."""
     result = await _game_set_state(game_key, GAME_STATE_RUNNING)
 
-    # Bots first, so the world is already populated when a human arrives: their
-    # "entered" description lands last and the camera following them paints a
-    # room that has its cast in it.
-    bots = await _spawn_unspawned_slots(game_key, ai=True)
-    if bots:
-        await atlantis.client_log(f"spawned bots on start: {', '.join(bots)}")
+    # Wipe the setup chatter, then undo the dimmed greyscale backdrop
+    # Home/user.py sets for its menu. Both before spawning, so the arrivals
+    # below survive the clear and land at full brightness and colour.
+    await atlantis.client_command("/clear")
+    await atlantis.client_command("/terminal brightness 1")
+    await atlantis.client_command("/terminal desaturate 0")
+
+    # Humans first: the player is already standing in the room, so each bot
+    # walking in is an arrival they witness rather than scenery that was always
+    # there. Kitty entering the Lobby is the first thing that happens in-game.
     humans = await _spawn_unspawned_slots(game_key, ai=False)
     if humans:
         await atlantis.client_log(f"spawned humans on start: {', '.join(humans)}")
+    bots = await _spawn_unspawned_slots(game_key, ai=True)
+    if bots:
+        await atlantis.client_log(f"spawned bots on start: {', '.join(bots)}")
     return result
 
 

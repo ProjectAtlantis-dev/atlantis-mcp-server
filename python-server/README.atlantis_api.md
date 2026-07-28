@@ -37,6 +37,7 @@ They take no arguments and return `None` when there is no active context.
 | `get_terminal_key()` | `str` | Session narrowed to one terminal: `session_key` + the user's root shell. |
 | `get_caller_shell_path()` | `str` | The user's **root** shell path (used for attribution). |
 | `get_exec_shell_path()` | `str` | The shell where this call's work actually runs. Outbound callbacks are tagged with this; falls back to the caller shell path. |
+| `get_display_shell_path()` | `str` | The session's dedicated browser-selectable shell for script-driven user output. |
 | `get_user_game_id()` | `int` | The integer `user_game_id` for this call. |
 
 ### Owner / permission checks
@@ -124,7 +125,7 @@ each ack).
 
 | Function | Notes |
 | --- | --- |
-| `client_command(command, data=None, message_type="command", is_private=True)` | Sends a command to the client and **waits for its result**. The general-purpose request/response primitive that most of the rendering helpers above are built on. |
+| `client_command(command, data=None, message_type="command", is_private=True, shell="exec")` | Sends a command to the client and **waits for its result**. Use `shell="display"` for script-driven user output on the session's dedicated display surface; `exec` remains the default. `shell="caller"` explicitly targets the originating terminal. |
 | `tool_result(name, result)` | Pushes a tool-call result into the transcript so the LLM sees it on the next turn. |
 | `client_onclick(key, callback)` | Registers an async `callback` to fire when the client reports a click for `key`. |
 | `client_upload(key, callback)` | Registers an async `callback` to fire when an upload occurs for `key`. |

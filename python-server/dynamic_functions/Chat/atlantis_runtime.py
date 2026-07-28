@@ -10,6 +10,7 @@ _ALLOWED_METHODS: Dict[str, Callable[[], Any]] = {
     "get_caller": _atlantis.get_caller,
     "get_caller_shell_path": _atlantis.get_caller_shell_path,
     "get_default_owner": _atlantis.get_default_owner,
+    "get_display_shell_path": _atlantis.get_display_shell_path,
     "get_exec_shell_path": _atlantis.get_exec_shell_path,
     "get_request_id": _atlantis.get_request_id,
     "get_script_folder": _atlantis.get_script_folder,

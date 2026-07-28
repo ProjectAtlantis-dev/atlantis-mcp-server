@@ -12,6 +12,7 @@ class ToolCallPayload(BaseModel):
     user_game_id: Optional[int] = None
     exec_shell_path: Optional[str] = None
     caller_shell_path: Optional[str] = None
+    display_shell_path: Optional[str] = None
 
 
 class CallContext(BaseModel):
@@ -55,6 +56,10 @@ class CallContext(BaseModel):
     @property
     def caller_shell_path(self) -> Optional[str]:
         return self.payload.caller_shell_path
+
+    @property
+    def display_shell_path(self) -> Optional[str]:
+        return self.payload.display_shell_path
 
     @property
     def session_key(self) -> str:

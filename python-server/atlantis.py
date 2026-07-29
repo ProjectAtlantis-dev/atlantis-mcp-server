@@ -1008,7 +1008,7 @@ async def _client_command(
         raise RuntimeError(f"client_command shell {shell!r} is unavailable in the current call context")
 
     logger.info(
-        f"📡 client_command '{command}' (entry={entry_point_name}, currentFunction={current_function_name}, caller_sid={caller_sid})",
+        f"📡 client_command '{command}' (entry={entry_point_name}, currentFunction={current_function_name}, caller_sid={caller_sid}, shell={shell}:{target_shell_path})",
         extra={"atlantis_event": "dynamic_function_call"},
     )
     if isinstance(data, (dict, list)):
@@ -1080,13 +1080,14 @@ async def client_command(
     )
 
 
-async def client_html(content: str, modal: bool = False, title: Optional[str] = None):
+async def client_html(content: str, modal: bool = False, title: Optional[str] = None, shell: str = "exec"):
     """Sends HTML content back to the requesting client for rendering
 
     Args:
         content: The HTML content to send
         modal: If True, render the HTML in a client modal.
         title: Optional modal title.
+        shell: Render target shell — "exec" (default), "display", or "caller".
     """
     # Internal carrier only: these keys are flattened into notifications/message.params
     # beside messageType and data; no wrapper is exposed or sent to clients.
@@ -1097,15 +1098,20 @@ async def client_html(content: str, modal: bool = False, title: Optional[str] = 
         notification_params["title"] = title
 
     # Use client_command for awaitable response with proper message_type
-    result = await _client_command("html", content, message_type="html", notification_params=notification_params or None)
+    result = await _client_command("html", content, message_type="html", notification_params=notification_params or None, shell=shell)
     if modal:
         if not isinstance(result, dict) or not result.get("modalId"):
             raise RuntimeError(f"Expected modal html ack with modalId, got: {result!r}")
     return result
 
 
-async def client_modal(content: str, title: Optional[str] = None) -> str:
+async def client_modal(content: str, title: Optional[str] = None, shell: str = "exec") -> str:
     """Sends HTML content back to the requesting client in a modal.
+
+    Args:
+        content: The modal HTML.
+        title: Optional modal title.
+        shell: Render target shell — "exec" (default), "display", or "caller".
 
     Returns:
         The modal UUID returned by the client ack.
@@ -1116,7 +1122,7 @@ async def client_modal(content: str, title: Optional[str] = None) -> str:
     if title is not None:
         notification_params["title"] = title
 
-    result = await _client_command("html", content, message_type="html", notification_params=notification_params)
+    result = await _client_command("html", content, message_type="html", notification_params=notification_params, shell=shell)
     if not isinstance(result, dict) or not result.get("modalId"):
         raise RuntimeError(f"Expected modal html ack with modalId, got: {result!r}")
     return result["modalId"]

@@ -129,6 +129,13 @@ def _validate_default_location(bot_sid: str, location: str) -> None:
 
 def bot_thumb(bot_sid: str) -> str:
     """Return a thumbnail path for a bot portrait, if one exists."""
+    image_path = bot_image_path(bot_sid)
+    return _ensure_thumb(image_path) if image_path else ""
+
+
+def bot_image_path(bot_sid: str) -> str:
+    """Return the full-size configured portrait path for a bot, if present."""
+    _validate_bot(bot_sid)
     bot_data = _load_bot_json(bot_sid)
     image_file = str(bot_data.get("image") or "").strip()
     if not image_file:
@@ -136,7 +143,7 @@ def bot_thumb(bot_sid: str) -> str:
     image_path = os.path.join(_bots_dir(), bot_sid, image_file)
     if not os.path.isfile(image_path):
         return ""
-    return _ensure_thumb(image_path)
+    return image_path
 
 
 def bot_image_data(bot_sid: str) -> str:

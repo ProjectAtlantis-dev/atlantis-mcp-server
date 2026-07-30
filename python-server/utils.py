@@ -177,7 +177,8 @@ async def client_log(
     is_private: bool = True,
     visibility_scope: Optional[str] = None,
     location: Optional[str] = None,
-    caller_sid: Optional[str] = None
+    caller_sid: Optional[str] = None,
+    shell_path: Optional[str] = None,
     ) -> Optional[asyncio.Task[None]]:
     """
     Send a log message to the client.
@@ -205,6 +206,7 @@ async def client_log(
         is_private: If True (default), send only to requesting client.
                    If False, broadcast to all connected clients (used by scripts).
         visibility_scope: Explicit event visibility scope for clients that persist events.
+        shell_path: Optional shell path used by the client to route this notification.
     """
     # Log locally first (always using INFO level for local display)
     seq_prefix = f"(Seq: {seq_num}) " if seq_num is not None else ""
@@ -267,7 +269,8 @@ async def client_log(
                         is_private,
                         visibility_scope,
                         location,
-                        caller_sid
+                        caller_sid,
+                        shell_path,
                     )
 
                 except Exception as task_e:

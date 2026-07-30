@@ -62,9 +62,9 @@ They take no arguments and return `None` when there is no active context.
 
 | Function | Notes |
 | --- | --- |
-| `client_log(message, level="INFO", message_type="text", is_private=True, location=None)` | The core "send something back to the client" call. Auto-captures sequence number, caller name, and entry point. `message_type` can be `"text"`, `"json"`, or an image mime (`"image/png"`, …). `is_private=False` adds a cloud-side routing hint for broadcast. |
-| `client_description(message, ...)` | `client_log` with `message_type="description"`. |
-| `client_warning(message, ...)` | `client_log` with `message_type="warning"`. |
+| `client_log(message, level="INFO", message_type="text", is_private=True, location=None, shell=None)` | The core "send something back to the client" call. Auto-captures sequence number, caller name, and entry point. `message_type` can be `"text"`, `"json"`, or an image mime (`"image/png"`, …). `is_private=False` adds a cloud-side routing hint for broadcast. Set `shell` to `"exec"`, `"display"`, or `"caller"` for explicit routing; omitting it preserves legacy notification routing. |
+| `client_description(message, ..., shell=None)` | `client_log` with `message_type="description"`; accepts the same optional shell routing. |
+| `client_warning(message, ..., shell=None)` | `client_log` with `message_type="warning"`; accepts the same optional shell routing. |
 | `owner_log(message)` | Appends a structured entry to `log/owner_log.json` (timestamp, tool name, caller) and echoes to the server console. |
 | `gather_logs()` | `await` to block until all pending `client_log` tasks have actually been delivered. Returns `True` if there were tasks to wait on. |
 
@@ -81,7 +81,7 @@ All of these send content to the client and `await` its acknowledgment.
 | `client_modal(content, title=None)` | HTML in a modal; **returns the modal UUID**. |
 | `client_modal_close(modal_id)` | Closes a previously opened modal by id. |
 | `client_data(description, data, column_formatter=None)` | A JSON-serializable object for styled rendering. Arrays of objects auto-display as a table. `column_formatter` maps column names to display options. Raises `TypeError` if `data` isn't JSON-serializable. |
-| `client_image(image_path, image_format=None, content=None, who=None, max_width=None)` | An image file (base64-encoded). Mime auto-detected from extension if omitted. Optional `content` is displayed with the image event; optional `who` overrides the event display name; optional `max_width` sets CSS max-width (for example `"25vw"` or `"320px"`). |
+| `client_image(image_path, image_format=None, content=None, who=None, max_width=None, sid=None, location=None, shell="exec")` | An image file (base64-encoded). Mime auto-detected from extension if omitted. Optional `content` is displayed with the image event; `sid` identifies the author for database display-name resolution, while `who` explicitly overrides that name; `max_width` sets CSS max-width; `location` tags the game location; and `shell` selects `"exec"`, `"display"`, or `"caller"` routing. |
 | `client_video(video_path, video_format=None, content=None, who=None)` | A video file (base64-encoded). Mime auto-detected if omitted. Optional `content` is displayed with the video event; optional `who` overrides the event display name. |
 | `client_script(content, is_private=True)` | JavaScript that runs **once** (deduped by event completion). |
 | `client_terminal_script(content, is_private=True)` | JavaScript that **re-runs on every render** — use for cosmetic DOM effects that must survive a page reload. |

@@ -2079,7 +2079,8 @@ class DynamicAdditionServer(Server):
                               is_private: bool = True,  # If False, broadcast to all clients
                               visibility_scope: Optional[str] = None, # Explicit event visibility scope
                               location: Optional[str] = None, # Optional location tag for chat/description events
-                              caller_sid: Optional[str] = None # Caller sid who initiated the request
+                              caller_sid: Optional[str] = None, # Caller sid who initiated the request
+                              shell_path: Optional[str] = None, # Optional target shell path
                               ):
         """Send a log message notification to connected clients using direct WebSocket communication.
 
@@ -2095,6 +2096,7 @@ class DynamicAdditionServer(Server):
             stream_id: Optional stream identifier for the message
             is_private: If True (default), send only to requesting client.
                        If False, broadcast to all connected clients (used by scripts).
+            shell_path: Optional target shell path for client-side routing.
         """
         try:
             # Normalize level to uppercase for consistency
@@ -2132,6 +2134,9 @@ class DynamicAdditionServer(Server):
 
             if caller_sid is not None:
                 params["caller_sid"] = caller_sid
+
+            if shell_path is not None:
+                params["shellPath"] = shell_path
 
             notification = {
                 "jsonrpc": "2.0",

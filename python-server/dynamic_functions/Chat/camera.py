@@ -78,12 +78,13 @@ def _resolve_camera_location(game_key: str, entry: Dict[str, Any]) -> Optional[s
         return _slot_location(game_key, entry["slot_key"])
     raise ValueError(f"Unknown camera target_type: {target_type!r}")
 
-
+@visible
 async def _paint_location(location: str) -> None:
     background = location_image_path(location)
     align = _location_default_camera_align(location)
     await atlantis.client_log(f"camera paint location={location!r} background={background!r} align={align!r}")
-    await atlantis.set_background(background, vertical_align=align)
+    await atlantis.set_background(background, vertical_align=align, shell="display")
+
 
 
 def _camera_rows(game_key: str) -> List[Dict[str, Any]]:

@@ -145,7 +145,10 @@ async def get_and_increment_stream_seq_num(stream_id: str) -> int:
     _stream_seq_counters[stream_id] += 1
     return current_seq
 
-async def get_and_increment_seq_num(context_name: str = "operation") -> int:
+async def get_and_increment_seq_num(
+    context_name: str = "operation",
+    shell_path: Optional[str] = None,
+) -> int:
     """Get and increment the sequence number in a thread-safe way.
 
     Sequence numbers are tracked per (request_id, shell_path) to ensure uniqueness
@@ -167,9 +170,9 @@ async def get_and_increment_seq_num(context_name: str = "operation") -> int:
         logger.error(f"{context_name} - request_id is None. Cannot get sequence number.")
         return -1
 
-    exec_shell_path = get_exec_shell_path()
-    # Use composite key of (request_id, exec_shell_path) for per-shell sequencing
-    counter_key = (request_id, exec_shell_path)
+    sequence_shell_path = shell_path if shell_path is not None else get_exec_shell_path()
+    # Use composite key of (request_id, shell_path) for per-shell sequencing
+    counter_key = (request_id, sequence_shell_path)
 
     if counter_key not in _request_seq_counters:
         _request_seq_counters[counter_key] = 1
@@ -196,7 +199,14 @@ def _get_external_caller_name(default: str = "unknown_caller") -> str:
 
 # --- Accessor Functions ---
 
-async def client_log(message: Any, level: str = "INFO", message_type: str = "text", is_private: bool = True, location: Optional[str] = None):
+async def client_log(
+    message: Any,
+    level: str = "INFO",
+    message_type: str = "text",
+    is_private: bool = True,
+    location: Optional[str] = None,
+    shell: Optional[str] = None,
+):
     """Sends a log message back to the requesting client for the current context.
     Includes a sequence number and automatically determines the calling function name.
     Also includes the original entry point function name.
@@ -214,6 +224,8 @@ async def client_log(message: Any, level: str = "INFO", message_type: str = "tex
     Args:
         is_private: If True (default), send only to requesting client.
                    If False, pass a cloud-side routing hint.
+        shell: Optional render target shell: "exec", "display", or "caller".
+               When omitted, preserve the notification's legacy routing.
 
     Calls the underlying log function directly; async dispatch is handled internally.
     """
@@ -224,8 +236,24 @@ async def client_log(message: Any, level: str = "INFO", message_type: str = "tex
         entry_point_name = get_entry_point_name() or "unknown_entry_point" # Get entry point from context
 
         try:
+            target_shell_path = None
+            if shell is not None:
+                shell_paths = {
+                    "exec": get_exec_shell_path(),
+                    "display": get_display_shell_path(),
+                    "caller": get_caller_shell_path(),
+                }
+                if shell not in shell_paths:
+                    raise ValueError(f"Unknown client_log shell {shell!r}; expected exec, display, or caller")
+                target_shell_path = shell_paths[shell]
+                if not target_shell_path:
+                    raise RuntimeError(f"client_log shell {shell!r} is unavailable in the current call context")
+
             # Get current sequence number and increment it for the next call
-            current_seq_to_send = await get_and_increment_seq_num(context_name="client_log")
+            current_seq_to_send = await get_and_increment_seq_num(
+                context_name="client_log",
+                shell_path=target_shell_path,
+            )
             # If current_seq_to_send is -1, the helper function already logged the error
 
             # Get context values with null checks
@@ -248,7 +276,8 @@ async def client_log(message: Any, level: str = "INFO", message_type: str = "tex
                 is_private=is_private,
                 visibility_scope="sid" if is_private else "game",
                 location=location,
-                caller_sid=get_caller()
+                caller_sid=get_caller(),
+                shell_path=target_shell_path,
             )
             # task is the asyncio.Task returned by utils.client_log
 
@@ -270,24 +299,38 @@ async def client_log(message: Any, level: str = "INFO", message_type: str = "tex
         logger.warning(f"client_log called but no logger in context. Message: {message}")
         return None # Or raise an error
 
-async def client_description(message: Any, level: str = "INFO", is_private: bool = True, location: Optional[str] = None):
+async def client_description(
+    message: Any,
+    level: str = "INFO",
+    is_private: bool = True,
+    location: Optional[str] = None,
+    shell: Optional[str] = None,
+):
     """Sends a description message back to the requesting client for the current context."""
     return await client_log(
         message,
         level=level,
         message_type="description",
         is_private=is_private,
-        location=location
+        location=location,
+        shell=shell,
     )
 
-async def client_warning(message: Any, level: str = "WARNING", is_private: bool = True, location: Optional[str] = None):
+async def client_warning(
+    message: Any,
+    level: str = "WARNING",
+    is_private: bool = True,
+    location: Optional[str] = None,
+    shell: Optional[str] = None,
+):
     """Sends a warning message back to the requesting client for the current context."""
     return await client_log(
         message,
         level=level,
         message_type="warning",
         is_private=is_private,
-        location=location
+        location=location,
+        shell=shell,
     )
 
 async def tool_result(name: str, result: Any):
@@ -605,6 +648,9 @@ async def client_image(
     content: Optional[str] = None,
     who: Optional[str] = None,
     max_width: Optional[str] = None,
+    sid: Optional[str] = None,
+    location: Optional[str] = None,
+    shell: str = "exec",
 ):
     """Sends an image back to the requesting client for the current context.
     This is a wrapper around client_log that automatically loads the image,
@@ -617,6 +663,9 @@ async def client_image(
         content: Optional text content/caption to display with the image event.
         who: Optional display-name override for the image event.
         max_width: Optional CSS max-width for the rendered image (e.g. "25vw", "320px").
+        sid: Optional author sid; the client/database resolves its display name.
+        location: Optional game-location tag for the image event.
+        shell: Render target shell — "exec" (default), "display", or "caller".
 
     Raises:
         FileNotFoundError: If the image file doesn't exist
@@ -644,6 +693,10 @@ async def client_image(
         notification_params["who"] = who
     if max_width is not None:
         notification_params["maxWidth"] = max_width
+    if sid is not None:
+        notification_params["sid"] = sid
+    if location is not None:
+        notification_params["location"] = location
 
     # Send via client_command with appropriate message_type for awaitable behavior
     result = await _client_command(
@@ -651,6 +704,7 @@ async def client_image(
         prefixed_data,
         message_type=image_format,
         notification_params=notification_params or None,
+        shell=shell,
     )
     return result
 
@@ -1025,7 +1079,10 @@ async def _client_command(
     try:
         # Get current sequence number and increment it for the next call
         # Using the helper function for consistent sequence number management
-        current_seq_to_send = await get_and_increment_seq_num(context_name="client_command")
+        current_seq_to_send = await get_and_increment_seq_num(
+            context_name="client_command",
+            shell_path=target_shell_path,
+        )
 
         # Extra logging for tool calls (commands starting with %)
         if command.startswith('%'):
@@ -1194,6 +1251,7 @@ async def set_background(
     horizontal_align: str = "center",
     background_repeat: str = "no-repeat",
     background_size: str = "cover",
+    shell: str = "exec",
 ):
     """Sets the background image for the client UI.
 
@@ -1206,6 +1264,7 @@ async def set_background(
         horizontal_align: Horizontal alignment for background-position. Defaults to "center".
         background_repeat: CSS background-repeat value. Defaults to "no-repeat".
         background_size: CSS background-size value. Defaults to "cover".
+        shell: Render target shell — "exec" (default), "display", or "caller".
     """
     # Auto-detect MIME type from file extension if not provided
     if image_format is None:
@@ -1233,6 +1292,7 @@ async def set_background(
             "backgroundSize": background_size,
             "visibilityScope": "game",
         },
+        shell=shell,
     )
     return result
 

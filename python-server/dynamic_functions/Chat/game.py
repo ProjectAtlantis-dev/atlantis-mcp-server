@@ -452,6 +452,10 @@ async def game_start(game_key: str) -> dict:
     bots = await _spawn_unspawned_slots(game_key, ai=True)
     if bots:
         await atlantis.client_log(f"spawned bots on start: {', '.join(bots)}")
+    # Also covers resuming an already-positioned roster created before sighting
+    # tracking existed; movement handles all ordinary first encounters.
+    from .roster import _show_kitty_first_sighting
+    await _show_kitty_first_sighting(game_key)
     return result
 
 

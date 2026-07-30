@@ -5,7 +5,7 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from .bot import bot_roster_name, load_bot
+from .bot import bot_image_path, bot_roster_name, load_bot
 from .common import _read_json, _write_json
 from .game import require_membership
 from .location import _connects_to, _require_leaf, load_location
@@ -31,6 +31,9 @@ STATE_LABELS = {KEY_AVAILABLE: STATE_AVAILABLE, KEY_AI: STATE_AI, KEY_HUMAN: STA
 STATE_KEY_BY_LABEL = {label: key for key, label in STATE_LABELS.items()}
 # A row's state is stored as `ai`: None = nobody, True = bot, False = person.
 AI_BY_STATE_KEY = {KEY_AVAILABLE: None, KEY_AI: True, KEY_HUMAN: False}
+
+KITTY_BOT_SID = "kitty"
+SIGHTINGS_FILENAME = "sightings.json"
 
 
 def _number_duplicate_display_names(rows: List[Dict[str, Any]]) -> None:
@@ -164,6 +167,78 @@ def _find_roster_row(rows: List[Dict[str, Any]], sid_or_key: str) -> Dict[str, A
 def _write_game_roster(game_key: str, rows: List[Dict[str, Any]]) -> None:
     data_dir = require_membership(game_key)
     _write_json(os.path.join(data_dir, "roster.json"), rows)
+
+
+def _sightings_path(game_key: str) -> str:
+    return os.path.join(require_membership(game_key), SIGHTINGS_FILENAME)
+
+
+def _load_sightings(game_key: str) -> Dict[str, List[str]]:
+    path = _sightings_path(game_key)
+    raw = _read_json(path, {}) or {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"Game {game_key!r} {SIGHTINGS_FILENAME} must be a JSON object")
+
+    sightings: Dict[str, List[str]] = {}
+    for bot_sid, human_sids in raw.items():
+        if not isinstance(human_sids, list) or not all(isinstance(sid, str) for sid in human_sids):
+            raise ValueError(
+                f"Game {game_key!r} sighting record for {bot_sid!r} must be a list of human sids"
+            )
+        sightings[str(bot_sid)] = human_sids
+    return sightings
+
+
+async def _show_kitty_first_sighting(
+    game_key: str,
+    rows: Optional[List[Dict[str, Any]]] = None,
+) -> bool:
+    """Show Kitty's portrait once when the calling human first shares her location."""
+    human_sid = str(atlantis.get_caller() or "").strip()
+    if not human_sid:
+        return False
+
+    roster = rows if rows is not None else _load_game_roster(game_key)
+    human_locations = {
+        str(row.get("location") or "").strip()
+        for row in roster
+        if row.get("ai") is False and row.get("sid") == human_sid and row.get("location")
+    }
+    if not human_locations:
+        return False
+
+    kitty_row = next(
+        (
+            row for row in roster
+            if row.get("ai") is True
+            and row.get("bot_sid") == KITTY_BOT_SID
+            and row.get("location") in human_locations
+        ),
+        None,
+    )
+    if kitty_row is None:
+        return False
+
+    sightings = _load_sightings(game_key)
+    seen_by = sightings.setdefault(KITTY_BOT_SID, [])
+    if human_sid in seen_by:
+        return False
+
+    image_path = bot_image_path(KITTY_BOT_SID)
+    if not image_path:
+        raise FileNotFoundError(f"Kitty portrait is not configured or is missing")
+
+    location = str(kitty_row.get("location") or "")
+    await atlantis.client_image(
+        image_path,
+        sid=KITTY_BOT_SID,
+        location=location,
+        shell="display",
+    )
+
+    seen_by.append(human_sid)
+    _write_json(_sightings_path(game_key), sightings)
+    return True
 
 
 def _roster_rows() -> List[Dict[str, Any]]:
@@ -423,6 +498,7 @@ async def _describe_roster_slot_entered(target: Dict[str, Any], location: str) -
     await atlantis.client_description(
         f"{display_name} entered.",
         location=location,
+        shell="display",
     )
 
 
@@ -431,6 +507,7 @@ async def _describe_roster_slot_exited(target: Dict[str, Any], location: str) ->
     await atlantis.client_description(
         f"{display_name} exited.",
         location=location,
+        shell="display",
     )
 
 
@@ -481,6 +558,7 @@ async def _roster_move(game_key: str, sid_or_slot: str, location: str, reason: s
         await _describe_roster_slot_exited(target, previous)
     if previous != location:
         await _describe_roster_slot_entered(target, location)
+    await _show_kitty_first_sighting(game_key, rows)
     await _notify_roster_slot_moved(game_key, target, location)
     return target
 

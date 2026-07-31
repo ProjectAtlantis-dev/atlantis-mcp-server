@@ -1,5 +1,6 @@
 """Per-game bot tool inventories and canonical model-facing tool schemas."""
 
+import json
 import os
 import re
 from typing import Any, Dict, List
@@ -66,6 +67,15 @@ def _validate_tool_names(raw: Any, *, source: str) -> List[str]:
     return names
 
 
+def _normalize_tool_name(tool_name: str) -> str:
+    tool_name = str(tool_name or "").strip()
+    if not tool_name:
+        raise ValueError("tool_name required")
+    if tool_name not in _TOOL_DEFINITIONS:
+        raise ValueError(f"Unknown bot tool: {tool_name!r}")
+    return tool_name
+
+
 def bot_tool_names(game_key: str, bot_sid: str) -> List[str]:
     """Load one bot's authoritative tool-name inventory for a game."""
     path = _bot_tool_path(game_key, bot_sid)
@@ -73,6 +83,25 @@ def bot_tool_names(game_key: str, bot_sid: str) -> List[str]:
     if raw is None:
         return []
     return _validate_tool_names(raw, source=path)
+
+
+def _write_bot_tool_names(game_key: str, bot_sid: str, names: List[str]) -> None:
+    path = _bot_tool_path(game_key, bot_sid)
+    _write_json(path, _validate_tool_names(names, source=path))
+
+
+def _bot_tool_signature(name: str) -> str:
+    definition = _TOOL_DEFINITIONS[name]
+    schema = json.loads(
+        definition.get("input_schema", "")
+        or '{"type":"object","properties":{}}'
+    )
+    properties = schema.get("properties", {})
+    params = ",".join(
+        f"{param_name}:{param_schema.get('type', 'string')}"
+        for param_name, param_schema in properties.items()
+    )
+    return f"{name}({params})"
 
 
 def get_bot_tools(game_key: str, bot_sid: str) -> List[AtlantisSearchToolT]:
@@ -109,11 +138,48 @@ def _initialize_bot_tool_files(
 
 
 @public
-async def bot_tool_list(game_key: str, bot_sid: str) -> List[str]:
-    """List the tools currently enabled for a bot in this game."""
+async def bot_tool_list(game_key: str, bot_sid: str) -> List[Dict[str, Any]]:
+    """List enabled tools with the exact descriptions and parameters shown to this bot."""
     names = bot_tool_names(game_key, bot_sid)
+    rows = [
+        {
+            "tool": _bot_tool_signature(name),
+            "description": _TOOL_DEFINITIONS[name].get("tool_description", ""),
+        }
+        for name in names
+    ]
     await atlantis.client_data(
         f"{bot_sid} tools",
-        [{"tool": name} for name in names],
+        rows,
+    )
+    return rows
+
+
+@public
+async def bot_tool_add(game_key: str, bot_sid: str, tool_name: str) -> List[str]:
+    """Enable a canonical tool for a bot in the current game."""
+    bot_sid = _normalize_bot_sid(bot_sid)
+    tool_name = _normalize_tool_name(tool_name)
+    names = bot_tool_names(game_key, bot_sid)
+    if tool_name not in names:
+        names.append(tool_name)
+        _write_bot_tool_names(game_key, bot_sid, names)
+    await atlantis.client_log(
+        f"Enabled bot tool {tool_name!r} for {bot_sid!r} in game {game_key!r}"
+    )
+    return names
+
+
+@public
+async def bot_tool_remove(game_key: str, bot_sid: str, tool_name: str) -> List[str]:
+    """Disable a canonical tool for a bot in the current game."""
+    bot_sid = _normalize_bot_sid(bot_sid)
+    tool_name = _normalize_tool_name(tool_name)
+    names = bot_tool_names(game_key, bot_sid)
+    if tool_name in names:
+        names.remove(tool_name)
+        _write_bot_tool_names(game_key, bot_sid, names)
+    await atlantis.client_log(
+        f"Disabled bot tool {tool_name!r} for {bot_sid!r} in game {game_key!r}"
     )
     return names

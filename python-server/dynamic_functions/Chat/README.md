@@ -44,6 +44,3 @@ Server log: `python-server/runServer.log`
   per-game tool-name inventory.
 
 Both resolve through `common.home_path()`, rooted at this folder.
-
-`bot_tool.py` validates those inventories, resolves tool names to canonical
-model-facing schemas, and binds trusted turn context that bots must not supply.

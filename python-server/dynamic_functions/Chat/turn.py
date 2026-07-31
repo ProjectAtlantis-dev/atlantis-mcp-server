@@ -10,7 +10,7 @@ from .bot import bot_roster_name, load_bot, render_bot_prompt
 from .tool import (
     logger,
     AtlantisSearchToolT, OpenAITool, ToolLookupInfo,
-    _repair_json, coerce_args_to_schema, convert_search_tools,
+    _repair_json, coerce_args_to_schema, convert_discovery_rows, convert_search_tools,
 )
 from utils import format_json_log
 
@@ -24,15 +24,83 @@ async def _close_streams(talk_id, think_id):
             except Exception as e:
                 logger.warning(f"Failed to close stream {sid}: {e}")
 
+
+_DISCOVERY_TOOLS = ("search",)
+
+# Each discovery call costs a full model round trip, so a bot that keeps
+# guessing synonyms stalls the reply. Close discovery after this many calls.
+_MAX_DISCOVERY_CALLS = 3
+
+
+def _close_discovery(
+    openai_tools: List[OpenAITool],
+    tool_lookup: Dict[str, ToolLookupInfo],
+) -> None:
+    """Withdraw search for the rest of this reply."""
+    openai_tools[:] = [
+        tool for tool in openai_tools
+        if tool["function"]["name"] not in _DISCOVERY_TOOLS
+    ]
+    for name in _DISCOVERY_TOOLS:
+        tool_lookup.pop(name, None)
+
+
+async def _execute_discovery_tool(
+    tool_key: str,
+    arguments: Dict[str, Any],
+    openai_tools: List[OpenAITool],
+    tool_lookup: Dict[str, ToolLookupInfo],
+) -> str:
+    """Run search and add newly discovered tools to this model turn."""
+    if tool_key != "search":
+        raise ValueError(f"Unsupported discovery tool: {tool_key!r}")
+
+    argument_name = "query"
+    command = "/search"
+    value = str(arguments.get(argument_name) or "").strip()
+    if not value:
+        raise ValueError(f"{tool_key} requires {argument_name!r}")
+
+    results = await atlantis.client_command(f"{command} {value}")
+    if not results:
+        return (
+            f"Nothing in the system provides {value!r}. This is the complete "
+            f"answer, not a hint to rephrase — do not retry with synonyms."
+        )
+    if not isinstance(results, list):
+        raise TypeError(f"{command} returned {type(results).__name__}, expected a list")
+
+    discovered_tools, discovered_lookup = convert_discovery_rows(results)
+    added: List[str] = []
+    for tool in discovered_tools:
+        name = tool["function"]["name"]
+        if name in tool_lookup:
+            continue
+        openai_tools.append(tool)
+        added.append(
+            f"{name}: {tool['function'].get('description', '')}".rstrip()
+        )
+    for name, lookup in discovered_lookup.items():
+        if name not in tool_lookup:
+            tool_lookup[name] = lookup
+
+    if not added:
+        return f"{tool_key} found tools for {value!r}, but they were already loaded."
+    return "Added tools to this turn:\n" + "\n".join(f"- {item}" for item in added)
+
+
 @visible
 async def execute_tool(search_term: str, arguments: Dict[str, Any] = {}) -> Any:
-    """silent wrapper around client_command"""
+    """silent wrapper around client_command; search_term must already be anchored"""
 
     logger.info(f"TOOL: searchTerm='{search_term}' args={format_json_log(arguments)}")
 
+    if search_term[:1] not in ('%', '$', '~', '@'):
+        raise ValueError(f"Tool search term is not anchored: {search_term!r}")
+
     t0 = _t.monotonic()
     await atlantis.client_command("/silent on")
-    tool_result = await atlantis.client_command(f"%{search_term}", data=arguments)
+    tool_result = await atlantis.client_command(search_term, data=arguments)
     await atlantis.client_command("/silent off")
 
     logger.info(f"TOOL {search_term} returned in {_t.monotonic() - t0:.2f}s: {str(tool_result)[:200]}")
@@ -87,6 +155,7 @@ async def run_turn(
     stream_talk_id = None
     stream_think_id = None
     max_turns = 10
+    discovery_calls = 0
     accumulated_text = ""
 
     try:
@@ -214,7 +283,11 @@ async def run_turn(
                     lookup_info = tool_lookup[tool_key]
                     search_term = lookup_info['searchTerm']
                     arguments = _parse_tool_arguments(tc['arguments'], tool_key)
-                    arguments.update((tool_argument_overrides or {}).get(tool_key, {}))
+                    # Overrides are keyed by the canonical tool name, not the
+                    # sanitised model-facing name
+                    arguments.update(
+                        (tool_argument_overrides or {}).get(lookup_info['functionName'], {})
+                    )
 
                     # Coerce args to match schema types
                     for ot in openai_tools:
@@ -224,10 +297,28 @@ async def run_turn(
                                 arguments = coerce_args_to_schema(arguments, schema)
                             break
 
-                    tool_result = await execute_tool(
-                        search_term=search_term,
-                        arguments=arguments,
-                    )
+                    if tool_key in _DISCOVERY_TOOLS:
+                        discovery_calls += 1
+                        tool_result = await _execute_discovery_tool(
+                            tool_key,
+                            arguments,
+                            openai_tools,
+                            tool_lookup,
+                        )
+                        if discovery_calls >= _MAX_DISCOVERY_CALLS:
+                            _close_discovery(openai_tools, tool_lookup)
+                            tool_result = (
+                                f"{tool_result}\n\nTool discovery is now closed for "
+                                f"this reply. Answer with what you have."
+                            )
+                            logger.info(
+                                f"Discovery closed after {discovery_calls} calls"
+                            )
+                    else:
+                        tool_result = await execute_tool(
+                            search_term=search_term,
+                            arguments=arguments,
+                        )
                     transcript.append({
                         'role': 'tool',
                         'tool_call_id': tc['id'],

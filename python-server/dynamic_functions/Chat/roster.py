@@ -462,9 +462,14 @@ async def roster_bind(game_key: str, slot_key: str) -> Dict[str, Any]:
         raise RuntimeError(f"Slot {slot_key!r} is already bound")
 
     display_name = await modal_string(
-        f"What name should people call {slot_key}?",
+        "Enter name for your character",
         title="Roster - Human",
         submit_label="Join",
+        initial_value=(
+            target.get("displayName")
+            or bot_roster_name(str(target.get("bot_sid") or "").strip())
+            or slot_key
+        ),
     )
     if display_name is None:
         return {"cancelled": True, "key": slot_key}

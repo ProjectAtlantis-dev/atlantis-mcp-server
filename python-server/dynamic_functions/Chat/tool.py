@@ -59,7 +59,7 @@ class ToolT(TypedDict, total=False):
 
 
 class AtlantisSearchToolT(TypedDict, total=False):
-    """Subset of Atlantis search/dir result fields needed for LLM tool conversion."""
+    """Subset of Atlantis search result fields needed for LLM tool conversion."""
     tool_name: str
     tool_description: str
     tool_app: str
@@ -104,13 +104,43 @@ class ToolLookupInfo(TypedDict):
     functionName: str
 
 
+def _tool_path_segments(tool: AtlantisSearchToolT) -> List[str]:
+    """App and location fields expand into path segments (slash or dot separated)."""
+    segments: List[str] = []
+    for field in ('tool_app', 'tool_location'):
+        value = tool.get(field, '')
+        if value:
+            segments.extend(part for part in re.split(r'[./]+', value) if part)
+    return segments
+
+
+def _tool_search_term(tool: AtlantisSearchToolT, name: str) -> str:
+    """Build an anchored Atlantis tool path (see src/common/ToolPath.ts).
+
+    '%' anchors at the global root and requires owner + remote; '$' anchors at
+    the root of the calling shell's own remote.
+    """
+    owner = tool.get('remote_owner', '')
+    remote = tool.get('remote_name', '')
+    segments = _tool_path_segments(tool) + [name]
+
+    if owner and remote:
+        return '%' + '/'.join([owner, remote] + segments)
+    if owner or remote:
+        raise ValueError(
+            f"Tool {name!r} has a partial remote identity: "
+            f"remote_owner={owner!r} remote_name={remote!r}"
+        )
+    return '$' + '/'.join(segments)
+
+
 def convert_search_tools(
     tools: List[AtlantisSearchToolT],
 ) -> Tuple[List[OpenAITool], Dict[str, ToolLookupInfo]]:
     """Convert Atlantis search results to OpenAI function-calling format.
 
     Returns (openai_tools, tool_lookup) where tool_lookup maps the
-    sanitised OpenAI name back to the Atlantis search term.
+    sanitised OpenAI name back to the anchored Atlantis tool path.
     """
     openai_tools: List[OpenAITool] = []
     tool_lookup: Dict[str, ToolLookupInfo] = {}
@@ -121,9 +151,9 @@ def convert_search_tools(
             logger.warning(f"convert_search_tools: skipping tool with no tool_name: {tool}")
             continue
 
-        app = tool.get('tool_app', '')
-        full_name = f"{app}__{name}" if app else name
-        sanitized = re.sub(r'[^a-zA-Z0-9_-]', '_', full_name)
+        sanitized = re.sub(r'[^a-zA-Z0-9_-]', '_', name)
+        if sanitized in tool_lookup:
+            raise ValueError(f"Duplicate model-facing tool name: {sanitized!r}")
 
         raw_schema = tool.get('input_schema', '')
         if raw_schema:
@@ -143,25 +173,73 @@ def convert_search_tools(
         ot: OpenAITool = {'type': 'function', 'function': fn}
         openai_tools.append(ot)
 
-        parts = [
-            tool.get('remote_owner', ''),
-            tool.get('remote_name', ''),
-            tool.get('tool_app', ''),
-            tool.get('tool_location', ''),
-            name,
-        ]
-        if all(p == '' for p in parts[:-1]):
-            search_term = name
-        else:
-            search_term = '*'.join(parts)
-
         tool_lookup[sanitized] = {
-            'searchTerm': search_term,
+            'searchTerm': _tool_search_term(tool, name),
             'filename': '',
             'functionName': name,
         }
 
     logger.info(f"convert_search_tools: {len(tools)} in -> {len(openai_tools)} out")
+    return openai_tools, tool_lookup
+
+
+class DiscoveryRowT(TypedDict, total=False):
+    """Row shape returned by the cloud '/search' command."""
+    searchTerm: str
+    tool: str
+    description: str
+    filename: str
+    category: str
+    is_connected: bool
+
+
+def convert_discovery_rows(
+    rows: List[DiscoveryRowT],
+) -> Tuple[List[OpenAITool], Dict[str, ToolLookupInfo]]:
+    """Convert '/search' rows to OpenAI function-calling format.
+
+    These rows carry a root-anchored path ('/owner/remote/App/name') and a
+    signature string ('name (a:string): object') instead of the search-result
+    fields, so they need their own converter.
+    """
+    openai_tools: List[OpenAITool] = []
+    tool_lookup: Dict[str, ToolLookupInfo] = {}
+
+    for row in rows:
+        if row.get('category', 'function') != 'function':
+            continue
+        if not row.get('is_connected'):
+            continue
+
+        search_term = row.get('searchTerm', '')
+        if not search_term.startswith('/'):
+            raise ValueError(f"Discovery row has a non-rooted path: {search_term!r}")
+
+        tool_str = row.get('tool', '')
+        name = tool_str.split('(')[0].strip()
+        if not name:
+            raise ValueError(f"Discovery row {search_term!r} has no tool signature")
+
+        # Path is /owner/remote/App/.../name — drop owner+remote for the
+        # model-facing name so same-named tools in different apps stay distinct
+        segments = search_term.strip('/').split('/')
+        sanitized = re.sub(r'[^a-zA-Z0-9_-]', '_', '__'.join(segments[2:]))
+
+        openai_tools.append({
+            'type': 'function',
+            'function': {
+                'name': sanitized,
+                'description': row.get('description', ''),
+                'parameters': parse_tool_params(tool_str),
+            },
+        })
+        tool_lookup[sanitized] = {
+            'searchTerm': '%' + search_term.lstrip('/'),
+            'filename': row.get('filename', ''),
+            'functionName': name,
+        }
+
+    logger.info(f"convert_discovery_rows: {len(rows)} in -> {len(openai_tools)} out")
     return openai_tools, tool_lookup
 
 

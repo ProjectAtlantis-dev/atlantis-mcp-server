@@ -163,6 +163,7 @@ async def modal_string(
     empty_error: str = "Enter a value to continue.",
     input_type: str = "text",
     autocomplete: str = "off",
+    initial_value: str = "",
 ) -> str:
     """Pop up a modal asking the caller for a string.
 
@@ -179,6 +180,7 @@ async def modal_string(
     empty_error_js = json.dumps(empty_error)
     input_type_html = html_lib.escape(input_type)
     autocomplete_html = html_lib.escape(autocomplete)
+    initial_value_html = html_lib.escape(str(initial_value or ""), quote=True)
     loop = asyncio.get_running_loop()
     future = loop.create_future()
     atlantis.session_shared.set(f"{modal_string_id}:future", future)
@@ -251,7 +253,7 @@ async def modal_string(
   {heading_block}
   <form id="displayname-form-{uid}">
     <label for="displayname-input-{uid}">{modal_text_html}</label>
-    <input id="displayname-input-{uid}" name="value" type="{input_type_html}" autocomplete="{autocomplete_html}" maxlength="200" required autofocus>
+    <input id="displayname-input-{uid}" name="value" type="{input_type_html}" value="{initial_value_html}" autocomplete="{autocomplete_html}" maxlength="200" required autofocus>
     <div id="displayname-err-{uid}" class="err" aria-live="polite"></div>
     <button id="displayname-btn-{uid}" type="submit">{submit_label_html}</button>
   </form>

@@ -626,6 +626,20 @@ def _game_window_redirect_url(game_key: str) -> Optional[str]:
 async def _roster_edit(
     heading: str = "Edit Roster",
 ) -> bool:
+    roster = await atlantis.client_command("@roster_list")
+    human_slots = [
+        row for row in roster
+        if _roster_row_state(row) == STATE_HUMAN
+        and str(row.get("key") or "").strip()
+    ]
+    if len(human_slots) == 1:
+        slot_key = str(human_slots[0]["key"]).strip()
+        result = await atlantis.client_command(
+            "@roster_bind",
+            {"slot_key": slot_key},
+        )
+        return not (isinstance(result, dict) and result.get("cancelled"))
+
     while True:
 
         modal_result = await _roster_edit_modal()

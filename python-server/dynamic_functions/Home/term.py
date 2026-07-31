@@ -2,6 +2,25 @@
 
 import atlantis
 import os
+from typing import Optional
+from urllib.parse import urlparse
+
+_LOCAL_HOSTS = ("localhost", "127.0.0.1", "0.0.0.0", "::1", "host.docker.internal")
+_VIDEO_EXTENSIONS = (".mp4", ".webm", ".ogg", ".ogv", ".mov", ".m4v", ".mkv", ".m3u8")
+
+
+def _is_local_app_url(url: str) -> bool:
+    """True for a locally-served page (a dev server), not a locally-served video file.
+
+    A localhost URL is almost always an app to embed rather than media, but
+    http://localhost:8000/clip.mp4 is still a video, so extensions win.
+    """
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    is_local = host in _LOCAL_HOSTS or host.endswith(".local") or host.startswith("127.")
+    if not is_local:
+        return False
+    return not parsed.path.lower().endswith(_VIDEO_EXTENSIONS)
 
 @public
 async def term_bg_video(url: str) -> None:
@@ -26,19 +45,22 @@ async def term_bg_player(
     controls: bool = False,
     loop: bool = False,
     remove_on_ended: bool = True,
-    frame: bool = False,
+    frame: Optional[bool] = None,
     interactive: bool = False,
 ) -> None:
     """Play a YouTube/player URL in the terminal background.
 
     frame=True embeds the URL as a generic iframe instead of video media
     (e.g. a locally-served WebGL/WebGPU renderer on http://localhost:5173).
+    Left unset it defaults on for localhost URLs that aren't video files.
     interactive=True lets a frame receive pointer events."""
     url = str(url or "").strip()
     if not url:
         raise ValueError("url required")
     if not url.startswith(("http://", "https://")):
         raise ValueError("player url must be http(s); use term_bg_video_file for local files")
+    if frame is None:
+        frame = _is_local_app_url(url)
     await atlantis.set_background_player(
         url,
         vertical_align="center",

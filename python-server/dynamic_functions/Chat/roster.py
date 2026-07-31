@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from .bot import bot_image_path, bot_roster_name, load_bot
+from .bot_tool import _initialize_bot_tool_files
 from .common import _read_json, _write_json
 from .game import require_membership
 from .location import _connects_to, _require_leaf, load_location
@@ -402,6 +403,7 @@ async def roster_set_slot(
         _set_roster_slot_human(target, str(display_name or ""))
 
     _write_game_roster(game_key, rows)
+    _initialize_bot_tool_files(game_key, rows)
     await atlantis.client_log(f"roster_set_slot game_key: {game_key!r} slot_key: {slot_key!r} state: {state_key!r}")
     await atlantis.client_data(f"{game_key} roster slot", _display_roster_rows([target])[0])
     await atlantis.client_data(f"{game_key} roster", _display_roster_rows(rows))
@@ -421,6 +423,7 @@ async def roster_create(game_key: str, scene: str) -> List[Dict[str, Any]]:
     _apply_scene_human_defaults(rows)
     _number_duplicate_display_names(rows)
     _write_json(os.path.join(data_dir, "roster.json"), rows)
+    _initialize_bot_tool_files(game_key, rows)
     meta = _read_json(os.path.join(data_dir, "game.json")) or {}
     meta["roster_scene"] = scene_name
     meta["roster_created_at"] = datetime.now().isoformat(timespec="seconds")

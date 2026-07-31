@@ -20,14 +20,16 @@ async def index(session_key: str):
 
 # % ls
 
+# % pwd
+
 # % cd Demo
 
 # % help edit
 
-
+# % this does not get saved
 
 @visible
-async def scratch():
+async def scratch(x,y):
     """
     This is a placeholder function for 'scratch'
     """
@@ -36,4 +38,4 @@ async def scratch():
     await atlantis.client_log("scratch running")
 
     # Replace this return statement with your function's result
-    return f"Placeholder function 'scratch' executed successfully."
+    return x+y

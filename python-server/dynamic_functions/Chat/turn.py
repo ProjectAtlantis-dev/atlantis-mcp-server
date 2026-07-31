@@ -62,6 +62,7 @@ async def run_turn(
     system_prompt: Optional[str] = None,
     roster_names: Optional[Dict[str, str]] = None,
     tools: Optional[List[AtlantisSearchToolT]] = None,
+    tool_argument_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Optional[str]:
     """Run a streaming tool-calling turn. Loads bot config from bot_sid."""
     cfg = load_bot(bot_sid)
@@ -213,6 +214,7 @@ async def run_turn(
                     lookup_info = tool_lookup[tool_key]
                     search_term = lookup_info['searchTerm']
                     arguments = _parse_tool_arguments(tc['arguments'], tool_key)
+                    arguments.update((tool_argument_overrides or {}).get(tool_key, {}))
 
                     # Coerce args to match schema types
                     for ot in openai_tools:

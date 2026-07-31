@@ -1,15 +1,18 @@
 """Game chat callback — main game tick. Fired on every transcript change."""
 
 import atlantis
+import copy
 import logging
 import os
+import re
 from typing import Any, Dict, List, Optional
 
 
 from .chat import (
     analyze_participants, fetch_transcript,
 )
-from .common import _read_json
+from .bot_tool import get_bot_tool_argument_overrides, get_bot_tools
+from .common import _read_json, _write_json
 from .game import _game_is_running, _game_roster_scene, game_find_current, require_membership
 from .roster import _load_game_roster
 from .turn import bot_turn
@@ -19,6 +22,8 @@ logger = logging.getLogger("dynamic_function")
 _BUSY_KEY = "chat_busy"
 _LAST_CHAT_KEY_PREFIX = "chat_last_seen:"
 _CHAT_LOOP_COUNT_PREFIX = "chat_loop_count:"
+_IDENTITY_KNOWLEDGE_FILENAME = "identity_knowledge.json"
+_UNKNOWN_VISITOR_NAME = "a visitor"
 _MAX_BOT_CHAIN = 4
 
 
@@ -35,6 +40,8 @@ def _require_roster_assigned(game_key: str) -> None:
 @preflight
 async def preflight_callback():
     await atlantis.client_log("doing preflight")
+
+
 
 
 
@@ -142,7 +149,12 @@ async def _handle_chat(game_key: str):
     await atlantis.client_log(
         f"Next roster speaker: {bot_record.get('displayName', bot_record.get('bot_sid', 'bot'))}"
     )
-    await _respond_as_bot(game_key=game_key, bot_record=bot_record, transcript=transcript, roster=roster)
+    await _respond_as_bot(
+        game_key=game_key,
+        bot_record=bot_record,
+        transcript=transcript,
+        roster=roster,
+    )
 
 
 def _next_loop_count(game_key: str, speaker: Optional[Dict[str, Any]]) -> int:
@@ -208,27 +220,215 @@ def _find_roster_speaker(roster: List[Dict[str, Any]], speaker_sid: str) -> Opti
     return None
 
 
+def _identity_knowledge_path(game_key: str) -> str:
+    return os.path.join(require_membership(game_key), _IDENTITY_KNOWLEDGE_FILENAME)
+
+
+def _load_identity_knowledge(game_key: str) -> Dict[str, Dict[str, str]]:
+    raw = _read_json(_identity_knowledge_path(game_key), {}) or {}
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"Game {game_key!r} {_IDENTITY_KNOWLEDGE_FILENAME} must be a JSON object"
+        )
+
+    knowledge: Dict[str, Dict[str, str]] = {}
+    for raw_bot_sid, raw_names in raw.items():
+        if not isinstance(raw_names, dict):
+            raise ValueError(
+                f"Identity knowledge for bot {raw_bot_sid!r} must be an object"
+            )
+        names: Dict[str, str] = {}
+        for raw_human_sid, raw_name in raw_names.items():
+            human_sid = str(raw_human_sid or "").strip()
+            name = str(raw_name or "").strip()
+            if human_sid and name:
+                names[human_sid] = name
+        knowledge[str(raw_bot_sid)] = names
+    return knowledge
+
+
+def _known_human_names(game_key: str, bot_sid: str) -> Dict[str, str]:
+    return dict(_load_identity_knowledge(game_key).get(bot_sid, {}))
+
+
+def _mark_identity_known(
+    game_key: str,
+    *,
+    bot_sid: str,
+    human_sid: str,
+    display_name: str,
+) -> bool:
+    bot_sid = str(bot_sid or "").strip()
+    human_sid = str(human_sid or "").strip()
+    display_name = str(display_name or "").strip()
+    if not bot_sid or not human_sid or not display_name:
+        return False
+
+    knowledge = _load_identity_knowledge(game_key)
+    known_by_bot = knowledge.setdefault(bot_sid, {})
+    if known_by_bot.get(human_sid) == display_name:
+        return False
+    known_by_bot[human_sid] = display_name
+    _write_json(_identity_knowledge_path(game_key), knowledge)
+    logger.info(
+        "Identity learned: game=%s bot=%s human=%s name=%r",
+        game_key,
+        bot_sid,
+        human_sid,
+        display_name,
+    )
+    return True
+
+
+def _replace_name(value: str, display_name: str) -> str:
+    return re.sub(
+        rf"(?<!\w){re.escape(display_name)}(?!\w)",
+        _UNKNOWN_VISITOR_NAME,
+        value,
+        flags=re.IGNORECASE,
+    )
+
+
+def _scrub_value(value: Any, unknown_names: List[str]) -> Any:
+    if isinstance(value, str):
+        scrubbed = value
+        for display_name in sorted(unknown_names, key=len, reverse=True):
+            scrubbed = _replace_name(scrubbed, display_name)
+        return scrubbed
+    if isinstance(value, list):
+        return [_scrub_value(item, unknown_names) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _scrub_value(item, unknown_names)
+            for key, item in value.items()
+        }
+    return value
+
+
+def _transcript_for_bot(
+    *,
+    game_key: str,
+    bot_sid: str,
+    transcript: List[Dict[str, Any]],
+    roster: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    known_names = _known_human_names(game_key, bot_sid)
+    unknown_names = [
+        str(row.get("displayName") or "").strip()
+        for row in roster
+        if not _is_ai(row)
+        and row.get("sid")
+        and row.get("displayName")
+        and known_names.get(str(row.get("sid"))) != str(row.get("displayName"))
+    ]
+    return _scrub_value(copy.deepcopy(transcript), unknown_names)
+
+
+def _roster_names_for_bot(
+    *,
+    game_key: str,
+    bot_sid: str,
+    roster: List[Dict[str, Any]],
+) -> Dict[str, str]:
+    known_names = _known_human_names(game_key, bot_sid)
+    names: Dict[str, str] = {}
+    for row in roster:
+        roster_bot_sid = str(row.get("bot_sid") or "").strip()
+        if not roster_bot_sid:
+            continue
+
+        display_name = str(row.get("displayName") or "").strip()
+        if _is_ai(row):
+            if display_name:
+                names[roster_bot_sid] = display_name
+            continue
+
+        human_sid = str(row.get("sid") or "").strip()
+        known_name = known_names.get(human_sid) if human_sid else None
+        names[roster_bot_sid] = known_name or _UNKNOWN_VISITOR_NAME
+    return names
+
+
+@public
+async def remember_visitor(name: str, game_key: str, bot_sid: str) -> Dict[str, str]:
+    """Remember the name a visitor directly told the listening bot.
+
+    `game_key` is supplied by the Atlantis cursor. `bot_sid` is trusted turn
+    context and is never exposed to the model.
+    """
+    name = str(name or "").strip()
+    bot_sid = str(bot_sid or "").strip()
+    if not name:
+        raise ValueError("Visitor name is required")
+    if not bot_sid:
+        raise RuntimeError("No listening bot was supplied by the bot turn")
+
+    roster = _load_game_roster(game_key)
+    bot_record = next(
+        (
+            row for row in roster
+            if _is_ai(row) and str(row.get("bot_sid") or "") == bot_sid
+        ),
+        None,
+    )
+    if not bot_record:
+        raise ValueError(f"Bot {bot_sid!r} is not in game {game_key!r}")
+
+    known_names = _known_human_names(game_key, bot_sid)
+    visitors = [
+        row for row in roster
+        if not _is_ai(row)
+        and row.get("sid")
+        and row.get("location") == bot_record.get("location")
+        and str(row.get("sid")) not in known_names
+    ]
+    if len(visitors) != 1:
+        raise RuntimeError(
+            f"Expected exactly one unknown visitor with {bot_sid!r}, found {len(visitors)}"
+        )
+
+    human_sid = str(visitors[0].get("sid") or "").strip()
+    _mark_identity_known(
+        game_key,
+        bot_sid=bot_sid,
+        human_sid=human_sid,
+        display_name=name,
+    )
+    return {"visitor": name, "status": "remembered"}
+
 
 async def greet_entrant(game_key: str, entrant_sid: str, location: str):
     """Fire an in-character greeting from a bot already at `location` toward a newcomer."""
     raise NotImplementedError("greet_entrant: slot system removed — needs reimplementation")
 
 
-async def _respond_as_bot(*, game_key: str, bot_record: dict, transcript: list, roster: list):
+async def _respond_as_bot(
+    *,
+    game_key: str,
+    bot_record: dict,
+    transcript: list,
+    roster: list,
+):
     bot_sid = bot_record.get("bot_sid")
     if not bot_sid:
         raise ValueError(f"Roster row {bot_record.get('key')!r} has no bot_sid")
 
-    roster_names = {
-        row.get("bot_sid"): row.get("displayName")
-        for row in roster
-        if row.get("bot_sid") and row.get("displayName")
-    }
+    bot_transcript = _transcript_for_bot(
+        game_key=game_key,
+        bot_sid=bot_sid,
+        transcript=transcript,
+        roster=roster,
+    )
+    roster_names = _roster_names_for_bot(
+        game_key=game_key,
+        bot_sid=bot_sid,
+        roster=roster,
+    )
     await atlantis.client_log(
         "respond_as_bot start: "
         f"game={game_key!r} slot={bot_record.get('key')!r} "
         f"bot_sid={bot_sid!r} display={bot_record.get('displayName')!r} "
-        f"transcript={len(transcript)}"
+        f"transcript={len(bot_transcript)}"
     )
     logger.info(
         "Dispatching bot turn: game=%s slot=%s bot_sid=%s display=%s transcript=%s roster_names=%s",
@@ -236,14 +436,16 @@ async def _respond_as_bot(*, game_key: str, bot_record: dict, transcript: list, 
         bot_record.get("key"),
         bot_sid,
         bot_record.get("displayName"),
-        len(transcript),
+        len(bot_transcript),
         roster_names,
     )
     try:
         result = await bot_turn(
             bot_sid=bot_sid,
-            transcript=transcript,
+            transcript=bot_transcript,
             roster_names=roster_names,
+            tools=get_bot_tools(game_key, bot_sid),
+            tool_argument_overrides=get_bot_tool_argument_overrides(game_key, bot_sid),
         )
     except Exception as e:
         logger.exception("respond_as_bot failed")

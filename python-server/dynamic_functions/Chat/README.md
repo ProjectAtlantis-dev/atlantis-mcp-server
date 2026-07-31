@@ -40,5 +40,10 @@ Server log: `python-server/runServer.log`
 
 - `Game/` holds static content: bots, locations, and scenes. Tracked in git.
 - `Data/` holds live per-game state, keyed by `game_key`. Not tracked.
+- `Data/games/<game_key>/tools/<bot_sid>.json` is that bot's authoritative
+  per-game tool-name inventory.
 
 Both resolve through `common.home_path()`, rooted at this folder.
+
+`bot_tool.py` validates those inventories, resolves tool names to canonical
+model-facing schemas, and binds trusted turn context that bots must not supply.

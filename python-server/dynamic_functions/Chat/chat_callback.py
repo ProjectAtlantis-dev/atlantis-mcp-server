@@ -313,6 +313,7 @@ def _transcript_for_bot(
     roster: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
     known_names = _known_human_names(game_key, bot_sid)
+    prepared = copy.deepcopy(transcript)
     unknown_names = [
         str(row.get("displayName") or "").strip()
         for row in roster
@@ -321,7 +322,33 @@ def _transcript_for_bot(
         and row.get("displayName")
         and known_names.get(str(row.get("sid"))) != str(row.get("displayName"))
     ]
-    return _scrub_value(copy.deepcopy(transcript), unknown_names)
+    human_sids = {
+        str(row.get("sid") or "").strip()
+        for row in roster
+        if not _is_ai(row) and row.get("sid")
+    }
+    bot_names = {
+        str(row.get("bot_sid") or "").strip(): _display_name(row)
+        for row in roster
+        if _is_ai(row) and row.get("bot_sid")
+    }
+    for message in prepared:
+        speaker_sid = str(message.pop("_speaker_sid", "") or "").strip()
+        if speaker_sid in human_sids:
+            known_name = known_names.get(speaker_sid)
+            if known_name:
+                message["name"] = known_name
+            # A human must be able to introduce themselves. Keep their spoken
+            # content verbatim even while their speaker metadata stays hidden;
+            # otherwise "Chad" is scrubbed to "a visitor" before the listening
+            # bot can learn it with remember_visitor.
+            continue
+        if speaker_sid in bot_names:
+            message["name"] = bot_names[speaker_sid]
+        scrubbed = _scrub_value(message, unknown_names)
+        message.clear()
+        message.update(scrubbed)
+    return prepared
 
 
 def _roster_names_for_bot(
@@ -442,6 +469,7 @@ async def _respond_as_bot(
     try:
         result = await bot_turn(
             bot_sid=bot_sid,
+            game_key=game_key,
             transcript=bot_transcript,
             roster_names=roster_names,
             tools=get_bot_tools(game_key, bot_sid),

@@ -110,7 +110,11 @@ async def fetch_transcript(game_key: str) -> Tuple[List[Dict[str, Any]], List[Di
                 logger.warning(f"       -> SKIPPED (oversized: {len(msg_content_full)} chars > {MAX_ENTRY_SIZE})")
                 continue
 
-            transcript.append({'role': 'user', 'content': [{'type': 'text', 'text': msg_content_full}]})
+            transcript.append({
+                'role': 'user',
+                'content': [{'type': 'text', 'text': msg_content_full}],
+                '_speaker_sid': msg_sid,
+            })
             logger.info(f"       -> INCLUDED as role=user (sid={msg_sid})")
         elif msg_type == 'description':
             msg_content_full = msg.get('content', '')

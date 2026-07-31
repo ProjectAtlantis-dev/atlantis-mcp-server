@@ -7,6 +7,7 @@ from openai import OpenAI
 from typing import List, Dict, Any, Optional, cast
 
 from .bot import bot_roster_name, load_bot, render_bot_prompt
+from .common import _read_json, _write_json
 from .tool import (
     logger,
     AtlantisSearchToolT, OpenAITool, ToolLookupInfo,
@@ -30,6 +31,36 @@ _DISCOVERY_TOOLS = ("search",)
 # Each discovery call costs a full model round trip, so a bot that keeps
 # guessing synonyms stalls the reply. Close discovery after this many calls.
 _MAX_DISCOVERY_CALLS = 3
+
+
+def _openrouter_payload_path(game_key: str, sid: str) -> str:
+    """Return the per-game snapshot path for one bot's latest payload."""
+    from .game import require_membership
+
+    sid = str(sid or "").strip()
+    if not sid:
+        raise ValueError("sid required")
+    load_bot(sid)
+    return os.path.join(
+        require_membership(game_key),
+        "openrouter_payloads",
+        f"{sid}.json",
+    )
+
+
+@public
+async def openrouter_payload(sid: str) -> Dict[str, Any]:
+    """Return this game's latest exact OpenRouter payload for a bot SID."""
+    from .game import game_find_current
+
+    game_key = await game_find_current()
+    path = _openrouter_payload_path(game_key, sid)
+    payload = _read_json(path)
+    if not isinstance(payload, dict):
+        raise FileNotFoundError(
+            f"No OpenRouter payload has been submitted for {sid!r} in game {game_key!r}"
+        )
+    return payload
 
 
 def _close_discovery(
@@ -127,6 +158,7 @@ async def run_turn(
     *,
     bot_sid: str,
     transcript: List[Dict[str, Any]],
+    game_key: Optional[str] = None,
     system_prompt: Optional[str] = None,
     roster_names: Optional[Dict[str, str]] = None,
     tools: Optional[List[AtlantisSearchToolT]] = None,
@@ -171,19 +203,21 @@ async def run_turn(
                 f"run_turn api call: model={model!r} messages={len(api_messages)} tools={len(openai_tools)}"
             )
 
-            api_dump_file = os.path.join(os.path.dirname(__file__), "api_payload.json")
+            api_payload = {
+                "model": model,
+                "messages": api_messages,
+                "tools": openai_tools,
+                "turn": turn_count,
+            }
             try:
-                with open(api_dump_file, "w") as f:
-                    json.dump(
-                        {
-                            "model": model,
-                            "messages": api_messages,
-                            "tools": openai_tools,
-                            "turn": turn_count,
-                        },
-                        f,
-                        indent=2,
-                        default=str,
+                _write_json(
+                    os.path.join(os.path.dirname(__file__), "api_payload.json"),
+                    api_payload,
+                )
+                if game_key:
+                    _write_json(
+                        _openrouter_payload_path(game_key, bot_sid),
+                        api_payload,
                     )
             except Exception as e:
                 logger.warning(f"Failed to write API payload: {e}")

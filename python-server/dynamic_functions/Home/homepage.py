@@ -87,7 +87,7 @@ async def first_menu():
         img_path = Path(__file__).absolute().parents[3] / "sitting_coffee.png"
         await atlantis.client_image(
             str(img_path),
-            content="Demo folder coming right up, but if you want to do anything cool you need to mount a filesystem...",
+            content="Demo folder coming right up",
             max_width="25vw",
         )
 

@@ -970,7 +970,7 @@ class DynamicAdditionServer(Server):
             for func_name, file_path in app_mapping.items():
                 try:
                     # Skip if this seems to be a utility file
-                    if func_name.startswith('_') or func_name == '__init__' or func_name == '__pycache__':
+                    if func_name.startswith('_'):
                         continue
 
                     # Check if we've already processed this file

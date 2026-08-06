@@ -1401,6 +1401,10 @@ async def {name}():
                     if not filename.endswith('.py') and not filename.endswith('.txt'):
                         continue
 
+                    # Dunder modules (__init__.py, __main__.py) are packaging machinery, not tools
+                    if filename.startswith('__'):
+                        continue
+
                     file_path = os.path.join(root, filename)
                     # Calculate relative path from functions_dir
                     rel_path = os.path.relpath(file_path, self.functions_dir)

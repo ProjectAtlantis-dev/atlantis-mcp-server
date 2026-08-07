@@ -80,7 +80,12 @@ def ux_status() -> str:
     """Build the dashboard component for the terrain database status."""
     uid = uuid.uuid4().hex[:8]
     running = bool(status()["running"])
-    light_color = "#22c55e" if running else "#ef4444"
+    if running:
+        light_color = "#22c55e"
+        light_glow = "34, 197, 94"
+    else:
+        light_color = "#ef4444"
+        light_glow = "239, 68, 68"
     state_label = "on" if running else "off"
 
     return f"""
@@ -92,23 +97,31 @@ def ux_status() -> str:
     align-items: center;
     justify-content: center;
     width: 100%;
-    padding: 24px;
+    padding: 4.8px;
     color: #fffaf0;
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }}
   #terrain-db-status-{uid} .terrain-db-label {{
     margin: 0;
-    font-size: 18px;
+    color: rgba(42, 42, 42, 0.92);
+    font-family: "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+    font-size: 17px;
+    font-stretch: condensed;
     font-weight: 800;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.1em;
+    text-shadow:
+      0 -1px 0 rgba(0, 0, 0, 0.72),
+      0 1px 0 rgba(255, 255, 255, 0.52);
   }}
   #terrain-db-status-{uid} .terrain-db-light {{
     flex: 0 0 auto;
-    width: 16px;
-    height: 16px;
+    width: 34px;
+    height: 5px;
     background: {light_color};
-    border-radius: 50%;
-    box-shadow: 0 0 12px {light_color};
+    border-radius: 1px;
+    box-shadow:
+      0 0 5px rgba({light_glow}, 0.72),
+      0 0 11px rgba({light_glow}, 0.34);
   }}
 </style>
 <section id="terrain-db-status-{uid}" aria-label="Terrain database status">

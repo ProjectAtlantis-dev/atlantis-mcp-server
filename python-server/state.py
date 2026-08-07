@@ -146,6 +146,7 @@ def _scaffold_starter_functions():
             '        "caller_shell": atlantis.get_caller_shell_path(),\n'
             '        "exec_shell": atlantis.get_exec_shell_path(),\n'
             '        "display_shell": atlantis.get_display_shell_path(),\n'
+            '        "user_shell": atlantis.get_user_shell_path(),\n'
             '        "request_id": atlantis.get_request_id(),\n'
             '        "session_key": atlantis.get_session_key(),\n'
             '        "entry_point": atlantis.get_entry_point_name(),\n'

@@ -234,7 +234,7 @@ async def _show_kitty_first_sighting(
         image_path,
         sid=KITTY_BOT_SID,
         location=location,
-        shell="display",
+        shell="user",
     )
 
     seen_by.append(human_sid)
@@ -506,7 +506,7 @@ async def _describe_roster_slot_entered(target: Dict[str, Any], location: str) -
     await atlantis.client_description(
         f"{display_name} entered.",
         location=location,
-        shell="display",
+        shell="user",
     )
 
 
@@ -515,7 +515,7 @@ async def _describe_roster_slot_exited(target: Dict[str, Any], location: str) ->
     await atlantis.client_description(
         f"{display_name} exited.",
         location=location,
-        shell="display",
+        shell="user",
     )
 
 

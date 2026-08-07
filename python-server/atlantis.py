@@ -224,7 +224,7 @@ async def client_log(
     Args:
         is_private: If True (default), send only to requesting client.
                    If False, pass a cloud-side routing hint.
-        shell: Optional render target shell: "exec", "display", or "caller".
+        shell: Optional render target shell: "exec", "display", "user", or "caller".
                When omitted, preserve the notification's legacy routing.
 
     Calls the underlying log function directly; async dispatch is handled internally.
@@ -241,10 +241,11 @@ async def client_log(
                 shell_paths = {
                     "exec": get_exec_shell_path(),
                     "display": get_display_shell_path(),
+                    "user": get_user_shell_path(),
                     "caller": get_caller_shell_path(),
                 }
                 if shell not in shell_paths:
-                    raise ValueError(f"Unknown client_log shell {shell!r}; expected exec, display, or caller")
+                    raise ValueError(f"Unknown client_log shell {shell!r}; expected exec, display, user, or caller")
                 target_shell_path = shell_paths[shell]
                 if not target_shell_path:
                     raise RuntimeError(f"client_log shell {shell!r} is unavailable in the current call context")
@@ -408,6 +409,11 @@ def get_display_shell_path() -> Optional[str]:
     """Return the session-owned shell for script-driven user output."""
     ctx = get_context()
     return ctx.display_shell_path if ctx else None
+
+def get_user_shell_path() -> Optional[str]:
+    """Return the session-owned replaying shell for user-facing output."""
+    ctx = get_context()
+    return ctx.user_shell_path if ctx else None
 
 def get_user_game_id() -> Optional[int]:
     """Returns the user_game_id for this function call."""
@@ -665,7 +671,7 @@ async def client_image(
         max_width: Optional CSS max-width for the rendered image (e.g. "25vw", "320px").
         sid: Optional author sid; the client/database resolves its display name.
         location: Optional game-location tag for the image event.
-        shell: Render target shell — "exec" (default), "display", or "caller".
+        shell: Render target shell — "exec" (default), "display", "user", or "caller".
 
     Raises:
         FileNotFoundError: If the image file doesn't exist
@@ -1034,7 +1040,7 @@ async def _client_command(
         message_type: The message type for the protocol (default "command").
         is_private: If True, send only to requesting client.
         notification_params: Internal-only params flattened beside messageType/data.
-        shell: Callback target: "exec" (default), "display", or "caller".
+        shell: Callback target: "exec" (default), "display", "user", or "caller".
 
     Returns:
         The result returned by the client for the command.
@@ -1053,10 +1059,11 @@ async def _client_command(
     shell_paths = {
         "exec": get_exec_shell_path(),
         "display": get_display_shell_path(),
+        "user": get_user_shell_path(),
         "caller": get_caller_shell_path(),
     }
     if shell not in shell_paths:
-        raise ValueError(f"Unknown client_command shell {shell!r}; expected exec, display, or caller")
+        raise ValueError(f"Unknown client_command shell {shell!r}; expected exec, display, user, or caller")
     target_shell_path = shell_paths[shell]
     if not target_shell_path:
         raise RuntimeError(f"client_command shell {shell!r} is unavailable in the current call context")
@@ -1125,8 +1132,8 @@ async def client_command(
 ) -> Any:
     """Send a command and wait for its result.
 
-    Set shell="display" to route user-facing output to the session's dedicated
-    display surface. Existing callers continue to use the isolated exec shell.
+    Set shell="display" for the live-only display surface or shell="user" for
+    the replaying user surface. Existing callers continue to use the exec shell.
     """
     return await _client_command(
         command,
@@ -1144,7 +1151,7 @@ async def client_html(content: str, modal: bool = False, title: Optional[str] = 
         content: The HTML content to send
         modal: If True, render the HTML in a client modal.
         title: Optional modal title.
-        shell: Render target shell — "exec" (default), "display", or "caller".
+        shell: Render target shell — "exec" (default), "display", "user", or "caller".
     """
     # Internal carrier only: these keys are flattened into notifications/message.params
     # beside messageType and data; no wrapper is exposed or sent to clients.
@@ -1168,7 +1175,7 @@ async def client_modal(content: str, title: Optional[str] = None, shell: str = "
     Args:
         content: The modal HTML.
         title: Optional modal title.
-        shell: Render target shell — "exec" (default), "display", or "caller".
+        shell: Render target shell — "exec" (default), "display", "user", or "caller".
 
     Returns:
         The modal UUID returned by the client ack.
@@ -1197,6 +1204,80 @@ async def client_modal_close(modal_id: str) -> Any:
         "modalId": modal_id,
     }
     return await _client_command("html", None, message_type="html", notification_params=notification_params)
+
+
+class ClientWidget:
+    """Handle for a decorationless widget inside a client dashboard manager."""
+
+    def __init__(self, manager_key: str, manager_title: str, widget_key: str, shell: str):
+        self.manager_key = manager_key
+        self.manager_title = manager_title
+        self.widget_key = widget_key
+        self.shell = shell
+
+    async def update(self, content: str) -> None:
+        await _client_dashboard_widget(
+            content,
+            manager_key=self.manager_key,
+            manager_title=self.manager_title,
+            widget_key=self.widget_key,
+            shell=self.shell,
+        )
+
+    async def remove(self) -> None:
+        await _client_dashboard_widget(
+            "",
+            manager_key=self.manager_key,
+            manager_title=self.manager_title,
+            widget_key=self.widget_key,
+            shell=self.shell,
+            action="remove",
+        )
+
+
+async def _client_dashboard_widget(
+    content: str,
+    *,
+    manager_key: str,
+    manager_title: str,
+    widget_key: str,
+    shell: str,
+    action: str = "upsert",
+) -> Any:
+    if not manager_key or not widget_key:
+        raise ValueError("manager_key and widget_key are required")
+    return await _client_command(
+        "html",
+        content,
+        message_type="html",
+        notification_params={
+            "dashboardWidget": True,
+            "action": action,
+            "managerKey": manager_key,
+            "managerTitle": manager_title,
+            "widgetKey": widget_key,
+        },
+        shell=shell,
+    )
+
+
+async def client_widget(
+    content: str,
+    *,
+    widget_key: str,
+    manager_key: str = "dashboard",
+    manager_title: str = "Dashboard",
+    shell: str = "display",
+) -> ClientWidget:
+    """Create or replace a decorationless widget in a floating dashboard."""
+    await _client_dashboard_widget(
+        content,
+        manager_key=manager_key,
+        manager_title=manager_title,
+        widget_key=widget_key,
+        shell=shell,
+    )
+    return ClientWidget(manager_key, manager_title, widget_key, shell)
 
 
 async def client_script(content: str, is_private: bool = True):
@@ -1264,7 +1345,7 @@ async def set_background(
         horizontal_align: Horizontal alignment for background-position. Defaults to "center".
         background_repeat: CSS background-repeat value. Defaults to "no-repeat".
         background_size: CSS background-size value. Defaults to "cover".
-        shell: Render target shell — "exec" (default), "display", or "caller".
+        shell: Render target shell — "exec" (default), "display", "user", or "caller".
     """
     # Auto-detect MIME type from file extension if not provided
     if image_format is None:

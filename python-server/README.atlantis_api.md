@@ -38,6 +38,7 @@ They take no arguments and return `None` when there is no active context.
 | `get_caller_shell_path()` | `str` | The user's **root** shell path (used for attribution). |
 | `get_exec_shell_path()` | `str` | The shell where this call's work actually runs. Outbound callbacks are tagged with this; falls back to the caller shell path. |
 | `get_display_shell_path()` | `str` | The session's dedicated browser-selectable shell for script-driven user output. |
+| `get_user_shell_path()` | `str` | The session's dedicated browser-selectable output shell whose events replay after reconnect. |
 | `get_user_game_id()` | `int` | The integer `user_game_id` for this call. |
 
 ### Owner / permission checks
@@ -62,7 +63,7 @@ They take no arguments and return `None` when there is no active context.
 
 | Function | Notes |
 | --- | --- |
-| `client_log(message, level="INFO", message_type="text", is_private=True, location=None, shell=None)` | The core "send something back to the client" call. Auto-captures sequence number, caller name, and entry point. `message_type` can be `"text"`, `"json"`, or an image mime (`"image/png"`, …). `is_private=False` adds a cloud-side routing hint for broadcast. Set `shell` to `"exec"`, `"display"`, or `"caller"` for explicit routing; omitting it preserves legacy notification routing. |
+| `client_log(message, level="INFO", message_type="text", is_private=True, location=None, shell=None)` | The core "send something back to the client" call. Auto-captures sequence number, caller name, and entry point. `message_type` can be `"text"`, `"json"`, or an image mime (`"image/png"`, …). `is_private=False` adds a cloud-side routing hint for broadcast. Set `shell` to `"exec"`, `"display"`, `"user"`, or `"caller"` for explicit routing; omitting it preserves legacy notification routing. |
 | `client_description(message, ..., shell=None)` | `client_log` with `message_type="description"`; accepts the same optional shell routing. |
 | `client_warning(message, ..., shell=None)` | `client_log` with `message_type="warning"`; accepts the same optional shell routing. |
 | `owner_log(message)` | Appends a structured entry to `log/owner_log.json` (timestamp, tool name, caller) and echoes to the server console. |
@@ -73,15 +74,20 @@ They take no arguments and return `None` when there is no active context.
 ## Rendering rich content
 
 All of these send content to the client and `await` its acknowledgment.
+Helpers with a `shell` parameter accept `"exec"`, `"display"`, `"user"`, or
+`"caller"`; `"display"` is live-only, while `"user"` replays persisted events.
+
+Dashboard widgets render composed content on the display shell inside a named manager.
+A stable widget key replaces that part of the dashboard when it is rendered again.
 
 | Function | Sends |
 | --- | --- |
 | `client_markdown(content)` | Markdown to render. |
-| `client_html(content, modal=False, title=None)` | HTML. With `modal=True` it renders in a modal and the ack must carry a `modalId`. |
-| `client_modal(content, title=None)` | HTML in a modal; **returns the modal UUID**. |
+| `client_html(content, modal=False, title=None, shell="exec")` | HTML. With `modal=True` it renders in a modal and the ack must carry a `modalId`. |
+| `client_modal(content, title=None, shell="exec")` | HTML in a modal; **returns the modal UUID**. |
 | `client_modal_close(modal_id)` | Closes a previously opened modal by id. |
 | `client_data(description, data, column_formatter=None)` | A JSON-serializable object for styled rendering. Arrays of objects auto-display as a table. `column_formatter` maps column names to display options. Raises `TypeError` if `data` isn't JSON-serializable. |
-| `client_image(image_path, image_format=None, content=None, who=None, max_width=None, sid=None, location=None, shell="exec")` | An image file (base64-encoded). Mime auto-detected from extension if omitted. Optional `content` is displayed with the image event; `sid` identifies the author for database display-name resolution, while `who` explicitly overrides that name; `max_width` sets CSS max-width; `location` tags the game location; and `shell` selects `"exec"`, `"display"`, or `"caller"` routing. |
+| `client_image(image_path, image_format=None, content=None, who=None, max_width=None, sid=None, location=None, shell="exec")` | An image file (base64-encoded). Mime auto-detected from extension if omitted. Optional `content` is displayed with the image event; `sid` identifies the author for database display-name resolution, while `who` explicitly overrides that name; `max_width` sets CSS max-width; `location` tags the game location; and `shell` selects `"exec"`, `"display"`, `"user"`, or `"caller"` routing. |
 | `client_video(video_path, video_format=None, content=None, who=None)` | A video file (base64-encoded). Mime auto-detected if omitted. Optional `content` is displayed with the video event; optional `who` overrides the event display name. |
 | `client_script(content, is_private=True)` | JavaScript that runs **once** (deduped by event completion). |
 | `client_terminal_script(content, is_private=True)` | JavaScript that **re-runs on every render** — use for cosmetic DOM effects that must survive a page reload. |
@@ -125,7 +131,7 @@ each ack).
 
 | Function | Notes |
 | --- | --- |
-| `client_command(command, data=None, message_type="command", is_private=True, shell="exec")` | Sends a command to the client and **waits for its result**. Use `shell="display"` for script-driven user output on the session's dedicated display surface; `exec` remains the default. `shell="caller"` explicitly targets the originating terminal. |
+| `client_command(command, data=None, message_type="command", is_private=True, shell="exec")` | Sends a command to the client and **waits for its result**. Use `shell="display"` for live-only output or `shell="user"` for output that replays after reconnect; `exec` remains the default. `shell="caller"` explicitly targets the originating terminal. |
 | `tool_result(name, result)` | Pushes a tool-call result into the transcript so the LLM sees it on the next turn. |
 | `client_onclick(key, callback)` | Registers an async `callback` to fire when the client reports a click for `key`. |
 | `client_upload(key, callback)` | Registers an async `callback` to fire when an upload occurs for `key`. |

@@ -17,6 +17,7 @@ _ALLOWED_METHODS: Dict[str, Callable[[], Any]] = {
     "get_session_key": _atlantis.get_session_key,
     "get_terminal_key": _atlantis.get_terminal_key,
     "get_user_game_id": _atlantis.get_user_game_id,
+    "get_user_shell_path": _atlantis.get_user_shell_path,
 }
 
 

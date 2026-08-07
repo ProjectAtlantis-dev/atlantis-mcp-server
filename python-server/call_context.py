@@ -13,6 +13,7 @@ class ToolCallPayload(BaseModel):
     exec_shell_path: Optional[str] = None
     caller_shell_path: Optional[str] = None
     display_shell_path: Optional[str] = None
+    user_shell_path: Optional[str] = None
 
 
 class CallContext(BaseModel):
@@ -60,6 +61,10 @@ class CallContext(BaseModel):
     @property
     def display_shell_path(self) -> Optional[str]:
         return self.payload.display_shell_path
+
+    @property
+    def user_shell_path(self) -> Optional[str]:
+        return self.payload.user_shell_path
 
     @property
     def session_key(self) -> str:

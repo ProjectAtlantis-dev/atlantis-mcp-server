@@ -39,8 +39,9 @@ yarn-error.log
 *.pid
 
 *.OLD
-# Dynamic functions are user/scaffolded code by default. The platform Home app
-# is tracked; Demo is scaffolded on first run from python-server/state.py.
+# Dynamic functions are user/scaffolded code by default. The repository's Home,
+# Chat, and Terrain apps are tracked; Demo is scaffolded on first run from
+# python-server/state.py.
 python-server/dynamic_functions/*
 !python-server/dynamic_functions/Home/
 !python-server/dynamic_functions/Home/**
@@ -53,6 +54,10 @@ python-server/dynamic_functions/Chat/**/__pycache__/
 python-server/dynamic_functions/Chat/**/*.py[cod]
 python-server/dynamic_functions/Chat/api_payload.json
 python-server/dynamic_functions/Chat/**/*_thumb.jpg
+!python-server/dynamic_functions/Terrain/
+!python-server/dynamic_functions/Terrain/**
+python-server/dynamic_functions/Terrain/**/__pycache__/
+python-server/dynamic_functions/Terrain/**/*.py[cod]
 # Chat/Game holds static content (bots, locations, scenes) and is tracked.
 # Chat/Data holds live per-game state and is not.
 python-server/dynamic_functions/Chat/Data/
@@ -73,6 +78,7 @@ python-server/server_uuid
 log/
 
 *.db
+*.db-*
 python-server/**/*.json
 python-server/**/*.log
 # Chat/Game content is config-as-JSON (bot/location config.json, Scenes/*.json).

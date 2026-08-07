@@ -291,6 +291,7 @@ It holds the game/chat tools, bot runtime, static content under `Game/`, and liv
 
 - **`python-server/dynamic_functions/Home/`** — small platform-owned Home app used for Lobster/Multix readme entry points.
 - **`python-server/dynamic_functions/Chat/`** — the bot/chat runtime app.
+- **`python-server/dynamic_functions/Terrain/`** — tracked terrain tooling, including the database lifecycle and schema; the live SQLite database remains untracked.
 - **`python-server/dynamic_functions/Chat/Game/`** — static content: bots, locations, scenes. Tracked.
 - **`python-server/dynamic_functions/Chat/Data/`** — live per-game state, keyed by `game_key`. Not tracked.
 

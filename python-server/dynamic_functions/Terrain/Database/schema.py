@@ -37,6 +37,13 @@ def create(db: sqlite3.Connection) -> None:
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS textures (
+            tile_id    TEXT PRIMARY KEY,
+            source     TEXT NOT NULL,
+            texture    BLOB NOT NULL,
+            updated_at TEXT NOT NULL
+        );
         """
     )
     db.commit()

@@ -8,9 +8,10 @@ import logging
 logger = logging.getLogger("dynamic_function")
 
 
+@index
 @visible
 async def index(session_key: str):
-    """Game logic engine"""
+    """Chat engine"""
     pass
 
 

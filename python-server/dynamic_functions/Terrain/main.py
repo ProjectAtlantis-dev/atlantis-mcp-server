@@ -8,7 +8,7 @@ logger = logging.getLogger("dynamic_function")
 @index
 async def index():
     """
-    Folder for Terrain
+    Terrain Stuff
     """
     logger.info(f"Executing placeholder function: index...")
 

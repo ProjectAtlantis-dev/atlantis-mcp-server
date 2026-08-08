@@ -1,13 +1,19 @@
 """Composite user interface for terrain tools."""
 
+import base64
+import struct
+import zlib
+from functools import lru_cache
+
 import atlantis
 
 from dynamic_functions.Terrain.Database.database import ux_status
 
 
-def _brushed_metal_gradient(line_count: int = 2_048) -> str:
-    """Build a non-repeating field of subtly varied horizontal grey lines."""
-    stops = []
+@lru_cache(maxsize=1)
+def _brushed_metal_texture(line_count: int = 2_048) -> str:
+    """Build a compact PNG containing non-repeating horizontal grey lines."""
+    rows = bytearray()
     grain = 0x6D2B79F5
     cluster_offset = 0
 
@@ -21,12 +27,22 @@ def _brushed_metal_gradient(line_count: int = 2_048) -> str:
         grain = (1_664_525 * grain + 1_013_904_223) & 0xFFFFFFFF
         fine_offset = ((grain >> 16) % 11) - 5
         shade = 128 + cluster_offset + fine_offset
-        start = index * 100 / line_count
-        end = (index + 1) * 100 / line_count
-        color = f"rgb({shade}, {shade}, {shade})"
-        stops.extend((f"{color} {start:.3f}%", f"{color} {end:.3f}%"))
+        rows.extend((0, shade, shade, shade))
 
-    return f"linear-gradient(to bottom, {', '.join(stops)})"
+    def png_chunk(kind: bytes, payload: bytes) -> bytes:
+        checksum = zlib.crc32(kind + payload) & 0xFFFFFFFF
+        return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", checksum)
+
+    png = b"".join(
+        (
+            b"\x89PNG\r\n\x1a\n",
+            png_chunk(b"IHDR", struct.pack(">IIBBBBB", 1, line_count, 8, 2, 0, 0, 0)),
+            png_chunk(b"IDAT", zlib.compress(bytes(rows), level=9)),
+            png_chunk(b"IEND", b""),
+        )
+    )
+    encoded = base64.b64encode(png).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
 
 
 @visible
@@ -37,16 +53,23 @@ async def dashboard() -> None:
     ]
     composite_html = f"""
 <style>
+  .dashboard-widget-manager:has(.terrain-dashboard-composite) {{
+    align-content: end !important;
+  }}
   .terrain-dashboard-composite {{
     box-sizing: border-box;
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    grid-auto-rows: max-content;
+    align-content: end;
     gap: 12px;
     width: 100%;
     padding: 12px;
     background:
       linear-gradient(90deg, rgba(255, 255, 255, 0.08), transparent 28%, rgba(255, 255, 255, 0.12) 52%, transparent 76%, rgba(0, 0, 0, 0.08)),
-      {_brushed_metal_gradient()};
+      url("{_brushed_metal_texture()}");
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
     border: 2px solid;
     border-color: #d2d2d2 #565656 #424242 #c4c4c4;
     border-radius: 8px;

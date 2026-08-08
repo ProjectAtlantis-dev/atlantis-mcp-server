@@ -124,8 +124,8 @@ def ux_status() -> str:
       0 0 11px rgba({light_glow}, 0.34);
   }}
 </style>
-<section id="terrain-db-status-{uid}" aria-label="Terrain database status">
+<div id="terrain-db-status-{uid}" aria-label="Terrain database status">
   <span class="terrain-db-label">TERRAIN DB</span>
   <span class="terrain-db-light" role="status" aria-label="{state_label}"></span>
-</section>
+</div>
 """

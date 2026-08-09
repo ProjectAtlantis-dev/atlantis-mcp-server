@@ -1,11 +1,11 @@
 """Directly callable checks for the ArcticDEM raster decoder."""
 
-import hashlib
 from pathlib import Path
 
-import numpy as np
-
-from dynamic_functions.Terrain.arctic_dem import _decode_source
+from dynamic_functions.Terrain.arctic_dem import (
+    _decode_source,
+    _heightmap_summary,
+)
 from dynamic_functions.Terrain.terrain_config import GREENLAND_BBOX
 from dynamic_functions.Terrain.tile_address import tile_bounds
 
@@ -30,13 +30,7 @@ def arcticdem_decode(tile_id: str) -> dict:
         _FIXTURE_PATH,
         tile_bounds(tile_id, GREENLAND_BBOX),
     )
-    valid = heightmap[np.isfinite(heightmap)]
     return {
         "tileId": tile_id,
-        "shape": list(heightmap.shape),
-        "dtype": str(heightmap.dtype),
-        "minimum": float(np.min(valid)) if valid.size else None,
-        "maximum": float(np.max(valid)) if valid.size else None,
-        "nanCount": int(np.isnan(heightmap).sum()),
-        "digest": hashlib.sha256(heightmap.tobytes()).hexdigest(),
+        **_heightmap_summary(heightmap),
     }

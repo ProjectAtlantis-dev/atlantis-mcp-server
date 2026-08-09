@@ -1,5 +1,6 @@
 """ArcticDEM request construction for explicit terrain tile IDs."""
 
+import hashlib
 import math
 from pathlib import Path
 
@@ -101,11 +102,10 @@ def _decode_source(
         row0 = int(np.floor(window.row_off)) - 1
         column1 = int(np.ceil(window.col_off + window.width)) + 1
         row1 = int(np.ceil(window.row_off + window.height)) + 1
-        integer_window = Window(
-            column0,
-            row0,
-            column1 - column0,
-            row1 - row0,
+        integer_window = Window.from_slices(
+            rows=(row0, row1),
+            cols=(column0, column1),
+            boundless=True,
         )
         data = dataset.read(1, window=integer_window, boundless=True).astype(
             np.float32
@@ -117,6 +117,40 @@ def _decode_source(
             bbox,
             resolution,
         )
+
+
+def _heightmap_summary(heightmap: np.ndarray) -> dict:
+    """Return stable, JSON-safe metadata for a decoded heightmap."""
+
+    valid = heightmap[np.isfinite(heightmap)]
+    return {
+        "shape": list(heightmap.shape),
+        "dtype": str(heightmap.dtype),
+        "minimum": float(np.min(valid)) if valid.size else None,
+        "maximum": float(np.max(valid)) if valid.size else None,
+        "nanCount": int(np.isnan(heightmap).sum()),
+        "digest": hashlib.sha256(heightmap.tobytes()).hexdigest(),
+    }
+
+
+def _fetch_heightmap(tile_id: str) -> tuple[np.ndarray, list[dict]]:
+    """Fetch and merge the ArcticDEM COG windows needed by one tile."""
+
+    bbox = tile_bounds(tile_id, GREENLAND_BBOX)
+    sources = _sources_for_bbox(bbox)
+    heightmap = None
+
+    for source in sources:
+        decoded = _decode_source(source["url"], bbox)
+        if heightmap is None:
+            heightmap = decoded
+        else:
+            fill = np.isnan(heightmap) & np.isfinite(decoded)
+            heightmap[fill] = decoded[fill]
+
+    if heightmap is None:
+        raise RuntimeError(f"No ArcticDEM sources found for {tile_id}")
+    return heightmap, sources
 
 
 @visible
@@ -142,4 +176,25 @@ def arcticdem_request(tile_id: str) -> dict:
         "bbox": list(bbox),
         "resolution": GRID_N,
         "sources": _sources_for_bbox(bbox),
+    }
+
+
+@visible
+def arcticdem_fetch(tile_id: str) -> dict:
+    """Fetch and decode one ArcticDEM tile without database access.
+
+    Network and provider failures are raised to the caller. No result from
+    this function is treated as persisted terrain data.
+
+    Example:
+        arcticdem_fetch("10-334-192")
+    """
+
+    heightmap, sources = _fetch_heightmap(tile_id)
+    return {
+        "provider": "arcticdem",
+        "dataset": "mosaics/v4.1/10m",
+        "tileId": tile_id,
+        "sources": sources,
+        **_heightmap_summary(heightmap),
     }

@@ -91,6 +91,31 @@ def shared_database_connection() -> sqlite3.Connection:
     return db()
 
 
+# Lazily populated backend symbols. Keeping these declarations active is
+# side-effect free and preserves the source bootstrap contract while their
+# producer modules cross into Terrain one at a time.
+_backend_ready = False
+_backend_error: str | None = None
+_np: Any = None
+_Image: Any = None
+_to_stereo: Any = None
+_query_tiles_stereo: Any = None
+_load_no_data_cache: Any = None
+_GRID_N: int = 65
+_tile_bbox: Any = None
+_texture_ids_in: Any = None
+_texture_sources_in: Any = None
+_metatile_is_upsampled: Any = None
+_read_texture: Any = None
+_write_texture: Any = None
+_fetch_sentinel2_texture: Any = None
+_fetch_dataforsyningen_texture: Any = None
+_split_texture_metatile: Any = None
+_harmonize_texture_metatile: Any = None
+_init_textures: Any = None
+_init_classifier_tiles: Any = None
+
+
 @dataclass(frozen=True)
 class TileQuery:
     """Framework-neutral inputs for one terrain tile demand pass."""

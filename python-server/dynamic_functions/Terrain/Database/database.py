@@ -170,6 +170,19 @@ def describe(table_name: str) -> list[dict]:
     return [dict(zip(field_names, row)) for row in cursor.fetchall()]
 
 
+@visible
+def query(sql: str) -> list[dict]:
+    """Execute one SQLite statement and return its result rows as objects."""
+    connection = db()
+    cursor = connection.execute(sql)
+    if cursor.description is None:
+        connection.commit()
+        return []
+
+    field_names = [column[0] for column in cursor.description]
+    return [dict(zip(field_names, row)) for row in cursor.fetchall()]
+
+
 def ux_status() -> str:
     """Build the dashboard component for the terrain database status."""
     uid = uuid.uuid4().hex[:8]

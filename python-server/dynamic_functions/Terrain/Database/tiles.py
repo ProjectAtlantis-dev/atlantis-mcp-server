@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime
 import sqlite3
+import zlib
 
 import numpy as np
 
@@ -16,17 +17,64 @@ from dynamic_functions.Terrain.terrain_config import (
     GREENLAND_BBOX,
     MAX_TILE_DEPTH,
 )
-from dynamic_functions.Terrain.tile_address import format_tile_id
+from dynamic_functions.Terrain.tile_address import (
+    format_tile_id,
+    require_tile_id,
+)
 
 
 # 64 cells represented by 65 shared-edge vertices per axis.
 GRID_N = 65
+
+CONFIDENCE = {
+    "empty": 0,
+    "arcticdem": 5,
+    "arcticdem_10m": 6,
+}
+
+
+class TileClobberError(RuntimeError):
+    """Raised when a DEM write would replace a different stored payload."""
+
+    def __init__(
+        self,
+        tile_id: str,
+        existing_source: str,
+        incoming_source: str,
+        existing_updated_at: str,
+    ) -> None:
+        self.tile_id = tile_id
+        self.existing_source = existing_source
+        self.incoming_source = incoming_source
+        self.existing_updated_at = existing_updated_at
+        super().__init__(
+            f"Refusing to clobber tile {tile_id}: "
+            f"existing source={existing_source} "
+            f"updated_at={existing_updated_at}, "
+            f"incoming source={incoming_source}"
+        )
 
 
 def _parent_id(depth: int, column: int, row: int) -> str | None:
     if depth == 0:
         return None
     return format_tile_id(depth - 1, column // 2, row // 2)
+
+
+def _compress_array(array: np.ndarray) -> bytes:
+    return zlib.compress(array.tobytes(), level=6)
+
+
+def _decompress_float32(blob: bytes) -> np.ndarray:
+    return np.frombuffer(zlib.decompress(blob), dtype=np.float32).reshape(
+        (GRID_N, GRID_N)
+    ).copy()
+
+
+def _decompress_uint8(blob: bytes) -> np.ndarray:
+    return np.frombuffer(zlib.decompress(blob), dtype=np.uint8).reshape(
+        (GRID_N, GRID_N)
+    ).copy()
 
 
 def tile_bbox(
@@ -46,6 +94,37 @@ def tile_bbox(
     x0 = root_x0 + column * tile_width
     y0 = root_y0 + row * tile_height
     return x0, y0, x0 + tile_width, y0 + tile_height
+
+
+def ensure_tile_row(db: sqlite3.Connection, tile_id: str) -> bool:
+    """Create the empty skeleton row for one explicitly requested tile."""
+
+    depth, column, row = require_tile_id(tile_id)
+    tiles_per_axis = 1 << depth
+    if column >= tiles_per_axis or row >= tiles_per_axis:
+        raise ValueError(f"terrain tile address is outside depth {depth}: {tile_id!r}")
+    bbox = tile_bbox(depth, column, row)
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    cursor = db.execute(
+        "INSERT OR IGNORE INTO tiles "
+        "(tile_id, depth, col, row, x_min, y_min, x_max, y_max, "
+        "parent_id, geometric_error, source, updated_at, heightmap, "
+        "confidence_map) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            tile_id,
+            depth,
+            column,
+            row,
+            *bbox,
+            _parent_id(depth, column, row),
+            0.0,
+            "empty",
+            now,
+            None,
+            None,
+        ),
+    )
+    return cursor.rowcount == 1
 
 
 def compute_geometric_error(heightmap: np.ndarray | None) -> float:
@@ -80,6 +159,112 @@ def compute_geometric_error(heightmap: np.ndarray | None) -> float:
         * column_fraction[None, :]
     )
     return float(np.max(np.abs(heightmap - restored)))
+
+
+def write_dem(
+    db: sqlite3.Connection,
+    tile_id: str,
+    heightmap: np.ndarray,
+    source: str,
+    *,
+    commit: bool = True,
+) -> bool:
+    """Store one decoded DEM without silently replacing existing data.
+
+    Returns ``True`` for a new payload and ``False`` when the exact payload is
+    already present. NaNs are stored as zero-height samples with zero
+    confidence, matching the Flask write path.
+    """
+
+    if not isinstance(heightmap, np.ndarray):
+        raise TypeError("heightmap must be a numpy array")
+    if heightmap.shape != (GRID_N, GRID_N):
+        raise ValueError(
+            f"heightmap shape {heightmap.shape} != ({GRID_N}, {GRID_N})"
+        )
+    if heightmap.dtype != np.float32:
+        raise TypeError(f"heightmap dtype {heightmap.dtype} != float32")
+    if source not in CONFIDENCE or CONFIDENCE[source] == 0:
+        raise ValueError(f"Unknown measured DEM source: {source}")
+
+    ensure_tile_row(db, tile_id)
+    confidence = np.where(
+        np.isfinite(heightmap),
+        np.uint8(CONFIDENCE[source]),
+        np.uint8(0),
+    )
+    stored_heightmap = np.where(np.isfinite(heightmap), heightmap, 0.0).astype(
+        np.float32
+    )
+    heightmap_blob = _compress_array(stored_heightmap)
+    confidence_blob = _compress_array(confidence)
+    geometric_error = compute_geometric_error(stored_heightmap)
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+    cursor = db.execute(
+        "UPDATE tiles SET heightmap = ?, confidence_map = ?, "
+        "geometric_error = ?, source = ?, updated_at = ? "
+        "WHERE tile_id = ? AND heightmap IS NULL AND confidence_map IS NULL",
+        (
+            heightmap_blob,
+            confidence_blob,
+            geometric_error,
+            source,
+            now,
+            tile_id,
+        ),
+    )
+    if cursor.rowcount == 1:
+        if commit:
+            db.commit()
+        return True
+
+    row = db.execute(
+        "SELECT source, updated_at, heightmap, confidence_map "
+        "FROM tiles WHERE tile_id = ?",
+        (tile_id,),
+    ).fetchone()
+    if row is None:
+        raise KeyError(f"Unknown tile_id: {tile_id}")
+
+    existing_source, existing_updated_at, existing_heightmap, existing_confidence = row
+    if (
+        existing_source == source
+        and existing_heightmap == heightmap_blob
+        and existing_confidence == confidence_blob
+    ):
+        return False
+    raise TileClobberError(
+        tile_id,
+        existing_source,
+        source,
+        existing_updated_at,
+    )
+
+
+def read_dem_payload(db: sqlite3.Connection, tile_id: str) -> dict | None:
+    """Read and decode one stored DEM, restoring no-confidence samples to NaN."""
+
+    row = db.execute(
+        "SELECT source, updated_at, geometric_error, heightmap, confidence_map "
+        "FROM tiles WHERE tile_id = ?",
+        (tile_id,),
+    ).fetchone()
+    if row is None or row[3] is None or row[4] is None:
+        return None
+
+    stored_heightmap = _decompress_float32(row[3])
+    confidence_map = _decompress_uint8(row[4])
+    heightmap = stored_heightmap.copy()
+    heightmap[confidence_map == 0] = np.nan
+    return {
+        "tile_id": tile_id,
+        "source": row[0],
+        "updated_at": row[1],
+        "geometric_error": row[2],
+        "heightmap": heightmap,
+        "confidence_map": confidence_map,
+    }
 
 
 def seed_tiles(

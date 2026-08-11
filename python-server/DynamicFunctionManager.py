@@ -1518,6 +1518,11 @@ async def {name}():
                                     })
                                     continue
 
+                                # Dynamic functions are opt-in. Undecorated module helpers must
+                                # not enter the registry or participate in duplicate detection.
+                                if not is_visible and not is_internal:
+                                    continue
+
                                 # Determine app_path: prioritize @app() decorator, then file path (always slash notation)
                                 app_name_from_decorator = func_info.get('app_name')
                                 if app_name_from_decorator:

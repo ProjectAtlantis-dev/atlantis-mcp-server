@@ -1,5 +1,6 @@
 """Directly callable access to persisted terrain DEMs."""
 
+import atlantis
 import hashlib
 
 import numpy as np
@@ -13,6 +14,13 @@ from dynamic_functions.Terrain.Database.tiles import (
     read_dem_payload,
     write_dem,
 )
+
+
+@visible
+async def list_tiles() -> list[tuple]:
+    """Return the tile ID, depth, and source for every terrain tile row."""
+
+    return await atlantis.client_command("@Database/query 'SELECT tile_id, depth, source FROM tiles'");
 
 
 def _read_dem(connection, tile_id: str) -> dict:

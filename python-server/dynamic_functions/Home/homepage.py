@@ -81,7 +81,7 @@ async def first_menu():
         commands = [
             f"/cd {script_folder}",
             "cd ..",
-            "cd Greenland",
+            "cd Terrain",
             "ls",
         ]
         await atlantis.client_command("/script", {"commands": commands})

@@ -251,13 +251,21 @@ def _fetch_metatile(tile_id: str, token: str) -> tuple[bytes | None, dict]:
 
     source_pixels = np.asarray(source_image, dtype=np.uint8)
     resolution = request["width"]
+    wms_bbox = request["bbox"]
     source_transform = transform_from_bounds(
-        *request["bbox"],
+        wms_bbox[0],
+        wms_bbox[1],
+        wms_bbox[2],
+        wms_bbox[3],
         source_image.width,
         source_image.height,
     )
+    terrain_bbox = request["sourceBbox"]
     destination_transform = transform_from_bounds(
-        *request["sourceBbox"],
+        terrain_bbox[0],
+        terrain_bbox[1],
+        terrain_bbox[2],
+        terrain_bbox[3],
         resolution,
         resolution,
     )

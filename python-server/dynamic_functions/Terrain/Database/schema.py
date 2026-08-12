@@ -45,6 +45,28 @@ def create(db: sqlite3.Connection) -> None:
             texture    BLOB NOT NULL,
             updated_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS coastline_masks (
+            tile_id    TEXT PRIMARY KEY,
+            width      INTEGER NOT NULL CHECK (width > 0),
+            height     INTEGER NOT NULL CHECK (height > 0),
+            mask       BLOB NOT NULL,
+            source     TEXT NOT NULL,
+            version    INTEGER NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (tile_id) REFERENCES tiles(tile_id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS hydrography_masks (
+            tile_id    TEXT PRIMARY KEY,
+            width      INTEGER NOT NULL CHECK (width > 0),
+            height     INTEGER NOT NULL CHECK (height > 0),
+            mask       BLOB NOT NULL,
+            source     TEXT NOT NULL,
+            version    INTEGER NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (tile_id) REFERENCES tiles(tile_id) ON DELETE CASCADE
+        );
         """
     )
     tile_columns = {

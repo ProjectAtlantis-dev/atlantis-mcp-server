@@ -13,6 +13,7 @@ from dynamic_functions.Terrain.dataforsyningen import (
 from dynamic_functions.Terrain.Database.database import db
 from dynamic_functions.Terrain.Database.textures import (
     read_texture_payload,
+    read_texture_with_ancestor,
     write_texture_metatile,
 )
 
@@ -55,6 +56,30 @@ def read_texture(tile_id: str) -> dict:
     """Return one stored JPEG with provenance, digest, and exact base64 bytes."""
 
     return _read_texture(db(), tile_id, include_data=True)
+
+
+@visible
+def read_texture_fallback(tile_id: str) -> dict:
+    """Return exact texture bytes or the nearest stored ancestor explicitly."""
+
+    payload = read_texture_with_ancestor(db(), tile_id)
+    if payload is None:
+        return {"tileId": tile_id, "found": False}
+
+    texture = payload["texture"]
+    return {
+        "tileId": tile_id,
+        "found": True,
+        "exact": payload["exact"],
+        "resolvedTileId": payload["resolved_tile_id"],
+        "depthDelta": payload["depth_delta"],
+        "source": payload["source"],
+        "updatedAt": payload["updated_at"],
+        "mediaType": _MEDIA_TYPE,
+        "contentLength": len(texture),
+        "digest": hashlib.sha256(texture).hexdigest(),
+        "contentBase64": base64.b64encode(texture).decode("ascii"),
+    }
 
 
 @visible

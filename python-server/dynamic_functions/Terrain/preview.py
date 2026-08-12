@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import base64
-import hashlib
 import html
 import io
+import tempfile
 
 import atlantis
 import numpy as np
@@ -18,6 +17,8 @@ from dynamic_functions.Terrain.tile_address import require_tile_id
 
 
 _PREVIEW_SIZE = 520
+_SEA_LEVEL_TOLERANCE_METERS = 1.0
+_SEA_LEVEL_COLOR = np.asarray((5, 24, 64), dtype=np.uint8)
 _TERRAIN_COLORS = np.asarray(
     [
         (31, 78, 82),
@@ -75,8 +76,15 @@ def _terrain_png(heightmap: np.ndarray) -> tuple[bytes, float, float]:
     gradient_y, gradient_x = np.gradient(filled)
     relief = np.clip(0.72 + (gradient_y - gradient_x) * 3.2, 0.48, 1.12)
     rgb = np.clip(rgb * relief[..., None], 0, 255).astype(np.uint8)
+    near_sea_level = valid & (
+        np.abs(heightmap) <= _SEA_LEVEL_TOLERANCE_METERS
+    )
+    rgb[near_sea_level] = _SEA_LEVEL_COLOR
     alpha = np.where(valid, 255, 0).astype(np.uint8)
-    rgba = np.dstack((rgb, alpha))
+    # Stored DEM grids use row 0 as south, while image row 0 is the top
+    # (north). Flip only at the rendering boundary so the persisted terrain
+    # contract remains aligned with the rest of the terrain pipeline.
+    rgba = np.flipud(np.dstack((rgb, alpha)))
 
     image = Image.fromarray(rgba).resize(
         (_PREVIEW_SIZE, _PREVIEW_SIZE),
@@ -108,7 +116,7 @@ async def _show_preview(widget_key: str, body: str) -> None:
 
 
 @visible
-async def preview_tile(tile_id: str) -> dict:
+async def preview_tile(tile_id: str) -> None:
     """Show a colorized elevation preview of one stored DEM tile."""
 
     tile_id = _canonical_tile_id(tile_id)
@@ -118,55 +126,26 @@ async def preview_tile(tile_id: str) -> dict:
             f"terrain-tile-{tile_id}",
             _missing_html(tile_id, "terrain tile"),
         )
-        return {"tileId": tile_id, "found": False}
+        return
 
     png, minimum, maximum = _terrain_png(payload["heightmap"])
-    encoded = base64.b64encode(png).decode("ascii")
-    escaped_id = html.escape(tile_id)
-    escaped_source = html.escape(str(payload["source"]))
-    body = f"""
-<div style="box-sizing:border-box;padding:12px;border-radius:10px;
-  background:#171b20;color:#edf2f5;font:13px system-ui,sans-serif">
-  <div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:9px">
-    <strong>Terrain tile {escaped_id}</strong>
-    <span style="color:#aeb8c2">{escaped_source}</span>
-  </div>
-  <div style="overflow:hidden;border:1px solid #46515c;border-radius:6px;
-    background-color:#303840;background-image:linear-gradient(45deg,#3b444d 25%,transparent 25%),
-    linear-gradient(-45deg,#3b444d 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#3b444d 75%),
-    linear-gradient(-45deg,transparent 75%,#3b444d 75%);background-size:20px 20px;
-    background-position:0 0,0 10px,10px -10px,-10px 0">
-    <img alt="Elevation preview for tile {escaped_id}"
-      src="data:image/png;base64,{encoded}"
-      style="display:block;width:100%;max-width:{_PREVIEW_SIZE}px;aspect-ratio:1" />
-  </div>
-  <div style="height:8px;margin-top:10px;border-radius:4px;
-    background:linear-gradient(90deg,rgb(31,78,82),rgb(68,112,88),rgb(142,139,91),
-    rgb(139,125,111),rgb(225,232,235),white)"></div>
-  <div style="display:flex;justify-content:space-between;margin-top:4px;color:#aeb8c2">
-    <span>{minimum:.1f} m</span><span>{maximum:.1f} m</span>
-  </div>
-</div>
-"""
-    await _show_preview(
-        f"terrain-tile-{tile_id}",
-        body,
-    )
-    return {
-        "tileId": tile_id,
-        "found": True,
-        "source": payload["source"],
-        "updatedAt": payload["updated_at"],
-        "minimum": minimum,
-        "maximum": maximum,
-        "mediaType": "image/png",
-        "contentLength": len(png),
-        "digest": hashlib.sha256(png).hexdigest(),
-    }
+    with tempfile.NamedTemporaryFile(suffix=".png") as preview_file:
+        preview_file.write(png)
+        preview_file.flush()
+        await atlantis.client_image(
+            preview_file.name,
+            image_format="image/png",
+            content=(
+                f"Terrain tile {tile_id} · {payload['source']} · "
+                f"{payload['heightmap'].shape[1]}×{payload['heightmap'].shape[0]} · "
+                f"{minimum:.1f}–{maximum:.1f} m"
+            ),
+            max_width=f"{_PREVIEW_SIZE}px",
+        )
 
 
 @visible
-async def preview_texture(tile_id: str) -> dict:
+async def preview_texture(tile_id: str) -> None:
     """Show one stored terrain texture without fetching or rewriting it."""
 
     tile_id = _canonical_tile_id(tile_id)
@@ -176,35 +155,25 @@ async def preview_texture(tile_id: str) -> dict:
             f"terrain-texture-{tile_id}",
             _missing_html(tile_id, "texture"),
         )
-        return {"tileId": tile_id, "found": False}
+        return
 
     texture = payload["texture"]
-    encoded = base64.b64encode(texture).decode("ascii")
-    escaped_id = html.escape(tile_id)
-    escaped_source = html.escape(str(payload["source"]))
-    body = f"""
-<div style="box-sizing:border-box;padding:12px;border-radius:10px;
-  background:#171b20;color:#edf2f5;font:13px system-ui,sans-serif">
-  <div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:9px">
-    <strong>Terrain texture {escaped_id}</strong>
-    <span style="color:#aeb8c2">{escaped_source}</span>
-  </div>
-  <img alt="Texture preview for tile {escaped_id}"
-    src="data:image/jpeg;base64,{encoded}"
-    style="display:block;width:100%;max-width:{_PREVIEW_SIZE}px;aspect-ratio:1;
-      object-fit:contain;border:1px solid #46515c;border-radius:6px;background:#303840" />
-</div>
-"""
-    await _show_preview(
-        f"terrain-texture-{tile_id}",
-        body,
-    )
-    return {
-        "tileId": tile_id,
-        "found": True,
-        "source": payload["source"],
-        "updatedAt": payload["updated_at"],
-        "mediaType": "image/jpeg",
-        "contentLength": len(texture),
-        "digest": hashlib.sha256(texture).hexdigest(),
-    }
+    with Image.open(io.BytesIO(texture)) as stored_image:
+        stored_width, stored_height = stored_image.size
+        preview_image = stored_image.convert("RGB").resize(
+            (_PREVIEW_SIZE, _PREVIEW_SIZE),
+            Image.Resampling.BILINEAR,
+        )
+
+    with tempfile.NamedTemporaryFile(suffix=".jpg") as preview_file:
+        preview_image.save(preview_file, format="JPEG", quality=90)
+        preview_file.flush()
+        await atlantis.client_image(
+            preview_file.name,
+            image_format="image/jpeg",
+            content=(
+                f"Terrain texture {tile_id} · {payload['source']} · "
+                f"{stored_width}×{stored_height}"
+            ),
+            max_width=f"{_PREVIEW_SIZE}px",
+        )

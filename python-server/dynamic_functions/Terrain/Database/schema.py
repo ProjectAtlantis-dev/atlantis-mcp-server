@@ -22,6 +22,7 @@ def create(db: sqlite3.Connection) -> None:
             parent_id        TEXT,
             geometric_error  REAL NOT NULL DEFAULT 0.0,
             source           TEXT NOT NULL DEFAULT 'empty',
+            vertical_datum   TEXT,
             updated_at       TEXT NOT NULL,
             dem_demanded_at  TEXT,
             dem_requested_at TEXT,
@@ -46,4 +47,9 @@ def create(db: sqlite3.Connection) -> None:
         );
         """
     )
+    tile_columns = {
+        row[1] for row in db.execute("PRAGMA table_info(tiles)").fetchall()
+    }
+    if "vertical_datum" not in tile_columns:
+        db.execute("ALTER TABLE tiles ADD COLUMN vertical_datum TEXT")
     db.commit()

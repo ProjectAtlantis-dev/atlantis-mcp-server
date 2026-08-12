@@ -12,7 +12,10 @@ import sqlite3
 import uuid
 from collections.abc import Mapping
 
-from dynamic_functions.Terrain.tile_address import require_tile_id
+from dynamic_functions.Terrain.tile_address import (
+    ancestor_tile_ids,
+    require_tile_id,
+)
 
 
 class TextureClobberError(RuntimeError):
@@ -174,3 +177,25 @@ def read_texture_payload(
         "texture": row[1],
         "updated_at": row[2],
     }
+
+
+def read_texture_with_ancestor(
+    db: sqlite3.Connection,
+    tile_id: str,
+) -> dict | None:
+    """Read exact texture data or the nearest stored ancestor without writing."""
+
+    requested_depth, _, _ = require_tile_id(tile_id)
+    for candidate_id in ancestor_tile_ids(tile_id, include_self=True):
+        payload = read_texture_payload(db, candidate_id)
+        if payload is None:
+            continue
+        resolved_depth, _, _ = require_tile_id(candidate_id)
+        return {
+            **payload,
+            "requested_tile_id": tile_id,
+            "resolved_tile_id": candidate_id,
+            "depth_delta": requested_depth - resolved_depth,
+            "exact": candidate_id == tile_id,
+        }
+    return None

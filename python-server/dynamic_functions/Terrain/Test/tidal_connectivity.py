@@ -153,10 +153,10 @@ def tidal_connectivity_offline() -> dict:
             _WHOLE_TILE_LOW: expected_whole_low,
             _ONE_LOW_SAMPLE: expected_one_low,
         }
-        exact = {
-            tile_id: np.array_equal(connected.get(tile_id), wanted)
-            for tile_id, wanted in expected.items()
-        }
+        exact = {}
+        for tile_id, wanted in expected.items():
+            actual = connected.get(tile_id)
+            exact[tile_id] = actual is not None and np.array_equal(actual, wanted)
         combined = hashlib.sha256()
         for tile_id in sorted(expected):
             combined.update(tile_id.encode("ascii"))

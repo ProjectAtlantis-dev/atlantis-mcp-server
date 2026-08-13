@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import hashlib
 import sqlite3
 import zlib
@@ -17,6 +18,100 @@ from dynamic_functions.Terrain.tile_address import require_tile_id
 SOURCE = "derived_tidal_connectivity"
 VERSION = 1
 SEA_SEED_MAX_ELEV_M = 0.5
+
+
+def write_connectivity_snapshot(
+    connection: sqlite3.Connection,
+    tile_id: str,
+    mask: np.ndarray,
+    *,
+    commit: bool = True,
+) -> bool:
+    """Publish an already-derived connectivity mask atomically.
+
+    This is deliberately not a visible tool. The future background lane owns
+    snapshot production; the interactive composition path may only read rows
+    that have already been published.
+    """
+
+    require_tile_id(tile_id)
+    values = np.asarray(mask)
+    if values.ndim != 2 or not values.size:
+        raise ValueError(
+            "tidal connectivity mask must be a non-empty 2D array"
+        )
+    canonical = values.astype(np.uint8)
+    if not np.all((canonical == 0) | (canonical == 1)):
+        raise ValueError(
+            "tidal connectivity mask must contain only boolean values"
+        )
+    encoded = zlib.compress(canonical.tobytes(), level=6)
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    cursor = connection.execute(
+        "INSERT OR IGNORE INTO tidal_connectivity_masks "
+        "(tile_id,width,height,mask,source,version,updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            tile_id,
+            int(canonical.shape[1]),
+            int(canonical.shape[0]),
+            encoded,
+            SOURCE,
+            VERSION,
+            now,
+        ),
+    )
+    if cursor.rowcount == 1:
+        if commit:
+            connection.commit()
+        return True
+    row = connection.execute(
+        "SELECT width,height,mask,source,version "
+        "FROM tidal_connectivity_masks WHERE tile_id=?",
+        (tile_id,),
+    ).fetchone()
+    expected = (
+        int(canonical.shape[1]),
+        int(canonical.shape[0]),
+        encoded,
+        SOURCE,
+        VERSION,
+    )
+    if row == expected:
+        return False
+    raise RuntimeError(
+        f"Refusing to clobber tidal connectivity snapshot {tile_id}"
+    )
+
+
+def read_connectivity_snapshot(
+    connection: sqlite3.Connection,
+    tile_id: str,
+) -> dict | None:
+    """Read one ready connectivity snapshot without deriving or writing."""
+
+    require_tile_id(tile_id)
+    row = connection.execute(
+        "SELECT width,height,mask,source,version,updated_at "
+        "FROM tidal_connectivity_masks WHERE tile_id=?",
+        (tile_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    width, height = int(row[0]), int(row[1])
+    values = np.frombuffer(zlib.decompress(row[2]), dtype=np.uint8)
+    if values.size != width * height or not np.all(
+        (values == 0) | (values == 1)
+    ):
+        raise ValueError(f"invalid tidal connectivity snapshot for {tile_id}")
+    return {
+        "tile_id": tile_id,
+        "mask": values.reshape((height, width)).astype(bool),
+        "source": row[3],
+        "version": int(row[4]),
+        "updated_at": row[5],
+        "digest": hashlib.sha256(values.tobytes()).hexdigest(),
+    }
 
 
 def _mask_rows_at_depth(

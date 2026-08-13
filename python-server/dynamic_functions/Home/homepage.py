@@ -56,7 +56,6 @@ async def first_menu():
     # Discovered apps lead; the demo folder is the fallback for someone with
     # nowhere better to go, so it sits last.
     items = _app_menu_items(tree_entries, script_folder)
-    items.append({"id": "explore_terrain_folder", "text": "Explore terrain folder"})
     items.append({"id": "explore_demo_folder", "text": "Explore demo folder"})
 
     choice = await modal_menu(
@@ -74,16 +73,6 @@ async def first_menu():
             "first_menu",
         ]
         logger.info(f"launching app script for '{app_path}':\n{format_json_log(commands, colored=True)}")
-        await atlantis.client_command("/script", {"commands": commands})
-        return None
-
-    if choice_id == "explore_terrain_folder":
-        commands = [
-            f"/cd {script_folder}",
-            "cd ..",
-            "cd Terrain",
-            "ls",
-        ]
         await atlantis.client_command("/script", {"commands": commands})
         return None
 

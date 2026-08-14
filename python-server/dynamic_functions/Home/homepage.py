@@ -43,7 +43,7 @@ async def first_menu():
     # Discovered apps lead, followed by the demo folder and a clean exit.
     items = [apps[folder] for folder in sorted(apps)]
     items.append({"id": "explore_demo_folder", "text": "Explore demo folder"})
-    items.append({"id": "do_nothing", "text": "do nothing"})
+    items.append({"id": "do_nothing", "text": "Quit"})
 
     choice = await modal_menu(
         items,

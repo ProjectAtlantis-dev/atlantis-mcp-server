@@ -15,30 +15,6 @@ logger = logging.getLogger("dynamic_function")
 # % first_menu
 
 
-def _app_menu_items(tree_entries: list, script_folder: str) -> list[dict]:
-    """Menu items for sibling app folders that expose a public first_menu.
-
-    `first_menu` is a per-folder entry point: an app declares one at its root
-    (e.g. Chat/runner.py) and we `/cd` into the folder to invoke it. This menu
-    is itself such an entry point, so `script_folder` names the one to skip.
-    """
-
-    items = {}
-    for entry in tree_entries:
-        parts = entry["filename"].split("/")
-        # <app>/<file>.py — the app folder is the first path segment.
-        if len(parts) != 2:
-            continue
-        if "Public" not in entry["chatStatus"]:
-            continue
-        # searchTerm is the absolute function path; its parent is the app folder.
-        app_path = entry["searchTerm"].rsplit("/", 1)[0]
-        if app_path == script_folder:
-            continue
-        items[parts[0]] = {"id": f"app:{app_path}", "text": entry["description"]}
-    return [items[folder] for folder in sorted(items)]
-
-
 @public
 async def first_menu():
     """Let the user choose where to go next."""
@@ -53,10 +29,21 @@ async def first_menu():
     tree_entries = await atlantis.client_command("tree ../*/first_menu")
     logger.info(f"tree first_menu (from {cwd}) returned:\n{format_json_log(tree_entries, colored=True)}")
 
-    # Discovered apps lead; the demo folder is the fallback for someone with
-    # nowhere better to go, so it sits last.
-    items = _app_menu_items(tree_entries, script_folder)
+    # `first_menu` is a per-folder entry point. Find public entry points at the
+    # root of sibling apps and skip this Home menu itself.
+    apps = {}
+    for entry in tree_entries:
+        parts = entry["filename"].split("/")
+        if len(parts) != 2 or "Public" not in entry["chatStatus"]:
+            continue
+        app_path = entry["searchTerm"].rsplit("/", 1)[0]
+        if app_path != script_folder:
+            apps[parts[0]] = {"id": f"app:{app_path}", "text": entry["description"]}
+
+    # Discovered apps lead, followed by the demo folder and a clean exit.
+    items = [apps[folder] for folder in sorted(apps)]
     items.append({"id": "explore_demo_folder", "text": "Explore demo folder"})
+    items.append({"id": "do_nothing", "text": "do nothing"})
 
     choice = await modal_menu(
         items,
@@ -65,6 +52,9 @@ async def first_menu():
     )
 
     choice_id = str(choice["id"])
+    if choice_id == "do_nothing":
+        return None
+
     if choice_id.startswith("app:"):
         app_path = choice_id[4:]
         commands = [

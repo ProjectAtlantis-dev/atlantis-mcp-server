@@ -525,25 +525,16 @@ def reset_context() -> None:
 
 # --- Utility Functions ---
 
-def get_uncalled_dynamic_functions(functions_dir: Optional[str] = None) -> List[dict]:
-    """Return dynamic functions with no static call sites.
-
-    The result is a list of
-    {"filename": "relative/path.py", "function": "qualname", "visibility": "..."} objects.
-    Visibility comes from the live function manager metadata used by the tool
-    inventory report.
-    This is a static AST name match over the dynamic_functions tree; Atlantis
-    tool routing, decorators, getattr/registry calls, and browser callbacks may
-    still invoke functions that appear here.
-    """
+def _get_dynamic_function_callers(functions_dir: Optional[str] = None) -> List[tuple]:
+    """Return live dynamic-function metadata paired with static callers."""
     server = get_server_instance()
     if server is None or not hasattr(server, "function_manager"):
-        raise RuntimeError("get_uncalled_dynamic_functions requires a live Atlantis server")
+        raise RuntimeError("dynamic function caller analysis requires a live Atlantis server")
 
     function_manager = server.function_manager
     root = os.path.realpath(functions_dir or function_manager.functions_dir)
     if root != os.path.realpath(function_manager.functions_dir):
-        raise ValueError("get_uncalled_dynamic_functions can only inspect the live server's dynamic_functions directory")
+        raise ValueError("caller analysis can only inspect the live server's dynamic_functions directory")
 
     skip_dirs = {"__pycache__", ".git", ".venv", "venv", "node_modules"}
     definitions = {}
@@ -551,23 +542,40 @@ def get_uncalled_dynamic_functions(functions_dir: Optional[str] = None) -> List[
 
     from DynamicFunctionManager import VISIBILITY_DECORATORS
 
+    def _schema_type_label(schema: dict) -> str:
+        schema_type = schema.get("type")
+        if isinstance(schema_type, list):
+            labels = [str(item) for item in schema_type if item != "null"]
+            return "|".join(labels) or "null"
+        if schema_type:
+            return str(schema_type)
+        if "anyOf" in schema:
+            labels = [_schema_type_label(option) for option in schema["anyOf"]]
+            return "|".join(dict.fromkeys(labels))
+        return "any"
+
     for app_path, func_map in function_manager._function_file_mapping_by_app.items():
         for func_name, rel_path in func_map.items():
-            decorators = (
+            metadata = (
                 function_manager._function_metadata_by_app
                 .get(app_path, {})
                 .get(func_name, {})
-                .get("decorators", [])
             )
+            decorators = metadata.get("decorators", [])
             if "public" in decorators:
                 visibility = "public"
             elif any(dec in VISIBILITY_DECORATORS for dec in decorators):
                 visibility = "visible"
             else:
                 visibility = "hidden"
+            properties = metadata.get("inputSchema", {}).get("properties", {})
+            parameters = ",".join(
+                f"{name}:{_schema_type_label(schema)}"
+                for name, schema in properties.items()
+            )
             definitions[(os.path.realpath(os.path.join(root, rel_path)), func_name)] = {
                 "filename": rel_path,
-                "function": func_name,
+                "function": f"{func_name}({parameters})",
                 "visibility": visibility,
             }
 
@@ -617,7 +625,7 @@ def get_uncalled_dynamic_functions(functions_dir: Optional[str] = None) -> List[
 
             if name:
                 enclosing = ".".join(self.scope_stack) if self.scope_stack else None
-                calls_by_name.setdefault(name, []).append((self.file_path, enclosing))
+                calls_by_name.setdefault(name, set()).add((self.file_path, enclosing))
             self.generic_visit(node)
 
     scanned_definitions = []
@@ -637,16 +645,42 @@ def get_uncalled_dynamic_functions(functions_dir: Optional[str] = None) -> List[
             for name, info in visitor.inventory_definitions:
                 scanned_definitions.append((file_path, name, info))
 
-    uncalled = []
+    results = []
     for file_path, name, info in scanned_definitions:
-        called_elsewhere = any(
-            not (call_file == file_path and enclosing == name)
-            for call_file, enclosing in calls_by_name.get(name, [])
-        )
-        if not called_elsewhere:
-            uncalled.append(dict(info))
+        callers = {
+            caller
+            for caller in calls_by_name.get(name, set())
+            if caller != (file_path, name)
+        }
+        results.append((dict(info), callers))
+    return results
 
+
+def get_uncalled_dynamic_functions(functions_dir: Optional[str] = None) -> List[dict]:
+    """Return dynamic functions with no static callers.
+
+    The result is a list of
+    {"filename": "relative/path.py", "function": "name(param:type)", "visibility": "..."} objects.
+    Visibility comes from the live function manager metadata used by the tool
+    inventory report.
+    This is a static AST name match over the dynamic_functions tree; Atlantis
+    tool routing, decorators, getattr/registry calls, and browser callbacks may
+    still invoke functions that appear here.
+    """
+    uncalled = [
+        info for info, callers in _get_dynamic_function_callers(functions_dir)
+        if not callers
+    ]
     return sorted(uncalled, key=lambda item: (item["filename"], item["function"]))
+
+
+def get_single_called_dynamic_functions(functions_dir: Optional[str] = None) -> List[dict]:
+    """Return dynamic functions with exactly one distinct static caller."""
+    single_called = [
+        info for info, callers in _get_dynamic_function_callers(functions_dir)
+        if len(callers) == 1
+    ]
+    return sorted(single_called, key=lambda item: (item["filename"], item["function"]))
 
 async def client_image(
     image_path: str,

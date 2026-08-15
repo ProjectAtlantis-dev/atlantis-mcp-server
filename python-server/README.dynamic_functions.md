@@ -61,7 +61,6 @@ Tool `lastModified` timestamps are tracked per function. Atlantis hashes each to
 - **`@dynamic`** - Marks a function as a dynamic folder provider. The function appears as a subfolder; generated child tools are not emitted yet.
 
 ### Deprecated
-- **`@hidden`** - Obsolete (functions are hidden by default without @visible)
 - **`@app(name="app_name")`** - Obsolete (folder name determines app)
 
 ## Atlantis Runtime

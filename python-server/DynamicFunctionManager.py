@@ -1014,7 +1014,7 @@ class DynamicFunctionManager:
                     price_per_sec_from_decorator = None # Initialize price_per_sec
                     if func_def_node.decorator_list:
                         for decorator_node in func_def_node.decorator_list:
-                            if isinstance(decorator_node, ast.Name): # e.g. @public, @hidden, @index, @copy
+                            if isinstance(decorator_node, ast.Name): # e.g. @public, @index, @copy
                                 decorator_name = decorator_node.id
                                 decorator_names.append(decorator_name)
                                 # Check if it's the @index decorator

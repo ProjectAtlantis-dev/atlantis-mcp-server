@@ -1317,13 +1317,19 @@ async def client_widget(
 async def client_script(content: str, is_private: bool = True):
     """Sends Javascript content back to the requesting client for rendering
 
+    A script patches the DOM of the shell that ran the tool, so it is scoped to
+    that shell: replaying it into another shell can only re-send the payload to
+    a tab whose DOM the script cannot find. "sid" widens that to every shell the
+    caller has open; "game" is reserved for chat and the x_event check constraint
+    rejects it for a script.
+
     Args:
         content: The Javascript content to send
-        is_private: If True (default), script only runs on the requesting client.
-                   If False, pass a cloud-side routing hint.
+        is_private: If True (default), script only runs in the calling shell.
+                   If False, it runs in every shell belonging to the caller.
     """
     notification_params = {
-        "visibilityScope": "sid" if is_private else "game",
+        "visibilityScope": "shell" if is_private else "sid",
     }
 
     # Use client_command for awaitable response with proper message_type

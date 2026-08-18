@@ -82,6 +82,7 @@ log/
 *.db
 *.db-*
 python-server/**/*.json
+!python-server/pyrightconfig.json
 python-server/**/*.log
 # Chat/Game content is config-as-JSON (bot/location config.json, Scenes/*.json).
 # Must come after the blanket json rule above - last matching rule wins.

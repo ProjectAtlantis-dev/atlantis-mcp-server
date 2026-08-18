@@ -1,0 +1,11 @@
+{
+  "extends": "../pyrightconfig.json",
+  "include": [
+    "."
+  ],
+  "stubPath": "../typings",
+  "extraPaths": [
+    "."
+  ],
+  "venvPath": "."
+}

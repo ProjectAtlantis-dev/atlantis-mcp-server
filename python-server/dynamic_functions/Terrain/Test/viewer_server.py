@@ -20,24 +20,24 @@ def _unused_port() -> int:
 
 
 @visible
-def viewer_server_offline() -> dict:
+async def viewer_server_offline() -> dict:
     """Prove explicit start, idempotence, health, and explicit stop."""
 
-    server_stop()
+    await server_stop()
     initially_stopped = server_status()
     port = _unused_port()
     try:
-        started = server_start(port=port)
+        started = await server_start(port=port)
         running = server_status()
-        duplicate = server_start(port=port)
+        duplicate = await server_start(port=port)
         with urllib.request.urlopen(
             f"http://127.0.0.1:{port}/health", timeout=2.0
         ) as response:
             health = json.loads(response.read())
             health_status = response.status
     finally:
-        stopped = server_stop()
-    already_stopped = server_stop()
+        stopped = await server_stop()
+    already_stopped = await server_stop()
     finally_stopped = server_status()
     return {
         "statusBeforeStart": bool(

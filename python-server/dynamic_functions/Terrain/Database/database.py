@@ -199,16 +199,17 @@ def ux_status() -> str:
 <style>
   #terrain-db-status-{uid} {{
     box-sizing: border-box;
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 14px;
     align-items: center;
-    justify-content: center;
     width: 100%;
     padding: 4.8px;
     color: #fffaf0;
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }}
   #terrain-db-status-{uid} .terrain-db-label {{
+    justify-self: start;
     margin: 0;
     color: rgba(42, 42, 42, 0.92);
     font-family: "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
@@ -221,7 +222,7 @@ def ux_status() -> str:
       0 1px 0 rgba(255, 255, 255, 0.52);
   }}
   #terrain-db-status-{uid} .terrain-db-light {{
-    flex: 0 0 auto;
+    justify-self: end;
     width: 34px;
     height: 5px;
     background: {light_color};

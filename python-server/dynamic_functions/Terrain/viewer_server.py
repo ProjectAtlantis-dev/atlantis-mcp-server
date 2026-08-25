@@ -15,6 +15,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
+from dynamic_functions.Terrain.Database.database import _update_dashboard
 from dynamic_functions.Terrain.http_adapter import (
     compose_tiles_response,
     parse_tiles_request,
@@ -188,7 +189,7 @@ def _validated_bind(host: str, port: int) -> tuple[str, int]:
 
 
 @visible
-def server_start(
+async def server_start(
     host: str = _DEFAULT_HOST,
     port: int = _DEFAULT_PORT,
 ) -> dict:
@@ -204,6 +205,7 @@ def server_start(
                 f"{status['url']}"
             )
         log.info("viewer sidecar already running at %s", status["url"])
+        await _update_dashboard()
         return {"started": False, "alreadyRunning": True, **status}
     if current is not None:
         atlantis.server_shared.remove(_RUNTIME_KEY)
@@ -225,6 +227,7 @@ def server_start(
         detail = status["error"] or "startup timed out or bind failed"
         raise RuntimeError(f"terrain viewer server failed to start: {detail}")
     log.info("viewer sidecar started at %s", status["url"])
+    await _update_dashboard()
     return {"started": True, "alreadyRunning": False, **status}
 
 
@@ -246,12 +249,13 @@ def server_status() -> dict:
 
 
 @visible
-def server_stop() -> dict:
+async def server_stop() -> dict:
     """Stop the Terrain viewer sidecar and release its listening port."""
 
     runtime = atlantis.server_shared.get(_RUNTIME_KEY)
     if runtime is None:
         log.info("viewer sidecar already stopped")
+        await _update_dashboard()
         return {"stopped": False, "alreadyStopped": True, "running": False}
     log.info("stopping viewer sidecar at http://%s:%d", runtime.host, runtime.port)
     runtime.server.should_exit = True
@@ -265,6 +269,7 @@ def server_stop() -> dict:
         log.info("viewer sidecar stopped")
     else:
         log.error("viewer sidecar thread did not stop")
+    await _update_dashboard()
     return {
         "stopped": not status["threadAlive"],
         "alreadyStopped": False,

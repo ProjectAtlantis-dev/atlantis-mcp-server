@@ -6,6 +6,8 @@ import time
 
 from dynamic_functions.Terrain.Test.arctic_dem_decode import arcticdem_decode
 from dynamic_functions.Terrain.Test.arcticdem_failures import arcticdem_failures
+from dynamic_functions.Terrain.Test.binary_batch import binary_batch_offline
+from dynamic_functions.Terrain.Test.camera_lod import camera_lod_offline
 from dynamic_functions.Terrain.Test.coastline import coastline_offline
 from dynamic_functions.Terrain.Test.composition import composition_offline
 from dynamic_functions.Terrain.Test.dataforsyningen_decode import (
@@ -14,18 +16,28 @@ from dynamic_functions.Terrain.Test.dataforsyningen_decode import (
 from dynamic_functions.Terrain.Test.dataforsyningen_failures import (
     dataforsyningen_failures,
 )
+from dynamic_functions.Terrain.Test.demand import demand_lanes_offline
+from dynamic_functions.Terrain.Test.demand_priority import (
+    demand_priority_offline,
+)
+from dynamic_functions.Terrain.Test.demand_retry import demand_retry_offline
 from dynamic_functions.Terrain.Test.dem_persistence import dem_persistence
 from dynamic_functions.Terrain.Test.effective_heightmap import (
     effective_heightmap_offline,
 )
 from dynamic_functions.Terrain.Test.hydrography import hydrography_offline
+from dynamic_functions.Terrain.Test.http_adapter import http_adapter_offline
 from dynamic_functions.Terrain.Test.parent_fallback import parent_fallback
+from dynamic_functions.Terrain.Test.polling_convergence import (
+    polling_convergence_offline,
+)
 from dynamic_functions.Terrain.Test.texture_persistence import (
     texture_persistence,
 )
 from dynamic_functions.Terrain.Test.tidal_connectivity import (
     tidal_connectivity_offline,
 )
+from dynamic_functions.Terrain.Test.viewer_server import viewer_server_offline
 
 
 _DEM_TILE = "10-334-192"
@@ -236,6 +248,101 @@ def terrain_regression() -> dict:
         }
         | {"tileCount": result["tileCount"] == 7},
     )
+    run(
+        "binary_batch_offline",
+        binary_batch_offline,
+        lambda result: {
+            "format": result["format"] == "binary-v1",
+            "aligned": result["aligned"],
+            "browserFields": result["browserFields"],
+            "knownDigestReused": result["knownDigestReused"],
+            "unknownDigestTransferred": result["unknownDigestTransferred"],
+            "missingCarriesNoBlock": result["missingCarriesNoBlock"],
+            "corruptDomainIsolated": result["corruptDomainIsolated"],
+            "embeddedBase64Removed": result["embeddedBase64Removed"],
+            "compositionUnchanged": result["compositionUnchanged"],
+            "exactOracleParity": result["exactOracleParity"],
+            "noTrailingBytes": result["noTrailingBytes"],
+            "invalidKnownRejected": result["invalidKnownRejected"],
+            "stableDigest": result["stableDigest"],
+        },
+    )
+    run(
+        "camera_lod_offline",
+        camera_lod_offline,
+        lambda result: {
+            key: bool(result[key])
+            for key in (
+                "radialBoundaryParity",
+                "pastContractParity",
+                "altitudeParity",
+                "hysteresisHeld",
+                "stableSelection",
+                "twoToOneBalanced",
+                "pureSelection",
+                "coherentFallbackAntichain",
+                "fallbackReported",
+                "trueMissReported",
+                "cameraGeometry",
+                "missingViewerFields",
+                "browserWireFields",
+                "readOnly",
+                "noNetworkOrScheduling",
+                "invalidInputRejected",
+                "stableBinary",
+            )
+        },
+    )
+    run(
+        "demand_lanes_offline",
+        demand_lanes_offline,
+        lambda result: {
+            key: bool(result[key])
+            for key in (
+                "immediateReturn",
+                "slowStarted",
+                "independentCapacity",
+                "boundedActive",
+                "deduplicated",
+                "allWorkCompleted",
+                "failureIsolated",
+                "failedNotHotLooped",
+                "unknownLaneRejected",
+                "dependencyStaged",
+                "candidateReadsAreReadOnly",
+            )
+        }
+        | {"didNotWait": result["waitedForWorkers"] is False},
+    )
+    run(
+        "demand_priority_offline",
+        demand_priority_offline,
+        lambda result: result,
+    )
+    run(
+        "demand_retry_offline",
+        demand_retry_offline,
+        lambda result: {
+            key: bool(result[key])
+            for key in (
+                "firstDeadline",
+                "noEarlyRetry",
+                "laterPassEligible",
+                "boundedEventuallySucceeds",
+                "refreshDoesNotSleep",
+                "terminalNotRetried",
+                "transientExhausted",
+                "classifierBoundaries",
+            )
+        },
+    )
+    run(
+        "polling_convergence_offline",
+        polling_convergence_offline,
+        lambda result: result,
+    )
+    run("http_adapter_offline", http_adapter_offline, lambda result: result)
+    run("viewer_server_offline", viewer_server_offline, lambda result: result)
     return {
         "passed": True,
         "testCount": len(tests),

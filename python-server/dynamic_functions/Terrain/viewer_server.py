@@ -6,6 +6,7 @@ import json
 import logging
 import threading
 import time
+from collections import deque
 
 import atlantis
 import uvicorn
@@ -28,6 +29,17 @@ _DEFAULT_HOST = "127.0.0.1"
 _DEFAULT_PORT = 5180
 _START_TIMEOUT_SECONDS = 5.0
 log = logging.getLogger("terrain.viewer_http")
+client_log = logging.getLogger("terrain.client")
+_CLIENT_LOG_MAX_ENTRIES = 200
+_CLIENT_LOG_RING_SIZE = 2000
+_CLIENT_LOG_LEVELS = {
+    "debug": logging.DEBUG,
+    "info": logging.INFO,
+    "warn": logging.WARNING,
+    "warning": logging.WARNING,
+    "error": logging.ERROR,
+    "critical": logging.CRITICAL,
+}
 
 
 class _ViewerRuntime:
@@ -44,6 +56,9 @@ class _ViewerRuntime:
             )
         )
         self.error: str | None = None
+        self.client_log_ring: deque[dict] = deque(
+            maxlen=_CLIENT_LOG_RING_SIZE
+        )
         self.thread = threading.Thread(
             target=self._run,
             name="terrain-viewer-http",
@@ -160,10 +175,64 @@ async def _health(_request: Request) -> JSONResponse:
     return JSONResponse({"status": "healthy", "service": "terrain-viewer", **status})
 
 
+async def _client_log(request: Request) -> JSONResponse:
+    """Ingest the existing viewer's bounded structured-log batches."""
+
+    try:
+        data = await request.json()
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        return JSONResponse(
+            {"error": "invalid_client_log", "message": str(exc)},
+            status_code=400,
+        )
+    if not isinstance(data, dict):
+        return JSONResponse(
+            {"error": "invalid_client_log", "message": "body must be an object"},
+            status_code=400,
+        )
+    raw_entries = data.get("entries")
+    entries = raw_entries if isinstance(raw_entries, list) else [data]
+    incoming_count = len(entries)
+    dropped = max(0, incoming_count - _CLIENT_LOG_MAX_ENTRIES)
+    scene_mode = data.get("sceneMode")
+    runtime = atlantis.server_shared.get(_RUNTIME_KEY)
+    written = 0
+    for item in entries[:_CLIENT_LOG_MAX_ENTRIES]:
+        if not isinstance(item, dict):
+            dropped += 1
+            continue
+        payload = {
+            "ts": item.get("ts"),
+            "sceneMode": item.get("sceneMode") or scene_mode,
+            "phase": item.get("phase") or item.get("event") or "client.log",
+            "elapsedMs": item.get("elapsedMs"),
+            "memory": item.get("memory"),
+            "details": item.get("details"),
+        }
+        payload = {key: value for key, value in payload.items() if value is not None}
+        level_name = str(item.get("level", "info")).strip().lower()
+        line = json.dumps(payload, ensure_ascii=False, default=str)
+        if len(line) > 20000:
+            line = line[:20000] + "...<truncated>"
+        client_log.log(_CLIENT_LOG_LEVELS.get(level_name, logging.INFO), line)
+        if runtime is not None:
+            runtime.client_log_ring.append({"level": level_name, **payload})
+        written += 1
+    return JSONResponse({"ok": True, "written": written, "dropped": dropped})
+
+
+async def _client_log_ring(_request: Request) -> JSONResponse:
+    runtime = atlantis.server_shared.get(_RUNTIME_KEY)
+    entries = list(runtime.client_log_ring)[-50:] if runtime is not None else []
+    return JSONResponse({"count": len(entries), "entries": entries})
+
+
 def _viewer_app() -> Starlette:
     return Starlette(
         routes=[
             Route("/health", _health, methods=["GET"]),
+            Route("/api/client_log", _client_log, methods=["POST"]),
+            Route("/api/client_log/ring", _client_log_ring, methods=["GET"]),
             Route("/api/tiles", _tiles, methods=["GET", "POST"]),
             Route(
                 "/api/texture/{tile_id}.jpg",

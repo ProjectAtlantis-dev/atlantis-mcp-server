@@ -1,6 +1,7 @@
 """ArcticDEM request construction for explicit terrain tile IDs."""
 
 import hashlib
+import logging
 import math
 from pathlib import Path
 
@@ -13,6 +14,12 @@ from rasterio.windows import Window, from_bounds as window_from_bounds
 from dynamic_functions.Terrain.Database.tiles import GRID_N
 from dynamic_functions.Terrain.terrain_config import GREENLAND_BBOX
 from dynamic_functions.Terrain.tile_address import tile_bounds
+
+
+# Rasterio probes for optional boto3 support for every remote dataset open.
+# ArcticDEM uses ordinary HTTPS and does not require boto3, so exposing that
+# fallback at INFO once per demanded tile only obscures useful terrain logs.
+logging.getLogger("rasterio.session").setLevel(logging.WARNING)
 
 
 _GRID_ORIGIN = -4_000_000

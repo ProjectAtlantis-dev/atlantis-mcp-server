@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import io
 import sqlite3
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import patch
 
 import numpy as np
 from PIL import Image
@@ -13,6 +17,7 @@ from dynamic_functions.Terrain.demand import _browser_pipeline_fields
 from dynamic_functions.Terrain.http_adapter import (
     binary_response,
     parse_tiles_request,
+    serve_texture,
     texture_response,
 )
 from dynamic_functions.Terrain.terrain_config import MAX_TILE_DEPTH
@@ -27,6 +32,44 @@ def _jpeg_quadrants() -> bytes:
     output = io.BytesIO()
     Image.fromarray(pixels, "RGB").save(output, "JPEG", quality=95)
     return output.getvalue()
+
+
+def _jpeg_grid(grid_size: int = 4) -> tuple[bytes, dict[tuple[int, int], tuple[int, int, int]]]:
+    child_size = 64
+    pixels = np.empty((child_size * grid_size, child_size * grid_size, 3), dtype=np.uint8)
+    colors = {}
+    for column in range(grid_size):
+        for row in range(grid_size):
+            color = (20 + column * 45, 25 + row * 40, 35 + (column * grid_size + row) * 9)
+            colors[(column, row)] = color
+            left = column * child_size
+            top = (grid_size - 1 - row) * child_size
+            pixels[top : top + child_size, left : left + child_size] = color
+    output = io.BytesIO()
+    Image.fromarray(pixels, "RGB").save(output, "JPEG", quality=95)
+    return output.getvalue(), colors
+
+
+class _ConcurrentUseProbe:
+    """Fail deterministically if two threads enter one SQLite connection."""
+
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self.connection = connection
+        self.guard = threading.Lock()
+        self.active = 0
+
+    def execute(self, *args, **kwargs):
+        with self.guard:
+            self.active += 1
+            concurrent = self.active > 1
+        try:
+            if concurrent:
+                raise sqlite3.InterfaceError("concurrent shared connection use")
+            time.sleep(0.001)
+            return self.connection.execute(*args, **kwargs)
+        finally:
+            with self.guard:
+                self.active -= 1
 
 
 def _lane(*, active=(), pending=(), failures=None) -> dict:
@@ -73,7 +116,7 @@ def http_adapter_offline() -> dict:
 
     binary = binary_response(b"terrain-wire")
 
-    connection = sqlite3.connect(":memory:")
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
     schema.create(connection)
     parent_jpeg = _jpeg_quadrants()
     exact_jpeg = _jpeg_quadrants()
@@ -101,10 +144,59 @@ def http_adapter_offline() -> dict:
     missing = texture_response(
         connection, "4-1-1", schedule=scheduled.append
     )
+    initial_scheduled = list(scheduled)
     with Image.open(io.BytesIO(ancestor.body)) as cropped:
         mean = np.asarray(cropped.convert("RGB"), dtype=np.float32).mean(
             axis=(0, 1)
         )
+
+    grid_jpeg, grid_colors = _jpeg_grid()
+    connection.execute(
+        "INSERT INTO textures (tile_id, source, texture, updated_at) "
+        "VALUES (?, ?, ?, ?)",
+        ("10-345-187", "fixture-grid", grid_jpeg, "now"),
+    )
+    grid_orientation = True
+    for column_offset in range(4):
+        for row_offset in range(4):
+            child_id = f"12-{1380 + column_offset}-{748 + row_offset}"
+            response = texture_response(
+                connection, child_id, schedule=scheduled.append
+            )
+            with Image.open(io.BytesIO(response.body)) as child:
+                center = tuple(
+                    int(value)
+                    for value in np.asarray(child.convert("RGB"))[128, 128]
+                )
+            expected = grid_colors[(column_offset, row_offset)]
+            grid_orientation &= bool(
+                response.headers["x-tex-ancestor"] == "10-345-187"
+                and all(
+                    abs(actual - wanted) <= 5
+                    for actual, wanted in zip(center, expected)
+                )
+            )
+
+    probe = _ConcurrentUseProbe(connection)
+    expected_by_id = {
+        "4-11-11": exact_jpeg,
+        "3-5-5": parent_jpeg,
+    }
+    concurrent_isolation = True
+    try:
+        with patch(
+            "dynamic_functions.Terrain.http_adapter.db",
+            return_value=probe,
+        ):
+            request_ids = list(expected_by_id) * 16
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                responses = list(executor.map(serve_texture, request_ids))
+        concurrent_isolation = all(
+            response.body == expected_by_id[tile_id]
+            for tile_id, response in zip(request_ids, responses)
+        )
+    except sqlite3.InterfaceError:
+        concurrent_isolation = False
     connection.close()
 
     lanes = {
@@ -153,10 +245,12 @@ def http_adapter_offline() -> dict:
             and mean[0] < 15.0
             and mean[1] < 15.0
         ),
+        "ancestorGridOrientation": grid_orientation,
+        "concurrentTextureIsolation": concurrent_isolation,
         "missingQueues": bool(
             missing.status_code == 202
             and missing.headers["x-tex-status"] == "fetching"
-            and scheduled == ["4-10-10", "4-1-1"]
+            and initial_scheduled == ["4-10-10", "4-1-1"]
         ),
         "compactViewerStatus": bool(
             compact["downloading"] == ["dem-a"]

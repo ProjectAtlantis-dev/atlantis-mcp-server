@@ -29,7 +29,7 @@ from dynamic_functions.Terrain.coastline import (
     _acquire_mask as _acquire_coastline,
     write_coastline_mask,
 )
-from dynamic_functions.Terrain.Database.database import db
+from dynamic_functions.Terrain.Database.database import connection_lock, db
 from dynamic_functions.Terrain.Database.textures import write_texture_metatile
 from dynamic_functions.Terrain.Database.tiles import write_dem
 from dynamic_functions.Terrain.dataforsyningen import (
@@ -59,7 +59,6 @@ Worker = Callable[[str], dict]
 FailureClassifier = Callable[[Exception], bool]
 MAX_DEMAND_ITEMS = 2500
 _SQL_CHUNK = 500
-_PUBLISH_LOCK_KEY = "Terrain.demand.publish_lock.v1"
 _REGISTRY_KEY = "Terrain.demand.registry.v1"
 DEFAULT_RETRY_DELAYS = (2.0, 10.0)
 
@@ -100,11 +99,9 @@ def retryable_failure(exc: Exception) -> bool:
 
 
 def _publish_lock() -> threading.RLock:
-    lock = atlantis.server_shared.get(_PUBLISH_LOCK_KEY)
-    if lock is None:
-        lock = threading.RLock()
-        atlantis.server_shared.set(_PUBLISH_LOCK_KEY, lock)
-    return lock
+    """Backward-compatible name for the shared SQLite connection lock."""
+
+    return connection_lock()
 
 
 class DemandLane:
@@ -462,12 +459,12 @@ def _connectivity_worker(depth_text: str) -> dict:
     depth = int(depth_text.partition(":")[0])
     if depth < 0 or depth > WMS_CONTRACT_DEPTH:
         raise ValueError(f"invalid connectivity depth: {depth}")
-    connection = db()
-    masks = _build_connected_hydrography(connection, depth)
-    if not masks:
-        return {"depth": depth, "deferred": True, "published": 0}
-    published = 0
     with _publish_lock():
+        connection = db()
+        masks = _build_connected_hydrography(connection, depth)
+        if not masks:
+            return {"depth": depth, "deferred": True, "published": 0}
+        published = 0
         for tile_id, mask in masks.items():
             published += int(
                 write_connectivity_snapshot(

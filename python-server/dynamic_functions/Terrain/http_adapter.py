@@ -13,7 +13,7 @@ from PIL import Image
 from starlette.responses import Response
 
 from dynamic_functions.Terrain.coords import to_stereo
-from dynamic_functions.Terrain.Database.database import db
+from dynamic_functions.Terrain.Database.database import connection_lock, db
 from dynamic_functions.Terrain.Database.textures import read_texture_with_ancestor
 from dynamic_functions.Terrain.demand import (
     compose_camera_demand_binary_from_ready_data,
@@ -118,9 +118,10 @@ def parse_tiles_request(query: Mapping[str, str], body: object) -> dict:
 def compose_tiles_response(arguments: dict) -> Response:
     """Run the camera pipeline and return its raw browser wire payload."""
 
-    payload, _ = compose_camera_demand_binary_from_ready_data(
-        db(), **arguments
-    )
+    with connection_lock():
+        payload, _ = compose_camera_demand_binary_from_ready_data(
+            db(), **arguments
+        )
     return binary_response(payload)
 
 
@@ -183,6 +184,7 @@ def texture_response(
             status_code=202,
             headers={
                 "Cache-Control": "no-store",
+                "X-Tex-Tile": tile_id,
                 "X-Tex-Status": "fetching",
             },
         )
@@ -193,6 +195,7 @@ def texture_response(
         headers = {
             "Cache-Control": "public, max-age=86400",
             "ETag": etag,
+            "X-Tex-Tile": tile_id,
             "X-Tex-Source": texture["source"],
             "X-Tex-Status": "ready",
             "X-Tex-Quality": "full",
@@ -210,6 +213,7 @@ def texture_response(
         media_type="image/jpeg",
         headers={
             "Cache-Control": "no-store",
+            "X-Tex-Tile": tile_id,
             "X-Tex-Ancestor": resolved,
             "X-Tex-Source": texture["source"],
             "X-Tex-Status": "ancestor_fallback",
@@ -220,4 +224,5 @@ def texture_response(
 
 
 def serve_texture(tile_id: str, if_none_match: str | None = None) -> Response:
-    return texture_response(db(), tile_id, if_none_match=if_none_match)
+    with connection_lock():
+        return texture_response(db(), tile_id, if_none_match=if_none_match)

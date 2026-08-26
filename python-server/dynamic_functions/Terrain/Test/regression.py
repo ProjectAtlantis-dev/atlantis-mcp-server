@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 
 from dynamic_functions.Terrain.Test.arctic_dem_decode import arcticdem_decode
@@ -342,7 +343,11 @@ def terrain_regression() -> dict:
         lambda result: result,
     )
     run("http_adapter_offline", http_adapter_offline, lambda result: result)
-    run("viewer_server_offline", viewer_server_offline, lambda result: result)
+    run(
+        "viewer_server_offline",
+        lambda: asyncio.run(viewer_server_offline()),
+        lambda result: result,
+    )
     return {
         "passed": True,
         "testCount": len(tests),

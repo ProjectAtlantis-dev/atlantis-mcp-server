@@ -1,6 +1,7 @@
 """Connection lifecycle for the terrain heightmap SQLite database."""
 
 import sqlite3
+import threading
 import uuid
 from pathlib import Path
 
@@ -11,6 +12,22 @@ from dynamic_functions.Terrain.Database import schema
 
 DATABASE_PATH = Path(__file__).with_name("terrain.db")
 _CONNECTION_KEY = "Terrain.Database.connection"
+_CONNECTION_LOCK_KEY = "Terrain.Database.connection_lock.v1"
+_LOCK_INIT_GUARD = threading.Lock()
+
+
+def connection_lock() -> threading.RLock:
+    """Serialize every use of the one process-wide SQLite connection."""
+
+    lock = atlantis.server_shared.get(_CONNECTION_LOCK_KEY)
+    if lock is not None:
+        return lock
+    with _LOCK_INIT_GUARD:
+        lock = atlantis.server_shared.get(_CONNECTION_LOCK_KEY)
+        if lock is None:
+            lock = threading.RLock()
+            atlantis.server_shared.set(_CONNECTION_LOCK_KEY, lock)
+    return lock
 
 
 def _connect() -> sqlite3.Connection:
@@ -37,16 +54,17 @@ def _get_connection() -> sqlite3.Connection | None:
 
 def db() -> sqlite3.Connection:
     """Return the terrain database connection, starting it when needed."""
-    connection = _get_connection()
-    if connection is None:
-        connection = _connect()
-        try:
-            schema.create(connection)
-        except Exception:
-            connection.close()
-            raise
-        atlantis.server_shared.set(_CONNECTION_KEY, connection)
-    return connection
+    with connection_lock():
+        connection = _get_connection()
+        if connection is None:
+            connection = _connect()
+            try:
+                schema.create(connection)
+            except Exception:
+                connection.close()
+                raise
+            atlantis.server_shared.set(_CONNECTION_KEY, connection)
+        return connection
 
 
 async def _update_dashboard() -> None:
@@ -76,11 +94,12 @@ async def start() -> None:
 @visible
 async def stop() -> None:
     """Commit pending work and close the terrain database connection."""
-    connection = _get_connection()
-    if connection is not None:
-        connection.commit()
-        connection.close()
-        atlantis.server_shared.remove(_CONNECTION_KEY)
+    with connection_lock():
+        connection = _get_connection()
+        if connection is not None:
+            connection.commit()
+            connection.close()
+            atlantis.server_shared.remove(_CONNECTION_KEY)
 
     await atlantis.client_log(f"Terrain database stopped")
     await _update_dashboard()

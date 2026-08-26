@@ -363,11 +363,19 @@ def _ready_dem_ids(
     connection: sqlite3.Connection,
     target_ids: list[str],
 ) -> set[str]:
+    """Return DEM tiles whose contract-depth coastline is also publishable.
+
+    A newly stored DEM is source-ready but not render-ready until its water
+    classification exists. Keeping that distinction here prevents an exact
+    child from displacing a coherent ancestor during the interval between the
+    independent DEM and coastline workers.
+    """
+
     candidates: set[str] = set()
     for tile_id in target_ids:
         candidates.update(ancestor_tile_ids(tile_id, include_self=True))
     ordered = sorted(candidates)
-    ready: set[str] = set()
+    dem_ready: set[str] = set()
     for start in range(0, len(ordered), _SQL_CHUNK):
         chunk = ordered[start : start + _SQL_CHUNK]
         marks = ",".join("?" for _ in chunk)
@@ -377,8 +385,37 @@ def _ready_dem_ids(
             "AND heightmap IS NOT NULL AND confidence_map IS NOT NULL",
             chunk,
         ).fetchall()
-        ready.update(row[0] for row in rows)
-    return ready
+        dem_ready.update(row[0] for row in rows)
+
+    def coastline_id(tile_id: str) -> str:
+        depth, column, row = require_tile_id(tile_id)
+        if depth <= WMS_CONTRACT_DEPTH:
+            return tile_id
+        shift = depth - WMS_CONTRACT_DEPTH
+        return format_tile_id(
+            WMS_CONTRACT_DEPTH,
+            column >> shift,
+            row >> shift,
+        )
+
+    coastline_ids = sorted({coastline_id(tile_id) for tile_id in dem_ready})
+    coastline_ready: set[str] = set()
+    for start in range(0, len(coastline_ids), _SQL_CHUNK):
+        chunk = coastline_ids[start : start + _SQL_CHUNK]
+        if not chunk:
+            continue
+        marks = ",".join("?" for _ in chunk)
+        rows = connection.execute(
+            "SELECT tile_id FROM coastline_masks "
+            f"WHERE tile_id IN ({marks})",
+            chunk,
+        ).fetchall()
+        coastline_ready.update(row[0] for row in rows)
+    return {
+        tile_id
+        for tile_id in dem_ready
+        if coastline_id(tile_id) in coastline_ready
+    }
 
 
 def _is_descendant(tile_id: str, ancestor_id: str) -> bool:

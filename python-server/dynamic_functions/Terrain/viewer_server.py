@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import threading
 import time
 from collections import deque
+from logging import FileHandler
 
 import atlantis
 import uvicorn
@@ -17,10 +19,21 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from dynamic_functions.Terrain.Database.database import _update_dashboard
+from dynamic_functions.Terrain.Database.database import connection_lock, db
+from dynamic_functions.Terrain.bathymetry_map import query_bathymetry_map
+from dynamic_functions.Terrain.coords import to_stereo
+from dynamic_functions.Terrain.gpu_profile_control import GpuProfileControl
 from dynamic_functions.Terrain.http_adapter import (
     compose_tiles_response,
     parse_tiles_request,
     serve_texture,
+)
+from dynamic_functions.Terrain.serve_flask import CLIENT_LOG_PATH
+from dynamic_functions.Terrain.tile_address import require_tile_id
+from dynamic_functions.Terrain.viewer_assets import (
+    encode_buildings_response,
+    query_buildings,
+    startup_assets,
 )
 
 
@@ -40,6 +53,31 @@ _CLIENT_LOG_LEVELS = {
     "error": logging.ERROR,
     "critical": logging.CRITICAL,
 }
+_gpu_profile_control = GpuProfileControl()
+_FAVICON = b"""<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\"><rect width=\"64\" height=\"64\" rx=\"12\" fill=\"#071b2b\"/><path d=\"M7 48 23 19l10 18 7-11 17 22Z\" fill=\"#5ec7d7\"/><path d=\"M7 48h50\" stroke=\"#d9f7ff\" stroke-width=\"4\"/></svg>"""
+
+
+def _configure_client_log() -> None:
+    """Keep browser telemetry out of the main MCP/server log."""
+
+    if not client_log.handlers:
+        CLIENT_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        handler = FileHandler(
+            str(CLIENT_LOG_PATH),
+            mode="w",
+            encoding="utf-8",
+        )
+        handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s [%(levelname)s] %(message)s"
+            )
+        )
+        client_log.addHandler(handler)
+    client_log.setLevel(logging.DEBUG)
+    client_log.propagate = False
+
+
+_configure_client_log()
 
 
 class _ViewerRuntime:
@@ -218,7 +256,14 @@ async def _client_log(request: Request) -> JSONResponse:
         if runtime is not None:
             runtime.client_log_ring.append({"level": level_name, **payload})
         written += 1
-    return JSONResponse({"ok": True, "written": written, "dropped": dropped})
+    return JSONResponse(
+        {
+            "ok": True,
+            "written": written,
+            "dropped": dropped,
+            "logPath": str(CLIENT_LOG_PATH),
+        }
+    )
 
 
 async def _client_log_ring(_request: Request) -> JSONResponse:
@@ -227,12 +272,203 @@ async def _client_log_ring(_request: Request) -> JSONResponse:
     return JSONResponse({"count": len(entries), "entries": entries})
 
 
+def _query_float(request: Request, name: str, default: float) -> float:
+    raw = request.query_params.get(name)
+    try:
+        value = default if raw is None else float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a number") from exc
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite")
+    return value
+
+
+def _query_position(request: Request) -> tuple[float, float]:
+    if "sx" in request.query_params or "sy" in request.query_params:
+        if "sx" not in request.query_params or "sy" not in request.query_params:
+            raise ValueError("sx and sy must be supplied together")
+        return _query_float(request, "sx", 0.0), _query_float(request, "sy", 0.0)
+    latitude = _query_float(request, "lat", 64.175)
+    longitude = _query_float(request, "lon", -51.7388)
+    if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
+        raise ValueError("lat/lon are outside their valid ranges")
+    x, y = to_stereo(latitude, longitude)
+    return float(x), float(y)
+
+
+async def _assets(_request: Request) -> JSONResponse:
+    try:
+        payload = await run_in_threadpool(startup_assets)
+        return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+    except Exception as exc:
+        log.exception("Viewer startup asset request failed")
+        return JSONResponse(
+            {"error": "asset_catalog_failed", "message": str(exc)}, status_code=500
+        )
+
+
+async def _buildings(request: Request) -> Response:
+    try:
+        qx, qy = _query_position(request)
+        max_range = _query_float(request, "range", 9000.0)
+        if max_range <= 0:
+            raise ValueError("range must be greater than zero")
+        ox = _query_float(request, "ox", qx)
+        oy = _query_float(request, "oy", qy)
+        buildings, source = await run_in_threadpool(
+            query_buildings, qx, qy, max_range, ox, oy
+        )
+        payload = encode_buildings_response(
+            buildings, qx=qx, qy=qy, ox=ox, oy=oy, source=source
+        )
+        return Response(
+            payload,
+            media_type="application/octet-stream",
+            headers={"Cache-Control": "no-store", "X-Terrain-Format": "binary-v1"},
+        )
+    except (TypeError, ValueError) as exc:
+        return JSONResponse(
+            {"error": "invalid_buildings_request", "message": str(exc)},
+            status_code=400,
+        )
+    except Exception as exc:
+        log.exception("Viewer building request failed")
+        return JSONResponse(
+            {"error": "buildings_request_failed", "message": str(exc)}, status_code=500
+        )
+
+
+async def _bathymetry_map(request: Request) -> JSONResponse:
+    try:
+        qx, qy = _query_position(request)
+        max_range = _query_float(request, "range", 50000.0)
+        if max_range < 0:
+            raise ValueError("range must be non-negative")
+        ox = _query_float(request, "ox", qx)
+        oy = _query_float(request, "oy", qy)
+        with connection_lock():
+            payload = query_bathymetry_map(
+                db(), qx, qy, max_range, ox=ox, oy=oy
+            )
+        return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+    except (TypeError, ValueError) as exc:
+        return JSONResponse(
+            {"error": "invalid_bathymetry_map_request", "message": str(exc)},
+            status_code=400,
+        )
+    except Exception as exc:
+        log.exception("Bathymetry map request failed")
+        return JSONResponse(
+            {"error": "bathymetry_map_failed", "message": str(exc)}, status_code=500
+        )
+
+
+async def _classifier(request: Request) -> Response:
+    tile_id = request.path_params["tile_id"]
+    try:
+        require_tile_id(tile_id)
+        resolution = int(request.query_params.get("res", "512"))
+        if not 16 <= resolution <= 2048:
+            raise ValueError("res must be between 16 and 2048")
+    except (TypeError, ValueError):
+        return Response(b"", status_code=400, headers={"Cache-Control": "no-store"})
+    # This port intentionally has no classifier storage yet. 204 is the
+    # established viewer contract for a known route with no applicable map.
+    return Response(
+        b"",
+        status_code=204,
+        headers={"Cache-Control": "no-store", "X-Classifier-Status": "missing"},
+    )
+
+
+async def _gpu_profile(_request: Request) -> JSONResponse:
+    return JSONResponse(
+        _gpu_profile_control.snapshot(), headers={"Cache-Control": "no-store"}
+    )
+
+
+async def _gpu_profile_start(request: Request) -> JSONResponse:
+    try:
+        payload = await request.json()
+    except (json.JSONDecodeError, TypeError, ValueError):
+        payload = {}
+    raw_interval = payload.get("sampleInterval", 60) if isinstance(payload, dict) else 60
+    try:
+        if isinstance(raw_interval, bool):
+            raise ValueError
+        sample_interval = int(raw_interval)
+    except (TypeError, ValueError):
+        sample_interval = 0
+    if not 1 <= sample_interval <= 600:
+        return JSONResponse(
+            {"ok": False, "error": "sampleInterval must be an integer from 1 to 600"},
+            status_code=400,
+        )
+    try:
+        state = _gpu_profile_control.start(sample_interval)
+    except RuntimeError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=409)
+    return JSONResponse(state, status_code=202)
+
+
+async def _gpu_profile_stop(_request: Request) -> JSONResponse:
+    try:
+        state = _gpu_profile_control.stop()
+    except RuntimeError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=409)
+    return JSONResponse(state, status_code=202)
+
+
+async def _gpu_profile_report(request: Request) -> JSONResponse:
+    try:
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise ValueError("JSON object required")
+        state = _gpu_profile_control.report(
+            profile_id=str(payload.get("profileId") or ""),
+            phase=str(payload.get("phase") or ""),
+            client=payload.get("client") if isinstance(payload.get("client"), dict) else None,
+            result=payload.get("result") if isinstance(payload.get("result"), dict) else None,
+            error=str(payload.get("error") or "") or None,
+        )
+    except LookupError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=409)
+    except (json.JSONDecodeError, TypeError, ValueError, RuntimeError) as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+    return JSONResponse(state)
+
+
+async def _favicon(_request: Request) -> Response:
+    return Response(
+        _FAVICON,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 def _viewer_app() -> Starlette:
     return Starlette(
         routes=[
             Route("/health", _health, methods=["GET"]),
+            Route("/favicon.ico", _favicon, methods=["GET"]),
             Route("/api/client_log", _client_log, methods=["POST"]),
             Route("/api/client_log/ring", _client_log_ring, methods=["GET"]),
+            Route("/api/assets", _assets, methods=["GET"]),
+            Route("/api/buildings", _buildings, methods=["GET"]),
+            Route("/api/bathymetry-map", _bathymetry_map, methods=["GET"]),
+            Route(
+                "/api/classifier/{tile_id}.png", _classifier, methods=["GET"]
+            ),
+            Route("/api/gpu-profile", _gpu_profile, methods=["GET"]),
+            Route(
+                "/api/gpu-profile/start", _gpu_profile_start, methods=["POST"]
+            ),
+            Route(
+                "/api/gpu-profile/stop", _gpu_profile_stop, methods=["POST"]
+            ),
+            Route(
+                "/api/gpu-profile/report", _gpu_profile_report, methods=["POST"]
+            ),
             Route("/api/tiles", _tiles, methods=["GET", "POST"]),
             Route(
                 "/api/texture/{tile_id}.jpg",

@@ -17,6 +17,7 @@ from dynamic_functions.Terrain.camera_lod import (
     resolve_lod_coverage,
     select_lod_tiles,
 )
+from dynamic_functions.Terrain.coastline import write_coastline_mask
 from dynamic_functions.Terrain.terrain_config import GREENLAND_BBOX
 from dynamic_functions.Terrain.tile_address import ancestor_tile_ids, tile_bounds
 
@@ -30,7 +31,7 @@ _EXPECTED_SELECTION_DIGEST = (
     "1cceaa661e08d05779d399329c7e5f3afac36973b36bbd678ef4311b9a49e934"
 )
 _EXPECTED_BINARY_DIGEST = (
-    "1745331c78db62673a122b493ff382e417cc4f1cb3c4d5615b43177c06da8620"
+    "67785f528b6fcc6fd038999c66e9b33c27bc6837552c4c86c0171558ad7d7194"
 )
 
 
@@ -114,6 +115,16 @@ def camera_lod_offline() -> dict:
                 "EGM2008",
                 commit=False,
             )
+        land = np.zeros((65, 65), dtype=bool)
+        for tile_id in (_PARENT, _CAMERA_TILE):
+            write_coastline_mask(
+                connection,
+                tile_id,
+                land,
+                "fixture_coastline",
+                1,
+                commit=False,
+            )
 
         manual_selection = {
             "tiles": [
@@ -186,6 +197,11 @@ def camera_lod_offline() -> dict:
             "fallbackReported": bool(
                 missing_by_id["10-880-480"]["state"] == "fallback"
                 and missing_by_id["10-880-480"]["fallbackTileId"] == _PARENT
+            ),
+            "waterDependencyPreservesParent": bool(
+                missing_by_id[_PARENT_EXACT_CHILD]["state"] == "fallback"
+                and missing_by_id[_PARENT_EXACT_CHILD]["fallbackTileId"]
+                == _PARENT
             ),
             "trueMissReported": bool(
                 missing_by_id[_MISSING]["state"] == "missing"

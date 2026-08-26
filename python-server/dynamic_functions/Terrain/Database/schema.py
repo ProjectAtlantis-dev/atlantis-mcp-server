@@ -78,6 +78,21 @@ def create(db: sqlite3.Connection) -> None:
             updated_at TEXT NOT NULL,
             FOREIGN KEY (tile_id) REFERENCES tiles(tile_id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS bathymetry (
+            tile_id    TEXT PRIMARY KEY,
+            heightmap  BLOB NOT NULL,
+            water_px   INTEGER NOT NULL,
+            min_z      REAL NOT NULL,
+            max_z      REAL NOT NULL,
+            source     TEXT NOT NULL,
+            version    INTEGER NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (tile_id) REFERENCES tiles(tile_id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS bathymetry_source
+            ON bathymetry(source, version);
         """
     )
     tile_columns = {

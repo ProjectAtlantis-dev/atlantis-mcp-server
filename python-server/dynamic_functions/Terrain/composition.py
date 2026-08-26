@@ -8,6 +8,10 @@ import sqlite3
 
 import numpy as np
 
+from dynamic_functions.Terrain.Database.bathymetry import (
+    complete_bathymetry_for_water,
+    read_bathymetry,
+)
 from dynamic_functions.Terrain.Database.database import db
 from dynamic_functions.Terrain.Database.textures import read_texture_with_ancestor
 from dynamic_functions.Terrain.Database.tiles import read_dem_with_ancestor
@@ -20,10 +24,11 @@ from dynamic_functions.Terrain.effective_heightmap import (
     apply_water_mask,
 )
 from dynamic_functions.Terrain.hydrography import read_hydrography_mask
+from dynamic_functions.Terrain.terrain_config import GREENLAND_BBOX
 from dynamic_functions.Terrain.tidal_connectivity import (
     read_connectivity_snapshot,
 )
-from dynamic_functions.Terrain.tile_address import require_tile_id
+from dynamic_functions.Terrain.tile_address import require_tile_id, tile_bounds
 
 
 MAX_COMPOSE_TILES = 256
@@ -120,6 +125,26 @@ def _effective_from_ready(
             f"ready water mask shape {mask.shape} does not match DEM "
             f"{heightmap.shape} for {tile_id}"
         )
+
+    bathymetry = read_bathymetry(connection, tile_id, heightmap.shape)
+    bathymetry_vertices = 0
+    if bathymetry is not None:
+        bbox = tile_bounds(tile_id, GREENLAND_BBOX)
+        cell_size_m = max(
+            (float(bbox[2]) - float(bbox[0])) / (heightmap.shape[1] - 1),
+            (float(bbox[3]) - float(bbox[1])) / (heightmap.shape[0] - 1),
+        )
+        bathymetry = complete_bathymetry_for_water(
+            bathymetry,
+            mask,
+            cell_size_m=cell_size_m,
+        )
+        bathymetry_mask = (
+            mask & np.isfinite(bathymetry) & (bathymetry <= 0.0)
+        )
+        bathymetry_vertices = int(np.sum(bathymetry_mask))
+        heightmap[bathymetry_mask] = bathymetry[bathymetry_mask]
+
     submerged = mask & np.isfinite(heightmap) & (heightmap <= 0.0)
     heightmap[submerged] -= np.float32(SHORELINE_SEAFLOOR_DROP_M)
     valid = heightmap[np.isfinite(heightmap)]
@@ -137,6 +162,8 @@ def _effective_from_ready(
         "maximum": float(np.max(valid)) if valid.size else None,
         "nanCount": int(np.isnan(heightmap).sum()),
         "waterCount": int(mask.sum()),
+        "bathymetryFound": bathymetry is not None,
+        "bathymetryVertices": bathymetry_vertices,
         "digest": hashlib.sha256(payload).hexdigest(),
         "contentBase64": base64.b64encode(payload).decode("ascii"),
     }, water["status"]
@@ -166,7 +193,7 @@ def _compose_texture(connection: sqlite3.Connection, tile_id: str) -> dict:
     if texture is None:
         return {"state": "missing"}
     payload = texture["texture"]
-    return {
+    result = {
         "state": "ready",
         "exact": texture["exact"],
         "resolvedTileId": texture["resolved_tile_id"],
@@ -175,9 +202,20 @@ def _compose_texture(connection: sqlite3.Connection, tile_id: str) -> dict:
         "updatedAt": texture["updated_at"],
         "mediaType": "image/jpeg",
         "contentLength": len(payload),
-        "digest": hashlib.sha256(payload).hexdigest(),
         "contentBase64": base64.b64encode(payload).decode("ascii"),
     }
+    payload_digest = hashlib.sha256(payload).hexdigest()
+    if texture["exact"]:
+        # The browser compares this value with the exact image response ETag.
+        # An ancestor payload is not the requested image response: that route
+        # crops it, and the exact child may arrive between this snapshot and
+        # the later image fetch. Advertising the ancestor's hash as the
+        # requested tile digest turns that healthy convergence into a false
+        # integrity failure.
+        result["digest"] = payload_digest
+    else:
+        result["ancestorDigest"] = payload_digest
+    return result
 
 
 def _domain_result(function, connection, tile_id: str) -> dict:

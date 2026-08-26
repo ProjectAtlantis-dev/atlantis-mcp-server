@@ -20,7 +20,10 @@ from dynamic_functions.Terrain.http_adapter import (
     serve_texture,
     texture_response,
 )
-from dynamic_functions.Terrain.terrain_config import MAX_TILE_DEPTH
+from dynamic_functions.Terrain.terrain_config import (
+    MAX_TILE_DEPTH,
+    WMS_CONTRACT_DEPTH,
+)
 
 
 def _jpeg_quadrants() -> bytes:
@@ -98,6 +101,14 @@ def http_adapter_offline() -> dict:
     )
     lat_lon = parse_tiles_request(
         {"lat": "64.175", "lon": "-51.7388"}, {}
+    )
+    bathymetry_demand = parse_tiles_request(
+        {
+            "sx": "-333722.4",
+            "sy": "-2824336.2",
+            "demand": "bathymetry",
+        },
+        {},
     )
     invalid_rejected = 0
     for query, body in (
@@ -220,6 +231,11 @@ def http_adapter_offline() -> dict:
         "latLonMapped": bool(
             abs(lat_lon["camera_x"] + 333722.4) < 1.0
             and abs(lat_lon["camera_y"] + 2824336.2) < 1.0
+        ),
+        "bathymetryDemandCompatibility": bool(
+            bathymetry_demand["max_depth"] == WMS_CONTRACT_DEPTH
+            and bathymetry_demand["legacy_json"] is True
+            and parsed["legacy_json"] is False
         ),
         "invalidRejected": invalid_rejected == 7,
         "binaryHeaders": bool(

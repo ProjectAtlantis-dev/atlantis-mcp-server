@@ -10,7 +10,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from PIL import Image
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
 from dynamic_functions.Terrain.coords import to_stereo
 from dynamic_functions.Terrain.Database.database import connection_lock, db
@@ -19,7 +19,10 @@ from dynamic_functions.Terrain.demand import (
     compose_camera_demand_binary_from_ready_data,
     submit_texture_demand,
 )
-from dynamic_functions.Terrain.terrain_config import MAX_TILE_DEPTH
+from dynamic_functions.Terrain.terrain_config import (
+    MAX_TILE_DEPTH,
+    WMS_CONTRACT_DEPTH,
+)
 from dynamic_functions.Terrain.tile_address import (
     ancestor_tile_ids,
     require_tile_id,
@@ -102,25 +105,41 @@ def parse_tiles_request(query: Mapping[str, str], body: object) -> dict:
     if not isinstance(known, dict):
         raise ValueError("known must be an object")
 
+    legacy_bathymetry_demand = (
+        query.get("demand") == "bathymetry"
+        or query.get("bathymetry") == "0"
+    )
     return {
         "camera_x": camera_x,
         "camera_y": camera_y,
         "max_range": max_range,
-        "max_depth": MAX_TILE_DEPTH,
+        "max_depth": (
+            WMS_CONTRACT_DEPTH
+            if legacy_bathymetry_demand
+            else MAX_TILE_DEPTH
+        ),
         "altitude": altitude,
         "previous_depth": previous_depth,
         "origin_x": origin_x,
         "origin_y": origin_y,
         "known_digests": known,
+        "legacy_json": legacy_bathymetry_demand,
     }
 
 
 def compose_tiles_response(arguments: dict) -> Response:
     """Run the camera pipeline and return its raw browser wire payload."""
 
+    call_arguments = dict(arguments)
+    legacy_json = bool(call_arguments.pop("legacy_json", False))
     with connection_lock():
-        payload, _ = compose_camera_demand_binary_from_ready_data(
-            db(), **arguments
+        payload, header = compose_camera_demand_binary_from_ready_data(
+            db(), **call_arguments
+        )
+    if legacy_json:
+        return JSONResponse(
+            header,
+            headers={"Cache-Control": "no-store"},
         )
     return binary_response(payload)
 

@@ -174,6 +174,13 @@ def composition_offline() -> dict:
                 fallback["texture"]["state"] == "ready"
                 and fallback["texture"]["resolvedTileId"] == _TEXTURE_PARENT
                 and fallback["texture"]["depthDelta"] == 1
+                and "digest" not in fallback["texture"]
+                and "ancestorDigest" in fallback["texture"]
+            ),
+            "exactTextureOwnsDigest": bool(
+                texture_only["texture"]["exact"]
+                and "digest" in texture_only["texture"]
+                and "ancestorDigest" not in texture_only["texture"]
             ),
             "textureSurvivesMissingDem": bool(
                 texture_only["dem"]["state"] == "missing"

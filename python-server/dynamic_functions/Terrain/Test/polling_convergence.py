@@ -7,6 +7,7 @@ import numpy as np
 from dynamic_functions.Terrain.Database.database import db
 from dynamic_functions.Terrain.Database.tiles import write_dem
 from dynamic_functions.Terrain.camera_lod import resolve_lod_coverage
+from dynamic_functions.Terrain.coastline import write_coastline_mask
 from dynamic_functions.Terrain.demand import polling_state
 from dynamic_functions.Terrain.terrain_config import GREENLAND_BBOX
 from dynamic_functions.Terrain.tile_address import ancestor_tile_ids, tile_bounds
@@ -121,6 +122,15 @@ def polling_convergence_offline() -> dict:
             "EGM2008",
             commit=False,
         )
+        land = np.zeros((65, 65), dtype=bool)
+        write_coastline_mask(
+            connection,
+            _PARENT,
+            land,
+            "fixture_coastline",
+            1,
+            commit=False,
+        )
         snapshots = [resolve_lod_coverage(connection, _selection())]
         for index, tile_id in enumerate(_CHILDREN):
             write_dem(
@@ -129,6 +139,14 @@ def polling_convergence_offline() -> dict:
                 values + np.float32(index + 1),
                 "arcticdem_10m",
                 "EGM2008",
+                commit=False,
+            )
+            write_coastline_mask(
+                connection,
+                tile_id,
+                land,
+                "fixture_coastline",
+                1,
                 commit=False,
             )
             snapshots.append(resolve_lod_coverage(connection, _selection()))

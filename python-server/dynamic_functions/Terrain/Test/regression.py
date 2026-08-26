@@ -8,6 +8,10 @@ import time
 from dynamic_functions.Terrain.Test.arctic_dem_decode import arcticdem_decode
 from dynamic_functions.Terrain.Test.arcticdem_failures import arcticdem_failures
 from dynamic_functions.Terrain.Test.binary_batch import binary_batch_offline
+from dynamic_functions.Terrain.Test.bathymetry import bathymetry_offline
+from dynamic_functions.Terrain.Test.bathymetry_demand import (
+    bathymetry_demand_offline,
+)
 from dynamic_functions.Terrain.Test.camera_lod import camera_lod_offline
 from dynamic_functions.Terrain.Test.coastline import coastline_offline
 from dynamic_functions.Terrain.Test.composition import composition_offline
@@ -229,6 +233,25 @@ def terrain_regression() -> dict:
         },
     )
     run(
+        "bathymetry_offline",
+        bathymetry_offline,
+        lambda result: {
+            key: bool(result[key])
+            for key in (
+                "schemaPresent",
+                "firstWrite",
+                "ancestorResampled",
+                "bathymetryApplied",
+                "landPreserved",
+                "canonicalDemPreserved",
+                "readOnlyComposition",
+                "coarseCoverageUsesFallback",
+                "completionDoesNotCrossLand",
+            )
+        }
+        | {"duplicateWrite": result["duplicateWrite"] is False},
+    )
+    run(
         "composition_offline",
         composition_offline,
         lambda result: {
@@ -283,6 +306,7 @@ def terrain_regression() -> dict:
                 "pureSelection",
                 "coherentFallbackAntichain",
                 "fallbackReported",
+                "waterDependencyPreservesParent",
                 "trueMissReported",
                 "cameraGeometry",
                 "missingViewerFields",
@@ -293,6 +317,11 @@ def terrain_regression() -> dict:
                 "stableBinary",
             )
         },
+    )
+    run(
+        "bathymetry_demand_offline",
+        bathymetry_demand_offline,
+        lambda result: result,
     )
     run(
         "demand_lanes_offline",

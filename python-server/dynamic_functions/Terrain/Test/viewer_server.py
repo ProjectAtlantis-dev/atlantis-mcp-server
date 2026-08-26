@@ -8,6 +8,8 @@ import urllib.request
 from unittest.mock import AsyncMock, patch
 
 from dynamic_functions.Terrain.viewer_server import (
+    CLIENT_LOG_PATH,
+    client_log,
     server_start,
     server_status,
     server_stop,
@@ -71,6 +73,45 @@ async def viewer_server_offline() -> dict:
                 f"http://127.0.0.1:{port}/api/client_log/ring", timeout=2.0
             ) as response:
                 log_ring = json.loads(response.read())
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/api/assets", timeout=2.0
+            ) as response:
+                assets = json.loads(response.read())
+                assets_status = response.status
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/api/buildings"
+                "?sx=-299570&sy=-2883110&range=9000"
+                "&ox=-299570&oy=-2883110",
+                timeout=5.0,
+            ) as response:
+                buildings = response.read()
+                buildings_status = response.status
+                buildings_format = response.headers.get("X-Terrain-Format")
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/api/gpu-profile", timeout=2.0
+            ) as response:
+                gpu_profile = json.loads(response.read())
+                gpu_profile_status = response.status
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/api/classifier/12-1379-765.png"
+                "?raw=1&res=256&v=11",
+                timeout=2.0,
+            ) as response:
+                classifier_status = response.status
+                classifier_state = response.headers.get("X-Classifier-Status")
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/api/bathymetry-map"
+                "?sx=-299570&sy=-2883110&range=50000"
+                "&ox=-299570&oy=-2883110",
+                timeout=2.0,
+            ) as response:
+                bathymetry_map = json.loads(response.read())
+                bathymetry_map_status = response.status
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/favicon.ico", timeout=2.0
+            ) as response:
+                favicon = response.read()
+                favicon_status = response.status
         finally:
             stopped = await server_stop()
         already_stopped = await server_stop()
@@ -109,11 +150,43 @@ async def viewer_server_offline() -> dict:
             and health["running"]
         ),
         "clientLogIngested": bool(
-            log_result == {"ok": True, "written": 1, "dropped": 0}
+            log_result
+            == {
+                "ok": True,
+                "written": 1,
+                "dropped": 0,
+                "logPath": str(CLIENT_LOG_PATH),
+            }
             and log_ring["count"] == 1
             and log_ring["entries"][0]["level"] == "error"
             and log_ring["entries"][0]["phase"]
             == "terrain.residency.overlap"
+        ),
+        "clientLogIsolated": bool(
+            client_log.propagate is False
+            and client_log.level == 10
+            and any(
+                getattr(handler, "baseFilename", None)
+                == str(CLIENT_LOG_PATH)
+                for handler in client_log.handlers
+            )
+        ),
+        "compatibilityRoutes": bool(
+            assets_status == 200
+            and assets["ok"]
+            and isinstance(assets["vehicle_instances"], list)
+            and buildings_status == 200
+            and buildings_format == "binary-v1"
+            and len(buildings) >= 4
+            and gpu_profile_status == 200
+            and gpu_profile["status"] == "idle"
+            and classifier_status == 204
+            and classifier_state == "missing"
+            and bathymetry_map_status == 200
+            and isinstance(bathymetry_map["coverage"], list)
+            and bathymetry_map["soundingStatus"] == "not_imported"
+            and favicon_status == 200
+            and favicon.startswith(b"<svg")
         ),
         "stops": bool(stopped["stopped"] and not stopped["running"]),
         "idempotentStop": bool(

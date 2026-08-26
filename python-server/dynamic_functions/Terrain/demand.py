@@ -18,6 +18,10 @@ import atlantis
 
 from dynamic_functions.Terrain.arctic_dem import _fetch_heightmap
 from dynamic_functions.Terrain.binary_batch import encode_composed_tiles_binary
+from dynamic_functions.Terrain.bathymetry_demand import (
+    eligible_fjord_jobs,
+    run_bathymetry_job,
+)
 from dynamic_functions.Terrain.camera_lod import (
     compose_camera_from_ready_data,
     resolve_lod_coverage,
@@ -487,6 +491,10 @@ def _new_coordinator() -> DemandCoordinator:
             "connectivity": DemandLane(
                 "connectivity", _connectivity_worker, 1
             ),
+            "bathymetry": DemandLane(
+                "bathymetry", run_bathymetry_job, 1,
+                retry_delays=(30.0, 120.0, 600.0),
+            ),
         }
     )
 
@@ -534,6 +542,7 @@ def _present_ids(
         "coastline_masks",
         "hydrography_masks",
         "tidal_connectivity_masks",
+        "bathymetry",
     }:
         raise ValueError(f"unsupported demand table: {table}")
     ready: set[str] = set()
@@ -604,6 +613,7 @@ def demand_candidates(
     missing_texture_targets = [
         tile_id for tile_id in domain_ids if tile_id not in ready_texture
     ]
+    bathymetry_jobs = sorted(eligible_fjord_jobs(connection, domain_ids))
     return {
         "dem": [tile_id for tile_id in targets if tile_id not in ready_dem],
         "texture": list(
@@ -618,6 +628,7 @@ def demand_candidates(
             tile_id for tile_id in water_targets if tile_id not in ready_hydro
         ],
         "connectivity": connectivity_generations,
+        "bathymetry": bathymetry_jobs,
     }
 
 
@@ -788,7 +799,10 @@ def _browser_pipeline_fields(demand: dict) -> dict:
     polling = polling_state(lanes)
 
     def counts(name: str) -> tuple[int, int, int]:
-        lane = lanes[name]
+        lane = lanes.get(
+            name,
+            {"claimedActive": [], "pending": [], "failures": {}},
+        )
         active = len(lane["claimedActive"])
         pending = len(lane["pending"])
         retryable = sum(
@@ -803,6 +817,7 @@ def _browser_pipeline_fields(demand: dict) -> dict:
     coastline_active, coastline_pending, _ = counts("coastline")
     hydro_active, hydro_pending, _ = counts("hydrography")
     connectivity_active, connectivity_pending, _ = counts("connectivity")
+    bathymetry_active, bathymetry_pending, _ = counts("bathymetry")
     dem_actionable = bool(dem_active or dem_pending or dem_retryable)
     dem_retry_at = [
         failure["retryAt"]
@@ -832,6 +847,7 @@ def _browser_pipeline_fields(demand: dict) -> dict:
             + connectivity_active
             + connectivity_pending
         ),
+        "bathymetryQueued": bathymetry_active + bathymetry_pending,
     }
 
 

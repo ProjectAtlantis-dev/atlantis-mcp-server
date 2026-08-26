@@ -7,13 +7,18 @@ import sqlite3
 
 import numpy as np
 
+from dynamic_functions.Terrain.Database.bathymetry import (
+    complete_bathymetry_for_water,
+    read_bathymetry,
+)
 from dynamic_functions.Terrain.Database.database import db
 from dynamic_functions.Terrain.Database.tiles import read_dem_payload
 from dynamic_functions.Terrain.coastline import read_coastline_mask
+from dynamic_functions.Terrain.terrain_config import GREENLAND_BBOX
 from dynamic_functions.Terrain.tidal_connectivity import (
     connected_hydrography_for_tile,
 )
-from dynamic_functions.Terrain.tile_address import require_tile_id
+from dynamic_functions.Terrain.tile_address import require_tile_id, tile_bounds
 
 
 SOURCE = "derived_effective_heightmap"
@@ -111,6 +116,26 @@ def effective_heightmap_for_tile(
             f"effective water mask shape {water.shape} does not match "
             f"heightmap {result.shape} for {tile_id}"
         )
+
+    bathymetry = read_bathymetry(connection, tile_id, result.shape)
+    bathymetry_vertices = 0
+    if bathymetry is not None:
+        bbox = tile_bounds(tile_id, GREENLAND_BBOX)
+        cell_size_m = max(
+            (float(bbox[2]) - float(bbox[0])) / (result.shape[1] - 1),
+            (float(bbox[3]) - float(bbox[1])) / (result.shape[0] - 1),
+        )
+        bathymetry = complete_bathymetry_for_water(
+            bathymetry,
+            water,
+            cell_size_m=cell_size_m,
+        )
+        bathymetry_mask = (
+            water & np.isfinite(bathymetry) & (bathymetry <= 0.0)
+        )
+        bathymetry_vertices = int(np.sum(bathymetry_mask))
+        result[bathymetry_mask] = bathymetry[bathymetry_mask]
+
     submerged = water & np.isfinite(result) & (result <= 0.0)
     result[submerged] -= np.float32(SHORELINE_SEAFLOOR_DROP_M)
     return {
@@ -120,6 +145,8 @@ def effective_heightmap_for_tile(
         "mask_source": mask_source,
         "has_exact_coastline": has_exact_coastline,
         "canonical_dem_found": payload is not None,
+        "bathymetry_found": bathymetry is not None,
+        "bathymetry_vertices": bathymetry_vertices,
         "vertical_datum": payload["vertical_datum"] if payload else None,
     }
 
@@ -141,6 +168,8 @@ def _response(connection: sqlite3.Connection, tile_id: str) -> dict:
         "maskSource": payload["mask_source"],
         "hasExactCoastline": payload["has_exact_coastline"],
         "canonicalDemFound": payload["canonical_dem_found"],
+        "bathymetryFound": payload["bathymetry_found"],
+        "bathymetryVertices": payload["bathymetry_vertices"],
         "verticalDatum": payload["vertical_datum"],
         "waterFloorDropMeters": WATER_FLOOR_DROP_M,
         "shorelineSeafloorDropMeters": SHORELINE_SEAFLOOR_DROP_M,

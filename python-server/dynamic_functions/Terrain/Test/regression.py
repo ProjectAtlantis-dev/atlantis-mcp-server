@@ -264,13 +264,14 @@ def terrain_regression() -> dict:
                 "demSurvivesMissingTexture",
                 "missingConnectivityIsPending",
                 "readyConnectivityComposed",
+                "descendantInheritsPublishedWater",
                 "domainErrorIsolated",
                 "explicitMiss",
                 "readOnlyComposition",
                 "noNetworkOrScheduling",
             )
         }
-        | {"tileCount": result["tileCount"] == 7},
+        | {"tileCount": result["tileCount"] == 8},
     )
     run(
         "binary_batch_offline",
@@ -337,6 +338,9 @@ def terrain_regression() -> dict:
                 "allWorkCompleted",
                 "failureIsolated",
                 "failedNotHotLooped",
+                "databaseMissReopensFalseCompletion",
+                "demandOriginIsolation",
+                "textureFailuresAreFailures",
                 "unknownLaneRejected",
                 "dependencyStaged",
                 "candidateReadsAreReadOnly",
@@ -362,6 +366,7 @@ def terrain_regression() -> dict:
                 "refreshDoesNotSleep",
                 "terminalNotRetried",
                 "transientExhausted",
+                "exhaustedReclaimedAfterCooldown",
                 "classifierBoundaries",
             )
         },

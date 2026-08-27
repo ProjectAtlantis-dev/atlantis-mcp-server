@@ -7,8 +7,12 @@ import socket
 import urllib.request
 from unittest.mock import AsyncMock, patch
 
+from starlette.routing import Route
+
 from dynamic_functions.Terrain.viewer_server import (
     CLIENT_LOG_PATH,
+    _HOTLOAD_ROUTE_ENDPOINTS,
+    _viewer_app,
     client_log,
     server_start,
     server_status,
@@ -26,6 +30,12 @@ def _unused_port() -> int:
 async def viewer_server_offline() -> dict:
     """Prove explicit start, idempotence, health, and explicit stop."""
 
+    route_app = _viewer_app()
+    hotload_routes = {
+        route.path: route.endpoint.__name__
+        for route in route_app.routes
+        if isinstance(route, Route)
+    }
     with patch(
         "dynamic_functions.Terrain.viewer_server._update_dashboard",
         new=AsyncMock(),
@@ -117,6 +127,13 @@ async def viewer_server_offline() -> dict:
         already_stopped = await server_stop()
         finally_stopped = server_status()
     return {
+        "hotloadRoutes": bool(
+            set(hotload_routes) == set(_HOTLOAD_ROUTE_ENDPOINTS)
+            and all(
+                name.startswith("hotload_")
+                for name in hotload_routes.values()
+            )
+        ),
         "statusBeforeStart": bool(
             not initially_stopped["running"]
             and not initially_stopped["threadAlive"]

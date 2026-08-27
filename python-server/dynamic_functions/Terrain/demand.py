@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 import os
 import sqlite3
 import subprocess
@@ -65,6 +66,8 @@ MAX_DEMAND_ITEMS = 2500
 _SQL_CHUNK = 500
 _REGISTRY_KEY = "Terrain.demand.registry.v2"
 DEFAULT_RETRY_DELAYS = (2.0, 10.0)
+EXHAUSTED_RECLAIM_DELAY = 60.0
+log = logging.getLogger("terrain.demand")
 
 
 def retryable_failure(exc: Exception) -> bool:
@@ -164,6 +167,7 @@ class DemandLane:
                 # not suppress the item forever.
                 self._completed.difference_update(validated)
             for item_id in validated:
+                self._reclaim_exhausted_locked(item_id)
                 if self._retry_eligible_locked(item_id):
                     self._failures.pop(item_id, None)
                 if (
@@ -214,6 +218,7 @@ class DemandLane:
             previous = set(self._pending)
             replacement: OrderedDict[str, None] = OrderedDict()
             for item_id in validated:
+                self._reclaim_exhausted_locked(item_id)
                 if self._retry_eligible_locked(item_id):
                     self._failures.pop(item_id, None)
                 if (
@@ -278,7 +283,24 @@ class DemandLane:
                     "retryable": retryable,
                     "retryAt": retry_at,
                     "exhausted": transient and not retryable,
+                    "reclaimAt": (
+                        self._clock() + EXHAUSTED_RECLAIM_DELAY
+                        if transient and not retryable
+                        else None
+                    ),
                 }
+                failure_log = log.warning if retryable else log.error
+                failure_log(
+                    "terrain demand failed lane=%s item=%s attempt=%d "
+                    "retryable=%s retry_at=%s error_type=%s error=%s",
+                    self.name,
+                    item_id,
+                    attempts,
+                    retryable,
+                    retry_at,
+                    type(exc).__name__,
+                    exc,
+                )
             self._dispatch_locked()
             if not self._active and not self._pending:
                 self._idle.notify_all()
@@ -291,6 +313,22 @@ class DemandLane:
             and isinstance(failure.get("retryAt"), (int, float))
             and self._clock() >= failure["retryAt"]
         )
+
+    def _reclaim_exhausted_locked(self, item_id: str) -> bool:
+        """Reset a cooled-down transient failure for a fresh bounded pass."""
+
+        failure = self._failures.get(item_id)
+        reclaim_at = failure.get("reclaimAt") if failure else None
+        if not (
+            failure
+            and failure.get("exhausted")
+            and isinstance(reclaim_at, (int, float))
+            and self._clock() >= reclaim_at
+        ):
+            return False
+        self._failures.pop(item_id, None)
+        self._attempts.pop(item_id, None)
+        return True
 
     def _status_locked(self) -> dict:
         failures = {

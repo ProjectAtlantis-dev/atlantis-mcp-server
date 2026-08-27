@@ -24,11 +24,18 @@ from dynamic_functions.Terrain.effective_heightmap import (
     apply_water_mask,
 )
 from dynamic_functions.Terrain.hydrography import read_hydrography_mask
-from dynamic_functions.Terrain.terrain_config import GREENLAND_BBOX
+from dynamic_functions.Terrain.terrain_config import (
+    GREENLAND_BBOX,
+    WMS_CONTRACT_DEPTH,
+)
 from dynamic_functions.Terrain.tidal_connectivity import (
     read_connectivity_snapshot,
 )
-from dynamic_functions.Terrain.tile_address import require_tile_id, tile_bounds
+from dynamic_functions.Terrain.tile_address import (
+    format_tile_id,
+    require_tile_id,
+    tile_bounds,
+)
 
 
 MAX_COMPOSE_TILES = 256
@@ -61,12 +68,98 @@ def _validated_tile_ids(tile_ids: list[str]) -> tuple[str, ...]:
     return tuple(result)
 
 
+def _water_contract_tile_id(tile_id: str) -> str:
+    """Return the published water tile that governs this render tile."""
+
+    depth, column, row = require_tile_id(tile_id)
+    if depth <= WMS_CONTRACT_DEPTH:
+        return tile_id
+    shift = depth - WMS_CONTRACT_DEPTH
+    return format_tile_id(
+        WMS_CONTRACT_DEPTH,
+        column >> shift,
+        row >> shift,
+    )
+
+
+def _project_ancestor_mask(
+    mask: np.ndarray,
+    ancestor_id: str,
+    descendant_id: str,
+) -> np.ndarray:
+    """Sample an ancestor water footprint in descendant tile coordinates."""
+
+    values = np.asarray(mask, dtype=bool)
+    if values.ndim != 2 or not values.size:
+        raise ValueError(
+            f"invalid water mask shape for {ancestor_id}: {values.shape}"
+        )
+    ancestor_depth, ancestor_column, ancestor_row = require_tile_id(
+        ancestor_id
+    )
+    depth, column, row = require_tile_id(descendant_id)
+    if depth < ancestor_depth:
+        raise ValueError(f"{descendant_id} is not a descendant of {ancestor_id}")
+    depth_delta = depth - ancestor_depth
+    scale = 1 << depth_delta
+    local_column = column - ancestor_column * scale
+    local_row = row - ancestor_row * scale
+    if not (0 <= local_column < scale and 0 <= local_row < scale):
+        raise ValueError(f"{descendant_id} is not a descendant of {ancestor_id}")
+    if depth_delta == 0:
+        return values.copy()
+
+    height, width = values.shape
+    output_x = np.arange(width, dtype=np.float64)
+    output_y = np.arange(height, dtype=np.float64)
+    source_x = (local_column * (width - 1) + output_x) / scale
+    source_y = (local_row * (height - 1) + output_y) / scale
+    source_x = np.clip(
+        np.floor(source_x + 0.5), 0, width - 1
+    ).astype(np.intp)
+    source_y = np.clip(
+        np.floor(source_y + 0.5), 0, height - 1
+    ).astype(np.intp)
+    return values[np.ix_(source_y, source_x)]
+
+
+def _ready_mask(
+    connection: sqlite3.Connection,
+    tile_id: str,
+    contract_tile_id: str,
+    reader,
+) -> dict | None:
+    """Read an exact snapshot, or project its published contract ancestor."""
+
+    payload = reader(connection, tile_id)
+    if payload is None and contract_tile_id != tile_id:
+        payload = reader(connection, contract_tile_id)
+    if payload is None:
+        return None
+    source_tile_id = payload["tile_id"]
+    if source_tile_id == tile_id:
+        return payload
+    return {
+        **payload,
+        "mask": _project_ancestor_mask(
+            payload["mask"], source_tile_id, tile_id,
+        ),
+    }
+
+
 def _water_state(connection: sqlite3.Connection, tile_id: str) -> dict:
     """Return only source rows and an already-published connectivity mask."""
 
-    coastline = read_coastline_mask(connection, tile_id)
-    hydrography = read_hydrography_mask(connection, tile_id)
-    connectivity = read_connectivity_snapshot(connection, tile_id)
+    contract_tile_id = _water_contract_tile_id(tile_id)
+    coastline = _ready_mask(
+        connection, tile_id, contract_tile_id, read_coastline_mask,
+    )
+    hydrography = _ready_mask(
+        connection, tile_id, contract_tile_id, read_hydrography_mask,
+    )
+    connectivity = _ready_mask(
+        connection, tile_id, contract_tile_id, read_connectivity_snapshot,
+    )
     masks = []
     if coastline is not None:
         masks.append(coastline["mask"])
@@ -125,14 +218,27 @@ def _effective_from_ready(
             f"ready water mask shape {mask.shape} does not match DEM "
             f"{heightmap.shape} for {tile_id}"
         )
+    if heightmap.ndim != 2:
+        raise ValueError(
+            f"effective heightmap for {tile_id} must be 2-D, "
+            f"got {heightmap.ndim}-D"
+        )
+    height = len(heightmap)
+    width = len(heightmap[0]) if height else 0
+    if height < 2 or width < 2:
+        raise ValueError(
+            f"effective heightmap for {tile_id} is too small: "
+            f"{height}x{width}"
+        )
+    output_shape = (height, width)
 
-    bathymetry = read_bathymetry(connection, tile_id, heightmap.shape)
+    bathymetry = read_bathymetry(connection, tile_id, output_shape)
     bathymetry_vertices = 0
     if bathymetry is not None:
         bbox = tile_bounds(tile_id, GREENLAND_BBOX)
         cell_size_m = max(
-            (float(bbox[2]) - float(bbox[0])) / (heightmap.shape[1] - 1),
-            (float(bbox[3]) - float(bbox[1])) / (heightmap.shape[0] - 1),
+            (float(bbox[2]) - float(bbox[0])) / (width - 1),
+            (float(bbox[3]) - float(bbox[1])) / (height - 1),
         )
         bathymetry = complete_bathymetry_for_water(
             bathymetry,

@@ -11,6 +11,10 @@ from dynamic_functions.Terrain.Database.database import db
 from dynamic_functions.Terrain.Database.tiles import ensure_tile_row, write_dem
 from dynamic_functions.Terrain.coastline import write_coastline_mask
 from dynamic_functions.Terrain.composition import compose_tiles_from_ready_data
+from dynamic_functions.Terrain.effective_heightmap import (
+    SHORELINE_SEAFLOOR_DROP_M,
+    WATER_FLOOR_DROP_M,
+)
 from dynamic_functions.Terrain.hydrography import write_hydrography_mask
 from dynamic_functions.Terrain.tidal_connectivity import (
     write_connectivity_snapshot,
@@ -26,6 +30,8 @@ _DEM_ONLY = "10-805-405"
 _PENDING_WATER = "10-806-406"
 _READY_WATER = "10-807-407"
 _CORRUPT_DEM = "10-808-408"
+_WATER_PARENT = "12-3239-1639"
+_WATER_CHILD = "14-12959-6559"
 _MISSING = "10-900-900"
 _TILE_IDS = (
     _FALLBACK,
@@ -36,6 +42,8 @@ _TILE_IDS = (
     _PENDING_WATER,
     _READY_WATER,
     _CORRUPT_DEM,
+    _WATER_PARENT,
+    _WATER_CHILD,
     _MISSING,
 )
 _GRID = (65, 65)
@@ -101,6 +109,17 @@ def composition_offline() -> dict:
                 "EGM2008",
                 commit=False,
             )
+        # EGM2008 is an orthometric model, not the local instantaneous or mean
+        # sea surface. A small positive residual must not make a measured child
+        # replace its parent's published water floor while LOD converges.
+        write_dem(
+            connection,
+            _WATER_CHILD,
+            np.full(_GRID, 0.08, dtype=np.float32),
+            "arcticdem_10m",
+            "EGM2008",
+            commit=False,
+        )
         for tile_id in (_TEXTURE_PARENT, _TEXTURE_ONLY, _CORRUPT_DEM):
             ensure_tile_row(connection, tile_id)
             _texture(connection, tile_id, f"texture:{tile_id}".encode())
@@ -120,6 +139,14 @@ def composition_offline() -> dict:
             )
         write_connectivity_snapshot(
             connection, _READY_WATER, connected, commit=False
+        )
+        write_coastline_mask(
+            connection,
+            _WATER_PARENT,
+            np.ones(_GRID, dtype=bool),
+            "fixture_coast",
+            1,
+            commit=False,
         )
 
         # A broken DEM row is a domain-local failure and must not suppress its
@@ -141,6 +168,7 @@ def composition_offline() -> dict:
                     _DEM_ONLY,
                     _PENDING_WATER,
                     _READY_WATER,
+                    _WATER_CHILD,
                     _CORRUPT_DEM,
                     _MISSING,
                 ],
@@ -152,6 +180,7 @@ def composition_offline() -> dict:
         dem_only = by_id[_DEM_ONLY]
         pending = by_id[_PENDING_WATER]
         ready = by_id[_READY_WATER]
+        water_child = by_id[_WATER_CHILD]
         corrupt = by_id[_CORRUPT_DEM]
         missing = by_id[_MISSING]
         return {
@@ -162,6 +191,7 @@ def composition_offline() -> dict:
                 _DEM_ONLY,
                 _PENDING_WATER,
                 _READY_WATER,
+                _WATER_CHILD,
                 _CORRUPT_DEM,
                 _MISSING,
             ],
@@ -199,6 +229,14 @@ def composition_offline() -> dict:
             "readyConnectivityComposed": bool(
                 ready["dem"]["water"]["tidalConnectivity"] == "ready"
                 and ready["dem"]["heightmap"]["waterCount"] == 2
+            ),
+            "descendantInheritsPublishedWater": bool(
+                water_child["dem"]["heightmap"]["waterCount"] == 65 * 65
+                and water_child["dem"]["heightmap"]["minimum"]
+                == -WATER_FLOOR_DROP_M - SHORELINE_SEAFLOOR_DROP_M
+                and water_child["dem"]["heightmap"]["maximum"]
+                == -WATER_FLOOR_DROP_M - SHORELINE_SEAFLOOR_DROP_M
+                and water_child["dem"]["verticalDatum"] == "EGM2008"
             ),
             "domainErrorIsolated": bool(
                 corrupt["dem"]["state"] == "error"

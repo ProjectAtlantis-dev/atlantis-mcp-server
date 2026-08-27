@@ -80,6 +80,10 @@ def demand_retry_offline() -> dict:
         exhausting.replace_pending(["flaky"])
         exhausting.wait_for_idle(timeout=1.0)
         exhausted = exhausting.status()["failures"]["flaky"]
+        now[0] = 1063.0
+        reclaimed = exhausting.replace_pending(["flaky"])
+        exhausting.wait_for_idle(timeout=1.0)
+        reclaimed_failure = exhausting.status()["failures"]["flaky"]
 
         return {
             "firstDeadline": bool(
@@ -104,6 +108,12 @@ def demand_retry_offline() -> dict:
                 exhausted["attempts"] == 2
                 and exhausted["retryable"] is False
                 and exhausted["exhausted"] is True
+                and exhausted["reclaimAt"] == 1063.0
+            ),
+            "exhaustedReclaimedAfterCooldown": bool(
+                reclaimed["acceptedCount"] == 1
+                and reclaimed_failure["attempts"] == 1
+                and reclaimed_failure["retryable"] is True
             ),
             "classifierBoundaries": bool(
                 retryable_failure(TimeoutError("x"))

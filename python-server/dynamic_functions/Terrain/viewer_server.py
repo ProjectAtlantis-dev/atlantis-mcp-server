@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import logging
 import math
@@ -9,6 +10,7 @@ import threading
 import time
 from collections import deque
 from logging import FileHandler
+from pathlib import Path
 
 import atlantis
 import uvicorn
@@ -16,7 +18,7 @@ from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
-from starlette.routing import Route
+from starlette.routing import Route, request_response
 
 from dynamic_functions.Terrain.Database.database import _update_dashboard
 from dynamic_functions.Terrain.Database.database import connection_lock, db
@@ -60,11 +62,17 @@ _FAVICON = b"""<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 64\"><
 def _configure_client_log() -> None:
     """Keep browser telemetry out of the main MCP/server log."""
 
-    if not client_log.handlers:
+    log_path = CLIENT_LOG_PATH.resolve()
+    has_target_handler = any(
+        isinstance(handler, FileHandler)
+        and Path(handler.baseFilename).resolve() == log_path
+        for handler in client_log.handlers
+    )
+    if not has_target_handler:
         CLIENT_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         handler = FileHandler(
             str(CLIENT_LOG_PATH),
-            mode="w",
+            mode="a",
             encoding="utf-8",
         )
         handler.setFormatter(
@@ -127,9 +135,9 @@ async def _tiles(request: Request) -> Response:
     try:
         body = await request.json() if request.method == "POST" else {}
         arguments = parse_tiles_request(request.query_params, body)
-        log.info(
+        log.debug(
             "[/api/tiles] request method=%s qx=%.1f qy=%.1f agl=%.1f "
-            "range=%.1f previous_depth=%s known=%d",
+            "range=%.1f previous_depth=%s known=%d origin=%s",
             request.method,
             arguments["camera_x"],
             arguments["camera_y"],
@@ -137,13 +145,19 @@ async def _tiles(request: Request) -> Response:
             arguments["max_range"],
             arguments["previous_depth"],
             len(arguments["known_digests"]),
+            arguments["demand_origin"],
         )
         response = await run_in_threadpool(compose_tiles_response, arguments)
-        log.info(
-            "[/api/tiles] response status=%d bytes=%d elapsed_ms=%.1f",
+        elapsed_ms = (time.perf_counter() - started_at) * 1000.0
+        response_log = log.warning if elapsed_ms >= 300.0 else log.debug
+        response_log(
+            "[/api/tiles] response method=%s origin=%s status=%d bytes=%d "
+            "elapsed_ms=%.1f",
+            request.method,
+            arguments["demand_origin"],
             response.status_code,
             len(response.body),
-            (time.perf_counter() - started_at) * 1000.0,
+            elapsed_ms,
         )
         return response
     except (TypeError, ValueError, json.JSONDecodeError) as exc:
@@ -266,10 +280,22 @@ async def _client_log(request: Request) -> JSONResponse:
     )
 
 
-async def _client_log_ring(_request: Request) -> JSONResponse:
+async def _client_log_ring(request: Request) -> JSONResponse:
     runtime = atlantis.server_shared.get(_RUNTIME_KEY)
-    entries = list(runtime.client_log_ring)[-50:] if runtime is not None else []
-    return JSONResponse({"count": len(entries), "entries": entries})
+    try:
+        limit = int(request.query_params.get("limit", "200"))
+    except (TypeError, ValueError):
+        limit = 200
+    limit = max(1, min(limit, _CLIENT_LOG_RING_SIZE))
+    retained = list(runtime.client_log_ring) if runtime is not None else []
+    entries = retained[-limit:]
+    return JSONResponse(
+        {
+            "count": len(entries),
+            "retainedCount": len(retained),
+            "entries": entries,
+        }
+    )
 
 
 def _query_float(request: Request, name: str, default: float) -> float:
@@ -446,8 +472,53 @@ async def _favicon(_request: Request) -> Response:
     )
 
 
+_HOTLOAD_ROUTE_ENDPOINTS = {
+    "/health": "_health",
+    "/favicon.ico": "_favicon",
+    "/api/client_log": "_client_log",
+    "/api/client_log/ring": "_client_log_ring",
+    "/api/assets": "_assets",
+    "/api/buildings": "_buildings",
+    "/api/bathymetry-map": "_bathymetry_map",
+    "/api/classifier/{tile_id}.png": "_classifier",
+    "/api/gpu-profile": "_gpu_profile",
+    "/api/gpu-profile/start": "_gpu_profile_start",
+    "/api/gpu-profile/stop": "_gpu_profile_stop",
+    "/api/gpu-profile/report": "_gpu_profile_report",
+    "/api/tiles": "_tiles",
+    "/api/texture/{tile_id}.jpg": "_texture",
+}
+
+
+def _hotload_dispatch(endpoint_name: str):
+    """Resolve a sidecar endpoint from the latest dynamic module instance."""
+
+    async def dispatch(request: Request) -> Response:
+        module = importlib.import_module(__name__)
+        endpoint = getattr(module, endpoint_name)
+        return await endpoint(request)
+
+    dispatch.__name__ = f"hotload_{endpoint_name.lstrip('_')}"
+    return dispatch
+
+
+def _bind_hotload_routes(app: Starlette) -> int:
+    """Make long-lived Starlette routes follow MCP dynamic-module reloads."""
+
+    rebound = 0
+    for route in app.routes:
+        endpoint_name = _HOTLOAD_ROUTE_ENDPOINTS.get(route.path)
+        if endpoint_name is None:
+            continue
+        endpoint = _hotload_dispatch(endpoint_name)
+        route.endpoint = endpoint
+        route.app = request_response(endpoint)
+        rebound += 1
+    return rebound
+
+
 def _viewer_app() -> Starlette:
-    return Starlette(
+    app = Starlette(
         routes=[
             Route("/health", _health, methods=["GET"]),
             Route("/favicon.ico", _favicon, methods=["GET"]),
@@ -477,6 +548,21 @@ def _viewer_app() -> Starlette:
             ),
         ]
     )
+    _bind_hotload_routes(app)
+    return app
+
+
+def _rebind_running_sidecar() -> int:
+    """Upgrade an existing pre-dispatch sidecar without restarting it."""
+
+    runtime = atlantis.server_shared.get(_RUNTIME_KEY)
+    if runtime is None:
+        return 0
+    config = getattr(getattr(runtime, "server", None), "config", None)
+    app = getattr(config, "app", None)
+    if not isinstance(app, Starlette):
+        return 0
+    return _bind_hotload_routes(app)
 
 
 def _validated_bind(host: str, port: int) -> tuple[str, int]:
@@ -580,3 +666,9 @@ async def server_stop() -> dict:
         "alreadyStopped": False,
         **status,
     }
+
+
+# DynamicFunctionManager removes modules from sys.modules on source changes,
+# while the HTTP sidecar intentionally survives in server_shared. Rebind any
+# pre-dispatch runtime as soon as this module is loaded again.
+_rebind_running_sidecar()

@@ -63,7 +63,7 @@ Worker = Callable[[str], dict]
 FailureClassifier = Callable[[Exception], bool]
 MAX_DEMAND_ITEMS = 2500
 _SQL_CHUNK = 500
-_REGISTRY_KEY = "Terrain.demand.registry.v1"
+_REGISTRY_KEY = "Terrain.demand.registry.v2"
 DEFAULT_RETRY_DELAYS = (2.0, 10.0)
 
 
@@ -146,13 +146,23 @@ class DemandLane:
         )
         self._closed = False
 
-    def submit(self, item_ids: list[str]) -> dict:
+    def submit(
+        self,
+        item_ids: list[str],
+        *,
+        reopen_completed: bool = False,
+    ) -> dict:
         validated = self._validated_item_ids(item_ids)
         accepted = []
         with self._lock:
             if self._closed:
                 raise RuntimeError(f"demand lane {self.name} is closed")
             self._claimed.update(validated)
+            if reopen_completed:
+                # Callers use this only for authoritative database misses.
+                # A prior worker completion without its promised output must
+                # not suppress the item forever.
+                self._completed.difference_update(validated)
             for item_id in validated:
                 if self._retry_eligible_locked(item_id):
                     self._failures.pop(item_id, None)
@@ -195,6 +205,12 @@ class DemandLane:
             if self._closed:
                 raise RuntimeError(f"demand lane {self.name} is closed")
             self._claimed = set(validated)
+            # ``validated`` is derived from authoritative database misses.
+            # A completed item that appears here did not publish its promised
+            # output (for example, a provider returned no metatile). Reopen it
+            # instead of allowing an in-memory success marker to suppress the
+            # missing work forever.
+            self._completed.difference_update(validated)
             previous = set(self._pending)
             replacement: OrderedDict[str, None] = OrderedDict()
             for item_id in validated:
@@ -319,12 +335,20 @@ class DemandCoordinator:
     def __init__(self, lanes: dict[str, DemandLane]) -> None:
         self.lanes = dict(lanes)
 
-    def submit(self, demands: dict[str, list[str]]) -> dict:
+    def submit(
+        self,
+        demands: dict[str, list[str]],
+        *,
+        reopen_completed: bool = False,
+    ) -> dict:
         unknown = set(demands) - set(self.lanes)
         if unknown:
             raise ValueError(f"unknown terrain demand lanes: {sorted(unknown)}")
         return {
-            name: self.lanes[name].submit(item_ids)
+            name: self.lanes[name].submit(
+                item_ids,
+                reopen_completed=reopen_completed,
+            )
             for name, item_ids in demands.items()
         }
 
@@ -426,7 +450,12 @@ def _texture_worker(tile_id: str) -> dict:
         raise RuntimeError("DATAFORSYNINGEN_TOKEN is required")
     metatile, provider = _fetch_metatile(tile_id, token)
     if metatile is None:
-        return {"tileId": tile_id, "written": False, **provider}
+        status = str(provider.get("status") or "provider_error")
+        message = str(provider.get("message") or status)
+        detail = f"Dataforsyningen texture {tile_id}: {status}: {message}"
+        if status in {"network_error", "transient_error", "rate_limited"}:
+            raise ConnectionError(detail)
+        raise RuntimeError(detail)
     children = _split_metatile(metatile, tile_id)
     with _publish_lock():
         written = write_texture_metatile(db(), children, "dataforsyningen")
@@ -636,11 +665,28 @@ def submit_camera_demand_from_selection(
     connection: sqlite3.Connection,
     selection: dict,
     coordinator: DemandCoordinator | None = None,
+    *,
+    demand_origin: str = "viewer",
 ) -> dict:
+    if demand_origin not in {"viewer", "bathymetry"}:
+        raise ValueError(f"unsupported terrain demand origin: {demand_origin}")
     target_ids, coverage_ids = prioritized_selection_ids(selection)
     lanes = coordinator or _coordinator()
     candidates = demand_candidates(connection, target_ids, coverage_ids)
-    submitted = lanes.refresh(candidates)
+    if demand_origin == "viewer":
+        # The latest camera claim authoritatively replaces stale unstarted
+        # viewer work in every lane.
+        submitted = lanes.refresh(candidates)
+    else:
+        # The external bathymetry collector probes terrain availability. It
+        # may request DEM/coastline prerequisites, but must never replace the
+        # interactive camera queues or recursively schedule textures and
+        # bathymetry jobs for its moving sweep.
+        candidates = {
+            name: candidates[name]
+            for name in ("dem", "coastline")
+        }
+        submitted = lanes.submit(candidates, reopen_completed=True)
     return {
         "nonblocking": True,
         "waitedForWorkers": False,
@@ -863,6 +909,7 @@ def compose_camera_demand_binary_from_ready_data(
     origin_y: float | None = None,
     known_digests: dict[str, str] | None = None,
     coordinator: DemandCoordinator | None = None,
+    demand_origin: str = "viewer",
 ) -> tuple[bytes, dict]:
     """Return raw browser bytes while acquisition continues independently."""
 
@@ -893,7 +940,10 @@ def compose_camera_demand_binary_from_ready_data(
         for tile in composition["tiles"]
     ]
     demand = submit_camera_demand_from_selection(
-        connection, selection, coordinator
+        connection,
+        selection,
+        coordinator,
+        demand_origin=demand_origin,
     )
     composition.update(
         {

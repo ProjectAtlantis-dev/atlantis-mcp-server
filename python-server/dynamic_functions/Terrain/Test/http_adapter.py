@@ -235,7 +235,9 @@ def http_adapter_offline() -> dict:
         "bathymetryDemandCompatibility": bool(
             bathymetry_demand["max_depth"] == WMS_CONTRACT_DEPTH
             and bathymetry_demand["legacy_json"] is True
+            and bathymetry_demand["demand_origin"] == "bathymetry"
             and parsed["legacy_json"] is False
+            and parsed["demand_origin"] == "viewer"
         ),
         "invalidRejected": invalid_rejected == 7,
         "binaryHeaders": bool(

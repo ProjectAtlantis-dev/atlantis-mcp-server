@@ -13,18 +13,50 @@ from typing import Any
 
 
 _HERE = Path(__file__).resolve().parent
-_METADATA_PATH = _HERE / "assets_metadata.json"
 _LOCAL_ASSETS_DB = _HERE / "Database" / "assets.db"
 _LEGACY_ASSETS_DB = _HERE.parents[3] / "atlantis-terrain" / "assetserver" / "assets.db"
 _BUILDING_TYPE = "BYGNING"
 _BUILDING_FULL_DETAIL_RANGE_M = 2500.0
 _BUILDING_FAR_MIN_AREA_M2 = 300.0
+_ASSET_METADATA = {
+    "vehicle_asset_type": "KØRETØJ",
+    "structure_asset_type": "STRUKTUR",
+    "structure_definition": {
+        "url": "/models/house_test.glb",
+        "altOffsetM": 0.4,
+        "hotReloadMs": 2000,
+        "enabled": False,
+    },
+    "vehicle_definition": {
+        "url": "/models/patria_amv.glb",
+        "realLengthM": 7.7,
+        "tireDiameterM": 1.27,
+        "altOffsetM": 0.05,
+        "headlights": {
+            "color": "#FFF4E0",
+            "intensity": 800,
+            "distanceM": 120,
+            "angleDeg": 39.6,
+            "penumbra": 0.4,
+            "decay": 2.0,
+            "mountFrontRatio": 0.48,
+            "mountHeightM": 1.4,
+            "mountSpacingM": 0.95,
+            "targetForwardM": 60,
+            "targetHeightM": -0.5,
+            "targetXScale": 0.3,
+        },
+    },
+    "seed_vehicle_instances": [{
+        "id": "amv-01", "lat": 64.18423381, "lon": -51.70139232,
+        "headingDeg": 234.341, "z": 16.279, "headlightsOn": True,
+    }],
+    "seed_structure_instances": [],
+}
 
 
 def _metadata() -> dict[str, Any]:
-    value = json.loads(_METADATA_PATH.read_text(encoding="utf-8"))
-    if not isinstance(value, dict):
-        raise ValueError("asset metadata root must be an object")
+    value = json.loads(json.dumps(_ASSET_METADATA))
     definition = value.get("vehicle_definition")
     if isinstance(definition, dict):
         definition = dict(definition)

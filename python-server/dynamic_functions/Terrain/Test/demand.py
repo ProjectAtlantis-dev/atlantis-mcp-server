@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import datetime
+import os
 import threading
 import time
+from unittest.mock import patch
 
 import numpy as np
 
@@ -14,7 +16,9 @@ from dynamic_functions.Terrain.coastline import write_coastline_mask
 from dynamic_functions.Terrain.demand import (
     DemandCoordinator,
     DemandLane,
+    _texture_worker,
     demand_candidates,
+    submit_camera_demand_from_selection,
 )
 from dynamic_functions.Terrain.hydrography import write_hydrography_mask
 from dynamic_functions.Terrain.tile_address import ancestor_tile_ids
@@ -100,6 +104,7 @@ def demand_lanes_offline() -> dict:
     release_slow = threading.Event()
     fast_finished = threading.Event()
     slow_order = []
+    reopened_runs = []
 
     def slow_worker(item_id: str) -> dict:
         slow_order.append(item_id)
@@ -115,9 +120,15 @@ def demand_lanes_offline() -> dict:
     def failing_worker(item_id: str) -> dict:
         raise RuntimeError(f"fixture failure: {item_id}")
 
+    def incomplete_worker(item_id: str) -> dict:
+        reopened_runs.append(item_id)
+        return {"itemId": item_id, "written": False}
+
     slow = DemandLane("fixture-slow", slow_worker, 1)
     fast = DemandLane("fixture-fast", fast_worker, 1)
     failing = DemandLane("fixture-failing", failing_worker, 1)
+    incomplete = DemandLane("fixture-incomplete", incomplete_worker, 1)
+    additive = DemandLane("fixture-additive", incomplete_worker, 1)
     coordinator = DemandCoordinator(
         {"slow": slow, "fast": fast, "failing": failing}
     )
@@ -148,12 +159,104 @@ def demand_lanes_offline() -> dict:
             and final["slow"]["completedCount"] == 2
         )
         failed_not_resubmitted = failing.submit(["bad-a"])["acceptedCount"] == 0
+        incomplete.submit(["missing-output"])
+        incomplete.wait_for_idle(timeout=1.0)
+
+        additive.submit(["authoritative-miss"])
+        additive.wait_for_idle(timeout=1.0)
+        additive_reopened = additive.submit(
+            ["authoritative-miss"], reopen_completed=True
+        )
+        additive.wait_for_idle(timeout=1.0)
+        reopened = incomplete.replace_pending(["missing-output"])
+        incomplete.wait_for_idle(timeout=1.0)
 
         unknown_rejected = False
         try:
             coordinator.submit({"unknown": ["x"]})
         except ValueError:
             unknown_rejected = True
+
+        class RecordingCoordinator:
+            def __init__(self) -> None:
+                self.refresh_calls = []
+                self.submit_calls = []
+
+            def refresh(self, demands: dict[str, list[str]]) -> dict:
+                self.refresh_calls.append(demands)
+                return {
+                    name: {"acceptedCount": 0}
+                    for name in demands
+                }
+
+            def submit(
+                self,
+                demands: dict[str, list[str]],
+                *,
+                reopen_completed: bool = False,
+            ) -> dict:
+                self.submit_calls.append((demands, reopen_completed))
+                return {
+                    name: {"acceptedCount": 0}
+                    for name in demands
+                }
+
+            def status(self) -> dict:
+                return {}
+
+        selection = {"tileIds": ["10-701-300"]}
+        fixture_candidates = {
+            "dem": ["10-701-300"],
+            "texture": ["10-700-300"],
+            "coastline": ["10-701-300"],
+            "hydrography": ["10-701-300"],
+            "connectivity": ["10:generation"],
+            "bathymetry": ["10:job"],
+        }
+        viewer_coordinator = RecordingCoordinator()
+        bathymetry_coordinator = RecordingCoordinator()
+        with patch(
+            "dynamic_functions.Terrain.demand.demand_candidates",
+            return_value=fixture_candidates,
+        ):
+            submit_camera_demand_from_selection(
+                None, selection, viewer_coordinator, demand_origin="viewer"
+            )
+            submit_camera_demand_from_selection(
+                None,
+                selection,
+                bathymetry_coordinator,
+                demand_origin="bathymetry",
+            )
+        origin_isolation = bool(
+            viewer_coordinator.refresh_calls == [fixture_candidates]
+            and viewer_coordinator.submit_calls == []
+            and bathymetry_coordinator.refresh_calls == []
+            and bathymetry_coordinator.submit_calls
+            == [
+                (
+                    {
+                        "dem": ["10-701-300"],
+                        "coastline": ["10-701-300"],
+                    },
+                    True,
+                )
+            ]
+        )
+
+        texture_failures_are_failures = False
+        with patch.dict(os.environ, {"DATAFORSYNINGEN_TOKEN": "fixture"}):
+            with patch(
+                "dynamic_functions.Terrain.demand._fetch_metatile",
+                return_value=(
+                    None,
+                    {"status": "network_error", "message": "fixture"},
+                ),
+            ):
+                try:
+                    _texture_worker("10-700-300")
+                except ConnectionError:
+                    texture_failures_are_failures = True
 
         staged, candidate_reads_are_read_only = _candidate_staging()
         return {
@@ -168,7 +271,15 @@ def demand_lanes_offline() -> dict:
             "allWorkCompleted": all_idle and slow_order == ["slow-a", "slow-b"],
             "failureIsolated": failure_isolated,
             "failedNotHotLooped": failed_not_resubmitted,
+            "databaseMissReopensFalseCompletion": bool(
+                reopened["acceptedCount"] == 1
+                and reopened_runs.count("missing-output") == 2
+                and additive_reopened["acceptedCount"] == 1
+                and reopened_runs.count("authoritative-miss") == 2
+            ),
             "unknownLaneRejected": unknown_rejected,
+            "demandOriginIsolation": origin_isolation,
+            "textureFailuresAreFailures": texture_failures_are_failures,
             "dependencyStaged": staged,
             "candidateReadsAreReadOnly": candidate_reads_are_read_only,
             "waitedForWorkers": False,
@@ -180,5 +291,5 @@ def demand_lanes_offline() -> dict:
         }
     finally:
         release_slow.set()
-        for lane in (slow, fast, failing):
+        for lane in (slow, fast, failing, incomplete, additive):
             lane.close()

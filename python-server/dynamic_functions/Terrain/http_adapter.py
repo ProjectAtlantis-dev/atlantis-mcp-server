@@ -124,6 +124,9 @@ def parse_tiles_request(query: Mapping[str, str], body: object) -> dict:
         "origin_y": origin_y,
         "known_digests": known,
         "legacy_json": legacy_bathymetry_demand,
+        "demand_origin": (
+            "bathymetry" if legacy_bathymetry_demand else "viewer"
+        ),
     }
 
 

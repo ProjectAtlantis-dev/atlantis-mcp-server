@@ -31,7 +31,7 @@ _EXPECTED_SELECTION_DIGEST = (
     "1cceaa661e08d05779d399329c7e5f3afac36973b36bbd678ef4311b9a49e934"
 )
 _EXPECTED_BINARY_DIGEST = (
-    "67785f528b6fcc6fd038999c66e9b33c27bc6837552c4c86c0171558ad7d7194"
+    "e10eef461a3c784a80cb5f104ead13528fd232ea45c042dfdd4369bcbb137689"
 )
 
 
@@ -160,6 +160,10 @@ def camera_lod_offline() -> dict:
         missing_by_id = {
             item["tileId"]: item for item in coverage["missing"]
         }
+        water_blocks = {
+            item["tileId"]: item
+            for item in coverage["waterDependencyBlocked"]
+        }
 
         invalid_rejected = False
         try:
@@ -202,6 +206,13 @@ def camera_lod_offline() -> dict:
                 missing_by_id[_PARENT_EXACT_CHILD]["state"] == "fallback"
                 and missing_by_id[_PARENT_EXACT_CHILD]["fallbackTileId"]
                 == _PARENT
+                and water_blocks[_PARENT_EXACT_CHILD]
+                == {
+                    "tileId": _PARENT_EXACT_CHILD,
+                    "coastlineTileId": _PARENT_EXACT_CHILD,
+                    "requested": True,
+                }
+                and composed["waterDependencyBlockedCount"] == 0
             ),
             "trueMissReported": bool(
                 missing_by_id[_MISSING]["state"] == "missing"

@@ -158,6 +158,7 @@ async def viewer_server_offline() -> dict:
                 "logPath": str(CLIENT_LOG_PATH),
             }
             and log_ring["count"] == 1
+            and log_ring["retainedCount"] == 1
             and log_ring["entries"][0]["level"] == "error"
             and log_ring["entries"][0]["phase"]
             == "terrain.residency.overlap"

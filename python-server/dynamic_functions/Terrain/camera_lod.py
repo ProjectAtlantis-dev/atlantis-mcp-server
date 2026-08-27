@@ -359,11 +359,11 @@ def select_lod_tiles(
     }
 
 
-def _ready_dem_ids(
+def _dem_readiness(
     connection: sqlite3.Connection,
     target_ids: list[str],
-) -> set[str]:
-    """Return DEM tiles whose contract-depth coastline is also publishable.
+) -> dict:
+    """Return render-ready DEM IDs and explicit water-dependency blocks.
 
     A newly stored DEM is source-ready but not render-ready until its water
     classification exists. Keeping that distinction here prevents an exact
@@ -411,11 +411,29 @@ def _ready_dem_ids(
             chunk,
         ).fetchall()
         coastline_ready.update(row[0] for row in rows)
-    return {
+    ready = {
         tile_id
         for tile_id in dem_ready
         if coastline_id(tile_id) in coastline_ready
     }
+    blocked = [
+        {
+            "tileId": tile_id,
+            "coastlineTileId": coastline_id(tile_id),
+            "requested": tile_id in target_ids,
+        }
+        for tile_id in sorted(dem_ready - ready, key=require_tile_id)
+    ]
+    return {"ready": ready, "waterDependencyBlocked": blocked}
+
+
+def _ready_dem_ids(
+    connection: sqlite3.Connection,
+    target_ids: list[str],
+) -> set[str]:
+    """Return DEM tiles whose contract-depth coastline is also publishable."""
+
+    return _dem_readiness(connection, target_ids)["ready"]
 
 
 def _is_descendant(tile_id: str, ancestor_id: str) -> bool:
@@ -437,7 +455,8 @@ def resolve_lod_coverage(
     if not isinstance(target_tiles, list):
         raise TypeError("selection must contain a tiles list")
     target_ids = [tile["tileId"] for tile in target_tiles]
-    ready = _ready_dem_ids(connection, target_ids)
+    readiness = _dem_readiness(connection, target_ids)
+    ready = readiness["ready"]
     resolved_by_target: dict[str, str | None] = {}
     exact_ids: set[str] = set()
     for target_id in target_ids:
@@ -513,6 +532,10 @@ def resolve_lod_coverage(
         "missingTileIds": [tile["tileId"] for tile in missing],
         "missingTileCount": len(missing),
         "exactTargetCount": len(exact_ids),
+        "waterDependencyBlocked": readiness["waterDependencyBlocked"],
+        "waterDependencyBlockedCount": len(
+            readiness["waterDependencyBlocked"]
+        ),
         "readOnly": True,
         "networkAccess": False,
         "scheduledWork": False,
@@ -634,6 +657,10 @@ def compose_camera_from_ready_data(
             "missing": missing,
             "downloading": [],
             "tilesReused": 0,
+            "waterDependencyBlocked": coverage["waterDependencyBlocked"],
+            "waterDependencyBlockedCount": coverage[
+                "waterDependencyBlockedCount"
+            ],
         }
     )
     return composed

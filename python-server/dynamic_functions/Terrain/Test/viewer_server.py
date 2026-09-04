@@ -9,14 +9,12 @@ from unittest.mock import AsyncMock, patch
 
 from starlette.routing import Route
 
+from dynamic_functions.Terrain.Server.server import start, status, stop
 from dynamic_functions.Terrain.viewer_server import (
     CLIENT_LOG_PATH,
     _HOTLOAD_ROUTE_ENDPOINTS,
     _viewer_app,
     client_log,
-    server_start,
-    server_status,
-    server_stop,
 )
 
 
@@ -36,17 +34,50 @@ async def viewer_server_offline() -> dict:
         for route in route_app.routes
         if isinstance(route, Route)
     }
-    with patch(
-        "dynamic_functions.Terrain.viewer_server._update_dashboard",
-        new=AsyncMock(),
+    with (
+        patch(
+            "dynamic_functions.Terrain.Server.server._update_dashboard",
+            new=AsyncMock(),
+        ),
+        patch(
+            "dynamic_functions.Terrain.viewer_server.startup_assets",
+            return_value={
+                "ok": True,
+                "source": "asset_catalog",
+                "catalogStatus": "ready",
+                "catalogPath": "/fixture/assets.db",
+                "schemaVersion": 4,
+                "vehicle_definition": {
+                    "url": "/models/vehicle.glb",
+                    "realLengthM": 7.7,
+                    "tireDiameterM": 1.27,
+                    "altOffsetM": 0.05,
+                },
+                "structure_definition": {},
+                "vehicle_instances": [{
+                    "id": "vehicle-1",
+                    "lat": 64.1,
+                    "lon": -51.7,
+                    "headingDeg": 0,
+                    "z": 10,
+                    "headlightsOn": True,
+                    "savedAt": None,
+                }],
+                "structure_instances": [],
+            },
+        ),
+        patch(
+            "dynamic_functions.Terrain.viewer_server.query_buildings",
+            return_value=([], "asset_catalog"),
+        ),
     ):
-        await server_stop()
-        initially_stopped = server_status()
+        await stop()
+        initially_stopped = status()
         port = _unused_port()
         try:
-            started = await server_start(port=port)
-            running = server_status()
-            duplicate = await server_start(port=port)
+            started = await start(port=port)
+            running = status()
+            duplicate = await start(port=port)
             with urllib.request.urlopen(
                 f"http://127.0.0.1:{port}/health", timeout=2.0
             ) as response:
@@ -123,9 +154,9 @@ async def viewer_server_offline() -> dict:
                 favicon = response.read()
                 favicon_status = response.status
         finally:
-            stopped = await server_stop()
-        already_stopped = await server_stop()
-        finally_stopped = server_status()
+            stopped = await stop()
+        already_stopped = await stop()
+        finally_stopped = status()
     return {
         "hotloadRoutes": bool(
             set(hotload_routes) == set(_HOTLOAD_ROUTE_ENDPOINTS)

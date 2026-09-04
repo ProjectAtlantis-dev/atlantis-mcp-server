@@ -6,6 +6,7 @@ import base64
 import hashlib
 import logging
 import os
+import re
 import sqlite3
 import subprocess
 import threading
@@ -17,7 +18,6 @@ from typing import Callable
 
 import atlantis
 
-from dynamic_functions.Terrain.arctic_dem import _fetch_heightmap
 from dynamic_functions.Terrain.binary_batch import encode_composed_tiles_binary
 from dynamic_functions.Terrain.bathymetry_demand import (
     eligible_fjord_jobs,
@@ -34,13 +34,18 @@ from dynamic_functions.Terrain.coastline import (
     _acquire_mask as _acquire_coastline,
     write_coastline_mask,
 )
-from dynamic_functions.Terrain.Database.database import connection_lock, db
+from dynamic_functions.Terrain.Database.database import (
+    DATABASE_PATH,
+    connection_lock,
+    db,
+)
 from dynamic_functions.Terrain.Database.textures import write_texture_metatile
 from dynamic_functions.Terrain.Database.tiles import write_dem
 from dynamic_functions.Terrain.dataforsyningen import (
     _fetch_metatile,
     _split_metatile,
 )
+from dynamic_functions.Terrain.dem_acquisition import fetch_best_dem
 from dynamic_functions.Terrain.hydrography import (
     SOURCE as HYDROGRAPHY_SOURCE,
     VERSION as HYDROGRAPHY_VERSION,
@@ -64,7 +69,10 @@ Worker = Callable[[str], dict]
 FailureClassifier = Callable[[Exception], bool]
 MAX_DEMAND_ITEMS = 2500
 _SQL_CHUNK = 500
-_REGISTRY_KEY = "Terrain.demand.registry.v2"
+# Worker callbacks are captured by the shared coordinator across hot reloads.
+# Bump the key whenever acquisition behavior changes so new camera demand cannot
+# keep invoking a stale worker from the previous module generation.
+_REGISTRY_KEY = "Terrain.demand.registry.v5"
 DEFAULT_RETRY_DELAYS = (2.0, 10.0)
 EXHAUSTED_RECLAIM_DELAY = 60.0
 log = logging.getLogger("terrain.demand")
@@ -73,6 +81,11 @@ log = logging.getLogger("terrain.demand")
 def retryable_failure(exc: Exception) -> bool:
     """Classify only provider/transport failures as retryable."""
 
+    failures = getattr(exc, "failures", None)
+    if isinstance(failures, tuple) and failures:
+        return any(retryable_failure(failure) for failure in failures)
+    if isinstance(exc.__cause__, Exception):
+        return retryable_failure(exc.__cause__)
     if type(exc).__name__.endswith("ClobberError"):
         return False
     if isinstance(exc, (TypeError, ValueError)):
@@ -101,6 +114,17 @@ def retryable_failure(exc: Exception) -> bool:
             55,
             56,
             92,
+        }
+    http_status = re.search(r"HTTP response code:\s*(\d{3})", str(exc))
+    if http_status is not None:
+        return int(http_status.group(1)) in {
+            408,
+            425,
+            429,
+            500,
+            502,
+            503,
+            504,
         }
     return isinstance(exc, OSError)
 
@@ -138,11 +162,28 @@ class DemandLane:
         self._lock = threading.RLock()
         self._idle = threading.Condition(self._lock)
         self._pending: OrderedDict[str, None] = OrderedDict()
+        self._pending_since: dict[str, float] = {}
         self._active: set[str] = set()
+        self._active_since: dict[str, float] = {}
         self._claimed: set[str] = set()
+        # ``replace_pending`` is the authoritative camera-footprint update.
+        # Before the first such update, direct/manual submissions are allowed
+        # to establish work normally. Afterwards, auxiliary HTTP requests may
+        # only reinforce items in the latest camera claim; they must never
+        # append stale-view work back into the ordered pending lookup.
+        self._has_authoritative_claim = False
         self._completed: set[str] = set()
         self._failures: dict[str, dict] = {}
         self._attempts: dict[str, int] = {}
+        self._refresh_generation = 0
+        self._last_refresh_at: float | None = None
+        self._last_completion_at: float | None = None
+        self._accepted_total = 0
+        self._dropped_total = 0
+        self._ignored_total = 0
+        self._started_total = 0
+        self._succeeded_total = 0
+        self._failed_total = 0
         self._executor = ThreadPoolExecutor(
             max_workers=self.capacity,
             thread_name_prefix=f"terrain-{name}",
@@ -178,7 +219,9 @@ class DemandLane:
                 ):
                     continue
                 self._pending[item_id] = None
+                self._pending_since[item_id] = self._clock()
                 accepted.append(item_id)
+            self._accepted_total += len(accepted)
             self._dispatch_locked()
             status = self._status_locked()
         return {"accepted": accepted, "acceptedCount": len(accepted), **status}
@@ -201,6 +244,64 @@ class DemandLane:
                 result.append(item_id)
         return result
 
+    def submit_claimed(self, item_ids: list[str]) -> dict:
+        """Submit auxiliary work without expanding the latest camera claim.
+
+        The browser can still have texture HTTP responses/re-polls in flight
+        when a newer camera footprint replaces the lane queue. Those requests
+        are useful only while their metatile remains in the authoritative
+        claim. Letting them call ``submit`` would add obsolete IDs back to both
+        ``_claimed`` and the ordered pending lookup, defeating nearest-first
+        replacement and keeping viewer polling alive for off-screen work.
+
+        Direct calls made before any camera refresh retain the old standalone
+        behavior so the texture endpoint remains independently usable.
+        """
+
+        validated = self._validated_item_ids(item_ids)
+        with self._lock:
+            if self._closed:
+                raise RuntimeError(f"demand lane {self.name} is closed")
+            if not self._has_authoritative_claim:
+                self._claimed.update(validated)
+                eligible = validated
+                ignored = []
+            else:
+                eligible = [
+                    item_id for item_id in validated
+                    if item_id in self._claimed
+                ]
+                ignored = [
+                    item_id for item_id in validated
+                    if item_id not in self._claimed
+                ]
+            accepted = []
+            for item_id in eligible:
+                self._reclaim_exhausted_locked(item_id)
+                if self._retry_eligible_locked(item_id):
+                    self._failures.pop(item_id, None)
+                if (
+                    item_id in self._active
+                    or item_id in self._pending
+                    or item_id in self._completed
+                    or item_id in self._failures
+                ):
+                    continue
+                self._pending[item_id] = None
+                self._pending_since[item_id] = self._clock()
+                accepted.append(item_id)
+            self._accepted_total += len(accepted)
+            self._ignored_total += len(ignored)
+            self._dispatch_locked()
+            status = self._status_locked()
+        return {
+            "accepted": accepted,
+            "acceptedCount": len(accepted),
+            "ignored": ignored,
+            "ignoredCount": len(ignored),
+            **status,
+        }
+
     def replace_pending(self, item_ids: list[str]) -> dict:
         """Replace only unstarted work with the newest priority ordering."""
 
@@ -208,6 +309,10 @@ class DemandLane:
         with self._lock:
             if self._closed:
                 raise RuntimeError(f"demand lane {self.name} is closed")
+            now = self._clock()
+            self._has_authoritative_claim = True
+            self._refresh_generation += 1
+            self._last_refresh_at = now
             self._claimed = set(validated)
             # ``validated`` is derived from authoritative database misses.
             # A completed item that appears here did not publish its promised
@@ -216,7 +321,9 @@ class DemandLane:
             # missing work forever.
             self._completed.difference_update(validated)
             previous = set(self._pending)
+            previous_since = self._pending_since
             replacement: OrderedDict[str, None] = OrderedDict()
+            replacement_since: dict[str, float] = {}
             for item_id in validated:
                 self._reclaim_exhausted_locked(item_id)
                 if self._retry_eligible_locked(item_id):
@@ -228,7 +335,9 @@ class DemandLane:
                 ):
                     continue
                 replacement[item_id] = None
+                replacement_since[item_id] = previous_since.get(item_id, now)
             self._pending = replacement
+            self._pending_since = replacement_since
             dropped = sorted(previous - set(replacement))
             accepted = [
                 item_id for item_id in replacement if item_id not in previous
@@ -236,6 +345,8 @@ class DemandLane:
             retained = [
                 item_id for item_id in replacement if item_id in previous
             ]
+            self._accepted_total += len(accepted)
+            self._dropped_total += len(dropped)
             self._dispatch_locked()
             status = self._status_locked()
         return {
@@ -249,7 +360,10 @@ class DemandLane:
     def _dispatch_locked(self) -> None:
         while self._pending and len(self._active) < self.capacity:
             item_id, _ = self._pending.popitem(last=False)
+            self._pending_since.pop(item_id, None)
             self._active.add(item_id)
+            self._active_since[item_id] = self._clock()
+            self._started_total += 1
             self._attempts[item_id] = self._attempts.get(item_id, 0) + 1
             future = self._executor.submit(self._worker, item_id)
             future.add_done_callback(
@@ -261,13 +375,17 @@ class DemandLane:
     def _finished(self, item_id: str, future: Future) -> None:
         with self._lock:
             self._active.discard(item_id)
+            self._active_since.pop(item_id, None)
+            self._last_completion_at = self._clock()
             try:
                 result = future.result()
                 if not isinstance(result, dict):
                     raise TypeError("demand workers must return an object")
                 if not result.get("deferred", False):
                     self._completed.add(item_id)
+                self._succeeded_total += 1
             except Exception as exc:
+                self._failed_total += 1
                 attempts = self._attempts[item_id]
                 transient = self._classifier(exc)
                 retryable = transient and attempts < self._max_attempts
@@ -331,24 +449,129 @@ class DemandLane:
         return True
 
     def _status_locked(self) -> dict:
+        now = self._clock()
         failures = {
             item_id: {**failure, "claimed": item_id in self._claimed}
             for item_id, failure in self._failures.items()
         }
+        active_age_ms = {
+            item_id: max(0, int((now - started_at) * 1000))
+            for item_id, started_at in self._active_since.items()
+        }
+        pending_age_ms = {
+            item_id: max(0, int((now - queued_at) * 1000))
+            for item_id, queued_at in self._pending_since.items()
+        }
+        claimed_active = self._active & self._claimed
         return {
             "name": self.name,
             "capacity": self.capacity,
             "active": sorted(self._active),
-            "claimedActive": sorted(self._active & self._claimed),
+            "claimedActive": sorted(claimed_active),
+            "staleActive": sorted(self._active - self._claimed),
             "pending": list(self._pending),
+            "activeCount": len(self._active),
+            "claimedActiveCount": len(claimed_active),
+            "staleActiveCount": len(self._active - self._claimed),
+            "pendingCount": len(self._pending),
+            "activeAgeMs": active_age_ms,
+            "pendingAgeMs": pending_age_ms,
+            "oldestActiveAgeMs": max(active_age_ms.values(), default=0),
+            "oldestPendingAgeMs": max(pending_age_ms.values(), default=0),
             "claimedCount": len(self._claimed),
             "completedCount": len(self._completed),
+            "refreshGeneration": self._refresh_generation,
+            "lastRefreshAgeMs": (
+                max(0, int((now - self._last_refresh_at) * 1000))
+                if self._last_refresh_at is not None
+                else None
+            ),
+            "lastCompletionAgeMs": (
+                max(0, int((now - self._last_completion_at) * 1000))
+                if self._last_completion_at is not None
+                else None
+            ),
+            "totals": {
+                "accepted": self._accepted_total,
+                "dropped": self._dropped_total,
+                "ignored": self._ignored_total,
+                "started": self._started_total,
+                "succeeded": self._succeeded_total,
+                "failed": self._failed_total,
+            },
             "failures": failures,
         }
 
     def status(self) -> dict:
         with self._lock:
             return self._status_locked()
+
+    def monitor_status(self) -> dict:
+        """Return bounded supervision data regardless of queue cardinality."""
+
+        with self._lock:
+            now = self._clock()
+            claimed_active = self._active & self._claimed
+            stale_active = self._active - self._claimed
+            pending_ages = [
+                max(0, int((now - queued_at) * 1000))
+                for queued_at in self._pending_since.values()
+            ]
+            active_ages = [
+                max(0, int((now - started_at) * 1000))
+                for started_at in self._active_since.values()
+            ]
+            retry_times = []
+            retryable_failures = 0
+            terminal_failures = 0
+            for item_id, failure in self._failures.items():
+                if item_id not in self._claimed:
+                    continue
+                retry_at = failure.get("retryAt")
+                if failure.get("retryable") and isinstance(
+                    retry_at, (int, float)
+                ):
+                    retryable_failures += 1
+                    retry_times.append(float(retry_at))
+                else:
+                    terminal_failures += 1
+            return {
+                "name": self.name,
+                "capacity": self.capacity,
+                "activeCount": len(self._active),
+                "claimedActiveCount": len(claimed_active),
+                "staleActiveCount": len(stale_active),
+                "pendingCount": len(self._pending),
+                "claimedCount": len(self._claimed),
+                "completedCount": len(self._completed),
+                "retryableFailureCount": retryable_failures,
+                "terminalFailureCount": terminal_failures,
+                "nextRetryAt": min(retry_times) if retry_times else None,
+                "oldestActiveAgeMs": max(active_ages, default=0),
+                "oldestPendingAgeMs": max(pending_ages, default=0),
+                "refreshGeneration": self._refresh_generation,
+                "lastRefreshAgeMs": (
+                    max(0, int((now - self._last_refresh_at) * 1000))
+                    if self._last_refresh_at is not None
+                    else None
+                ),
+                "lastCompletionAgeMs": (
+                    max(0, int((now - self._last_completion_at) * 1000))
+                    if self._last_completion_at is not None
+                    else None
+                ),
+                "activeSample": sorted(claimed_active)[:8],
+                "staleActiveSample": sorted(stale_active)[:8],
+                "pendingSample": list(self._pending)[:8],
+                "totals": {
+                    "accepted": self._accepted_total,
+                    "dropped": self._dropped_total,
+                    "ignored": self._ignored_total,
+                    "started": self._started_total,
+                    "succeeded": self._succeeded_total,
+                    "failed": self._failed_total,
+                },
+            }
 
     def wait_for_idle(self, timeout: float) -> bool:
         """Test/administration helper; camera paths never call this."""
@@ -364,6 +587,7 @@ class DemandLane:
             self._closed = True
             self._claimed.clear()
             self._pending.clear()
+            self._pending_since.clear()
         self._executor.shutdown(wait=True, cancel_futures=True)
 
 
@@ -392,6 +616,11 @@ class DemandCoordinator:
 
     def status(self) -> dict:
         return {name: lane.status() for name, lane in self.lanes.items()}
+
+    def monitor_status(self) -> dict:
+        return {
+            name: lane.monitor_status() for name, lane in self.lanes.items()
+        }
 
     def refresh(self, demands: dict[str, list[str]]) -> dict:
         """Replace every unstarted lane queue from one latest camera claim."""
@@ -468,17 +697,72 @@ def polling_state(lanes: dict[str, dict], now: float | None = None) -> dict:
     }
 
 
+def backlog_polling_state(
+    lanes: dict[str, dict], now: float | None = None
+) -> dict:
+    """Summarize compact lane monitoring records without item expansion."""
+
+    current_time = time.time() if now is None else float(now)
+    active = sum(lane["claimedActiveCount"] for lane in lanes.values())
+    pending = sum(lane["pendingCount"] for lane in lanes.values())
+    retryable = sum(
+        lane["retryableFailureCount"] for lane in lanes.values()
+    )
+    terminal = sum(
+        lane["terminalFailureCount"] for lane in lanes.values()
+    )
+    retry_times = [
+        lane["nextRetryAt"]
+        for lane in lanes.values()
+        if isinstance(lane.get("nextRetryAt"), (int, float))
+    ]
+    next_retry_at = min(retry_times) if retry_times else None
+    if active or pending:
+        next_action = "poll"
+        retry_after_ms = 1000
+    elif next_retry_at is not None:
+        next_action = "retry"
+        retry_after_ms = max(1, int((next_retry_at - current_time) * 1000))
+    else:
+        next_action = "idle"
+        retry_after_ms = None
+    return {
+        "nextAction": next_action,
+        "shouldPoll": next_action != "idle",
+        "retryAfterMs": retry_after_ms,
+        "nextRetryAt": next_retry_at,
+        "activeWork": active,
+        "pendingWork": pending,
+        "retryableFailures": retryable,
+        "terminalFailures": terminal,
+        "oldestActiveAgeMs": max(
+            (lane["oldestActiveAgeMs"] for lane in lanes.values()),
+            default=0,
+        ),
+        "oldestPendingAgeMs": max(
+            (lane["oldestPendingAgeMs"] for lane in lanes.values()),
+            default=0,
+        ),
+    }
+
+
 def _dem_worker(tile_id: str) -> dict:
-    heightmap, sources, geoid_undulation = _fetch_heightmap(tile_id)
+    acquisition = fetch_best_dem(tile_id)
     with _publish_lock():
         written = write_dem(
-            db(), tile_id, heightmap, "arcticdem_10m", "EGM2008"
+            db(),
+            tile_id,
+            acquisition["heightmap"],
+            acquisition["source"],
+            acquisition["verticalDatum"],
         )
     return {
         "tileId": tile_id,
         "written": written,
-        "sources": sources,
-        "geoidUndulation": geoid_undulation,
+        "provider": acquisition["provider"],
+        "sources": acquisition["sources"],
+        "geoidUndulation": acquisition["geoidUndulation"],
+        "attempts": acquisition["attempts"],
     }
 
 
@@ -530,20 +814,70 @@ def _connectivity_worker(depth_text: str) -> dict:
     depth = int(depth_text.partition(":")[0])
     if depth < 0 or depth > WMS_CONTRACT_DEPTH:
         raise ValueError(f"invalid connectivity depth: {depth}")
-    with _publish_lock():
-        connection = db()
-        masks = _build_connected_hydrography(connection, depth)
-        if not masks:
-            return {"depth": depth, "deferred": True, "published": 0}
+    # Whole-depth component labeling is the most expensive derived operation.
+    # Never hold the process-wide connection lock while doing it: ready tile
+    # and texture reads are interactive and WAL permits this independent
+    # read-only snapshot to run concurrently.
+    read_connection = sqlite3.connect(
+        f"file:{DATABASE_PATH}?mode=ro",
+        uri=True,
+        timeout=5.0,
+    )
+    read_connection.execute("PRAGMA busy_timeout=5000")
+    try:
+        masks = _build_connected_hydrography(read_connection, depth)
+    finally:
+        read_connection.close()
+    if not masks:
+        return {"depth": depth, "deferred": True, "published": 0}
+
+    # Publish only absent immutable snapshots. A newer generation may include
+    # rows completed by an older active generation; rewriting those rows both
+    # violates the snapshot contract and previously caused a clobber failure
+    # after monopolizing the shared connection for hundreds of milliseconds.
+    write_connection = sqlite3.connect(
+        DATABASE_PATH,
+        timeout=30.0,
+        check_same_thread=False,
+    )
+    write_connection.execute("PRAGMA busy_timeout=30000")
+    write_connection.execute("PRAGMA journal_mode=WAL")
+    try:
+        marks = ",".join("?" for _ in masks)
+        existing = {
+            row[0]
+            for row in write_connection.execute(
+                "SELECT tile_id FROM tidal_connectivity_masks "
+                f"WHERE tile_id IN ({marks})",
+                tuple(masks),
+            )
+        }
         published = 0
+        since_commit = 0
         for tile_id, mask in masks.items():
+            if tile_id in existing:
+                continue
             published += int(
                 write_connectivity_snapshot(
-                    connection, tile_id, mask, commit=False
+                    write_connection, tile_id, mask, commit=False
                 )
             )
-        connection.commit()
-    return {"depth": depth, "published": published}
+            since_commit += 1
+            if since_commit >= 16:
+                write_connection.commit()
+                since_commit = 0
+        write_connection.commit()
+    except Exception:
+        write_connection.rollback()
+        raise
+    finally:
+        write_connection.close()
+    return {
+        "depth": depth,
+        "derived": len(masks),
+        "published": published,
+        "alreadyReady": len(existing),
+    }
 
 
 def _new_coordinator() -> DemandCoordinator:
@@ -595,7 +929,9 @@ def submit_texture_demand(tile_id: str) -> dict:
     """Queue one browser texture miss without replacing camera lane claims."""
 
     require_tile_id(tile_id)
-    return _coordinator().lanes["texture"].submit([_metatile_id(tile_id)])
+    return _coordinator().lanes["texture"].submit_claimed(
+        [_metatile_id(tile_id)]
+    )
 
 
 def _present_ids(
@@ -832,6 +1168,19 @@ def demand_status() -> dict:
     return {
         "lanes": lanes,
         "polling": polling_state(lanes),
+        "nonblocking": True,
+    }
+
+
+@visible
+def demand_backlog_status() -> dict:
+    """Return bounded lane telemetry suitable for continuous HUD polling."""
+
+    lanes = _coordinator().monitor_status()
+    return {
+        "lanes": lanes,
+        "polling": backlog_polling_state(lanes),
+        "sampleLimit": 8,
         "nonblocking": True,
     }
 

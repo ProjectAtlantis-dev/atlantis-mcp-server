@@ -1,0 +1,5 @@
+assets.db
+assets.db-*
+assets.db.*
+grundkort/*.zip
+grundkort/*.refresh.json

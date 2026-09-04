@@ -29,6 +29,7 @@ GRID_N = 65
 
 CONFIDENCE = {
     "empty": 0,
+    "copernicus": 4,
     "arcticdem": 5,
     "arcticdem_10m": 6,
 }

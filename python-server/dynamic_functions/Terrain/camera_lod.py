@@ -449,7 +449,21 @@ def resolve_lod_coverage(
     connection: sqlite3.Connection,
     selection: dict,
 ) -> dict:
-    """Resolve desired leaves to a non-overlapping set of ready DEM ancestors."""
+    """Resolve current camera leaves to exact tiles or ready ancestors.
+
+    Each desired tile independently selects its nearest render-ready ancestor.
+    Distinct selections deliberately remain hierarchical: a coarse fallback
+    may coexist with exact descendants needed by neighboring targets.  The
+    viewer clips the coarse mesh around those descendants, so one unresolved
+    target cannot downgrade an otherwise ready part of the camera footprint.
+
+    Stored descendants outside the current desired leaf set are deliberately
+    ignored.  They remain durable database cache entries, but camera movement
+    to a coarser LOD must also reduce the rendered geometry depth.  Monotonic
+    quality is scoped to one current camera selection: as its requested leaves
+    become ready, coverage may advance from ancestor fallback to exact tiles
+    but must not fall back again.
+    """
 
     target_tiles = selection.get("tiles")
     if not isinstance(target_tiles, list):
@@ -472,33 +486,28 @@ def resolve_lod_coverage(
         if resolved == target_id:
             exact_ids.add(target_id)
 
-    candidates = sorted(
-        {tile_id for tile_id in resolved_by_target.values() if tile_id is not None},
-        key=lambda tile_id: require_tile_id(tile_id),
-    )
-    coverage_ids: list[str] = []
-    for candidate in candidates:
-        if any(_is_descendant(candidate, kept) for kept in coverage_ids):
-            continue
-        coverage_ids.append(candidate)
+    coverage_targets: dict[str, list[str]] = {}
+    for target_id, resolved in resolved_by_target.items():
+        if resolved is not None:
+            coverage_targets.setdefault(resolved, []).append(target_id)
+    coverage_ids = sorted(coverage_targets, key=require_tile_id)
 
     target_by_id = {tile["tileId"]: tile for tile in target_tiles}
     coverage = []
     for tile_id in coverage_ids:
         depth, _column, _row = require_tile_id(tile_id)
         bbox = tile_bounds(tile_id, GREENLAND_BBOX)
-        covered_targets = [
-            target_id
-            for target_id in target_ids
-            if _is_descendant(target_id, tile_id)
-        ]
+        covered_targets = coverage_targets[tile_id]
         coverage.append(
             {
                 "tileId": tile_id,
                 "depth": depth,
                 "bbox": [float(value) for value in bbox],
                 "targetIds": covered_targets,
-                "fallback": any(target_id != tile_id for target_id in covered_targets),
+                "fallback": any(
+                    target_id != tile_id and _is_descendant(target_id, tile_id)
+                    for target_id in covered_targets
+                ),
             }
         )
 
@@ -507,14 +516,9 @@ def resolve_lod_coverage(
         if target_id in exact_ids:
             continue
         target = target_by_id[target_id]
-        covered_by = next(
-            (
-                tile_id
-                for tile_id in coverage_ids
-                if _is_descendant(target_id, tile_id)
-            ),
-            None,
-        )
+        covered_by = resolved_by_target[target_id]
+        if covered_by not in coverage_targets:
+            covered_by = None
         missing.append(
             {
                 "tileId": target_id,
@@ -553,7 +557,7 @@ def compose_camera_from_ready_data(
     origin_x: float | None = None,
     origin_y: float | None = None,
 ) -> dict:
-    """Select camera LOD and compose its coherent ready ancestor coverage."""
+    """Select current camera LOD and compose its ready render coverage."""
 
     selection = select_lod_tiles(
         camera_x,

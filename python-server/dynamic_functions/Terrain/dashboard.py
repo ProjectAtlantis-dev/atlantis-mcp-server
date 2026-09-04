@@ -9,7 +9,8 @@ from functools import lru_cache
 import atlantis
 
 from dynamic_functions.Terrain.Database.database import ux_status
-from dynamic_functions.Terrain.viewer_server import server_status
+from dynamic_functions.Terrain.Asset.database import ux_status as asset_ux_status
+from dynamic_functions.Terrain.Server.server import status as server_status
 
 
 def _server_status_bar() -> str:
@@ -111,6 +112,7 @@ async def dashboard() -> None:
         <div class="terrain-dashboard-status-stack">
           {_server_status_bar()}
           {ux_status()}
+          {asset_ux_status()}
         </div>
         """,
     ]

@@ -15,6 +15,9 @@ from dynamic_functions.Terrain.Test.bathymetry_demand import (
 from dynamic_functions.Terrain.Test.camera_lod import camera_lod_offline
 from dynamic_functions.Terrain.Test.coastline import coastline_offline
 from dynamic_functions.Terrain.Test.composition import composition_offline
+from dynamic_functions.Terrain.Test.connectivity_demand import (
+    connectivity_demand_offline,
+)
 from dynamic_functions.Terrain.Test.dataforsyningen_decode import (
     dataforsyningen_decode,
 )
@@ -26,6 +29,9 @@ from dynamic_functions.Terrain.Test.demand_priority import (
     demand_priority_offline,
 )
 from dynamic_functions.Terrain.Test.demand_retry import demand_retry_offline
+from dynamic_functions.Terrain.Test.dem_acquisition import (
+    dem_acquisition_offline,
+)
 from dynamic_functions.Terrain.Test.dem_persistence import dem_persistence
 from dynamic_functions.Terrain.Test.effective_heightmap import (
     effective_heightmap_offline,
@@ -93,6 +99,11 @@ def terrain_regression() -> dict:
         "arcticdem_failures",
         lambda: arcticdem_failures(_DEM_TILE),
         lambda result: result["checks"],
+    )
+    run(
+        "dem_acquisition_offline",
+        dem_acquisition_offline,
+        lambda result: result,
     )
     run(
         "dem_persistence",
@@ -347,6 +358,11 @@ def terrain_regression() -> dict:
             )
         }
         | {"didNotWait": result["waitedForWorkers"] is False},
+    )
+    run(
+        "connectivity_demand_offline",
+        connectivity_demand_offline,
+        lambda result: result,
     )
     run(
         "demand_priority_offline",

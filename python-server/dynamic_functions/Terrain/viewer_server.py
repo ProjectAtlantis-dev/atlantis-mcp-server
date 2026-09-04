@@ -1,4 +1,4 @@
-"""Lifecycle for the Terrain-owned HTTP compatibility sidecar."""
+"""HTTP implementation for the Terrain-owned viewer sidecar."""
 
 from __future__ import annotations
 
@@ -20,8 +20,12 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route, request_response
 
-from dynamic_functions.Terrain.Database.database import _update_dashboard
 from dynamic_functions.Terrain.Database.database import connection_lock, db
+from dynamic_functions.Terrain.Asset.catalog import (
+    AssetCatalogUnavailable as WritableAssetCatalogUnavailable,
+    patch_asset,
+    save_vehicle_state,
+)
 from dynamic_functions.Terrain.bathymetry_map import query_bathymetry_map
 from dynamic_functions.Terrain.coords import to_stereo
 from dynamic_functions.Terrain.gpu_profile_control import GpuProfileControl
@@ -33,6 +37,7 @@ from dynamic_functions.Terrain.http_adapter import (
 from dynamic_functions.Terrain.serve_flask import CLIENT_LOG_PATH
 from dynamic_functions.Terrain.tile_address import require_tile_id
 from dynamic_functions.Terrain.viewer_assets import (
+    AssetCatalogUnavailable,
     encode_buildings_response,
     query_buildings,
     startup_assets,
@@ -40,9 +45,6 @@ from dynamic_functions.Terrain.viewer_assets import (
 
 
 _RUNTIME_KEY = "Terrain.viewer_http.runtime.v1"
-_DEFAULT_HOST = "127.0.0.1"
-_DEFAULT_PORT = 5180
-_START_TIMEOUT_SECONDS = 5.0
 log = logging.getLogger("terrain.viewer_http")
 client_log = logging.getLogger("terrain.client")
 _CLIENT_LOG_MAX_ENTRIES = 200
@@ -227,6 +229,17 @@ async def _health(_request: Request) -> JSONResponse:
     return JSONResponse({"status": "healthy", "service": "terrain-viewer", **status})
 
 
+async def _demand_status(_request: Request) -> JSONResponse:
+    """Expose queue supervision without waiting behind terrain composition."""
+
+    from dynamic_functions.Terrain.demand import demand_backlog_status
+
+    return JSONResponse(
+        demand_backlog_status(),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 async def _client_log(request: Request) -> JSONResponse:
     """Ingest the existing viewer's bounded structured-log batches."""
 
@@ -326,10 +339,78 @@ async def _assets(_request: Request) -> JSONResponse:
     try:
         payload = await run_in_threadpool(startup_assets)
         return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+    except AssetCatalogUnavailable as exc:
+        log.error("Viewer asset catalog unavailable: %s", exc)
+        return JSONResponse(
+            {"error": "asset_catalog_unavailable", "message": str(exc)},
+            status_code=503,
+            headers={"Cache-Control": "no-store"},
+        )
     except Exception as exc:
         log.exception("Viewer startup asset request failed")
         return JSONResponse(
             {"error": "asset_catalog_failed", "message": str(exc)}, status_code=500
+        )
+
+
+async def _vehicle_state(request: Request) -> JSONResponse:
+    """Persist the viewer's primary vehicle state in the local catalog."""
+    try:
+        payload = await request.json()
+        result = await run_in_threadpool(save_vehicle_state, payload)
+        return JSONResponse(result, headers={"Cache-Control": "no-store"})
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        return JSONResponse(
+            {"error": "invalid_vehicle_state", "message": str(exc)},
+            status_code=400,
+            headers={"Cache-Control": "no-store"},
+        )
+    except WritableAssetCatalogUnavailable as exc:
+        log.error("Vehicle-state asset catalog unavailable: %s", exc)
+        return JSONResponse(
+            {"error": "asset_catalog_unavailable", "message": str(exc)},
+            status_code=503,
+            headers={"Cache-Control": "no-store"},
+        )
+    except Exception as exc:
+        log.exception("Vehicle-state persistence failed")
+        return JSONResponse(
+            {"error": "vehicle_state_failed", "message": str(exc)},
+            status_code=500,
+        )
+
+
+async def _asset_patch(request: Request) -> JSONResponse:
+    """Patch one local asset without consulting a legacy service."""
+    asset_id = request.path_params.get("asset_id", "")
+    try:
+        payload = await request.json()
+        result = await run_in_threadpool(patch_asset, asset_id, payload)
+        if result is None:
+            return JSONResponse(
+                {"error": f"asset {asset_id!r} not found"},
+                status_code=404,
+                headers={"Cache-Control": "no-store"},
+            )
+        return JSONResponse(result, headers={"Cache-Control": "no-store"})
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        return JSONResponse(
+            {"error": "invalid_asset_patch", "message": str(exc)},
+            status_code=400,
+            headers={"Cache-Control": "no-store"},
+        )
+    except WritableAssetCatalogUnavailable as exc:
+        log.error("Asset-patch catalog unavailable: %s", exc)
+        return JSONResponse(
+            {"error": "asset_catalog_unavailable", "message": str(exc)},
+            status_code=503,
+            headers={"Cache-Control": "no-store"},
+        )
+    except Exception as exc:
+        log.exception("Asset patch failed")
+        return JSONResponse(
+            {"error": "asset_patch_failed", "message": str(exc)},
+            status_code=500,
         )
 
 
@@ -351,6 +432,13 @@ async def _buildings(request: Request) -> Response:
             payload,
             media_type="application/octet-stream",
             headers={"Cache-Control": "no-store", "X-Terrain-Format": "binary-v1"},
+        )
+    except AssetCatalogUnavailable as exc:
+        log.error("Viewer building catalog unavailable: %s", exc)
+        return JSONResponse(
+            {"error": "asset_catalog_unavailable", "message": str(exc)},
+            status_code=503,
+            headers={"Cache-Control": "no-store"},
         )
     except (TypeError, ValueError) as exc:
         return JSONResponse(
@@ -474,10 +562,13 @@ async def _favicon(_request: Request) -> Response:
 
 _HOTLOAD_ROUTE_ENDPOINTS = {
     "/health": "_health",
+    "/api/demand-status": "_demand_status",
     "/favicon.ico": "_favicon",
     "/api/client_log": "_client_log",
     "/api/client_log/ring": "_client_log_ring",
     "/api/assets": "_assets",
+    "/api/vehicle_state": "_vehicle_state",
+    "/api/asset/{asset_id}": "_asset_patch",
     "/api/buildings": "_buildings",
     "/api/bathymetry-map": "_bathymetry_map",
     "/api/classifier/{tile_id}.png": "_classifier",
@@ -487,6 +578,11 @@ _HOTLOAD_ROUTE_ENDPOINTS = {
     "/api/gpu-profile/report": "_gpu_profile_report",
     "/api/tiles": "_tiles",
     "/api/texture/{tile_id}.jpg": "_texture",
+}
+_HOTLOAD_ADDED_ROUTE_METHODS = {
+    "/api/demand-status": ["GET"],
+    "/api/vehicle_state": ["POST"],
+    "/api/asset/{asset_id}": ["PATCH"],
 }
 
 
@@ -506,7 +602,19 @@ def _bind_hotload_routes(app: Starlette) -> int:
     """Make long-lived Starlette routes follow MCP dynamic-module reloads."""
 
     rebound = 0
+    existing_paths = {
+        route.path for route in app.routes if isinstance(route, Route)
+    }
+    for path, methods in _HOTLOAD_ADDED_ROUTE_METHODS.items():
+        if path in existing_paths:
+            continue
+        endpoint = _hotload_dispatch(_HOTLOAD_ROUTE_ENDPOINTS[path])
+        app.router.routes.append(Route(path, endpoint, methods=methods))
+        existing_paths.add(path)
+        rebound += 1
     for route in app.routes:
+        if not isinstance(route, Route):
+            continue
         endpoint_name = _HOTLOAD_ROUTE_ENDPOINTS.get(route.path)
         if endpoint_name is None:
             continue
@@ -521,10 +629,13 @@ def _viewer_app() -> Starlette:
     app = Starlette(
         routes=[
             Route("/health", _health, methods=["GET"]),
+            Route("/api/demand-status", _demand_status, methods=["GET"]),
             Route("/favicon.ico", _favicon, methods=["GET"]),
             Route("/api/client_log", _client_log, methods=["POST"]),
             Route("/api/client_log/ring", _client_log_ring, methods=["GET"]),
             Route("/api/assets", _assets, methods=["GET"]),
+            Route("/api/vehicle_state", _vehicle_state, methods=["POST"]),
+            Route("/api/asset/{asset_id}", _asset_patch, methods=["PATCH"]),
             Route("/api/buildings", _buildings, methods=["GET"]),
             Route("/api/bathymetry-map", _bathymetry_map, methods=["GET"]),
             Route(
@@ -563,109 +674,6 @@ def _rebind_running_sidecar() -> int:
     if not isinstance(app, Starlette):
         return 0
     return _bind_hotload_routes(app)
-
-
-def _validated_bind(host: str, port: int) -> tuple[str, int]:
-    if not isinstance(host, str) or not host.strip():
-        raise ValueError("host must be a non-empty string")
-    if isinstance(port, bool):
-        raise ValueError("port must be an integer")
-    try:
-        parsed_port = int(port)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("port must be an integer") from exc
-    if not 1 <= parsed_port <= 65535:
-        raise ValueError("port must be between 1 and 65535")
-    return host.strip(), parsed_port
-
-
-@visible
-async def server_start(
-    host: str = _DEFAULT_HOST,
-    port: int = _DEFAULT_PORT,
-) -> dict:
-    """Start the viewer HTTP sidecar without modifying the MCP host."""
-
-    bind_host, bind_port = _validated_bind(host, port)
-    current = atlantis.server_shared.get(_RUNTIME_KEY)
-    if current is not None and current.thread.is_alive():
-        status = current.status()
-        if (status["host"], status["port"]) != (bind_host, bind_port):
-            raise RuntimeError(
-                "terrain viewer server is already running at "
-                f"{status['url']}"
-            )
-        log.info("viewer sidecar already running at %s", status["url"])
-        await _update_dashboard()
-        return {"started": False, "alreadyRunning": True, **status}
-    if current is not None:
-        atlantis.server_shared.remove(_RUNTIME_KEY)
-
-    runtime = _ViewerRuntime(bind_host, bind_port)
-    log.info("starting viewer sidecar at http://%s:%d", bind_host, bind_port)
-    atlantis.server_shared.set(_RUNTIME_KEY, runtime)
-    runtime.thread.start()
-    deadline = time.monotonic() + _START_TIMEOUT_SECONDS
-    while (
-        runtime.thread.is_alive()
-        and not runtime.server.started
-        and time.monotonic() < deadline
-    ):
-        time.sleep(0.01)
-    status = runtime.status()
-    if not status["running"]:
-        atlantis.server_shared.remove(_RUNTIME_KEY)
-        detail = status["error"] or "startup timed out or bind failed"
-        raise RuntimeError(f"terrain viewer server failed to start: {detail}")
-    log.info("viewer sidecar started at %s", status["url"])
-    await _update_dashboard()
-    return {"started": True, "alreadyRunning": False, **status}
-
-
-@visible
-def server_status() -> dict:
-    """Return the current viewer sidecar state without changing it."""
-
-    runtime = atlantis.server_shared.get(_RUNTIME_KEY)
-    if runtime is None:
-        return {
-            "running": False,
-            "host": None,
-            "port": None,
-            "url": None,
-            "threadAlive": False,
-            "error": None,
-        }
-    return runtime.status()
-
-
-@visible
-async def server_stop() -> dict:
-    """Stop the Terrain viewer sidecar and release its listening port."""
-
-    runtime = atlantis.server_shared.get(_RUNTIME_KEY)
-    if runtime is None:
-        log.info("viewer sidecar already stopped")
-        await _update_dashboard()
-        return {"stopped": False, "alreadyStopped": True, "running": False}
-    log.info("stopping viewer sidecar at http://%s:%d", runtime.host, runtime.port)
-    runtime.server.should_exit = True
-    runtime.thread.join(timeout=5.0)
-    if runtime.thread.is_alive():
-        runtime.server.force_exit = True
-        runtime.thread.join(timeout=1.0)
-    status = runtime.status()
-    if not status["threadAlive"]:
-        atlantis.server_shared.remove(_RUNTIME_KEY)
-        log.info("viewer sidecar stopped")
-    else:
-        log.error("viewer sidecar thread did not stop")
-    await _update_dashboard()
-    return {
-        "stopped": not status["threadAlive"],
-        "alreadyStopped": False,
-        **status,
-    }
 
 
 # DynamicFunctionManager removes modules from sys.modules on source changes,

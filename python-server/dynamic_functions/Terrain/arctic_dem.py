@@ -26,8 +26,8 @@ _GRID_ORIGIN = -4_000_000
 _SOURCE_TILE_SIZE = 100_000
 _URL_TEMPLATE = (
     "https://pgc-opendata-dems.s3.us-west-2.amazonaws.com/"
-    "arcticdem/mosaics/v4.1/10m/{row}_{column}/"
-    "{row}_{column}_10m_v4.1_dem.tif"
+    "arcticdem/mosaics/v4.1/10m/{row:02d}_{column:02d}/"
+    "{row:02d}_{column:02d}_10m_v4.1_dem.tif"
 )
 _NODATA = -9999.0
 _EGM2008_GRID = "us_nga_egm08_25.tif"

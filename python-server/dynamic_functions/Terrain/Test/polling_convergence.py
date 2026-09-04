@@ -1,4 +1,4 @@
-"""Rollback-only gate for useful polling and monotonic camera convergence."""
+"""Rollback-only gate for polling, LOD convergence, and cache persistence."""
 
 from __future__ import annotations
 
@@ -39,6 +39,21 @@ def _selection() -> dict:
     return {"tiles": tiles}
 
 
+def _coarse_selection() -> dict:
+    return {
+        "requestedDepth": 10,
+        "tiles": [{
+            "tileId": _PARENT,
+            "depth": 9,
+            "bbox": [
+                float(value)
+                for value in tile_bounds(_PARENT, GREENLAND_BBOX)
+            ],
+            "distance": 0.0,
+        }],
+    }
+
+
 def _cleanup(connection) -> None:
     fixture_ids: set[str] = set()
     for tile_id in (_PARENT, *_CHILDREN):
@@ -59,7 +74,7 @@ def _cleanup(connection) -> None:
 
 @visible
 def polling_convergence_offline() -> dict:
-    """Prove poll decisions and fallback-to-exact monotonicity."""
+    """Prove polling and monotonic convergence per current camera request."""
 
     active = polling_state(
         {
@@ -132,6 +147,9 @@ def polling_convergence_offline() -> dict:
             commit=False,
         )
         snapshots = [resolve_lod_coverage(connection, _selection())]
+        coarse_snapshots = [
+            resolve_lod_coverage(connection, _coarse_selection())
+        ]
         for index, tile_id in enumerate(_CHILDREN):
             write_dem(
                 connection,
@@ -150,9 +168,17 @@ def polling_convergence_offline() -> dict:
                 commit=False,
             )
             snapshots.append(resolve_lod_coverage(connection, _selection()))
+            coarse_snapshots.append(
+                resolve_lod_coverage(connection, _coarse_selection())
+            )
 
         exact_counts = [item["exactTargetCount"] for item in snapshots]
         missing_counts = [item["missingTileCount"] for item in snapshots]
+        stored_detail_count = connection.execute(
+            "SELECT COUNT(*) FROM tiles WHERE tile_id IN (?,?,?,?) "
+            "AND heightmap IS NOT NULL AND confidence_map IS NOT NULL",
+            _CHILDREN,
+        ).fetchone()[0]
         return {
             "activePollsSoon": bool(
                 active["nextAction"] == "poll"
@@ -176,13 +202,20 @@ def polling_convergence_offline() -> dict:
             "fallbackAlwaysVisible": all(
                 snapshot["coverageTileCount"] > 0 for snapshot in snapshots
             ),
-            "coherentUntilComplete": bool(
-                all(
-                    snapshot["coverageTileIds"] == [_PARENT]
-                    for snapshot in snapshots[:-1]
+            "currentRequestQualityNeverRegresses": bool(
+                snapshots[0]["coverageTileIds"] == [_PARENT]
+                and all(
+                    set(snapshot["coverageTileIds"])
+                    == {_PARENT, *_CHILDREN[:index]}
+                    for index, snapshot in enumerate(snapshots[1:-1], 1)
                 )
                 and set(snapshots[-1]["coverageTileIds"]) == set(_CHILDREN)
             ),
+            "currentLodControlsRendering": all(
+                snapshot["coverageTileIds"] == [_PARENT]
+                for snapshot in coarse_snapshots
+            ),
+            "detailedTilesRemainCached": stored_detail_count == len(_CHILDREN),
         }
     finally:
         connection.execute("ROLLBACK TO polling_convergence_test")

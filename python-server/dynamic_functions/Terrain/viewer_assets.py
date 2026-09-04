@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import sqlite3
 import struct
 import zlib
@@ -13,69 +12,28 @@ from typing import Any
 
 
 _HERE = Path(__file__).resolve().parent
-_LOCAL_ASSETS_DB = _HERE / "Database" / "assets.db"
-_LEGACY_ASSETS_DB = _HERE.parents[3] / "atlantis-terrain" / "assetserver" / "assets.db"
+_LOCAL_ASSETS_DB = _HERE / "Asset" / "assets.db"
 _BUILDING_TYPE = "BYGNING"
 _BUILDING_FULL_DETAIL_RANGE_M = 2500.0
 _BUILDING_FAR_MIN_AREA_M2 = 300.0
-_ASSET_METADATA = {
-    "vehicle_asset_type": "KØRETØJ",
-    "structure_asset_type": "STRUKTUR",
-    "structure_definition": {
-        "url": "/models/house_test.glb",
-        "altOffsetM": 0.4,
-        "hotReloadMs": 2000,
-        "enabled": False,
-    },
-    "vehicle_definition": {
-        "url": "/models/patria_amv.glb",
-        "realLengthM": 7.7,
-        "tireDiameterM": 1.27,
-        "altOffsetM": 0.05,
-        "headlights": {
-            "color": "#FFF4E0",
-            "intensity": 800,
-            "distanceM": 120,
-            "angleDeg": 39.6,
-            "penumbra": 0.4,
-            "decay": 2.0,
-            "mountFrontRatio": 0.48,
-            "mountHeightM": 1.4,
-            "mountSpacingM": 0.95,
-            "targetForwardM": 60,
-            "targetHeightM": -0.5,
-            "targetXScale": 0.3,
-        },
-    },
-    "seed_vehicle_instances": [{
-        "id": "amv-01", "lat": 64.18423381, "lon": -51.70139232,
-        "headingDeg": 234.341, "z": 16.279, "headlightsOn": True,
-    }],
-    "seed_structure_instances": [],
-}
 
 
-def _metadata() -> dict[str, Any]:
-    value = json.loads(json.dumps(_ASSET_METADATA))
-    definition = value.get("vehicle_definition")
-    if isinstance(definition, dict):
-        definition = dict(definition)
-        headlights = definition.get("headlights")
-        if isinstance(headlights, dict):
-            headlights = dict(headlights)
-            color = headlights.get("color")
-            if isinstance(color, str) and color.startswith("#"):
-                headlights["color"] = int(color[1:], 16)
-            definition["headlights"] = headlights
-        value["vehicle_definition"] = definition
-    return value
+class AssetCatalogUnavailable(RuntimeError):
+    """The MCP-owned asset catalog is absent or incomplete."""
 
 
 def resolve_assets_db_path() -> Path | None:
-    configured = os.environ.get("ATLANTIS_ASSETS_DB")
-    candidates = [Path(configured).expanduser()] if configured else []
-    candidates.extend((_LOCAL_ASSETS_DB, _LEGACY_ASSETS_DB))
-    return next((path for path in candidates if path.is_file()), None)
+    """Resolve only the MCP-owned asset catalog path."""
+    return _LOCAL_ASSETS_DB if _LOCAL_ASSETS_DB.is_file() else None
+
+
+def _required_assets_db_path() -> Path:
+    path = resolve_assets_db_path()
+    if path is None:
+        raise AssetCatalogUnavailable(
+            f"local asset catalog is missing: {_LOCAL_ASSETS_DB}"
+        )
+    return path
 
 
 def _connect_read_only(path: Path) -> sqlite3.Connection:
@@ -93,60 +51,127 @@ def _decoded_properties(raw: str) -> dict[str, Any]:
     return value
 
 
+def _catalog_metadata(connection: sqlite3.Connection) -> dict[str, Any]:
+    required = {
+        "schema_version",
+        "vehicle_asset_type",
+        "structure_asset_type",
+        "vehicle_definition",
+        "structure_definition",
+    }
+    try:
+        rows = connection.execute(
+            "SELECT key, value FROM asset_metadata"
+        ).fetchall()
+    except sqlite3.Error as exc:
+        raise AssetCatalogUnavailable(
+            f"local asset catalog metadata is unreadable: {exc}"
+        ) from exc
+    raw = {key: value for key, value in rows}
+    missing = sorted(required - raw.keys())
+    if missing:
+        raise AssetCatalogUnavailable(
+            "local asset catalog metadata is incomplete; missing: "
+            + ", ".join(missing)
+        )
+    try:
+        metadata = {key: json.loads(raw[key]) for key in required}
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise AssetCatalogUnavailable(
+            f"local asset catalog metadata is invalid JSON: {exc}"
+        ) from exc
+    if not isinstance(metadata["schema_version"], int):
+        raise AssetCatalogUnavailable("schema_version metadata must be an integer")
+    for key in ("vehicle_asset_type", "structure_asset_type"):
+        if not isinstance(metadata[key], str) or not metadata[key].strip():
+            raise AssetCatalogUnavailable(f"{key} metadata must be a non-empty string")
+    for key in ("vehicle_definition", "structure_definition"):
+        if not isinstance(metadata[key], dict):
+            raise AssetCatalogUnavailable(f"{key} metadata must be an object")
+    vehicle_definition = metadata["vehicle_definition"]
+    if (
+        not isinstance(vehicle_definition.get("url"), str)
+        or not vehicle_definition["url"].strip()
+    ):
+        raise AssetCatalogUnavailable(
+            "vehicle_definition.url metadata must be a non-empty string"
+        )
+    for key in ("realLengthM", "tireDiameterM", "altOffsetM"):
+        value = vehicle_definition.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise AssetCatalogUnavailable(
+                f"vehicle_definition.{key} metadata must be numeric"
+            )
+    return metadata
+
+
 def startup_assets() -> dict[str, Any]:
-    metadata = _metadata()
-    path = resolve_assets_db_path()
-    vehicle_type = str(metadata.get("vehicle_asset_type") or "")
-    structure_type = str(metadata.get("structure_asset_type") or "")
+    path = _required_assets_db_path()
     vehicles: list[dict[str, Any]] = []
     structures: list[dict[str, Any]] = []
-    if path is not None:
-        connection = _connect_read_only(path)
-        try:
-            for row in connection.execute(
-                "SELECT id,lat,lon,heading_deg,z,properties,saved_at "
-                "FROM assets WHERE enabled=1 AND type=? "
-                "ORDER BY updated_at DESC,id",
-                (vehicle_type,),
-            ):
-                props = _decoded_properties(row[5])
-                item = {
-                    "id": row[0], "lat": row[1], "lon": row[2],
-                    "headingDeg": row[3], "headlightsOn": props.get("headlightsOn", True),
-                    "savedAt": row[6] or 0,
-                }
-                if row[4] is not None:
-                    item["z"] = row[4]
-                for key in ("terrainDepth", "terrainTileId"):
-                    if props.get(key) is not None:
-                        item[key] = props[key]
-                vehicles.append(item)
-            for row in connection.execute(
-                "SELECT id,lat,lon,heading_deg,properties FROM assets "
-                "WHERE enabled=1 AND type=? ORDER BY updated_at DESC,id",
-                (structure_type,),
-            ):
-                props = _decoded_properties(row[4])
-                item = {
-                    "id": row[0], "lat": row[1], "lon": row[2],
-                    "headingDeg": row[3], "scale": props.get("scale", 1),
-                }
-                if props.get("tileId"):
-                    item["tileId"] = props["tileId"]
-                structures.append(item)
-        finally:
-            connection.close()
-    if not vehicles:
-        vehicles = [dict(item) for item in metadata.get("seed_vehicle_instances", [])]
+    connection = _connect_read_only(path)
+    try:
+        metadata = _catalog_metadata(connection)
+        for row in connection.execute(
+            "SELECT id,lat,lon,heading_deg,z,properties,saved_at "
+            "FROM assets WHERE enabled=1 AND type=? "
+            "ORDER BY updated_at DESC,id",
+            (metadata["vehicle_asset_type"],),
+        ):
+            props = _decoded_properties(row[5])
+            if "headlightsOn" not in props:
+                raise AssetCatalogUnavailable(
+                    f"vehicle asset {row[0]!r} is missing headlightsOn"
+                )
+            if row[4] is None:
+                raise AssetCatalogUnavailable(
+                    f"vehicle asset {row[0]!r} is missing z"
+                )
+            item = {
+                "id": row[0], "lat": row[1], "lon": row[2],
+                "headingDeg": row[3], "headlightsOn": props["headlightsOn"],
+                "savedAt": row[6],
+                "z": row[4],
+            }
+            for key in ("terrainDepth", "terrainTileId"):
+                if props.get(key) is not None:
+                    item[key] = props[key]
+            vehicles.append(item)
+        for row in connection.execute(
+            "SELECT id,lat,lon,heading_deg,properties FROM assets "
+            "WHERE enabled=1 AND type=? ORDER BY updated_at DESC,id",
+            (metadata["structure_asset_type"],),
+        ):
+            props = _decoded_properties(row[4])
+            if "scale" not in props:
+                raise AssetCatalogUnavailable(
+                    f"structure asset {row[0]!r} is missing scale"
+                )
+            item = {
+                "id": row[0], "lat": row[1], "lon": row[2],
+                "headingDeg": row[3], "scale": props["scale"],
+            }
+            if props.get("tileId"):
+                item["tileId"] = props["tileId"]
+            structures.append(item)
+        if not vehicles:
+            raise AssetCatalogUnavailable(
+                "local asset catalog contains no enabled vehicle assets"
+            )
+    except sqlite3.Error as exc:
+        raise AssetCatalogUnavailable(
+            f"local asset catalog is unreadable: {exc}"
+        ) from exc
+    finally:
+        connection.close()
     return {
         "ok": True,
-        "source": "asset_catalog" if path is not None else "metadata_fallback",
-        "catalogStatus": "ready" if path is not None else "unavailable",
-        "catalogPath": str(path) if path is not None else None,
-        "schemaVersion": 4,
-        "seeded": {"structureInstances": False, "vehicleInstances": False},
-        "vehicle_definition": metadata.get("vehicle_definition", {}),
-        "structure_definition": metadata.get("structure_definition", {}),
+        "source": "asset_catalog",
+        "catalogStatus": "ready",
+        "catalogPath": str(path),
+        "schemaVersion": metadata["schema_version"],
+        "vehicle_definition": metadata["vehicle_definition"],
+        "structure_definition": metadata["structure_definition"],
         "vehicle_instances": vehicles,
         "structure_instances": structures,
     }
@@ -168,9 +193,7 @@ def _ring_area_and_center(ring: list[list[float]]) -> tuple[float, float, float]
 
 
 def query_buildings(qx: float, qy: float, max_range: float, ox: float, oy: float) -> tuple[list[dict], str]:
-    path = resolve_assets_db_path()
-    if path is None:
-        return [], "unavailable"
+    path = _required_assets_db_path()
     connection = _connect_read_only(path)
     try:
         rows = connection.execute(
@@ -178,6 +201,10 @@ def query_buildings(qx: float, qy: float, max_range: float, ox: float, oy: float
             "AND cx BETWEEN ? AND ? AND cy BETWEEN ? AND ? LIMIT 20000",
             (_BUILDING_TYPE, qx - max_range, qx + max_range, qy - max_range, qy + max_range),
         ).fetchall()
+    except sqlite3.Error as exc:
+        raise AssetCatalogUnavailable(
+            f"local building catalog is unreadable: {exc}"
+        ) from exc
     finally:
         connection.close()
     buildings = []
@@ -198,9 +225,13 @@ def query_buildings(qx: float, qy: float, max_range: float, ox: float, oy: float
             if isinstance(point, list) and len(point) >= 3
         ]
         if len(relative) >= 3:
+            if "groundZ" not in props:
+                raise AssetCatalogUnavailable(
+                    f"building asset {asset_id!r} is missing groundZ"
+                )
             buildings.append({
                 "id": str(asset_id),
-                "groundZ": float(props.get("groundZ", 0.0)),
+                "groundZ": float(props["groundZ"]),
                 "ring": relative,
             })
     return buildings, "asset_catalog"
@@ -220,7 +251,7 @@ def encode_buildings_response(
         )
         entry = {
             "id": building["id"],
-            "groundZ": building.get("groundZ", 0),
+            "groundZ": building["groundZ"],
             "ringBytes": len(blob),
         }
         entries.append(entry)
@@ -232,7 +263,7 @@ def encode_buildings_response(
     payload = {
         "tiles": [], "buildings": entries, "count": len(entries),
         "buildingsHash": f"{digest & 0xFFFFFFFF:08x}",
-        "buildingsStatus": "ready" if source != "unavailable" else "unavailable",
+        "buildingsStatus": "ready",
         "buildingsSource": source,
         "qx": qx, "qy": qy, "ox": ox, "oy": oy,
     }

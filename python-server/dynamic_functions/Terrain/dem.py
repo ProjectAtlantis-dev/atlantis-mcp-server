@@ -5,16 +5,14 @@ import hashlib
 
 import numpy as np
 
-from dynamic_functions.Terrain.arctic_dem import (
-    _fetch_heightmap,
-    _heightmap_summary,
-)
+from dynamic_functions.Terrain.arctic_dem import _heightmap_summary
 from dynamic_functions.Terrain.Database.database import db
 from dynamic_functions.Terrain.Database.tiles import (
     read_dem_payload,
     read_dem_with_ancestor,
     write_dem,
 )
+from dynamic_functions.Terrain.dem_acquisition import fetch_best_dem
 
 
 @visible
@@ -87,25 +85,27 @@ def read_dem_fallback(tile_id: str) -> dict:
 
 @visible
 def fetch_dem(tile_id: str) -> dict:
-    """Fetch one live ArcticDEM tile and persist it through the shared DB."""
+    """Fetch the best live DEM candidate and persist it through the shared DB."""
 
     # Acquisition finishes before the database is touched. Provider failures
     # therefore cannot create or alter a terrain row.
-    heightmap, sources, geoid_undulation = _fetch_heightmap(tile_id)
+    acquisition = fetch_best_dem(tile_id)
+    heightmap = acquisition["heightmap"]
     connection = db()
     written = write_dem(
         connection,
         tile_id,
         heightmap,
-        "arcticdem_10m",
-        "EGM2008",
+        acquisition["source"],
+        acquisition["verticalDatum"],
     )
     return {
-        "provider": "arcticdem",
-        "dataset": "mosaics/v4.1/10m",
-        "verticalDatum": "EGM2008",
-        "geoidUndulation": geoid_undulation,
+        "provider": acquisition["provider"],
+        "dataset": acquisition["dataset"],
+        "verticalDatum": acquisition["verticalDatum"],
+        "geoidUndulation": acquisition["geoidUndulation"],
         "written": written,
-        "sources": sources,
+        "sources": acquisition["sources"],
+        "attempts": acquisition["attempts"],
         **_read_dem(connection, tile_id),
     }

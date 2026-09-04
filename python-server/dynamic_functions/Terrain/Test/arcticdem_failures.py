@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from rasterio.errors import RasterioIOError
 
-from dynamic_functions.Terrain.arctic_dem import _fetch_heightmap
+from dynamic_functions.Terrain.arctic_dem import _fetch_heightmap, _sources_for_bbox
 
 
 def _surfaced_failure(tile_id: str, failure: Exception) -> dict:
@@ -31,6 +31,10 @@ def _surfaced_failure(tile_id: str, failure: Exception) -> dict:
 @visible
 def arcticdem_failures(tile_id: str) -> dict:
     """Inject ArcticDEM failures without network or database access."""
+
+    low_grid_source = _sources_for_bbox(
+        (-100_000.0, -3_400_000.0, -99_999.0, -3_399_999.0)
+    )[0]
 
     cases = {
         "rateLimited": _surfaced_failure(
@@ -71,6 +75,9 @@ def arcticdem_failures(tile_id: str) -> dict:
         ),
         "noImplicitRetry": all(
             case["decodeAttempts"] == 1 for case in cases.values()
+        ),
+        "lowGridCoordinatesPadded": low_grid_source["url"].endswith(
+            "/07_40/07_40_10m_v4.1_dem.tif"
         ),
     }
     if not all(checks.values()):

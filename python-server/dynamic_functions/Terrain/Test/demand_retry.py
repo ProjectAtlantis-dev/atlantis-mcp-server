@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import time
 
+from rasterio.errors import RasterioIOError
+
 from dynamic_functions.Terrain.demand import DemandLane, retryable_failure
 
 
@@ -118,6 +120,12 @@ def demand_retry_offline() -> dict:
             "classifierBoundaries": bool(
                 retryable_failure(TimeoutError("x"))
                 and retryable_failure(ConnectionError("x"))
+                and retryable_failure(
+                    RasterioIOError("HTTP response code: 503")
+                )
+                and not retryable_failure(
+                    RasterioIOError("HTTP response code: 404")
+                )
                 and not retryable_failure(ValueError("bad payload"))
                 and not retryable_failure(RuntimeError("missing token"))
             ),

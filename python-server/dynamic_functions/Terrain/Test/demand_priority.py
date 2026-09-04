@@ -37,7 +37,11 @@ def demand_priority_offline() -> dict:
         refreshed = coordinator.refresh(
             {"dem": ["new-near", "retained-mid", "new-far"]}
         )["dem"]
+        auxiliary = lane.submit_claimed(
+            ["stale-http-repoll", "retained-mid"]
+        )
         before_release = lane.status()
+        monitor = lane.monitor_status()
         release_active.set()
         idle = lane.wait_for_idle(timeout=2.0)
 
@@ -62,6 +66,21 @@ def demand_priority_offline() -> dict:
             == ["retained-mid"],
             "newNearestFirst": before_release["pending"]
             == ["new-near", "retained-mid", "new-far"],
+            "staleAuxiliaryRejected": bool(
+                auxiliary["acceptedCount"] == 0
+                and auxiliary["ignored"] == ["stale-http-repoll"]
+                and "stale-http-repoll" not in before_release["pending"]
+                and before_release["claimedCount"] == 3
+            ),
+            "boundedBacklogMonitoring": bool(
+                monitor["refreshGeneration"] == 2
+                and monitor["claimedActiveCount"] == 0
+                and monitor["staleActiveCount"] == 1
+                and monitor["pendingCount"] == 3
+                and monitor["totals"]["dropped"] == 1
+                and monitor["totals"]["ignored"] == 1
+                and monitor["staleActiveSample"] == ["active-old"]
+            ),
             "executionOrder": idle
             and execution_order
             == ["active-old", "new-near", "retained-mid", "new-far"],

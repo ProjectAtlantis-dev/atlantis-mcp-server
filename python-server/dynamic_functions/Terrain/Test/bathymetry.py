@@ -164,7 +164,7 @@ def bathymetry_offline() -> dict:
                 np.any(coarse_heightmap < -WATER_FLOOR_DROP_M)
                 and np.any(
                     coarse_heightmap
-                    == -WATER_FLOOR_DROP_M - SHORELINE_SEAFLOOR_DROP_M
+                    == -WATER_FLOOR_DROP_M
                 )
             ),
             "completionDoesNotCrossLand": bool(

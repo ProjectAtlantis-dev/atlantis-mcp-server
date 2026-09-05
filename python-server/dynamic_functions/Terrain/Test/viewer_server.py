@@ -70,6 +70,15 @@ async def viewer_server_offline() -> dict:
             "dynamic_functions.Terrain.viewer_server.query_buildings",
             return_value=([], "asset_catalog"),
         ),
+        patch(
+            "dynamic_functions.Terrain.viewer_server.serve_coverage_cure",
+            return_value={
+                "cureDepth": 10,
+                "definition": "fixture",
+                "summary": {"cured": 1, "partial": 2, "coarse": 3},
+                "tiles": [],
+            },
+        ),
     ):
         await stop()
         initially_stopped = status()
@@ -148,6 +157,11 @@ async def viewer_server_offline() -> dict:
             ) as response:
                 bathymetry_map = json.loads(response.read())
                 bathymetry_map_status = response.status
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/api/coverage/cure.json", timeout=2.0
+            ) as response:
+                coverage = json.loads(response.read())
+                coverage_status = response.status
             with urllib.request.urlopen(
                 f"http://127.0.0.1:{port}/favicon.ico", timeout=2.0
             ) as response:
@@ -234,6 +248,9 @@ async def viewer_server_offline() -> dict:
             and bathymetry_map_status == 200
             and isinstance(bathymetry_map["coverage"], list)
             and bathymetry_map["soundingStatus"] == "not_imported"
+            and coverage_status == 200
+            and coverage["cureDepth"] == 10
+            and coverage["summary"]["cured"] == 1
             and favicon_status == 200
             and favicon.startswith(b"<svg")
         ),

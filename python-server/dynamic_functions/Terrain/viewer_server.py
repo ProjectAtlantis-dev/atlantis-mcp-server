@@ -32,6 +32,7 @@ from dynamic_functions.Terrain.gpu_profile_control import GpuProfileControl
 from dynamic_functions.Terrain.http_adapter import (
     compose_tiles_response,
     parse_tiles_request,
+    serve_coverage_cure,
     serve_texture,
 )
 from dynamic_functions.Terrain.serve_flask import CLIENT_LOG_PATH
@@ -238,6 +239,21 @@ async def _demand_status(_request: Request) -> JSONResponse:
         demand_backlog_status(),
         headers={"Cache-Control": "no-store"},
     )
+
+
+async def _coverage_cure(_request: Request) -> JSONResponse:
+    """Expose the nationwide depth-10 DEM/coastline cure inventory."""
+
+    try:
+        payload = await run_in_threadpool(serve_coverage_cure)
+        return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+    except Exception as exc:
+        log.exception("Terrain cure coverage request failed")
+        return JSONResponse(
+            {"error": "coverage_cure_failed", "message": str(exc)},
+            status_code=500,
+            headers={"Cache-Control": "no-store"},
+        )
 
 
 async def _client_log(request: Request) -> JSONResponse:
@@ -563,6 +579,7 @@ async def _favicon(_request: Request) -> Response:
 _HOTLOAD_ROUTE_ENDPOINTS = {
     "/health": "_health",
     "/api/demand-status": "_demand_status",
+    "/api/coverage/cure.json": "_coverage_cure",
     "/favicon.ico": "_favicon",
     "/api/client_log": "_client_log",
     "/api/client_log/ring": "_client_log_ring",
@@ -581,6 +598,7 @@ _HOTLOAD_ROUTE_ENDPOINTS = {
 }
 _HOTLOAD_ADDED_ROUTE_METHODS = {
     "/api/demand-status": ["GET"],
+    "/api/coverage/cure.json": ["GET"],
     "/api/vehicle_state": ["POST"],
     "/api/asset/{asset_id}": ["PATCH"],
 }
@@ -630,6 +648,7 @@ def _viewer_app() -> Starlette:
         routes=[
             Route("/health", _health, methods=["GET"]),
             Route("/api/demand-status", _demand_status, methods=["GET"]),
+            Route("/api/coverage/cure.json", _coverage_cure, methods=["GET"]),
             Route("/favicon.ico", _favicon, methods=["GET"]),
             Route("/api/client_log", _client_log, methods=["POST"]),
             Route("/api/client_log/ring", _client_log_ring, methods=["GET"]),

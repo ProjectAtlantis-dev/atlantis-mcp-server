@@ -12,7 +12,6 @@ from dynamic_functions.Terrain.Database.tiles import ensure_tile_row, write_dem
 from dynamic_functions.Terrain.coastline import write_coastline_mask
 from dynamic_functions.Terrain.composition import compose_tiles_from_ready_data
 from dynamic_functions.Terrain.effective_heightmap import (
-    SHORELINE_SEAFLOOR_DROP_M,
     WATER_FLOOR_DROP_M,
 )
 from dynamic_functions.Terrain.hydrography import write_hydrography_mask
@@ -228,14 +227,17 @@ def composition_offline() -> dict:
             ),
             "readyConnectivityComposed": bool(
                 ready["dem"]["water"]["tidalConnectivity"] == "ready"
+                and ready["dem"]["water"]["coastlineWaterCount"] == 1
+                and ready["dem"]["water"]["hydrographyWaterCount"] == 3
+                and ready["dem"]["water"]["tidalConnectivityWaterCount"] == 2
                 and ready["dem"]["heightmap"]["waterCount"] == 2
             ),
             "descendantInheritsPublishedWater": bool(
                 water_child["dem"]["heightmap"]["waterCount"] == 65 * 65
                 and water_child["dem"]["heightmap"]["minimum"]
-                == -WATER_FLOOR_DROP_M - SHORELINE_SEAFLOOR_DROP_M
+                == -WATER_FLOOR_DROP_M
                 and water_child["dem"]["heightmap"]["maximum"]
-                == -WATER_FLOOR_DROP_M - SHORELINE_SEAFLOOR_DROP_M
+                == -WATER_FLOOR_DROP_M
                 and water_child["dem"]["verticalDatum"] == "EGM2008"
             ),
             "domainErrorIsolated": bool(

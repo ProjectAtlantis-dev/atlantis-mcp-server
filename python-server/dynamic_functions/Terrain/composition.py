@@ -183,8 +183,17 @@ def _water_state(connection: sqlite3.Connection, tile_id: str) -> dict:
         "has_exact_coastline": coastline is not None,
         "status": {
             "coastline": "ready" if coastline is not None else "missing",
+            "coastlineWaterCount": (
+                int(coastline["mask"].sum()) if coastline is not None else None
+            ),
             "hydrography": "ready" if hydrography is not None else "missing",
+            "hydrographyWaterCount": (
+                int(hydrography["mask"].sum()) if hydrography is not None else None
+            ),
             "tidalConnectivity": connectivity_state,
+            "tidalConnectivityWaterCount": (
+                int(connectivity["mask"].sum()) if connectivity is not None else None
+            ),
         },
     }
 
@@ -233,6 +242,7 @@ def _effective_from_ready(
     output_shape = (height, width)
 
     bathymetry = read_bathymetry(connection, tile_id, output_shape)
+    bathymetry_mask = np.zeros_like(mask, dtype=bool)
     bathymetry_vertices = 0
     if bathymetry is not None:
         bbox = tile_bounds(tile_id, GREENLAND_BBOX)
@@ -245,13 +255,17 @@ def _effective_from_ready(
             mask,
             cell_size_m=cell_size_m,
         )
-        bathymetry_mask = (
+        bathymetry_mask = np.asarray(
             mask & np.isfinite(bathymetry) & (bathymetry <= 0.0)
         )
         bathymetry_vertices = int(np.sum(bathymetry_mask))
         heightmap[bathymetry_mask] = bathymetry[bathymetry_mask]
 
-    submerged = mask & np.isfinite(heightmap) & (heightmap <= 0.0)
+    # The no-data water floor is already the deliberate -5 m collision
+    # clearance. Apply the extra shoreline separation only to real modeled
+    # bathymetry; lowering the synthetic fallback made its advertised -5 m
+    # contract render at -6 m.
+    submerged = bathymetry_mask & np.isfinite(heightmap) & (heightmap <= 0.0)
     heightmap[submerged] -= np.float32(SHORELINE_SEAFLOOR_DROP_M)
     valid = heightmap[np.isfinite(heightmap)]
     payload = heightmap.astype(np.float32, copy=False).tobytes()

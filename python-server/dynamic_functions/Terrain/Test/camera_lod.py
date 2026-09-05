@@ -116,7 +116,7 @@ def camera_lod_offline() -> dict:
                 commit=False,
             )
         land = np.zeros((65, 65), dtype=bool)
-        for tile_id in (_PARENT, _CAMERA_TILE):
+        for tile_id in (_CAMERA_TILE,):
             write_coastline_mask(
                 connection,
                 tile_id,
@@ -160,9 +160,9 @@ def camera_lod_offline() -> dict:
         missing_by_id = {
             item["tileId"]: item for item in coverage["missing"]
         }
-        water_blocks = {
+        water_pending = {
             item["tileId"]: item
-            for item in coverage["waterDependencyBlocked"]
+            for item in coverage["waterClassificationPending"]
         }
 
         invalid_rejected = False
@@ -197,21 +197,21 @@ def camera_lod_offline() -> dict:
                 and selection["scheduledWork"] is False
             ),
             "coherentFallbackAntichain": coverage["coverageTileIds"]
-            == [_PARENT, _CAMERA_TILE],
+            == [_PARENT, _PARENT_EXACT_CHILD, _CAMERA_TILE],
             "fallbackReported": bool(
                 missing_by_id["10-880-480"]["state"] == "fallback"
                 and missing_by_id["10-880-480"]["fallbackTileId"] == _PARENT
+                and water_pending[_PARENT]["coastlineTileId"] == _PARENT
             ),
-            "waterDependencyPreservesParent": bool(
-                missing_by_id[_PARENT_EXACT_CHILD]["state"] == "fallback"
-                and missing_by_id[_PARENT_EXACT_CHILD]["fallbackTileId"]
-                == _PARENT
-                and water_blocks[_PARENT_EXACT_CHILD]
+            "waterIndependentGeometry": bool(
+                _PARENT_EXACT_CHILD not in missing_by_id
+                and water_pending[_PARENT_EXACT_CHILD]
                 == {
                     "tileId": _PARENT_EXACT_CHILD,
                     "coastlineTileId": _PARENT_EXACT_CHILD,
                     "requested": True,
                 }
+                and coverage["waterDependencyBlockedCount"] == 0
                 and composed["waterDependencyBlockedCount"] == 0
             ),
             "trueMissReported": bool(

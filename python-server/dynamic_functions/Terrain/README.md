@@ -28,6 +28,9 @@ sea-level terrain roughly 28–49 metres too high around Greenland.
 
 `compose_tiles(tile_ids)` returns independently available DEM, water, and
 texture state without provider access, scheduling, or writes.
+DEM geometry is publishable as soon as its measured heightmap exists;
+coastline, hydrography, connectivity, and bathymetry remain independent state
+and may refine that geometry later without withholding it from the viewer.
 
 `compose_tiles_binary(tile_ids, known_digests)` encodes the same ready-data
 batch with the browser's aligned `binary-v1` envelope. `known_digests` maps tile

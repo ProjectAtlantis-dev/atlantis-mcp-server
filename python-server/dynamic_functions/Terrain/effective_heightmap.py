@@ -118,6 +118,7 @@ def effective_heightmap_for_tile(
         )
 
     bathymetry = read_bathymetry(connection, tile_id, result.shape)
+    bathymetry_mask = np.zeros_like(water, dtype=bool)
     bathymetry_vertices = 0
     if bathymetry is not None:
         bbox = tile_bounds(tile_id, GREENLAND_BBOX)
@@ -130,13 +131,15 @@ def effective_heightmap_for_tile(
             water,
             cell_size_m=cell_size_m,
         )
-        bathymetry_mask = (
+        bathymetry_mask = np.asarray(
             water & np.isfinite(bathymetry) & (bathymetry <= 0.0)
         )
         bathymetry_vertices = int(np.sum(bathymetry_mask))
         result[bathymetry_mask] = bathymetry[bathymetry_mask]
 
-    submerged = water & np.isfinite(result) & (result <= 0.0)
+    # Keep the synthetic no-data floor at its advertised -5 m. Only measured
+    # or modeled bathymetry needs the additional shoreline separation.
+    submerged = bathymetry_mask & np.isfinite(result) & (result <= 0.0)
     result[submerged] -= np.float32(SHORELINE_SEAFLOOR_DROP_M)
     return {
         "tile_id": tile_id,

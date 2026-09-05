@@ -5,11 +5,12 @@ from __future__ import annotations
 import hashlib
 import numpy as np
 
+from dynamic_functions.Terrain.binary_batch import encode_composed_tiles_binary
+from dynamic_functions.Terrain.composition import compose_tiles_from_ready_data
 from dynamic_functions.Terrain.Database.database import db
 from dynamic_functions.Terrain.Database.tiles import read_dem_payload, write_dem
 from dynamic_functions.Terrain.coastline import write_coastline_mask
 from dynamic_functions.Terrain.effective_heightmap import (
-    SHORELINE_SEAFLOOR_DROP_M,
     WATER_FLOOR_DROP_M,
     _response,
     effective_heightmap_for_tile,
@@ -101,9 +102,7 @@ def effective_heightmap_offline() -> dict:
         water = derived["water_mask"]
         expected_water = _empty()
         expected_water[10, 10:13] = True
-        expected_floor = np.float32(
-            -WATER_FLOOR_DROP_M - SHORELINE_SEAFLOOR_DROP_M
-        )
+        expected_floor = np.float32(-WATER_FLOOR_DROP_M)
         stored = read_dem_payload(connection, _DERIVED)
         if stored is None:
             raise AssertionError("fixture canonical DEM disappeared")
@@ -132,6 +131,31 @@ def effective_heightmap_offline() -> dict:
         fallback = effective_heightmap_for_tile(connection, _NO_MASK)
         if fallback is None:
             raise AssertionError("DEM fallback heightmap was not derived")
+        provisional_composition = compose_tiles_from_ready_data(
+            connection, [_NO_MASK]
+        )
+        _, provisional_header = encode_composed_tiles_binary(
+            provisional_composition
+        )
+        provisional_wire = provisional_header["tiles"][0]
+        late_coastline = _empty()
+        late_coastline[1, 1] = True
+        write_coastline_mask(
+            connection,
+            _NO_MASK,
+            late_coastline,
+            "fixture_late_coastline",
+            1,
+            commit=False,
+        )
+        healed_composition = compose_tiles_from_ready_data(
+            connection, [_NO_MASK]
+        )
+        _, healed_header = encode_composed_tiles_binary(
+            healed_composition,
+            {_NO_MASK: provisional_wire["heightmap"]},
+        )
+        healed_wire = healed_header["tiles"][0]
 
         all_water = np.ones(_GRID, dtype=bool)
         write_coastline_mask(
@@ -206,6 +230,15 @@ def effective_heightmap_offline() -> dict:
                 and fallback["heightmap"][1, 1] == expected_floor
                 and fallback["heightmap"][2, 2] == expected_floor
                 and fallback["heightmap"][0, 0] == 9.0
+            ),
+            "lateCoastlineSelfHeals": bool(
+                provisional_wire["dem"]["heightmap"]["maskSource"]
+                == "dem_nonpositive_fallback"
+                and healed_wire["dem"]["heightmap"]["maskSource"]
+                == "ready_water_snapshot"
+                and healed_wire["heightmap"]
+                != provisional_wire["heightmap"]
+                and healed_wire["heightmapBytes"] == 65 * 65 * 4
             ),
             "allWaterWithoutDemSynthesized": bool(
                 synthesized is not None

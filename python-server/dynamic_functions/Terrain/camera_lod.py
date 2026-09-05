@@ -363,13 +363,7 @@ def _dem_readiness(
     connection: sqlite3.Connection,
     target_ids: list[str],
 ) -> dict:
-    """Return render-ready DEM IDs and explicit water-dependency blocks.
-
-    A newly stored DEM is source-ready but not render-ready until its water
-    classification exists. Keeping that distinction here prevents an exact
-    child from displacing a coherent ancestor during the interval between the
-    independent DEM and coastline workers.
-    """
+    """Return render-ready DEM IDs and independent water-pending metadata."""
 
     candidates: set[str] = set()
     for tile_id in target_ids:
@@ -411,27 +405,26 @@ def _dem_readiness(
             chunk,
         ).fetchall()
         coastline_ready.update(row[0] for row in rows)
-    ready = {
-        tile_id
-        for tile_id in dem_ready
-        if coastline_id(tile_id) in coastline_ready
-    }
-    blocked = [
+    water_pending = [
         {
             "tileId": tile_id,
             "coastlineTileId": coastline_id(tile_id),
             "requested": tile_id in target_ids,
         }
-        for tile_id in sorted(dem_ready - ready, key=require_tile_id)
+        for tile_id in sorted(dem_ready, key=require_tile_id)
+        if coastline_id(tile_id) not in coastline_ready
     ]
-    return {"ready": ready, "waterDependencyBlocked": blocked}
+    return {
+        "ready": dem_ready,
+        "waterClassificationPending": water_pending,
+    }
 
 
 def _ready_dem_ids(
     connection: sqlite3.Connection,
     target_ids: list[str],
 ) -> set[str]:
-    """Return DEM tiles whose contract-depth coastline is also publishable."""
+    """Return DEM tiles that are independently publishable as geometry."""
 
     return _dem_readiness(connection, target_ids)["ready"]
 
@@ -536,9 +529,15 @@ def resolve_lod_coverage(
         "missingTileIds": [tile["tileId"] for tile in missing],
         "missingTileCount": len(missing),
         "exactTargetCount": len(exact_ids),
-        "waterDependencyBlocked": readiness["waterDependencyBlocked"],
-        "waterDependencyBlockedCount": len(
-            readiness["waterDependencyBlocked"]
+        # Retain the old wire fields as empty compatibility aliases. Water is
+        # an independent domain and never blocks otherwise valid geometry.
+        "waterDependencyBlocked": [],
+        "waterDependencyBlockedCount": 0,
+        "waterClassificationPending": readiness[
+            "waterClassificationPending"
+        ],
+        "waterClassificationPendingCount": len(
+            readiness["waterClassificationPending"]
         ),
         "readOnly": True,
         "networkAccess": False,

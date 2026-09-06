@@ -19,6 +19,9 @@ from dynamic_functions.Terrain.coastline import (
 )
 from dynamic_functions.Terrain.Database.database import connection_lock, db
 from dynamic_functions.Terrain.Database.textures import read_texture_with_ancestor
+from dynamic_functions.Terrain.ocean_texture_serving import (
+    VERSION as OCEAN_REPAIR_VERSION, in_trial_area, repair_texture,
+)
 from dynamic_functions.Terrain.demand import (
     compose_camera_demand_binary_from_ready_data,
     submit_texture_demand,
@@ -295,26 +298,30 @@ def texture_response(
 
     payload = bytes(texture["texture"])
     if texture["exact"]:
+        payload, media_type, repaired = repair_texture(connection, tile_id, payload)
         etag = f'"{hashlib.sha256(payload).hexdigest()}"'
         headers = {
-            "Cache-Control": "public, max-age=86400",
+            "Cache-Control": "no-cache" if in_trial_area(tile_id) else "public, max-age=86400",
             "ETag": etag,
             "X-Tex-Tile": tile_id,
             "X-Tex-Source": texture["source"],
             "X-Tex-Status": "ready",
             "X-Tex-Quality": "full",
             "X-Tex-Temporary": "0",
+            "X-Tex-Repair": OCEAN_REPAIR_VERSION if repaired else "none",
+            "X-Tex-Repaired-Pixels": str(repaired),
         }
         if if_none_match == etag:
             return Response(b"", status_code=304, headers=headers)
-        return Response(payload, media_type="image/jpeg", headers=headers)
+        return Response(payload, media_type=media_type, headers=headers)
 
     schedule(tile_id)
     resolved = texture["resolved_tile_id"]
     crop = _crop_ancestor_texture(payload, tile_id, resolved)
+    crop, media_type, repaired = repair_texture(connection, tile_id, crop)
     return Response(
         crop,
-        media_type="image/jpeg",
+        media_type=media_type,
         headers={
             "Cache-Control": "no-store",
             "X-Tex-Tile": tile_id,
@@ -323,6 +330,8 @@ def texture_response(
             "X-Tex-Status": "ancestor_fallback",
             "X-Tex-Quality": "ancestor_crop",
             "X-Tex-Temporary": "1",
+            "X-Tex-Repair": OCEAN_REPAIR_VERSION if repaired else "none",
+            "X-Tex-Repaired-Pixels": str(repaired),
         },
     )
 

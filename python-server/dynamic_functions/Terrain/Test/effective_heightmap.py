@@ -101,7 +101,7 @@ def effective_heightmap_offline() -> dict:
         effective = derived["heightmap"]
         water = derived["water_mask"]
         expected_water = _empty()
-        expected_water[10, 10:13] = True
+        expected_water[10, 10] = True
         expected_floor = np.float32(-WATER_FLOOR_DROP_M)
         stored = read_dem_payload(connection, _DERIVED)
         if stored is None:
@@ -209,8 +209,9 @@ def effective_heightmap_offline() -> dict:
             mismatch_rejected = True
 
         return {
-            "coastAndConnectedHydroUnion": bool(
+            "authoritativeCoastlinePreservesLand": bool(
                 np.array_equal(water, expected_water)
+                and np.all(effective[10, 11:13] == raw[10, 11:13])
             ),
             "disconnectedInlandRejected": not bool(water[40, 40]),
             "waterFloorApplied": bool(

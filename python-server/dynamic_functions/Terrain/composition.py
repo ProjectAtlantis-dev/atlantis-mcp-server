@@ -24,6 +24,7 @@ from dynamic_functions.Terrain.effective_heightmap import (
     apply_water_mask,
 )
 from dynamic_functions.Terrain.hydrography import read_hydrography_mask
+from dynamic_functions.Terrain.ocean_texture_serving import repair_texture
 from dynamic_functions.Terrain.terrain_config import (
     GREENLAND_BBOX,
     WMS_CONTRACT_DEPTH,
@@ -160,18 +161,14 @@ def _water_state(connection: sqlite3.Connection, tile_id: str) -> dict:
     connectivity = _ready_mask(
         connection, tile_id, contract_tile_id, read_connectivity_snapshot,
     )
-    masks = []
-    if coastline is not None:
-        masks.append(coastline["mask"])
-    if connectivity is not None:
-        masks.append(connectivity["mask"])
-    if masks and any(mask.shape != masks[0].shape for mask in masks[1:]):
-        raise ValueError(f"ready water mask shape mismatch for {tile_id}")
+    # GTK50 defines land as well as sea. A connected WMS component may cross
+    # that boundary; unioning it here excavates measured coastal terrain.
+    # Apply the same authority to a projected contract-ancestor coastline.
     effective = None
-    if masks:
-        effective = masks[0].copy()
-        for mask in masks[1:]:
-            effective |= mask
+    if coastline is not None:
+        effective = coastline["mask"].copy()
+    elif connectivity is not None:
+        effective = connectivity["mask"].copy()
     if connectivity is not None:
         connectivity_state = "ready"
     elif hydrography is not None:
@@ -313,6 +310,9 @@ def _compose_texture(connection: sqlite3.Connection, tile_id: str) -> dict:
     if texture is None:
         return {"state": "missing"}
     payload = texture["texture"]
+    media_type = "image/jpeg"
+    if texture["exact"]:
+        payload, media_type, _ = repair_texture(connection, tile_id, payload)
     result = {
         "state": "ready",
         "exact": texture["exact"],
@@ -320,7 +320,7 @@ def _compose_texture(connection: sqlite3.Connection, tile_id: str) -> dict:
         "depthDelta": texture["depth_delta"],
         "source": texture["source"],
         "updatedAt": texture["updated_at"],
-        "mediaType": "image/jpeg",
+        "mediaType": media_type,
         "contentLength": len(payload),
         "contentBase64": base64.b64encode(payload).decode("ascii"),
     }

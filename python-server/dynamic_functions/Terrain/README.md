@@ -31,6 +31,11 @@ texture state without provider access, scheduling, or writes.
 DEM geometry is publishable as soon as its measured heightmap exists;
 coastline, hydrography, connectivity, and bathymetry remain independent state
 and may refine that geometry later without withholding it from the viewer.
+Where a GTK50 coastline mask is available (including a projected depth-12
+ancestor), it controls both land and sea. Connected WMS hydrography supplies
+water only where that coastline coverage is absent; connectivity does not
+authorize cutting into GTK50 land. Both source masks remain visible in water
+status for diagnosis.
 
 `compose_tiles_binary(tile_ids, known_digests)` encodes the same ready-data
 batch with the browser's aligned `binary-v1` envelope. `known_digests` maps tile
@@ -95,6 +100,55 @@ waiting for a future retry deadline (`nextAction: retry`), or terminal/complete
 (`nextAction: idle`). Retry timing is explicit, and failures from obsolete
 camera claims do not keep the current view polling. Repeated ready-data
 composition retains coherent ancestor fallback while exact leaves converge.
+
+## Ocean imagery repair trial
+
+`Test.ocean_texture_offline()` checks a conservative white-gap detector against
+the original cached textures for the diagonal gap `11-934-28`, offshore blank
+area `9-230-6`, and real ice `12-1858-52`. It also checks land exclusion, small
+bright flecks, and nonuniform bright pixels. All fixtures are offline.
+
+The viewer texture endpoint enables derived repair in depth-9 tiles
+`230..233 / 6..7`, covering the supplied southern Greenland examples. A shared
+depth-10 mosaic with a one-tile halo classifies connected defects across tile
+boundaries. Every requested LOD uses that same approval map, refines the gap
+footprint through connected bright neutral pixels, and requires current GTK50
+ocean coverage. Missing reference imagery or coastline is left unclassified;
+serving does not fetch provider data or write the database.
+
+Repair uses the fixed sampled ocean RGB `(10,20,25)` across the trial to avoid
+different fill colours per tile. Corrected textures are lossless PNGs served
+from the existing `.jpg` route with `image/png`; unchanged images retain their
+original bytes. The tile-composition digest and HTTP ETag both describe the
+actual derived bytes. Trial responses revalidate their cache, and derived
+caches invalidate when reference textures or coastline change. Reload an
+already-open viewer once to clear its existing GPU textures.
+
+`X-Tex-Repair: ocean-gap-v1` and `X-Tex-Repaired-Pixels` identify corrected
+responses. Outside the trial bounds, textures are unchanged. The original
+provider JPEGs remain in the database. The heuristic is not a provider NoData
+mask and has not been enabled nationwide.
+
+`Test.ocean_texture_serving_offline()` checks shared-boundary significance,
+ancestor/exact LOD agreement, late coastline and neighbour arrival, cache/ETag
+invalidation, untouched source bytes, and trial-area limits.
+
+Build the original/detection/candidate-fill comparison with:
+
+```bash
+PYTHONPATH=python-server python-server/venv/bin/python \
+  python-server/dynamic_functions/Terrain/Test/ocean_texture_preview.py /tmp/ocean-preview
+```
+
+Open `/tmp/ocean-preview/index.html`. The preview uses a sampled ocean colour
+as an experimental fill. A bounded repair mask includes bright neutral JPEG
+fringes within three pixels of the accepted core, constrained to known ocean;
+all pixels outside that mask are preserved. The detector
+requires at least one hectare (10,000 square metres in EPSG:3413) per connected
+component, along with colour, uniformity, and pixel-count checks. Small
+fragments in this standalone per-image preview can fall below that threshold.
+The live trial instead classifies the shared reference mosaic before sampling
+the requested tile.
 
 ## Viewer HTTP sidecar
 

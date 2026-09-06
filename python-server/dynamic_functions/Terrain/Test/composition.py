@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import datetime
 from unittest.mock import patch
 
@@ -182,6 +183,44 @@ def composition_offline() -> dict:
         water_child = by_id[_WATER_CHILD]
         corrupt = by_id[_CORRUPT_DEM]
         missing = by_id[_MISSING]
+
+        def heights(tile):
+            return np.frombuffer(
+                base64.b64decode(tile["dem"]["heightmap"]["contentBase64"]),
+                dtype=np.float32,
+            ).reshape(_GRID)
+
+        # A ready WMS snapshot remains usable where GTK50 is absent, but an
+        # all-land GTK50 row must veto it just as a mixed coastline does.
+        connection.execute(
+            "DELETE FROM coastline_masks WHERE tile_id=?", (_READY_WATER,)
+        )
+        without_coast = compose_tiles_from_ready_data(
+            connection, [_READY_WATER]
+        )["tiles"][0]
+        write_coastline_mask(
+            connection, _READY_WATER, np.zeros(_GRID, dtype=bool),
+            "fixture_coast", 1, commit=False,
+        )
+        all_land = compose_tiles_from_ready_data(
+            connection, [_READY_WATER]
+        )["tiles"][0]
+
+        # At walking LOD the coastline comes from a contract ancestor. A
+        # connected snapshot claiming the entire child must not carve its land.
+        connection.execute(
+            "DELETE FROM coastline_masks WHERE tile_id=?", (_WATER_PARENT,)
+        )
+        write_coastline_mask(
+            connection, _WATER_PARENT, np.zeros(_GRID, dtype=bool),
+            "fixture_coast", 1, commit=False,
+        )
+        write_connectivity_snapshot(
+            connection, _WATER_PARENT, np.ones(_GRID, dtype=bool), commit=False
+        )
+        land_child = compose_tiles_from_ready_data(
+            connection, [_WATER_CHILD]
+        )["tiles"][0]
         return {
             "inputOrderPreserved": [tile["tileId"] for tile in response["tiles"]]
             == [
@@ -230,7 +269,22 @@ def composition_offline() -> dict:
                 and ready["dem"]["water"]["coastlineWaterCount"] == 1
                 and ready["dem"]["water"]["hydrographyWaterCount"] == 3
                 and ready["dem"]["water"]["tidalConnectivityWaterCount"] == 2
-                and ready["dem"]["heightmap"]["waterCount"] == 2
+                and ready["dem"]["heightmap"]["waterCount"] == 1
+                and heights(ready)[4, 5] == 107.0
+            ),
+            "connectedWaterWithoutCoastline": bool(
+                without_coast["dem"]["heightmap"]["waterCount"] == 2
+                and heights(without_coast)[4, 5] == -WATER_FLOOR_DROP_M
+            ),
+            "allLandCoastlineVetoesConnectedWater": bool(
+                all_land["dem"]["heightmap"]["waterCount"] == 0
+                and np.all(heights(all_land) == 107.0)
+            ),
+            "ancestorCoastlinePreservesLand": bool(
+                land_child["dem"]["water"]["tidalConnectivityWaterCount"]
+                == 65 * 65
+                and land_child["dem"]["heightmap"]["waterCount"] == 0
+                and np.all(heights(land_child) == np.float32(0.08))
             ),
             "descendantInheritsPublishedWater": bool(
                 water_child["dem"]["heightmap"]["waterCount"] == 65 * 65

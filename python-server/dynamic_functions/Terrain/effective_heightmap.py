@@ -31,30 +31,21 @@ def effective_water_mask(
     connection: sqlite3.Connection,
     tile_id: str,
 ) -> tuple[np.ndarray | None, bool]:
-    """Combine exact GTK50 sea with connected WMS water for one tile.
+    """Use exact GTK50 sea, or connected WMS water without GTK50 coverage.
 
     The boolean result records whether an exact authoritative coastline row
-    exists. It controls the stale-water land clip independently of whether
-    the final mask also contains connected hydrography.
+    exists. Its land classification is authoritative too: connectivity proves
+    that a WMS component touches the sea, not that its footprint is accurate.
     """
 
     require_tile_id(tile_id)
     coastline = read_coastline_mask(connection, tile_id)
-    authoritative = coastline["mask"] if coastline is not None else None
+    if coastline is not None:
+        return coastline["mask"].copy(), True
     connected = connected_hydrography_for_tile(connection, tile_id)
     if connected is None or not np.any(connected):
-        return (
-            authoritative.copy() if authoritative is not None else None,
-            authoritative is not None,
-        )
-    if authoritative is None:
-        return connected, False
-    if authoritative.shape != connected.shape:
-        raise ValueError(
-            f"coastline/hydrography mask shape mismatch for {tile_id}: "
-            f"{authoritative.shape} vs {connected.shape}"
-        )
-    return authoritative | connected, True
+        return None, False
+    return connected, False
 
 
 def apply_water_mask(heightmap: np.ndarray, water: np.ndarray) -> np.ndarray:

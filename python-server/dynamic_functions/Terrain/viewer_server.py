@@ -28,6 +28,7 @@ from dynamic_functions.Terrain.Asset.catalog import (
 )
 from dynamic_functions.Terrain.bathymetry_map import query_bathymetry_map
 from dynamic_functions.Terrain.coords import to_stereo
+from dynamic_functions.Terrain.coverage_coastline import query_available_coastline
 from dynamic_functions.Terrain.gpu_profile_control import GpuProfileControl
 from dynamic_functions.Terrain.http_adapter import (
     compose_tiles_response,
@@ -251,6 +252,21 @@ async def _coverage_cure(_request: Request) -> JSONResponse:
         log.exception("Terrain cure coverage request failed")
         return JSONResponse(
             {"error": "coverage_cure_failed", "message": str(exc)},
+            status_code=500,
+            headers={"Cache-Control": "no-store"},
+        )
+
+
+async def _coverage_coastline(_request: Request) -> JSONResponse:
+    """Expose detailed coastline from every locally available GTK50 block."""
+
+    try:
+        payload = await run_in_threadpool(query_available_coastline)
+        return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+    except Exception as exc:
+        log.exception("GTK50 coverage coastline request failed")
+        return JSONResponse(
+            {"error": "coverage_coastline_failed", "message": str(exc)},
             status_code=500,
             headers={"Cache-Control": "no-store"},
         )
@@ -580,6 +596,7 @@ _HOTLOAD_ROUTE_ENDPOINTS = {
     "/health": "_health",
     "/api/demand-status": "_demand_status",
     "/api/coverage/cure.json": "_coverage_cure",
+    "/api/coverage/coastline.json": "_coverage_coastline",
     "/favicon.ico": "_favicon",
     "/api/client_log": "_client_log",
     "/api/client_log/ring": "_client_log_ring",
@@ -599,6 +616,7 @@ _HOTLOAD_ROUTE_ENDPOINTS = {
 _HOTLOAD_ADDED_ROUTE_METHODS = {
     "/api/demand-status": ["GET"],
     "/api/coverage/cure.json": ["GET"],
+    "/api/coverage/coastline.json": ["GET"],
     "/api/vehicle_state": ["POST"],
     "/api/asset/{asset_id}": ["PATCH"],
 }
@@ -649,6 +667,11 @@ def _viewer_app() -> Starlette:
             Route("/health", _health, methods=["GET"]),
             Route("/api/demand-status", _demand_status, methods=["GET"]),
             Route("/api/coverage/cure.json", _coverage_cure, methods=["GET"]),
+            Route(
+                "/api/coverage/coastline.json",
+                _coverage_coastline,
+                methods=["GET"],
+            ),
             Route("/favicon.ico", _favicon, methods=["GET"]),
             Route("/api/client_log", _client_log, methods=["POST"]),
             Route("/api/client_log/ring", _client_log_ring, methods=["GET"]),

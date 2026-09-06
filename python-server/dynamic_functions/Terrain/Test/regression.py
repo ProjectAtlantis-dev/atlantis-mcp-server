@@ -39,6 +39,8 @@ from dynamic_functions.Terrain.Test.effective_heightmap import (
 from dynamic_functions.Terrain.Test.hydrography import hydrography_offline
 from dynamic_functions.Terrain.Test.http_adapter import http_adapter_offline
 from dynamic_functions.Terrain.Test.parent_fallback import parent_fallback
+from dynamic_functions.Terrain.Test.ocean_texture import ocean_texture_offline
+from dynamic_functions.Terrain.Test.ocean_texture_serving import ocean_texture_serving_offline
 from dynamic_functions.Terrain.Test.polling_convergence import (
     polling_convergence_offline,
 )
@@ -85,6 +87,8 @@ def terrain_regression() -> dict:
             }
         )
 
+    run("ocean_texture_offline", ocean_texture_offline, lambda result: result["checks"])
+    run("ocean_texture_serving_offline", ocean_texture_serving_offline, lambda result: result)
     run(
         "arcticdem_decode",
         lambda: arcticdem_decode(_DEM_TILE),
@@ -228,7 +232,7 @@ def terrain_regression() -> dict:
         lambda result: {
             key: bool(result[key])
             for key in (
-                "coastAndConnectedHydroUnion",
+                "authoritativeCoastlinePreservesLand",
                 "disconnectedInlandRejected",
                 "waterFloorApplied",
                 "staleWaterOnLandClipped",
@@ -276,6 +280,9 @@ def terrain_regression() -> dict:
                 "demSurvivesMissingTexture",
                 "missingConnectivityIsPending",
                 "readyConnectivityComposed",
+                "connectedWaterWithoutCoastline",
+                "allLandCoastlineVetoesConnectedWater",
+                "ancestorCoastlinePreservesLand",
                 "descendantInheritsPublishedWater",
                 "domainErrorIsolated",
                 "explicitMiss",

@@ -79,6 +79,18 @@ async def viewer_server_offline() -> dict:
                 "tiles": [],
             },
         ),
+        patch(
+            "dynamic_functions.Terrain.viewer_server.query_available_coastline",
+            return_value={
+                "source": "gtk50_vector",
+                "version": 2,
+                "crs": "EPSG:3413",
+                "simplifyMeters": 50.0,
+                "blocks": ["fixture.gpkg"],
+                "lines": [[[1, 2], [3, 4]]],
+                "failures": [],
+            },
+        ),
     ):
         await stop()
         initially_stopped = status()
@@ -162,6 +174,12 @@ async def viewer_server_offline() -> dict:
             ) as response:
                 coverage = json.loads(response.read())
                 coverage_status = response.status
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/api/coverage/coastline.json",
+                timeout=2.0,
+            ) as response:
+                coastline = json.loads(response.read())
+                coastline_status = response.status
             with urllib.request.urlopen(
                 f"http://127.0.0.1:{port}/favicon.ico", timeout=2.0
             ) as response:
@@ -251,6 +269,9 @@ async def viewer_server_offline() -> dict:
             and coverage_status == 200
             and coverage["cureDepth"] == 10
             and coverage["summary"]["cured"] == 1
+            and coastline_status == 200
+            and coastline["source"] == "gtk50_vector"
+            and len(coastline["lines"]) == 1
             and favicon_status == 200
             and favicon.startswith(b"<svg")
         ),

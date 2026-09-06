@@ -1,6 +1,9 @@
 """ArcticDEM request construction for explicit terrain tile IDs."""
 
 import hashlib
+import json
+import urllib.request
+from functools import lru_cache
 import logging
 import math
 from pathlib import Path
@@ -11,6 +14,7 @@ from pyproj import Transformer
 from pyproj.transformer import TransformerGroup
 from rasterio.windows import Window, from_bounds as window_from_bounds
 
+from dynamic_functions.Terrain.acquisition_dates import date_range
 from dynamic_functions.Terrain.Database.tiles import GRID_N
 from dynamic_functions.Terrain.terrain_config import GREENLAND_BBOX
 from dynamic_functions.Terrain.tile_address import tile_bounds
@@ -201,6 +205,22 @@ def _heightmap_summary(heightmap: np.ndarray) -> dict:
     }
 
 
+@lru_cache(maxsize=512)
+def _source_dates(url: str) -> dict:
+    """Read the immutable STAC item belonging to this exact mosaic COG."""
+    metadata_url = url.removesuffix("_dem.tif") + ".json"
+    with urllib.request.urlopen(metadata_url, timeout=30) as response:
+        item = json.load(response)
+    if item["assets"]["dem"]["href"] != url:
+        raise ValueError("ArcticDEM STAC item references a different DEM")
+    properties = item["properties"]
+    return date_range(
+        [properties.get("start_datetime"), properties.get("end_datetime")],
+        source="arcticdem_stac:start_datetime/end_datetime",
+        scope="source_mosaic",
+    )
+
+
 def _fetch_heightmap(
     tile_id: str,
 ) -> tuple[np.ndarray, list[dict], float]:
@@ -210,18 +230,23 @@ def _fetch_heightmap(
     sources = _sources_for_bbox(bbox)
     heightmap = None
 
+    contributing = []
     for source in sources:
         decoded = _decode_source(source["url"], bbox)
+        fill = np.isfinite(decoded)
+        if heightmap is not None:
+            fill &= np.isnan(heightmap)
+        if np.any(fill):
+            contributing.append({**source, **_source_dates(source["url"])})
         if heightmap is None:
             heightmap = decoded
         else:
-            fill = np.isnan(heightmap) & np.isfinite(decoded)
             heightmap[fill] = decoded[fill]
 
     if heightmap is None:
         raise RuntimeError(f"No ArcticDEM sources found for {tile_id}")
     heightmap, geoid_undulation = _correct_vertical_datum(heightmap, bbox)
-    return heightmap, sources, geoid_undulation
+    return heightmap, contributing, geoid_undulation
 
 
 @visible

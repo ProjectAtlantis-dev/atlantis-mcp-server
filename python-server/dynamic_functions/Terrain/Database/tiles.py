@@ -13,6 +13,7 @@ import zlib
 
 import numpy as np
 
+from dynamic_functions.Terrain.acquisition_dates import encode_dates, decode_dates
 from dynamic_functions.Terrain.terrain_config import (
     GREENLAND_BBOX,
     MAX_TILE_DEPTH,
@@ -170,6 +171,7 @@ def write_dem(
     source: str,
     vertical_datum: str,
     *,
+    acquisition_dates: dict | None = None,
     commit: bool = True,
 ) -> bool:
     """Store one decoded DEM without silently replacing existing data.
@@ -192,6 +194,7 @@ def write_dem(
     if not isinstance(vertical_datum, str) or not vertical_datum.strip():
         raise ValueError("vertical_datum must be a non-empty string")
 
+    dates_json = encode_dates(acquisition_dates)
     ensure_tile_row(db, tile_id)
     confidence = np.where(
         np.isfinite(heightmap),
@@ -208,7 +211,7 @@ def write_dem(
 
     cursor = db.execute(
         "UPDATE tiles SET heightmap = ?, confidence_map = ?, "
-        "geometric_error = ?, source = ?, vertical_datum = ?, updated_at = ? "
+        "geometric_error = ?, source = ?, vertical_datum = ?, updated_at = ?, acquisition_dates = ? "
         "WHERE tile_id = ? AND heightmap IS NULL AND confidence_map IS NULL",
         (
             heightmap_blob,
@@ -217,6 +220,7 @@ def write_dem(
             source,
             vertical_datum,
             now,
+            dates_json,
             tile_id,
         ),
     )
@@ -226,7 +230,7 @@ def write_dem(
         return True
 
     row = db.execute(
-        "SELECT source, vertical_datum, updated_at, heightmap, confidence_map "
+        "SELECT source, vertical_datum, updated_at, heightmap, confidence_map, acquisition_dates "
         "FROM tiles WHERE tile_id = ?",
         (tile_id,),
     ).fetchone()
@@ -239,12 +243,14 @@ def write_dem(
         existing_updated_at,
         existing_heightmap,
         existing_confidence,
+        existing_dates,
     ) = row
     if (
         existing_source == source
         and existing_vertical_datum == vertical_datum
         and existing_heightmap == heightmap_blob
         and existing_confidence == confidence_blob
+        and existing_dates == dates_json
     ):
         return False
     raise TileClobberError(
@@ -260,7 +266,7 @@ def read_dem_payload(db: sqlite3.Connection, tile_id: str) -> dict | None:
 
     row = db.execute(
         "SELECT source, vertical_datum, updated_at, geometric_error, "
-        "heightmap, confidence_map "
+        "heightmap, confidence_map, acquisition_dates "
         "FROM tiles WHERE tile_id = ?",
         (tile_id,),
     ).fetchone()
@@ -279,6 +285,7 @@ def read_dem_payload(db: sqlite3.Connection, tile_id: str) -> dict | None:
         "geometric_error": row[3],
         "heightmap": heightmap,
         "confidence_map": confidence_map,
+        "acquisition_dates": decode_dates(row[6]),
     }
 
 

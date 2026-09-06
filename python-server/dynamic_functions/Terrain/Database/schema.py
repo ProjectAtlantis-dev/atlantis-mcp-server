@@ -100,4 +100,8 @@ def create(db: sqlite3.Connection) -> None:
     }
     if "vertical_datum" not in tile_columns:
         db.execute("ALTER TABLE tiles ADD COLUMN vertical_datum TEXT")
+    for table in ("tiles", "textures", "coastline_masks"):
+        columns = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
+        if "acquisition_dates" not in columns:
+            db.execute(f"ALTER TABLE {table} ADD COLUMN acquisition_dates TEXT")
     db.commit()

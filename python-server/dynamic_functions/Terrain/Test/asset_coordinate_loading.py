@@ -174,13 +174,15 @@ async def asset_coordinate_loading_offline() -> dict:
     with (
         patch.object(acq, '_read_ground_tile', side_effect=[None,None,measured]),
         patch.object(acq, 'fetch_best_dem', return_value=dict(
-            heightmap=measured[0],source='arcticdem_10m',verticalDatum='EGM2008')) as fetch,
+            heightmap=measured[0],source='arcticdem_10m',verticalDatum='EGM2008',
+            acquisitionDates={'date': '2020-01-01T00:00:00Z', 'dateEnd': '2020-01-01T00:00:00Z'})) as fetch,
         patch.object(acq.terrain, 'db', return_value=object()),
         patch.object(acq, 'write_dem') as write,
     ):
         assert acq._ground_tile('12-1942-61') is measured
         fetch.assert_called_once_with('12-1942-61')
         assert write.call_count == 1
+        assert write.call_args.kwargs["acquisition_dates"]["date"] == "2020-01-01T00:00:00Z"
 
     with sqlite3.connect(':memory:') as connection:
         schema.create(connection)

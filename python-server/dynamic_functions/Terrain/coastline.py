@@ -19,6 +19,7 @@ from shapely import wkb as shapely_wkb
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.ops import transform as shapely_transform
 
+from dynamic_functions.Terrain.acquisition_dates import date_range, encode_dates, decode_dates
 from dynamic_functions.Terrain.Database.database import db
 from dynamic_functions.Terrain.Database.tiles import ensure_tile_row
 from dynamic_functions.Terrain.terrain_config import GREENLAND_BBOX
@@ -63,6 +64,7 @@ def write_coastline_mask(
     source: str,
     version: int,
     *,
+    acquisition_dates: dict | None = None,
     commit: bool = True,
 ) -> bool:
     """Store one exact authoritative mask without replacing valid payloads."""
@@ -72,13 +74,14 @@ def write_coastline_mask(
         raise ValueError("coastline source must be a non-empty string")
     if not isinstance(version, int) or version < 1:
         raise ValueError("coastline version must be a positive integer")
+    dates_json = encode_dates(acquisition_dates)
     canonical, encoded = _encoded_mask(mask)
     ensure_tile_row(connection, tile_id)
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
     cursor = connection.execute(
         "INSERT OR IGNORE INTO coastline_masks "
-        "(tile_id, width, height, mask, source, version, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "(tile_id, width, height, mask, source, version, updated_at, acquisition_dates) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (
             tile_id,
             int(canonical.shape[1]),
@@ -87,6 +90,7 @@ def write_coastline_mask(
             source,
             version,
             now,
+            dates_json,
         ),
     )
     if cursor.rowcount == 1:
@@ -95,7 +99,7 @@ def write_coastline_mask(
         return True
 
     row = connection.execute(
-        "SELECT width, height, mask, source, version FROM coastline_masks "
+        "SELECT width, height, mask, source, version, acquisition_dates FROM coastline_masks "
         "WHERE tile_id = ?",
         (tile_id,),
     ).fetchone()
@@ -105,6 +109,7 @@ def write_coastline_mask(
         encoded,
         source,
         version,
+        dates_json,
     )
     if row == incoming:
         return False
@@ -124,7 +129,7 @@ def read_coastline_mask(
 
     require_tile_id(tile_id)
     row = connection.execute(
-        "SELECT width, height, mask, source, version, updated_at "
+        "SELECT width, height, mask, source, version, updated_at, acquisition_dates "
         "FROM coastline_masks WHERE tile_id = ?",
         (tile_id,),
     ).fetchone()
@@ -146,6 +151,7 @@ def read_coastline_mask(
         "source": row[3],
         "version": int(row[4]),
         "updated_at": row[5],
+        "acquisition_dates": decode_dates(row[6]),
         "digest": hashlib.sha256(values.tobytes()).hexdigest(),
     }
 
@@ -222,30 +228,41 @@ def _gpkg_wkb(blob: bytes) -> bytes:
     return bytes(blob[8 + envelope_length :])
 
 
-def _read_block(path: Path) -> tuple[list[Polygon], list[Polygon]]:
+def _read_block(
+    path: Path, *, bbox: tuple | None = None, dates: list | None = None,
+) -> tuple[list[Polygon], list[Polygon]]:
     """Read provider GeoPackage polygons without touching the terrain DB."""
 
     if not path.is_file():
         raise FileNotFoundError(path)
     water: list[Polygon] = []
     islands: list[Polygon] = []
+    footprint = Polygon.from_bounds(*bbox) if bbox is not None else None
+    has_geometry = False
     source = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
         for table, target in (("tidalwater_s", water), ("island_s", islands)):
             try:
-                rows = source.execute(f'SELECT geom FROM "{table}"').fetchall()
+                columns = "geom, spatialsourcedatetime" if dates is not None else "geom"
+                rows = source.execute(f'SELECT {columns} FROM "{table}"').fetchall()
             except sqlite3.OperationalError as exc:
-                raise ValueError(f"GTK50 block is missing {table}") from exc
-            for (blob,) in rows:
+                raise ValueError(f"GTK50 block cannot read {table} ({columns}): {exc}") from exc
+            for row in rows:
+                blob = row[0]
                 if blob is None:
                     continue
                 geometry = shapely_wkb.loads(_gpkg_wkb(blob))
                 geometry = shapely_transform(_TO_STEREO.transform, geometry)
+                has_geometry = True
+                if footprint is not None and not geometry.intersects(footprint):
+                    continue
+                if dates is not None:
+                    dates.append(row[1])
                 parts = geometry.geoms if isinstance(geometry, MultiPolygon) else [geometry]
                 target.extend(part for part in parts if isinstance(part, Polygon))
     finally:
         source.close()
-    if not water and not islands:
+    if not has_geometry:
         raise ValueError(f"GTK50 block contains no coastline geometry: {path}")
     return water, islands
 
@@ -295,13 +312,16 @@ def _rasterize(
     return np.flipud(fractions >= 0.5)
 
 
-def _decode_blocks(tile_id: str, paths: dict[str, Path]) -> np.ndarray:
+def _decode_blocks(
+    tile_id: str, paths: dict[str, Path], *, dates: list | None = None,
+) -> np.ndarray:
     request = _request_spec(tile_id)
     required = [item["blockId"] for item in request["blocks"]]
     missing = [block for block in required if block not in paths]
     if missing:
         raise ValueError("missing required GTK50 blocks: " + ", ".join(missing))
-    parsed = [_read_block(paths[block]) for block in required]
+    parsed = [_read_block(paths[block], bbox=tuple(request["bbox"]), dates=dates)
+              for block in required]
     return _rasterize(tuple(request["bbox"]), request["resolution"], parsed)
 
 
@@ -362,12 +382,16 @@ def _acquire_mask(tile_id: str) -> tuple[np.ndarray, dict]:
                 for block in missing
             }
         )
-    mask = _decode_blocks(tile_id, paths)
+    dates = []
+    mask = _decode_blocks(tile_id, paths, dates=dates)
     digest = hashlib.sha256(mask.astype(np.uint8).tobytes()).hexdigest()
     return mask, {
         **request,
         "status": "success",
         "blockCount": len(paths),
+        "acquisitionDates": date_range(
+            dates, source="gtk50:spatialsourcedatetime", scope="intersecting_features",
+        ),
         "waterCount": int(mask.sum()),
         "landCount": int(mask.size - mask.sum()),
         "digest": digest,
@@ -384,6 +408,7 @@ def _read_response(connection, tile_id: str) -> dict:
         "source": payload["source"],
         "version": payload["version"],
         "updatedAt": payload["updated_at"],
+        **payload["acquisition_dates"],
         "shape": [payload["height"], payload["width"]],
         "waterCount": int(payload["mask"].sum()),
         "landCount": int(payload["mask"].size - payload["mask"].sum()),
@@ -428,5 +453,6 @@ def fetch_coastline(tile_id: str) -> dict:
         mask,
         SOURCE,
         VERSION,
+        acquisition_dates=acquisition["acquisitionDates"],
     )
     return {**acquisition, "written": written, **_read_response(connection, tile_id)}

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 
+from dynamic_functions.Terrain.Test.acquisition_dates import acquisition_dates_offline
 from dynamic_functions.Terrain.Test.arctic_dem_decode import arcticdem_decode
 from dynamic_functions.Terrain.Test.arcticdem_failures import arcticdem_failures
 from dynamic_functions.Terrain.Test.binary_batch import binary_batch_offline
@@ -87,6 +88,7 @@ def terrain_regression() -> dict:
             }
         )
 
+    run("acquisition_dates_offline", acquisition_dates_offline, lambda result: {"passed": result["passed"]})
     run("ocean_texture_offline", ocean_texture_offline, lambda result: result["checks"])
     run("ocean_texture_serving_offline", ocean_texture_serving_offline, lambda result: result)
     run(

@@ -7,14 +7,18 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 from PIL import Image, UnidentifiedImageError
+from pyproj import Transformer
 from rasterio.crs import CRS
 from rasterio.transform import from_bounds as transform_from_bounds
 from rasterio.warp import Resampling, reproject, transform_bounds
 
 from dynamic_functions.Terrain.terrain_config import GREENLAND_BBOX
+from dynamic_functions.Terrain.acquisition_dates import date_range
 from dynamic_functions.Terrain.tile_address import require_tile_id, tile_bounds
 
 
@@ -23,6 +27,49 @@ _WMS_LAYERS = "ortofoto_0_2m_regional,ortofoto_1_6m_regional"
 _SOURCE_CRS = "EPSG:3413"
 _WMS_CRS = "EPSG:3184"
 _CHILD_RESOLUTION = 256
+_TO_WMS = Transformer.from_crs(3413, 3184, always_xy=True)
+
+
+def _parse_spot_dates(payload: bytes) -> dict:
+    root = ET.fromstring(payload)
+    if root.tag.split("}")[-1] != "msGMLOutput":
+        raise ValueError("unexpected SPOT acquisition metadata response")
+    features = [element for element in root.iter()
+                if element.tag.split("}")[-1] == "spot_optagetidspunkt_feature"]
+    return date_range(
+        [feature.findtext("timeutc") for feature in features],
+        source="spot_optagetidspunkt:timeutc", scope="tile_center",
+    )
+
+
+def _fetch_child_dates(tile_id: str, token: str) -> dict:
+    bbox = tile_bounds(tile_id, GREENLAND_BBOX)
+    x, y = _TO_WMS.transform((bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2)
+    # A small symmetric map pins the query to the child centre, independent
+    # of the rotation/padding of the imagery metatile's WMS bounds.
+    params = {
+        "SERVICE": "WMS", "VERSION": "1.3.0", "REQUEST": "GetFeatureInfo",
+        "LAYERS": "spot_optagetidspunkt", "QUERY_LAYERS": "spot_optagetidspunkt",
+        "CRS": _WMS_CRS, "BBOX": f"{x-1.5},{y-1.5},{x+1.5},{y+1.5}",
+        "WIDTH": 3, "HEIGHT": 3, "I": 1, "J": 1,
+        "FORMAT": "image/jpeg", "STYLES": "",
+        "INFO_FORMAT": "application/vnd.ogc.gml", "FEATURE_COUNT": 100,
+        "token": token,
+    }
+    payload, response = _http_get(f"{_WMS_ENDPOINT}?{urllib.parse.urlencode(params)}")
+    if payload is None:
+        message = f"SPOT acquisition metadata {tile_id}: {response['status']}"
+        if response["status"] in {"network_error", "transient_error", "rate_limited"}:
+            raise ConnectionError(message)
+        raise RuntimeError(message)
+    return _parse_spot_dates(payload)
+
+
+def _fetch_metatile_dates(request: dict, token: str) -> dict:
+    tile_ids = [child["tileId"] for child in request["children"]]
+    with ThreadPoolExecutor(max_workers=4, thread_name_prefix="spot-dates") as pool:
+        results = pool.map(lambda tile_id: _fetch_child_dates(tile_id, token), tile_ids)
+        return dict(zip(tile_ids, results))
 
 
 def _metatile_spec(tile_id: str) -> dict:
@@ -301,6 +348,7 @@ def _fetch_metatile(tile_id: str, token: str) -> tuple[bytes | None, dict]:
     }
     if no_coverage:
         return None, metadata
+    metadata["childAcquisitionDates"] = _fetch_metatile_dates(request, token)
     return image_bytes, metadata
 
 

@@ -118,7 +118,8 @@ def _ground_tile(tile_id: str):
         # Terrain's own demand may have published during provider I/O.
         if _read_ground_tile(tile_id) is None:
             write_dem(terrain.db(), tile_id, acquisition['heightmap'],
-                      acquisition['source'], acquisition['verticalDatum'])
+                      acquisition['source'], acquisition['verticalDatum'],
+                      acquisition_dates=acquisition['acquisitionDates'])
     return _read_ground_tile(tile_id)
 
 

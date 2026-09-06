@@ -42,6 +42,7 @@ def _read_texture(connection, tile_id: str, *, include_data: bool) -> dict:
         "found": True,
         "source": payload["source"],
         "updatedAt": payload["updated_at"],
+        **payload["acquisition_dates"],
         "mediaType": _MEDIA_TYPE,
         "contentLength": len(texture),
         "digest": hashlib.sha256(texture).hexdigest(),
@@ -75,6 +76,7 @@ def read_texture_fallback(tile_id: str) -> dict:
         "depthDelta": payload["depth_delta"],
         "source": payload["source"],
         "updatedAt": payload["updated_at"],
+        **payload["acquisition_dates"],
         "mediaType": _MEDIA_TYPE,
         "contentLength": len(texture),
         "digest": hashlib.sha256(texture).hexdigest(),
@@ -113,6 +115,7 @@ def fetch_texture(tile_id: str) -> dict:
         connection,
         children,
         _SOURCE,
+        acquisition_dates=provider["childAcquisitionDates"],
     )
     child_summaries = [
         _read_texture(connection, child_id, include_data=False)

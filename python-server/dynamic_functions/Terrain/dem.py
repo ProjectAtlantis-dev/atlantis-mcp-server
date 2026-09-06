@@ -38,6 +38,7 @@ def _read_dem(connection, tile_id: str) -> dict:
         "source": payload["source"],
         "verticalDatum": payload["vertical_datum"],
         "updatedAt": payload["updated_at"],
+        **payload["acquisition_dates"],
         "geometricError": payload["geometric_error"],
         "confidenceLevels": [
             int(value) for value in np.unique(confidence_map)
@@ -72,6 +73,7 @@ def read_dem_fallback(tile_id: str) -> dict:
         "source": payload["source"],
         "verticalDatum": payload["vertical_datum"],
         "updatedAt": payload["updated_at"],
+        **payload["acquisition_dates"],
         "geometricError": payload["geometric_error"],
         "confidenceLevels": [
             int(value) for value in np.unique(payload["confidence_map"])
@@ -98,12 +100,14 @@ def fetch_dem(tile_id: str) -> dict:
         heightmap,
         acquisition["source"],
         acquisition["verticalDatum"],
+        acquisition_dates=acquisition["acquisitionDates"],
     )
     return {
         "provider": acquisition["provider"],
         "dataset": acquisition["dataset"],
         "verticalDatum": acquisition["verticalDatum"],
         "geoidUndulation": acquisition["geoidUndulation"],
+        "acquisitionDates": acquisition["acquisitionDates"],
         "written": written,
         "sources": acquisition["sources"],
         "attempts": acquisition["attempts"],

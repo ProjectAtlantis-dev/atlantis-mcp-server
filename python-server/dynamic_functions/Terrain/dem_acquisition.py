@@ -6,6 +6,8 @@ import logging
 
 import numpy as np
 
+from dynamic_functions.Terrain.acquisition_dates import date_range
+
 from dynamic_functions.Terrain.arctic_dem import (
     _fetch_heightmap as _fetch_arcticdem,
 )
@@ -57,9 +59,18 @@ def fetch_best_dem(tile_id: str) -> dict:
             raise DemProviderNoDataError(
                 f"provider=arcticdem tile={tile_id} returned no finite samples"
             )
+        acquisition_dates = date_range(
+            [item.get(key) for item in sources for key in ("date", "dateEnd")],
+            source="arcticdem_stac:start_datetime/end_datetime",
+            scope="contributing_source_mosaics",
+        )
+        acquisition_dates["dateComplete"] &= all(
+            item.get("dateComplete", False) for item in sources
+        )
         candidates.append(
             {
                 "heightmap": heightmap,
+                "acquisitionDates": acquisition_dates,
                 "source": "arcticdem_10m",
                 "provider": "arcticdem",
                 "dataset": "mosaics/v4.1/10m",
@@ -99,6 +110,7 @@ def fetch_best_dem(tile_id: str) -> dict:
         candidates.append(
             {
                 "heightmap": heightmap,
+                "acquisitionDates": None,
                 "source": "copernicus",
                 "provider": "copernicus",
                 "dataset": "Copernicus DEM GLO-30",

@@ -180,6 +180,8 @@ def _water_state(connection: sqlite3.Connection, tile_id: str) -> dict:
         "has_exact_coastline": coastline is not None,
         "status": {
             "coastline": "ready" if coastline is not None else "missing",
+            "coastlineDates": coastline["acquisition_dates"] if coastline else {"date": None, "dateEnd": None},
+            "coastlineTileId": coastline["tile_id"] if coastline else None,
             "coastlineWaterCount": (
                 int(coastline["mask"].sum()) if coastline is not None else None
             ),
@@ -298,6 +300,7 @@ def _compose_dem(connection: sqlite3.Connection, tile_id: str) -> dict:
         "resolvedTileId": resolved_id if dem is not None else None,
         "depthDelta": dem["depth_delta"] if dem is not None else None,
         "source": dem["source"] if dem is not None else None,
+        **(dem["acquisition_dates"] if dem is not None else {"date": None, "dateEnd": None}),
         "verticalDatum": dem["vertical_datum"] if dem is not None else None,
         "geometricError": dem["geometric_error"] if dem is not None else None,
         "water": water,
@@ -320,6 +323,7 @@ def _compose_texture(connection: sqlite3.Connection, tile_id: str) -> dict:
         "depthDelta": texture["depth_delta"],
         "source": texture["source"],
         "updatedAt": texture["updated_at"],
+        **texture["acquisition_dates"],
         "mediaType": media_type,
         "contentLength": len(payload),
         "contentBase64": base64.b64encode(payload).decode("ascii"),
@@ -358,13 +362,26 @@ def compose_tiles_from_ready_data(
     requested = _validated_tile_ids(tile_ids)
     tiles = []
     for tile_id in requested:
-        tiles.append(
-            {
-                "tileId": tile_id,
-                "dem": _domain_result(_compose_dem, connection, tile_id),
-                "texture": _domain_result(_compose_texture, connection, tile_id),
-            }
-        )
+        dem = _domain_result(_compose_dem, connection, tile_id)
+        texture = _domain_result(_compose_texture, connection, tile_id)
+        water = dem.get("water", {})
+        coastline = water.get("coastlineDates", {})
+        tiles.append({
+            "tileId": tile_id,
+            "dem": dem,
+            "texture": texture,
+            "provenance": {
+                "heightmapDate": dem.get("date"),
+                "heightmapDateEnd": dem.get("dateEnd"),
+                "textureDate": texture.get("date"),
+                "textureDateEnd": texture.get("dateEnd"),
+                "coastlineDate": coastline.get("date"),
+                "coastlineDateEnd": coastline.get("dateEnd"),
+                "heightmapTileId": dem.get("resolvedTileId"),
+                "textureTileId": texture.get("resolvedTileId"),
+                "coastlineTileId": water.get("coastlineTileId"),
+            },
+        })
     return {
         "tiles": tiles,
         "tileCount": len(tiles),

@@ -24,6 +24,43 @@ is not available; Copernicus may still resolve the request independently.
 PROJ's ballpark zero-offset fallback must never be used because it would store
 sea-level terrain roughly 28–49 metres too high around Greenland.
 
+## Acquisition dates
+
+New acquisitions persist date provenance alongside each DEM, texture child,
+and coastline mask. `updated_at` remains the local publication time and is
+never used as an acquisition date.
+
+- Textures query `spot_optagetidspunkt` via WMS GetFeatureInfo and read
+  `timeutc` at each child's centre, with four bounded metadata workers per
+  metatile. These are SPOT footprint dates sampled at a point, not exhaustive
+  per-pixel dates or acquisition dates for Asiaq imagery.
+- ArcticDEM reads `start_datetime` / `end_datetime` from the static STAC item
+  matching each contributing 10 m COG. The combined interval describes source
+  mosaics, not a per-pixel measurement date. Unused source windows do not widen
+  the range. Copernicus dates remain unknown.
+- GTK50 reads `spatialsourcedatetime` from tidal-water and island features
+  intersecting the tile, aggregating their earliest and latest dates.
+
+Metadata requests and parsing finish before publication. Transport and malformed
+metadata failures remain visible and cannot publish undated replacement data.
+Valid missing dates remain null; `dateComplete` reports incomplete metadata.
+The schema adds nullable `acquisition_dates` JSON columns without changing existing
+payloads. Restart the terrain process to apply this schema migration. Legacy rows
+remain undated until reacquired after a reset; reads never fetch metadata or
+schedule backfills. Conflicting payloads or date metadata reject the entire write.
+
+JSON and binary tile responses include `provenance.textureDate` /
+`textureDateEnd`, `heightmapDate` / `heightmapDateEnd`, and `coastlineDate` /
+`coastlineDateEnd`, as UTC ISO timestamps. Resolved source tile IDs accompany
+them, so ancestor data retains its actual provenance. Domain metadata additionally
+exposes `dateSource`, `dateScope`, and `dateComplete`; coastline metadata is under
+`dem.water.coastlineDates`. Metadata is sent even when the client reuses an
+unchanged heightmap digest.
+
+`Test.acquisition_dates_offline()` checks provider parsing, source selection,
+schema migration, persistence, ancestor provenance, worker failures, and binary
+responses using isolated temporary databases. It also runs in `terrain_regression()`.
+
 ## Ready-data batch tools
 
 `compose_tiles(tile_ids)` returns independently available DEM, water, and

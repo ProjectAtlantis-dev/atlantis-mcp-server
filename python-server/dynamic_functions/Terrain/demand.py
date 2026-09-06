@@ -72,7 +72,7 @@ _SQL_CHUNK = 500
 # Worker callbacks are captured by the shared coordinator across hot reloads.
 # Bump the key whenever acquisition behavior changes so new camera demand cannot
 # keep invoking a stale worker from the previous module generation.
-_REGISTRY_KEY = "Terrain.demand.registry.v5"
+_REGISTRY_KEY = "Terrain.demand.registry.v6"
 DEFAULT_RETRY_DELAYS = (2.0, 10.0)
 EXHAUSTED_RECLAIM_DELAY = 60.0
 log = logging.getLogger("terrain.demand")
@@ -755,6 +755,7 @@ def _dem_worker(tile_id: str) -> dict:
             acquisition["heightmap"],
             acquisition["source"],
             acquisition["verticalDatum"],
+            acquisition_dates=acquisition["acquisitionDates"],
         )
     return {
         "tileId": tile_id,
@@ -762,6 +763,7 @@ def _dem_worker(tile_id: str) -> dict:
         "provider": acquisition["provider"],
         "sources": acquisition["sources"],
         "geoidUndulation": acquisition["geoidUndulation"],
+        "acquisitionDates": acquisition["acquisitionDates"],
         "attempts": acquisition["attempts"],
     }
 
@@ -780,7 +782,10 @@ def _texture_worker(tile_id: str) -> dict:
         raise RuntimeError(detail)
     children = _split_metatile(metatile, tile_id)
     with _publish_lock():
-        written = write_texture_metatile(db(), children, "dataforsyningen")
+        written = write_texture_metatile(
+            db(), children, "dataforsyningen",
+            acquisition_dates=provider["childAcquisitionDates"],
+        )
     return {"tileId": tile_id, "written": written, **provider}
 
 
@@ -793,6 +798,7 @@ def _coastline_worker(tile_id: str) -> dict:
             mask,
             COASTLINE_SOURCE,
             COASTLINE_VERSION,
+            acquisition_dates=acquisition["acquisitionDates"],
         )
     return {"tileId": tile_id, "written": written, **acquisition}
 

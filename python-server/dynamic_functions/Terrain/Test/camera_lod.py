@@ -30,8 +30,9 @@ _FIXTURES = (_PARENT, _PARENT_EXACT_CHILD, _CAMERA_TILE, _MISSING)
 _EXPECTED_SELECTION_DIGEST = (
     "1cceaa661e08d05779d399329c7e5f3afac36973b36bbd678ef4311b9a49e934"
 )
+# Includes nullable acquisition provenance in the binary JSON header.
 _EXPECTED_BINARY_DIGEST = (
-    "e10eef461a3c784a80cb5f104ead13528fd232ea45c042dfdd4369bcbb137689"
+    "32b49e8da7a562d8aea8da2bc101859b8a93a0649eeb013f2c1b1f3e9eab46a3"
 )
 
 

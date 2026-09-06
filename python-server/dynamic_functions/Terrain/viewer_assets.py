@@ -239,7 +239,7 @@ def query_buildings(qx: float, qy: float, max_range: float, ox: float, oy: float
 
 def encode_buildings_response(
     buildings: list[dict], *, qx: float, qy: float, ox: float, oy: float,
-    source: str,
+    source: str, acquisition: dict | None = None,
 ) -> bytes:
     entries = []
     blobs = []
@@ -263,10 +263,13 @@ def encode_buildings_response(
     payload = {
         "tiles": [], "buildings": entries, "count": len(entries),
         "buildingsHash": f"{digest & 0xFFFFFFFF:08x}",
-        "buildingsStatus": "ready",
+        "buildingsStatus": acquisition["status"] if acquisition else "ready",
         "buildingsSource": source,
         "qx": qx, "qy": qy, "ox": ox, "oy": oy,
     }
+    if acquisition is not None:
+        payload['buildingsAcquisition'] = acquisition
+        payload['shouldPoll'] = acquisition['shouldPoll']
     header = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     header += b" " * (-(len(header) + 4) % 4)
     return b"".join((struct.pack("<I", len(header)), header, *blobs))

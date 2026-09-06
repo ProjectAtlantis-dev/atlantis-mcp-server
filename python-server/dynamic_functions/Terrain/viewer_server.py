@@ -454,11 +454,16 @@ async def _buildings(request: Request) -> Response:
             raise ValueError("range must be greater than zero")
         ox = _query_float(request, "ox", qx)
         oy = _query_float(request, "oy", qy)
+        from dynamic_functions.Terrain.Asset.acquisition import request_for_point
+        # Resolve the strict catalog contract before creating demand state.
+        from dynamic_functions.Terrain.viewer_assets import _required_assets_db_path
+        _required_assets_db_path()
+        acquisition = await run_in_threadpool(request_for_point, qx, qy, max_range)
         buildings, source = await run_in_threadpool(
             query_buildings, qx, qy, max_range, ox, oy
         )
         payload = encode_buildings_response(
-            buildings, qx=qx, qy=qy, ox=ox, oy=oy, source=source
+            buildings, qx=qx, qy=qy, ox=ox, oy=oy, source=source, acquisition=acquisition
         )
         return Response(
             payload,

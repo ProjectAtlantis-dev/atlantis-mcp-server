@@ -4,6 +4,8 @@ This is a candidate detector, not proof of provider NoData. In particular,
 uniform sea ice can satisfy the same criteria.
 """
 
+from typing import cast
+
 import numpy as np
 from scipy.ndimage import binary_dilation, label
 
@@ -75,7 +77,8 @@ def detect_white_ocean_gaps(
         & (pixels.min(axis=2) >= 245)
         & (np.ptp(pixels.astype(np.int16), axis=2) <= 4)
     )
-    components, count = label(candidate)
+    # Without an output array, SciPy returns the labels and component count.
+    components, count = cast(tuple[np.ndarray, int], label(candidate))
     sizes = np.bincount(components.ravel())
     minimum = 164
     accepted = np.zeros(count + 1, dtype=bool)

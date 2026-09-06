@@ -31,6 +31,16 @@ class AssetRebuildError(RuntimeError):
     """The source data cannot produce a complete local catalog."""
 
 
+def record_import(connection: sqlite3.Connection, code: str, counts: dict, now: str) -> None:
+    """Record a complete package, including legitimately empty vector layers."""
+    connection.execute(
+        "INSERT INTO asset_imports(settlement,layer_counts,updated_at) VALUES (?,?,?) "
+        "ON CONFLICT(settlement) DO UPDATE SET layer_counts=excluded.layer_counts, "
+        "updated_at=excluded.updated_at",
+        (code, json.dumps(counts, sort_keys=True), now),
+    )
+
+
 def _read_metadata(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -531,7 +541,7 @@ def build_catalog(
                 transformer = Transformer.from_crs(
                     _source_epsg(prj), 3413, always_xy=True
                 )
-                counts[BUILDING_LAYER] += _ingest_buildings(
+                building_count = _ingest_buildings(
                     connection,
                     archive,
                     members,
@@ -540,10 +550,13 @@ def build_catalog(
                     ground_samples,
                     now,
                 )
-                for layer, count in _ingest_roads(
+                counts[BUILDING_LAYER] += building_count
+                road_counts = _ingest_roads(
                     connection, archive, members, settlement, transformer, now
-                ).items():
+                )
+                for layer, count in road_counts.items():
                     counts[layer] += count
+                record_import(connection, settlement, {BUILDING_LAYER: building_count, **road_counts}, now)
         connection.commit()
         integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
         if integrity != "ok":

@@ -178,12 +178,25 @@ The rebuild reads model/seed metadata from `Asset/metadata.json`, the explicitly
 selected Asiaq settlement archives under `Asset/grundkort/`, and the required
 per-building terrain measurements in `Asset/building_ground_samples.json`.
 Missing archives, metadata, or ground measurements fail the rebuild without
-touching the active database. The configured ten-settlement scope reproduces
-the migrated catalog exactly; the present `1900ILT` archive is not selected
-because it had never been ingested into that catalog and has no migrated ground
-measurements.
+touching the active database. The settlement list is rebuild inventory, automatically extended by coordinate
+demand; it does not restrict runtime acquisition. Existing migrated packages
+remain available immediately.
 
 The viewer sidecar owns the complete runtime contract: `GET /api/assets`,
 `GET /api/buildings`, `POST /api/vehicle_state`, and
 `PATCH /api/asset/{asset_id}` all read or write this local catalog. There is no
 legacy asset-server path or network fallback.
+
+`GET /api/buildings` resolves camera coordinates against the complete Asiaq
+settlement index and queues nearby missing packages on an independent single
+worker lane. Downloads and measured ground acquisition run outside the HTTP
+request. A complete building/road package is published in one transaction;
+failed imports remain visible in `buildingsAcquisition.failures`. Loading
+responses set `shouldPoll` so stationary viewers receive the completed buildings.
+The worker extends the local archive, ground-sample, and rebuild inventories
+automatically. It samples measured depth-12 terrain and acquires missing DEMs
+through the MCP terrain providers; zero-confidence elevations are rejected.
+
+`Test.asset_coordinate_loading_offline()` verifies coordinate selection,
+nonblocking loading, deduplication, retry, import rollback, measured ground,
+and rebuild retention without provider access.

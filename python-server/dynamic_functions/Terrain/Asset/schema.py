@@ -38,6 +38,12 @@ def create(connection: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS assets_bounds
             ON assets(type, min_x, max_x, min_y, max_y);
 
+        CREATE TABLE IF NOT EXISTS asset_imports (
+            settlement TEXT PRIMARY KEY,
+            layer_counts TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS asset_metadata (
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL

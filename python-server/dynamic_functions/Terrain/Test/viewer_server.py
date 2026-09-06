@@ -67,6 +67,14 @@ async def viewer_server_offline() -> dict:
             },
         ),
         patch(
+            "dynamic_functions.Terrain.viewer_assets._required_assets_db_path",
+            return_value="/fixture/assets.db",
+        ),
+        patch(
+            "dynamic_functions.Terrain.Asset.acquisition.request_for_point",
+            return_value={"settlements": [], "failures": {}, "status": "ready", "shouldPoll": False},
+        ),
+        patch(
             "dynamic_functions.Terrain.viewer_server.query_buildings",
             return_value=([], "asset_catalog"),
         ),

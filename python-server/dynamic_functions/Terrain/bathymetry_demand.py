@@ -1,8 +1,9 @@
-"""Coastal viewer demand for contract-depth Glacier bathymetry jobs."""
+"""Coastal viewer demand for Terrain-owned contract-depth bathymetry jobs."""
 
 from __future__ import annotations
 
 import math
+import json
 import os
 import sqlite3
 import subprocess
@@ -13,7 +14,8 @@ from typing import Iterable
 
 import numpy as np
 
-from dynamic_functions.Terrain.Database.database import DATABASE_PATH
+from dynamic_functions.Terrain.Database.database import DATABASE_PATH, connection_lock, db
+from dynamic_functions.Terrain.Bathymetry.inputs import job_regions, missing_inputs
 from dynamic_functions.Terrain.terrain_config import (
     GREENLAND_BBOX,
     WMS_CONTRACT_DEPTH,
@@ -26,7 +28,11 @@ OFFSHORE_LIMIT_M = 2_000.0
 
 
 class BathymetryDeferredError(OSError):
-    """A Glacier job whose independently demanded terrain is still settling."""
+    """A bathymetry job whose independently demanded terrain is still settling."""
+
+
+class BathymetryWorkerError(RuntimeError):
+    """A failed local solver, including its captured diagnostic output."""
 
 
 def _ancestor_at_depth(tile_id: str, depth: int) -> tuple[int, int] | None:
@@ -145,58 +151,48 @@ def eligible_fjord_jobs(
 
 
 def run_bathymetry_job(job_id: str) -> dict:
-    """Run Glacier's idempotent contract-depth worker for one fjord region."""
+    """Stage exact inputs, then run the bundled solver in an isolated process."""
+    job_regions(job_id)
+    with connection_lock():
+        connection = db()
+        if connection.execute("SELECT 1 FROM bathymetry WHERE tile_id=?", (job_id,)).fetchone():
+            return {"tileId": job_id, "written": False, "rows": 0}
+        missing = missing_inputs(connection, job_id)
+    if any(missing.values()):
+        # Imported only at execution time: demand owns this lane's callback.
+        from dynamic_functions.Terrain.demand import _coordinator
 
-    root = Path(
-        os.environ.get("GLACIER_ROOT", str(Path.home() / "work" / "glacier"))
-    ).expanduser().resolve()
-    command = root / "runOnDemand"
-    if not command.is_file():
-        raise RuntimeError(f"Glacier worker is missing: {command}")
-    base = os.environ.get(
-        "TERRAIN_VIEWER_BASE", "http://localhost:5180"
-    ).strip()
+        _coordinator().submit_bathymetry_inputs(job_id, missing)
+        raise BathymetryDeferredError("bathymetry coverage incomplete: " + ", ".join(
+            f"{name}={len(ids)}" for name, ids in missing.items()))
+    server_dir = Path(__file__).resolve().parents[2]
     environment = dict(os.environ)
-    environment.update(
-        {
-            "PYTHON_BIN": sys.executable,
-            "SERVER_DIR": str(DATABASE_PATH.parents[3]),
-        }
-    )
+    environment["PYTHONPATH"] = str(server_dir)
+    module = "dynamic_functions.Terrain.Bathymetry.worker"
     completed = subprocess.run(
         [
-            str(command),
+            sys.executable,
+            "-m",
+            module,
             "--tile",
             job_id,
             "--db",
             str(DATABASE_PATH),
-            "--python",
-            sys.executable,
-            "--base",
-            base,
-            "--commit",
         ],
-        cwd=str(root),
+        cwd=str(server_dir),
         env=environment,
         capture_output=True,
         text=True,
         check=False,
     )
-    output = (completed.stderr or completed.stdout or "").strip()
     if completed.returncode:
+        output = "\n".join(part.strip() for part in
+                           (completed.stdout, completed.stderr) if part.strip())
         if "coverage incomplete" in output.lower():
             raise BathymetryDeferredError(
                 output.splitlines()[-1] if output else "coverage incomplete"
             )
-        raise subprocess.CalledProcessError(
-            completed.returncode,
-            completed.args,
-            output=completed.stdout,
-            stderr=completed.stderr,
+        raise BathymetryWorkerError(
+            f"Bathymetry worker failed for {job_id} (exit {completed.returncode}):\n{output}"
         )
-    return {
-        "tileId": job_id,
-        "written": True,
-        "worker": str(command),
-        "summary": output.splitlines()[-1] if output else "completed",
-    }
+    return json.loads(completed.stdout)

@@ -96,7 +96,10 @@ def fetch_texture(tile_id: str) -> dict:
     token = os.environ.get("DATAFORSYNINGEN_TOKEN", "").strip()
     if not token:
         raise RuntimeError(
-            "DATAFORSYNINGEN_TOKEN is required for live imagery requests"
+            "DATAFORSYNINGEN_TOKEN is required for live imagery requests. "
+            "Register/sign in at https://dataforsyningen.dk/ and create a "
+            "webservice/API token from your user profile. Set "
+            "DATAFORSYNINGEN_TOKEN in the server environment, then restart the server."
         )
 
     metatile_bytes, provider = _fetch_metatile(tile_id, token)

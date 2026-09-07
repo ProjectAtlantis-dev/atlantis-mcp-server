@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-import os
+import json
+from pathlib import Path
 import subprocess
 import sys
 from unittest.mock import patch
@@ -11,6 +12,7 @@ import numpy as np
 
 from dynamic_functions.Terrain.bathymetry_demand import (
     BathymetryDeferredError,
+    BathymetryWorkerError,
     eligible_fjord_jobs,
     run_bathymetry_job,
 )
@@ -93,18 +95,30 @@ def bathymetry_demand_offline() -> dict:
         remaining = eligible_fjord_jobs(connection, visible)
         coarse = eligible_fjord_jobs(connection, ["11-800-800"])
 
+        with (
+            patch("dynamic_functions.Terrain.bathymetry_demand.db", return_value=connection),
+            patch("dynamic_functions.Terrain.bathymetry_demand.missing_inputs") as inputs,
+            patch("dynamic_functions.Terrain.bathymetry_demand.subprocess.run") as runner,
+        ):
+            existing = run_bathymetry_job(_MIXED_JOB)
+            assert existing == {"tileId": _MIXED_JOB, "written": False, "rows": 0}
+            inputs.assert_not_called()
+            runner.assert_not_called()
+
         completed = subprocess.CompletedProcess(
-            args=[], returncode=0, stdout="bathymetry complete", stderr=""
+            args=[], returncode=0,
+            stdout=json.dumps({"tileId": _NEAR_JOB, "written": True, "rows": 1}), stderr=""
         )
         with (
-            patch.dict(os.environ, {"GLACIER_ROOT": "/fixture/glacier"}),
-            patch("pathlib.Path.is_file", return_value=True),
+            patch("dynamic_functions.Terrain.bathymetry_demand.db", return_value=connection),
+            patch("dynamic_functions.Terrain.bathymetry_demand.missing_inputs",
+                  return_value={"dem": [], "coastline": []}),
             patch(
                 "dynamic_functions.Terrain.bathymetry_demand.subprocess.run",
                 return_value=completed,
             ) as runner,
         ):
-            worker_result = run_bathymetry_job(_MIXED_JOB)
+            worker_result = run_bathymetry_job(_NEAR_JOB)
         worker_call = runner.call_args
         worker_command = worker_call.args[0]
         worker_environment = worker_call.kwargs["env"]
@@ -114,17 +128,50 @@ def bathymetry_demand_offline() -> dict:
         )
         deferred_retryable = False
         with (
-            patch.dict(os.environ, {"GLACIER_ROOT": "/fixture/glacier"}),
-            patch("pathlib.Path.is_file", return_value=True),
+            patch("dynamic_functions.Terrain.bathymetry_demand.db", return_value=connection),
+            patch("dynamic_functions.Terrain.bathymetry_demand.missing_inputs",
+                  return_value={"dem": [], "coastline": []}),
             patch(
                 "dynamic_functions.Terrain.bathymetry_demand.subprocess.run",
                 return_value=deferred,
             ),
         ):
             try:
-                run_bathymetry_job(_MIXED_JOB)
+                run_bathymetry_job(_NEAR_JOB)
             except BathymetryDeferredError:
                 deferred_retryable = True
+        failed = subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="solving region",
+            stderr="Traceback:\nValueError: invalid solver input",
+        )
+        diagnostics_visible = False
+        with (
+            patch("dynamic_functions.Terrain.bathymetry_demand.db", return_value=connection),
+            patch("dynamic_functions.Terrain.bathymetry_demand.missing_inputs",
+                  return_value={"dem": [], "coastline": []}),
+            patch("dynamic_functions.Terrain.bathymetry_demand.subprocess.run", return_value=failed),
+        ):
+            try:
+                run_bathymetry_job(_NEAR_JOB)
+            except BathymetryWorkerError as exc:
+                diagnostics_visible = "invalid solver input" in str(exc) and "solving region" in str(exc)
+        with (
+            patch("dynamic_functions.Terrain.bathymetry_demand.db", return_value=connection),
+            patch("dynamic_functions.Terrain.bathymetry_demand.missing_inputs",
+                  return_value={"dem": [_MIXED], "coastline": [_NEAR_WATER]}),
+            patch("dynamic_functions.Terrain.demand._coordinator") as coordinator,
+            patch("dynamic_functions.Terrain.bathymetry_demand.subprocess.run") as subprocess_run,
+        ):
+            try:
+                run_bathymetry_job(_NEAR_JOB)
+            except BathymetryDeferredError:
+                pass
+            else:
+                raise AssertionError("incomplete inputs must defer bathymetry")
+            coordinator.return_value.submit_bathymetry_inputs.assert_called_once_with(
+                _NEAR_JOB, {"dem": [_MIXED], "coastline": [_NEAR_WATER]},
+            )
+            subprocess_run.assert_not_called()
         return {
             "mixedCoastEligible": _MIXED_JOB in first,
             "nearWaterEligible": _NEAR_JOB in first,
@@ -135,16 +182,16 @@ def bathymetry_demand_offline() -> dict:
             "readOnlySelection": read_only,
             "workerUsesTargetRuntime": bool(
                 worker_result["written"]
-                and worker_command[0] == "/fixture/glacier/runOnDemand"
+                and worker_command[:3] == [sys.executable, "-m", "dynamic_functions.Terrain.Bathymetry.worker"]
                 and worker_command[worker_command.index("--db") + 1]
                 == str(DATABASE_PATH)
-                and worker_command[worker_command.index("--python") + 1]
-                == sys.executable
-                and worker_environment["PYTHON_BIN"] == sys.executable
-                and worker_environment["SERVER_DIR"]
-                == str(DATABASE_PATH.parents[3])
+                and "--base" not in worker_command
+                and worker_environment["PYTHONPATH"]
+                == str(Path(__file__).resolve().parents[3])
             ),
             "coverageFailureRetryable": deferred_retryable,
+            "workerDiagnosticsVisible": diagnostics_visible,
+            "nativePrerequisitesScheduled": True,
         }
     finally:
         connection.execute("ROLLBACK TO bathymetry_demand_test")

@@ -72,7 +72,7 @@ _SQL_CHUNK = 500
 # Worker callbacks are captured by the shared coordinator across hot reloads.
 # Bump the key whenever acquisition behavior changes so new camera demand cannot
 # keep invoking a stale worker from the previous module generation.
-_REGISTRY_KEY = "Terrain.demand.registry.v6"
+_REGISTRY_KEY = "Terrain.demand.registry.v8"
 DEFAULT_RETRY_DELAYS = (2.0, 10.0)
 EXHAUSTED_RECLAIM_DELAY = 60.0
 log = logging.getLogger("terrain.demand")
@@ -302,10 +302,11 @@ class DemandLane:
             **status,
         }
 
-    def replace_pending(self, item_ids: list[str]) -> dict:
-        """Replace only unstarted work with the newest priority ordering."""
+    def replace_pending(self, item_ids: list[str], *, auxiliary_ids: list[str] | None = None) -> dict:
+        """Refresh fresh misses plus retained work, without reopening completed retained IDs."""
 
         validated = self._validated_item_ids(item_ids)
+        auxiliary = self._validated_item_ids(auxiliary_ids or [])
         with self._lock:
             if self._closed:
                 raise RuntimeError(f"demand lane {self.name} is closed")
@@ -313,13 +314,17 @@ class DemandLane:
             self._has_authoritative_claim = True
             self._refresh_generation += 1
             self._last_refresh_at = now
-            self._claimed = set(validated)
             # ``validated`` is derived from authoritative database misses.
             # A completed item that appears here did not publish its promised
             # output (for example, a provider returned no metatile). Reopen it
             # instead of allowing an in-memory success marker to suppress the
             # missing work forever.
             self._completed.difference_update(validated)
+            # Auxiliary IDs were misses when a regional job requested them,
+            # not necessarily now. Retain their priority without reopening
+            # successes. Fresh camera misses always retain first priority.
+            validated = list(dict.fromkeys([*validated, *auxiliary]))[:MAX_DEMAND_ITEMS]
+            self._claimed = set(validated)
             previous = set(self._pending)
             previous_since = self._pending_since
             replacement: OrderedDict[str, None] = OrderedDict()
@@ -596,6 +601,17 @@ class DemandCoordinator:
 
     def __init__(self, lanes: dict[str, DemandLane]) -> None:
         self.lanes = dict(lanes)
+        self._bathymetry_input_lock = threading.RLock()
+        self._bathymetry_jobs: set[str] | None = None
+        self._bathymetry_inputs: dict[str, dict[str, list[str]]] = {}
+
+    def submit_bathymetry_inputs(self, job_id: str, demands: dict[str, list[str]]) -> dict:
+        """Keep a visible job's prerequisites claimed across camera polls."""
+        with self._bathymetry_input_lock:
+            if self._bathymetry_jobs is not None and job_id not in self._bathymetry_jobs:
+                return {}
+            self._bathymetry_inputs[job_id] = demands
+            return self.submit(demands, reopen_completed=True)
 
     def submit(
         self,
@@ -628,10 +644,25 @@ class DemandCoordinator:
         unknown = set(demands) - set(self.lanes)
         if unknown:
             raise ValueError(f"unknown terrain demand lanes: {sorted(unknown)}")
-        return {
-            name: lane.replace_pending(demands.get(name, []))
-            for name, lane in self.lanes.items()
-        }
+        with self._bathymetry_input_lock:
+            self._bathymetry_jobs = set(demands.get("bathymetry", []))
+            self._bathymetry_inputs = {
+                job: inputs for job, inputs in self._bathymetry_inputs.items()
+                if job in self._bathymetry_jobs
+            }
+            auxiliary: dict[str, list[str]] = {}
+            for job in demands.get("bathymetry", []):
+                for name, ids in self._bathymetry_inputs.get(job, {}).items():
+                    # Camera work keeps first priority; the existing lane
+                    # budget bounds prerequisite work for successive regions.
+                    auxiliary[name] = list(dict.fromkeys([
+                        *auxiliary.get(name, []), *ids,
+                    ]))[:MAX_DEMAND_ITEMS]
+            return {
+                name: lane.replace_pending(demands.get(name, []), auxiliary_ids=auxiliary[name])
+                if name in auxiliary else lane.replace_pending(demands.get(name, []))
+                for name, lane in self.lanes.items()
+            }
 
 
 def polling_state(lanes: dict[str, dict], now: float | None = None) -> dict:
@@ -771,7 +802,12 @@ def _dem_worker(tile_id: str) -> dict:
 def _texture_worker(tile_id: str) -> dict:
     token = os.environ.get("DATAFORSYNINGEN_TOKEN", "").strip()
     if not token:
-        raise RuntimeError("DATAFORSYNINGEN_TOKEN is required")
+        raise RuntimeError(
+            "DATAFORSYNINGEN_TOKEN is required for live imagery requests. "
+            "Register/sign in at https://dataforsyningen.dk/ and create a "
+            "webservice/API token from your user profile. Set "
+            "DATAFORSYNINGEN_TOKEN in the server environment, then restart the server."
+        )
     metatile, provider = _fetch_metatile(tile_id, token)
     if metatile is None:
         status = str(provider.get("status") or "provider_error")
@@ -1058,7 +1094,7 @@ def submit_camera_demand_from_selection(
         # viewer work in every lane.
         submitted = lanes.refresh(candidates)
     else:
-        # The external bathymetry collector probes terrain availability. It
+        # A bathymetry prerequisite request probes terrain availability. It
         # may request DEM/coastline prerequisites, but must never replace the
         # interactive camera queues or recursively schedule textures and
         # bathymetry jobs for its moving sweep.

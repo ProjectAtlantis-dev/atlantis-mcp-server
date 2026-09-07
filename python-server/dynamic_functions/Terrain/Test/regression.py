@@ -13,6 +13,7 @@ from dynamic_functions.Terrain.Test.bathymetry import bathymetry_offline
 from dynamic_functions.Terrain.Test.bathymetry_demand import (
     bathymetry_demand_offline,
 )
+from dynamic_functions.Terrain.Test.bathymetry_worker import bathymetry_worker_offline
 from dynamic_functions.Terrain.Test.camera_lod import camera_lod_offline
 from dynamic_functions.Terrain.Test.coastline import coastline_offline
 from dynamic_functions.Terrain.Test.composition import composition_offline
@@ -89,6 +90,7 @@ def terrain_regression() -> dict:
         )
 
     run("acquisition_dates_offline", acquisition_dates_offline, lambda result: {"passed": result["passed"]})
+    run("bathymetry_worker_offline", bathymetry_worker_offline, lambda result: {"passed": result["passed"]})
     run("ocean_texture_offline", ocean_texture_offline, lambda result: result["checks"])
     run("ocean_texture_serving_offline", ocean_texture_serving_offline, lambda result: result)
     run(

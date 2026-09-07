@@ -331,7 +331,9 @@ def _credentials() -> tuple[str, str]:
     if not username or not password:
         raise RuntimeError(
             "DATAFORSYNINGEN_FTP_USER and DATAFORSYNINGEN_FTP_PASS are "
-            "required for GTK50 acquisition"
+            "required to download GTK50 coastline data. Register at "
+            "https://dataforsyningen.dk/ and set these variables to your account "
+            "username and password in the server environment, then restart the server."
         )
     return username, password
 

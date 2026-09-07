@@ -157,11 +157,16 @@ def _ground_samples(archive, members, code, transformer) -> dict[str, float]:
     return samples
 
 
-def _write_json(path: Path, value, *, compact=False):
+def _write_json(path: Path, value, *, compact: bool = False) -> None:
     temporary = path.with_suffix(path.suffix + '.tmp')
     try:
-        temporary.write_text(json.dumps(value, ensure_ascii=False, sort_keys=compact,
-            **({'separators': (',', ':')} if compact else {'indent': 2})) + '\n')
+        temporary.write_text(json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=compact,
+            separators=(',', ':') if compact else None,
+            indent=None if compact else 2,
+        ) + '\n')
         temporary.replace(path)
     finally:
         temporary.unlink(missing_ok=True)

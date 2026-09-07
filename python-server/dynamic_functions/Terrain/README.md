@@ -138,6 +138,19 @@ waiting for a future retry deadline (`nextAction: retry`), or terminal/complete
 camera claims do not keep the current view polling. Repeated ready-data
 composition retains coherent ancestor fallback while exact leaves converge.
 
+## Bathymetry generation
+
+The complete regional bathymetry worker lives in [Bathymetry/](Bathymetry/README.md),
+including its numerical kernels and fixed detail atlas. Missing DEM/coastline
+inputs use Terrain's provider queues; camera polls retain those requests while
+the region remains visible. Generation uses the current Python environment,
+reads one database snapshot, and publishes finest and parent LODs atomically.
+Failures include captured worker diagnostics. No external checkout or viewer
+HTTP collector is required.
+
+`Test.bathymetry_worker_offline()` runs the isolated end-to-end and publication
+regressions and is included in `terrain_regression()`.
+
 ## Ocean imagery repair trial
 
 `Test.ocean_texture_offline()` checks a conservative white-gap detector against

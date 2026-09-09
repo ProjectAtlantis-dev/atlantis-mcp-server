@@ -16,7 +16,6 @@ from dynamic_functions.Terrain.Database import schema
 from dynamic_functions.Terrain.demand import _browser_pipeline_fields
 from dynamic_functions.Terrain.http_adapter import (
     binary_response,
-    coverage_cure_inventory,
     parse_tiles_request,
     serve_texture,
     texture_response,
@@ -25,7 +24,6 @@ from dynamic_functions.Terrain.terrain_config import (
     MAX_TILE_DEPTH,
     WMS_CONTRACT_DEPTH,
 )
-from dynamic_functions.Terrain.Database.tiles import ensure_tile_row
 
 
 def _jpeg_quadrants() -> bytes:
@@ -221,28 +219,6 @@ def http_adapter_offline() -> dict:
     }
     compact = _browser_pipeline_fields({"lanes": lanes})
 
-    coverage_connection = sqlite3.connect(":memory:")
-    schema.create(coverage_connection)
-    coverage_tiles = ("9-1-1", "10-2-2", "10-3-2", "10-2-3")
-    for tile_id in coverage_tiles:
-        ensure_tile_row(coverage_connection, tile_id)
-    coverage_connection.execute(
-        "UPDATE tiles SET heightmap = ? WHERE tile_id IN (?,?,?)",
-        (b"dem", "9-1-1", "10-2-2", "10-3-2"),
-    )
-    coverage_connection.executemany(
-        "INSERT INTO coastline_masks "
-        "(tile_id, width, height, mask, source, version, updated_at) "
-        "VALUES (?, 1, 1, ?, ?, ?, 'now')",
-        (
-            ("10-2-2", b"mask", "gtk50_vector", 2),
-            ("10-3-2", b"mask", "gtk50_vector", 1),
-            ("10-2-3", b"mask", "gtk50_vector", 2),
-        ),
-    )
-    coverage = coverage_cure_inventory(coverage_connection)
-    coverage_connection.close()
-
     return {
         "stereoMapped": bool(
             parsed["camera_x"] == -333722.4
@@ -301,18 +277,5 @@ def http_adapter_offline() -> dict:
             and compact["coastlineQueued"] == 1
             and compact["polling"]["nextAction"] == "poll"
             and "demand" not in compact
-        ),
-        "coverageCure": bool(
-            coverage["summary"]
-            == {"cured": 1, "partial": 2, "coarse": 1}
-            and {
-                tile["tile"]: tile["status"] for tile in coverage["tiles"]
-            }
-            == {
-                "9-1-1": "partial",
-                "10-2-2": "cured",
-                "10-2-3": "partial",
-                "10-3-2": "partial",
-            }
         ),
     }

@@ -29,11 +29,11 @@ from dynamic_functions.Terrain.Asset.catalog import (
 from dynamic_functions.Terrain.bathymetry_map import query_bathymetry_map
 from dynamic_functions.Terrain.coords import to_stereo
 from dynamic_functions.Terrain.coverage_coastline import query_available_coastline
+from dynamic_functions.Terrain.coverage_cure import query_coverage_cure
 from dynamic_functions.Terrain.gpu_profile_control import GpuProfileControl
 from dynamic_functions.Terrain.http_adapter import (
     compose_tiles_response,
     parse_tiles_request,
-    serve_coverage_cure,
     serve_texture,
 )
 from dynamic_functions.Terrain.serve_flask import CLIENT_LOG_PATH
@@ -243,10 +243,10 @@ async def _demand_status(_request: Request) -> JSONResponse:
 
 
 async def _coverage_cure(_request: Request) -> JSONResponse:
-    """Expose the nationwide depth-10 DEM/coastline cure inventory."""
+    """Expose the nationwide depth-11 DEM/coastline/texture cure inventory."""
 
     try:
-        payload = await run_in_threadpool(serve_coverage_cure)
+        payload = await run_in_threadpool(query_coverage_cure)
         return JSONResponse(payload, headers={"Cache-Control": "no-store"})
     except Exception as exc:
         log.exception("Terrain cure coverage request failed")

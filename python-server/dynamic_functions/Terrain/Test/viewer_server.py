@@ -79,7 +79,7 @@ async def viewer_server_offline() -> dict:
             return_value=([], "asset_catalog"),
         ),
         patch(
-            "dynamic_functions.Terrain.viewer_server.serve_coverage_cure",
+            "dynamic_functions.Terrain.viewer_server.query_coverage_cure",
             return_value={
                 "cureDepth": 10,
                 "definition": "fixture",

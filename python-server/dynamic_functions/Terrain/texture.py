@@ -4,10 +4,10 @@ import atlantis
 
 import base64
 import hashlib
-import os
 
 from dynamic_functions.Terrain.dataforsyningen import (
     _fetch_metatile,
+    _require_token,
     _split_metatile,
 )
 from dynamic_functions.Terrain.Database.database import db
@@ -93,14 +93,7 @@ def fetch_texture(tile_id: str) -> dict:
     therefore cannot create or alter texture rows.
     """
 
-    token = os.environ.get("DATAFORSYNINGEN_TOKEN", "").strip()
-    if not token:
-        raise RuntimeError(
-            "DATAFORSYNINGEN_TOKEN is required for live imagery requests. "
-            "Register/sign in at https://dataforsyningen.dk/ and create a "
-            "webservice/API token from your user profile. Set "
-            "DATAFORSYNINGEN_TOKEN in the server environment, then restart the server."
-        )
+    token = _require_token()
 
     metatile_bytes, provider = _fetch_metatile(tile_id, token)
     if metatile_bytes is None:

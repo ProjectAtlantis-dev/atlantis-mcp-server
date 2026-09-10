@@ -6,6 +6,8 @@ import time
 import atlantis
 
 from dynamic_functions.Terrain.Database.database import _update_dashboard
+from dynamic_functions.Terrain.dataforsyningen import _require_token
+from dynamic_functions.Terrain.terrain_config import _load_environment
 from dynamic_functions.Terrain.viewer_server import (
     _RUNTIME_KEY,
     _ViewerRuntime,
@@ -35,6 +37,8 @@ async def start(host: str = "127.0.0.1", port: int = 5180) -> dict:
     """Start the viewer HTTP sidecar without modifying the MCP host."""
 
     bind_host, bind_port = _validated_bind(host, port)
+    _load_environment()
+    _require_token()
     current = atlantis.server_shared.get(_RUNTIME_KEY)
     if current is not None and current.thread.is_alive():
         current_status = current.status()

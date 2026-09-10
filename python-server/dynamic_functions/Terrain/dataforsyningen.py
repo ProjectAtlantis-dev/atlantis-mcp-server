@@ -30,6 +30,17 @@ _CHILD_RESOLUTION = 256
 _TO_WMS = Transformer.from_crs(3413, 3184, always_xy=True)
 
 
+def _require_token() -> str:
+    """Require imagery credentials before startup or provider access."""
+
+    token = os.environ.get("DATAFORSYNINGEN_TOKEN", "").strip()
+    if not token:
+        raise RuntimeError(
+            "Set DATAFORSYNINGEN_TOKEN in Terrain/.env."
+        )
+    return token
+
+
 def _parse_spot_dates(payload: bytes) -> dict:
     root = ET.fromstring(payload)
     if root.tag.split("}")[-1] != "msGMLOutput":
@@ -367,13 +378,6 @@ def dataforsyningen_request(tile_id: str) -> dict:
 def dataforsyningen_fetch(tile_id: str) -> dict:
     """Fetch one live metatile and return metadata without persistence."""
 
-    token = os.environ.get("DATAFORSYNINGEN_TOKEN", "").strip()
-    if not token:
-        raise RuntimeError(
-            "DATAFORSYNINGEN_TOKEN is required for live imagery requests. "
-            "Register/sign in at https://dataforsyningen.dk/ and create a "
-            "webservice/API token from your user profile. Set "
-            "DATAFORSYNINGEN_TOKEN in the server environment, then restart the server."
-        )
+    token = _require_token()
     _, metadata = _fetch_metatile(tile_id, token)
     return metadata

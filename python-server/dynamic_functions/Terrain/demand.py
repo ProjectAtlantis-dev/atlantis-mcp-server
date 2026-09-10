@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
-import os
 import re
 import sqlite3
 import subprocess
@@ -43,6 +42,7 @@ from dynamic_functions.Terrain.Database.textures import write_texture_metatile
 from dynamic_functions.Terrain.Database.tiles import write_dem
 from dynamic_functions.Terrain.dataforsyningen import (
     _fetch_metatile,
+    _require_token,
     _split_metatile,
 )
 from dynamic_functions.Terrain.dem_acquisition import fetch_best_dem
@@ -800,14 +800,7 @@ def _dem_worker(tile_id: str) -> dict:
 
 
 def _texture_worker(tile_id: str) -> dict:
-    token = os.environ.get("DATAFORSYNINGEN_TOKEN", "").strip()
-    if not token:
-        raise RuntimeError(
-            "DATAFORSYNINGEN_TOKEN is required for live imagery requests. "
-            "Register/sign in at https://dataforsyningen.dk/ and create a "
-            "webservice/API token from your user profile. Set "
-            "DATAFORSYNINGEN_TOKEN in the server environment, then restart the server."
-        )
+    token = _require_token()
     metatile, provider = _fetch_metatile(tile_id, token)
     if metatile is None:
         status = str(provider.get("status") or "provider_error")

@@ -1,4 +1,19 @@
-"""Shared terrain runtime configuration constants."""
+"""Shared terrain runtime configuration and local environment loading."""
+
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+def _load_environment() -> None:
+    """Require and reload Terrain/.env on every server start."""
+    env_path = Path(__file__).resolve().parent / ".env"
+    try:
+        env_file = env_path.open(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise FileNotFoundError("Missing Terrain/.env file.") from exc
+    with env_file:
+        load_dotenv(stream=env_file, override=True)
 
 # Canonical EPSG:3413 root square used by every terrain tile address. The raw
 # Greenland bounds are approximately x=[-627247, 849164],

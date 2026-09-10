@@ -202,6 +202,19 @@ the requested tile.
 
 ## Viewer HTTP sidecar
 
+Set `DATAFORSYNINGEN_TOKEN` to a nonblank webservice/API token in `Terrain/.env`
+or the server environment. `Terrain.Server.start()` explicitly loads this
+Git-ignored `.env` before checking credentials or starting the viewer, regardless
+of the launch directory. Values in the file replace existing process environment
+values on every start, so edited credentials take effect in the running MCP process.
+The file is required even when credentials are already in the environment;
+if missing, startup raises `FileNotFoundError`: `Missing Terrain/.env file.`
+The same file can hold `DATAFORSYNINGEN_FTP_USER` and `DATAFORSYNINGEN_FTP_PASS`
+for GTK50 coastline downloads. `Server.start()` raises immediately if the token is missing,
+before creating the HTTP sidecar, even when cached imagery is available.
+Create the token in your user profile at https://dataforsyningen.dk/ and
+restart the server after setting it.
+
 `Server.start(host="127.0.0.1", port=5180)` explicitly starts the Terrain-owned
 viewer compatibility server. It exposes `GET`/`POST /api/tiles` as raw
 `binary-v1`, `/api/texture/<tile_id>.jpg` with exact/ancestor provenance, and

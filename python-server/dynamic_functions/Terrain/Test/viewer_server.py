@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import socket
 import urllib.request
 from unittest.mock import AsyncMock, patch
@@ -28,6 +29,31 @@ def _unused_port() -> int:
 async def viewer_server_offline() -> dict:
     """Prove explicit start, idempotence, health, and explicit stop."""
 
+    for token in (None, "", " \t\n"):
+        with (
+            patch.dict(os.environ),
+            patch("dynamic_functions.Terrain.Server.server._load_environment"),
+            patch("dynamic_functions.Terrain.Server.server._ViewerRuntime") as runtime,
+            patch("dynamic_functions.Terrain.Server.server.atlantis.server_shared") as shared,
+            patch(
+                "dynamic_functions.Terrain.Server.server._update_dashboard",
+                new=AsyncMock(),
+            ) as dashboard,
+        ):
+            if token is None:
+                os.environ.pop("DATAFORSYNINGEN_TOKEN", None)
+            else:
+                os.environ["DATAFORSYNINGEN_TOKEN"] = token
+            try:
+                await start()
+            except RuntimeError as exc:
+                assert str(exc) == "Set DATAFORSYNINGEN_TOKEN in Terrain/.env."
+            else:
+                raise AssertionError("viewer started without an imagery token")
+            runtime.assert_not_called()
+            assert not shared.mock_calls
+            dashboard.assert_not_awaited()
+
     route_app = _viewer_app()
     hotload_routes = {
         route.path: route.endpoint.__name__
@@ -35,6 +61,7 @@ async def viewer_server_offline() -> dict:
         if isinstance(route, Route)
     }
     with (
+        patch.dict(os.environ, {"DATAFORSYNINGEN_TOKEN": "fixture"}),
         patch(
             "dynamic_functions.Terrain.Server.server._update_dashboard",
             new=AsyncMock(),
@@ -198,6 +225,7 @@ async def viewer_server_offline() -> dict:
         already_stopped = await stop()
         finally_stopped = status()
     return {
+        "requiresImageryTokenBeforeStartup": True,
         "hotloadRoutes": bool(
             set(hotload_routes) == set(_HOTLOAD_ROUTE_ENDPOINTS)
             and all(

@@ -42,6 +42,7 @@ from dynamic_functions.Terrain.Test.effective_heightmap import (
 from dynamic_functions.Terrain.Test.hydrography import hydrography_offline
 from dynamic_functions.Terrain.Test.http_adapter import http_adapter_offline
 from dynamic_functions.Terrain.Test.parent_fallback import parent_fallback
+from dynamic_functions.Terrain.Test.ocean_texture_cache import ocean_texture_cache_offline
 from dynamic_functions.Terrain.Test.ocean_texture import ocean_texture_offline
 from dynamic_functions.Terrain.Test.ocean_texture_serving import ocean_texture_serving_offline
 from dynamic_functions.Terrain.Test.polling_convergence import (
@@ -92,6 +93,7 @@ def terrain_regression() -> dict:
 
     run("acquisition_dates_offline", acquisition_dates_offline, lambda result: {"passed": result["passed"]})
     run("bathymetry_worker_offline", bathymetry_worker_offline, lambda result: {"passed": result["passed"]})
+    run("ocean_texture_cache_offline", ocean_texture_cache_offline, lambda result: result)
     run("ocean_texture_offline", ocean_texture_offline, lambda result: result["checks"])
     run("ocean_texture_serving_offline", ocean_texture_serving_offline, lambda result: result)
     run(

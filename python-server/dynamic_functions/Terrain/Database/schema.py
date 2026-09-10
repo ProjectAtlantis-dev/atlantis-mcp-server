@@ -46,6 +46,14 @@ def create(db: sqlite3.Connection) -> None:
             updated_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS ocean_texture_repairs (
+            tile_id         TEXT PRIMARY KEY,
+            evidence_digest TEXT NOT NULL,
+            texture         BLOB,
+            media_type      TEXT NOT NULL,
+            repaired_pixels INTEGER NOT NULL CHECK (repaired_pixels >= 0)
+        );
+
         CREATE TABLE IF NOT EXISTS coastline_masks (
             tile_id    TEXT PRIMARY KEY,
             width      INTEGER NOT NULL CHECK (width > 0),

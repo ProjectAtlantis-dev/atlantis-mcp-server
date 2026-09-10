@@ -1,99 +1,129 @@
-"""Reversible ocean-gap correction in the southern Greenland trial area.
+"""Reversible ocean-gap correction using bounded local reference mosaics.
 
-One fixed-resolution mosaic classifies connected gaps across tile boundaries.
-Every requested LOD samples that same approval footprint, then gates repairs
-with its current coastline and texture colours. Provider bytes are never written.
+Local mosaics classify connected gaps across tile boundaries. Fine LODs share
+depth-10 reference imagery; coarser requests use their native depth. Repairs are
+gated by current coastline and texture colours. Provider bytes are never written.
 """
 
 from dataclasses import dataclass
 from functools import lru_cache
+import hashlib
 import io
 import sqlite3
-import zlib
 
 import numpy as np
 from PIL import Image
 from scipy.ndimage import binary_dilation, binary_propagation
 
 from dynamic_functions.Terrain.coastline import read_coastline_mask
+from dynamic_functions.Terrain.Database.textures import read_texture_with_ancestor
 from dynamic_functions.Terrain.ocean_texture import (
-    texture_ocean_mask, texture_pixel_area_m2, white_ocean_repair_mask,
+    texture_pixel_area_m2, white_ocean_repair_mask,
 )
 from dynamic_functions.Terrain.terrain_config import GREENLAND_BBOX
 from dynamic_functions.Terrain.tile_address import ancestor_tile_ids, tile_bounds
 
 
-VERSION = "ocean-gap-v1"
+VERSION = "ocean-gap-v2"
 FILL_RGB = (10, 20, 25)
-# Depth-9 tiles 230..233 / 6..7 include the wedge, offshore block, and real ice.
-# Detect at depth 10 with a one-tile halo. No provider acquisition is performed.
+# Use a common depth for fine imagery, and native depth for coarser requests.
+# A 3x3 halo bounds work and includes components crossing the requested tile.
 DEPTH = 10
 SIZE = 256
-_COLUMNS = range(459, 469)
-_ROWS = range(11, 17)
-_IDS = tuple(f"10-{x}-{y}" for y in _ROWS for x in _COLUMNS)
-_SW = tile_bounds("10-460-12", GREENLAND_BBOX)
-_NE = tile_bounds("10-467-15", GREENLAND_BBOX)
-SCOPE_BBOX = (_SW[0], _SW[1], _NE[2], _NE[3])
-_HALO_SW = tile_bounds(_IDS[0], GREENLAND_BBOX)
-_HALO_NE = tile_bounds(_IDS[-1], GREENLAND_BBOX)
-_MOSAIC_BBOX = (_HALO_SW[0], _HALO_SW[1], _HALO_NE[2], _HALO_NE[3])
 
 
-def in_trial_area(tile_id: str) -> bool:
-    x0, y0, x1, y1 = tile_bounds(tile_id, GREENLAND_BBOX)
-    sx0, sy0, sx1, sy1 = SCOPE_BBOX
-    return x0 < sx1 and x1 > sx0 and y0 < sy1 and y1 > sy0
+def _reference_ids(tile_id: str) -> tuple[str, ...]:
+    depth, column, row = map(int, tile_id.split("-"))
+    shift = max(0, depth - DEPTH)
+    depth -= shift
+    column >>= shift
+    row >>= shift
+    limit = 1 << depth
+    return tuple(
+        f"{depth}-{x}-{y}"
+        for y in range(max(0, row - 1), min(limit, row + 2))
+        for x in range(max(0, column - 1), min(limit, column + 2))
+    )
 
 
 @dataclass(eq=False, frozen=True)
 class _Snapshot:
     approved: np.ndarray
+    bbox: tuple[float, float, float, float]
 
 
-@lru_cache(maxsize=2)
-def _classify(rows: tuple) -> _Snapshot:
-    shape = (len(_ROWS) * SIZE, len(_COLUMNS) * SIZE)
+@lru_cache(maxsize=16)
+def _classify(ids: tuple[str, ...], rows: tuple) -> _Snapshot:
+    addresses = [tuple(map(int, tile_id.split("-"))) for tile_id in ids]
+    west = min(a[1] for a in addresses)
+    east = max(a[1] for a in addresses)
+    south = min(a[2] for a in addresses)
+    north = max(a[2] for a in addresses)
+    sw = tile_bounds(ids[0], GREENLAND_BBOX)
+    ne = tile_bounds(ids[-1], GREENLAND_BBOX)
+    bbox = (sw[0], sw[1], ne[2], ne[3])
+    shape = ((north - south + 1) * SIZE, (east - west + 1) * SIZE)
     rgb = np.zeros((*shape, 3), dtype=np.uint8)
     ocean = np.zeros(shape, dtype=bool)
-    for tile_id, texture, width, height, mask in rows:
-        # Missing evidence is explicitly unclassified, never inferred from RGB.
-        if mask is None:
-            continue
-        coast = np.frombuffer(zlib.decompress(mask), dtype=np.uint8)
-        if coast.size != width * height or not np.all((coast == 0) | (coast == 1)):
-            raise ValueError(f"invalid coastline mask for {tile_id}")
-        coast = coast.reshape(height, width).astype(bool)
+    for tile_id, source_id, texture, coast_id, coast_shape, coast_bytes in rows:
         with Image.open(io.BytesIO(texture)) as image:
-            if image.size != (SIZE, SIZE):
-                raise ValueError(f"expected 256x256 reference texture for {tile_id}")
-            pixels = np.asarray(image.convert("RGB"))
+            image = image.convert("RGB")
+            if source_id != tile_id or image.size != (SIZE, SIZE):
+                tx0, ty0, tx1, ty1 = tile_bounds(tile_id, GREENLAND_BBOX)
+                sx0, sy0, sx1, sy1 = tile_bounds(source_id, GREENLAND_BBOX)
+                width, height = image.size
+                extent = (
+                    (tx0 - sx0) / (sx1 - sx0) * width,
+                    (sy1 - ty1) / (sy1 - sy0) * height,
+                    (tx1 - sx0) / (sx1 - sx0) * width,
+                    (sy1 - ty0) / (sy1 - sy0) * height,
+                )
+                image = image.transform((SIZE, SIZE), Image.Transform.EXTENT,
+                                        extent, Image.Resampling.BILINEAR)
+            pixels = np.asarray(image)
         _, column, row = map(int, tile_id.split("-"))
-        x = (column - _COLUMNS.start) * SIZE
-        y = (_ROWS.stop - 1 - row) * SIZE
+        x = (column - west) * SIZE
+        y = (north - row) * SIZE
         rgb[y:y + SIZE, x:x + SIZE] = pixels
-        ocean[y:y + SIZE, x:x + SIZE] = texture_ocean_mask(coast, (SIZE, SIZE))
+        ocean[y:y + SIZE, x:x + SIZE] = _ocean_at(
+            tile_id, (SIZE, SIZE), coast_id, coast_shape, coast_bytes,
+        )
     approved = white_ocean_repair_mask(
-        rgb, ocean, pixel_area_m2=texture_pixel_area_m2(_IDS[0], (SIZE, SIZE)),
+        rgb, ocean, pixel_area_m2=texture_pixel_area_m2(ids[0], (SIZE, SIZE)),
     )
     # One reference-pixel allowance for footprint sampling between imagery LODs.
     # The final repair still requires current authoritative ocean and bright RGB.
     approved = binary_dilation(approved, iterations=1)
     approved.setflags(write=False)
-    # Release render entries referencing older mosaics as evidence arrives.
-    _render.cache_clear()
-    return _Snapshot(approved)
+    return _Snapshot(approved, bbox)
 
 
-def _snapshot(connection: sqlite3.Connection) -> _Snapshot:
-    marks = ",".join("?" for _ in _IDS)
-    rows = connection.execute(
-        "SELECT x.tile_id,x.texture,c.width,c.height,c.mask FROM textures x "
-        "LEFT JOIN coastline_masks c ON c.tile_id=x.tile_id "
-        f"WHERE x.tile_id IN ({marks}) ORDER BY x.tile_id", _IDS,
-    ).fetchall()
-    # Content-keyed caching also invalidates when late coastline/texture arrives.
-    return _classify(tuple(tuple(row) for row in rows))
+def _coastline(connection: sqlite3.Connection, tile_id: str):
+    for candidate in ancestor_tile_ids(tile_id, include_self=True):
+        coastline = read_coastline_mask(connection, candidate)
+        if coastline is not None:
+            coast = coastline["mask"]
+            if min(coast.shape) < 2:
+                raise ValueError(f"coastline vertex grid too small for {candidate}")
+            return candidate, coast.shape, coast.tobytes()
+    return None
+
+
+def _reference_evidence(connection: sqlite3.Connection, tile_id: str) -> tuple:
+    ids = _reference_ids(tile_id)
+    rows = []
+    for reference_id in ids:
+        texture = read_texture_with_ancestor(connection, reference_id)
+        if texture is None:
+            continue
+        coast = _coastline(connection, reference_id)
+        if coast is None:
+            continue
+        rows.append((reference_id, texture["resolved_tile_id"],
+                     bytes(texture["texture"]), *coast))
+    # Content keys invalidate approvals when imagery or coastline arrives or changes.
+    # No provider acquisition, database writes, or process-wide mosaic is needed.
+    return ids, tuple(rows)
 
 
 def _centres(tile_id: str, shape: tuple[int, int]):
@@ -105,6 +135,18 @@ def _centres(tile_id: str, shape: tuple[int, int]):
     )
 
 
+def _ocean_at(tile_id, shape, coast_id, coast_shape, coast_bytes):
+    """Require four sea vertices at each target texel, including ancestor masks."""
+    x, y = _centres(tile_id, shape)
+    coast = np.frombuffer(coast_bytes, dtype=bool).reshape(coast_shape)
+    cx0, cy0, cx1, cy1 = tile_bounds(coast_id, GREENLAND_BBOX)
+    ch, cw = coast.shape
+    vx = np.clip(np.floor((x - cx0) / (cx1 - cx0) * (cw - 1)).astype(int), 0, cw - 2)
+    vy = np.clip(np.floor((y - cy0) / (cy1 - cy0) * (ch - 1)).astype(int), 0, ch - 2)
+    return (coast[np.ix_(vy, vx)] & coast[np.ix_(vy + 1, vx)]
+             & coast[np.ix_(vy, vx + 1)] & coast[np.ix_(vy + 1, vx + 1)])
+
+
 @lru_cache(maxsize=128)
 def _render(tile_id: str, payload: bytes, snapshot: _Snapshot,
             coast_id: str, coast_shape: tuple[int, int], coast_bytes: bytes) -> tuple:
@@ -112,30 +154,19 @@ def _render(tile_id: str, payload: bytes, snapshot: _Snapshot,
         rgb = np.asarray(image.convert("RGB"))
     height, width = rgb.shape[:2]
     x, y = _centres(tile_id, (height, width))
-    mx0, my0, mx1, my1 = _MOSAIC_BBOX
+    mx0, my0, mx1, my1 = snapshot.bbox
     mh, mw = snapshot.approved.shape
     ix = np.clip(((x - mx0) / (mx1 - mx0) * mw).astype(int), 0, mw - 1)
     iy = np.clip(((my1 - y) / (my1 - my0) * mh).astype(int), 0, mh - 1)
     approved = snapshot.approved[np.ix_(iy, ix)].copy()
-    sx0, sy0, sx1, sy1 = SCOPE_BBOX
-    approved &= ((y >= sy0) & (y < sy1))[:, None] & ((x >= sx0) & (x < sx1))[None, :]
 
-    # Sample the actual ancestor vertex grid at target texel centres, requiring
-    # all four vertices. Do not enlarge an ancestor's land/sea pixels first.
-    coast = np.frombuffer(coast_bytes, dtype=bool).reshape(coast_shape)
-    cx0, cy0, cx1, cy1 = tile_bounds(coast_id, GREENLAND_BBOX)
-    ch, cw = coast.shape
-    vx = np.clip(np.floor((x - cx0) / (cx1 - cx0) * (cw - 1)).astype(int), 0, cw - 2)
-    vy = np.clip(np.floor((y - cy0) / (cy1 - cy0) * (ch - 1)).astype(int), 0, ch - 2)
-    ocean = (coast[np.ix_(vy, vx)] & coast[np.ix_(vy + 1, vx)]
-             & coast[np.ix_(vy, vx + 1)] & coast[np.ix_(vy + 1, vx + 1)])
+    ocean = _ocean_at(tile_id, (height, width), coast_id, coast_shape, coast_bytes)
     bright_ocean = (ocean & (rgb.min(axis=2) >= 64)
                     & (np.ptp(rgb.astype(np.int16), axis=2) <= 32))
     # Refine the shared approval against this LOD's actual connected footprint.
     # This includes narrow tips missed by coarse sampling, but cannot jump a
     # dark-water gap to a separate iceberg or cross coastline-defined land.
     repair = binary_propagation(approved & bright_ocean, mask=bright_ocean)
-    repair &= ((y >= sy0) & (y < sy1))[:, None] & ((x >= sx0) & (x < sx1))[None, :]
     count = int(repair.sum())
     if not count:
         return payload, "image/jpeg", 0
@@ -147,18 +178,62 @@ def _render(tile_id: str, payload: bytes, snapshot: _Snapshot,
     return output.getvalue(), "image/png", count
 
 
-def repair_texture(connection: sqlite3.Connection, tile_id: str, payload: bytes) -> tuple:
-    """Return served bytes, media type, and repaired pixel count, without writes."""
-    if not in_trial_area(tile_id):
+def _evidence_digest(tile_id, payload, coastline, evidence):
+    """Hash actual content, including missing neighbors and algorithm settings."""
+    digest = hashlib.sha256()
+
+    def add(value):
+        if isinstance(value, tuple):
+            digest.update(b"T" + len(value).to_bytes(8, "big"))
+            for item in value:
+                add(item)
+        else:
+            data = value if isinstance(value, bytes) else str(value).encode("utf-8")
+            digest.update(b"B" + len(data).to_bytes(8, "big") + data)
+
+    add((VERSION, DEPTH, SIZE, FILL_RGB, tile_id, payload, coastline, evidence))
+    return digest.hexdigest()
+
+
+def repair_texture(connection: sqlite3.Connection, tile_id: str, payload: bytes,
+                   *, persist: bool = False) -> tuple:
+    """Read cached repairs; HTTP serving may persist derived results only.
+
+    Composition remains read-only. One row per requested tile replaces stale
+    revisions, including negative detections without duplicating source bytes.
+    """
+    ancestor_tile_ids(tile_id, include_self=True)
+    coastline = _coastline(connection, tile_id)
+    if coastline is None:
         return payload, "image/jpeg", 0
-    snapshot = _snapshot(connection)
-    if not snapshot.approved.any():
-        return payload, "image/jpeg", 0
-    for candidate in ancestor_tile_ids(tile_id, include_self=True):
-        coastline = read_coastline_mask(connection, candidate)
-        if coastline is not None:
-            coast = coastline["mask"]
-            if min(coast.shape) < 2:
-                raise ValueError(f"coastline vertex grid too small for {candidate}")
-            return _render(tile_id, payload, snapshot, candidate, coast.shape, coast.tobytes())
-    return payload, "image/jpeg", 0
+    evidence = _reference_evidence(connection, tile_id)
+    key = _evidence_digest(tile_id, payload, coastline, evidence)
+    cached = connection.execute(
+        "SELECT texture,media_type,repaired_pixels FROM ocean_texture_repairs "
+        "WHERE tile_id=? AND evidence_digest=?", (tile_id, key),
+    ).fetchone()
+    if cached is not None:
+        return (bytes(cached[0]) if cached[0] is not None else payload,
+                cached[1], cached[2])
+    snapshot = _classify(*evidence)
+    result = (_render(tile_id, payload, snapshot, *coastline)
+              if snapshot.approved.any() else (payload, "image/jpeg", 0))
+    if persist:
+        # RELEASE commits only when there is no enclosing caller transaction.
+        # Never commit or roll back unrelated work on the shared connection.
+        connection.execute("SAVEPOINT ocean_texture_cache")
+        try:
+            connection.execute(
+                "INSERT INTO ocean_texture_repairs "
+                "(tile_id,evidence_digest,texture,media_type,repaired_pixels) "
+                "VALUES (?,?,?,?,?) ON CONFLICT(tile_id) DO UPDATE SET "
+                "evidence_digest=excluded.evidence_digest,texture=excluded.texture,"
+                "media_type=excluded.media_type,repaired_pixels=excluded.repaired_pixels",
+                (tile_id, key, result[0] if result[2] else None, result[1], result[2]),
+            )
+            connection.execute("RELEASE ocean_texture_cache")
+        except Exception:
+            connection.execute("ROLLBACK TO ocean_texture_cache")
+            connection.execute("RELEASE ocean_texture_cache")
+            raise
+    return result

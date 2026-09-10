@@ -73,7 +73,7 @@ def ocean_texture_serving_offline() -> dict:
             ),
             "derivedEtagIsContentHash": connected.headers["etag"] == '"' + hashlib.sha256(connected.body).hexdigest() + '"',
             "derivedEtag304": response(left_id, connected.headers["etag"]).status_code == 304,
-            "trialRevalidatesCache": connected.headers["cache-control"] == "no-cache",
+            "repairsRevalidateCache": connected.headers["cache-control"] == "no-cache",
         }
 
         child_id = "11-927-27"
@@ -102,11 +102,28 @@ def ocean_texture_serving_offline() -> dict:
         checks["missingCoastlinePreservesSource"] = response(unproven_id).body == all_white
         outside_id = "10-470-13"
         store(outside_id, all_white)
-        checks["outsideTrialPreservesSource"] = response(outside_id).body == all_white
+        checks["outsideFormerTrialRepaired"] = bool(np.all(_pixels(response(outside_id)) == FILL_RGB))
+        screenshot_id = "10-443-34"
+        store(screenshot_id, all_white)
+        checks["screenshotLocationLargeGapRepaired"] = bool(
+            np.all(_pixels(response(screenshot_id)) == FILL_RGB)
+        )
+        coarse_id = "8-100-20"
+        store(coarse_id, all_white)
+        checks["coarseGapRepaired"] = bool(np.all(_pixels(response(coarse_id)) == FILL_RGB))
+        checks["missingReferenceUsesAvailableAncestor"] = bool(
+            np.all(_pixels(response("11-803-163")) == FILL_RGB)
+        )
+        for boundary_id in ("0-0-0", "10-0-0", "10-1023-1023"):
+            store(boundary_id, all_white)
+            checks[f"rootBoundaryRepaired:{boundary_id}"] = bool(
+                np.all(_pixels(response(boundary_id)) == FILL_RGB)
+            )
+        response(left_id)  # Refresh evidence after the root imagery arrives.
         before = connection.total_changes
         response(left_id)
         _compose_texture(connection, left_id)
-        checks["compositionAndServingAreReadOnly"] = connection.total_changes == before
+        checks["cacheHitsAndCompositionAreReadOnly"] = connection.total_changes == before
         checks["storedSourceUnmodified"] = connection.execute(
             "SELECT texture FROM textures WHERE tile_id=?", (left_id,),
         ).fetchone()[0] == left_bytes

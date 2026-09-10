@@ -555,6 +555,8 @@ def compose_camera_from_ready_data(
     previous_depth: int | None = None,
     origin_x: float | None = None,
     origin_y: float | None = None,
+    *,
+    persist_texture_repairs: bool = False,
 ) -> dict:
     """Select current camera LOD and compose its ready render coverage."""
 
@@ -570,7 +572,7 @@ def compose_camera_from_ready_data(
     composed = {
         "tiles": [],
         "tileCount": 0,
-        "readOnly": True,
+        "readOnly": not persist_texture_repairs,
         "networkAccess": False,
         "scheduledWork": False,
     }
@@ -578,6 +580,7 @@ def compose_camera_from_ready_data(
         batch = compose_tiles_from_ready_data(
             connection,
             coverage["coverageTileIds"][start : start + MAX_COMPOSE_TILES],
+            persist_texture_repairs=persist_texture_repairs,
         )
         composed["tiles"].extend(batch["tiles"])
     composed["tileCount"] = len(composed["tiles"])

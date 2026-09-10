@@ -9,12 +9,12 @@ from dynamic_functions.Terrain.coastline import (
     VERSION as COASTLINE_VERSION,
 )
 from dynamic_functions.Terrain.Database.database import connection_lock, db
-from dynamic_functions.Terrain.terrain_config import MAX_TILE_DEPTH
+from dynamic_functions.Terrain.terrain_config import CURE_DEPTH, MAX_TILE_DEPTH
 
 
 def coverage_cure_inventory(
     connection: sqlite3.Connection,
-    cure_depth: int = 11,
+    cure_depth: int = CURE_DEPTH,
 ) -> dict:
     """Require exact DEM, current coastline, and texture at the cure depth."""
 

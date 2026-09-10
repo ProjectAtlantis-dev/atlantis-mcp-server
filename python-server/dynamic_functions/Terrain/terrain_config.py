@@ -42,6 +42,9 @@ MAX_TILE_DEPTH = 16
 # still have headroom there.
 WMS_CONTRACT_DEPTH = 12
 
+# Exact evidence depth shared by cure inventory and camera demand.
+CURE_DEPTH = 11
+
 # Dataforsyningen is only trusted without a detail check through depth 10.
 # Starting at depth 11, score every fetched metatile for evidence that the
 # provider merely enlarged a coarser image and carved it into finer addresses.

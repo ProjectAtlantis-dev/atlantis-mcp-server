@@ -14,7 +14,7 @@ from typing import Any
 _HERE = Path(__file__).resolve().parent
 _LOCAL_ASSETS_DB = _HERE / "Asset" / "assets.db"
 _BUILDING_TYPE = "BYGNING"
-_BUILDING_FULL_DETAIL_RANGE_M = 2500.0
+_BUILDING_FULL_DETAIL_RANGE_M = 5000.0
 _BUILDING_FAR_MIN_AREA_M2 = 300.0
 
 

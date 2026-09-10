@@ -14,6 +14,7 @@ from dynamic_functions.Terrain.Test.bathymetry_demand import (
     bathymetry_demand_offline,
 )
 from dynamic_functions.Terrain.Test.bathymetry_worker import bathymetry_worker_offline
+from dynamic_functions.Terrain.Test.camera_cure import camera_cure_offline
 from dynamic_functions.Terrain.Test.camera_lod import camera_lod_offline
 from dynamic_functions.Terrain.Test.coastline import coastline_offline
 from dynamic_functions.Terrain.Test.composition import composition_offline
@@ -407,6 +408,7 @@ def terrain_regression() -> dict:
         polling_convergence_offline,
         lambda result: result,
     )
+    run("camera_cure_offline", camera_cure_offline, lambda result: result)
     run("coverage_cure_offline", coverage_cure_offline, lambda result: result)
     run("http_adapter_offline", http_adapter_offline, lambda result: result)
     run(

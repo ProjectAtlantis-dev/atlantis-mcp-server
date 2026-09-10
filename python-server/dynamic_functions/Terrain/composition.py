@@ -308,14 +308,18 @@ def _compose_dem(connection: sqlite3.Connection, tile_id: str) -> dict:
     }
 
 
-def _compose_texture(connection: sqlite3.Connection, tile_id: str) -> dict:
+def _compose_texture(
+    connection: sqlite3.Connection, tile_id: str, *, persist_texture_repairs: bool = False,
+) -> dict:
     texture = read_texture_with_ancestor(connection, tile_id)
     if texture is None:
         return {"state": "missing"}
     payload = texture["texture"]
     media_type = "image/jpeg"
     if texture["exact"]:
-        payload, media_type, _ = repair_texture(connection, tile_id, payload)
+        payload, media_type, _ = repair_texture(
+            connection, tile_id, payload, persist=persist_texture_repairs,
+        )
     result = {
         "state": "ready",
         "exact": texture["exact"],
@@ -342,9 +346,9 @@ def _compose_texture(connection: sqlite3.Connection, tile_id: str) -> dict:
     return result
 
 
-def _domain_result(function, connection, tile_id: str) -> dict:
+def _domain_result(function, connection, tile_id: str, **kwargs) -> dict:
     try:
-        return function(connection, tile_id)
+        return function(connection, tile_id, **kwargs)
     except Exception as exc:
         return {
             "state": "error",
@@ -356,6 +360,8 @@ def _domain_result(function, connection, tile_id: str) -> dict:
 def compose_tiles_from_ready_data(
     connection: sqlite3.Connection,
     tile_ids: list[str],
+    *,
+    persist_texture_repairs: bool = False,
 ) -> dict:
     """Compose independent local domains for a bounded explicit tile batch."""
 
@@ -363,7 +369,10 @@ def compose_tiles_from_ready_data(
     tiles = []
     for tile_id in requested:
         dem = _domain_result(_compose_dem, connection, tile_id)
-        texture = _domain_result(_compose_texture, connection, tile_id)
+        texture = _domain_result(
+            _compose_texture, connection, tile_id,
+            persist_texture_repairs=persist_texture_repairs,
+        )
         water = dem.get("water", {})
         coastline = water.get("coastlineDates", {})
         tiles.append({
@@ -385,7 +394,7 @@ def compose_tiles_from_ready_data(
     return {
         "tiles": tiles,
         "tileCount": len(tiles),
-        "readOnly": True,
+        "readOnly": not persist_texture_repairs,
         "networkAccess": False,
         "scheduledWork": False,
     }

@@ -23,6 +23,7 @@ from dynamic_functions.Terrain.bathymetry_demand import (
     run_bathymetry_job,
 )
 from dynamic_functions.Terrain.camera_lod import (
+    LOD_COARSE_FLOOR_DEPTH,
     compose_camera_from_ready_data,
     resolve_lod_coverage,
     select_lod_tiles,
@@ -53,6 +54,7 @@ from dynamic_functions.Terrain.hydrography import (
     write_hydrography_mask,
 )
 from dynamic_functions.Terrain.terrain_config import (
+    CURE_DEPTH,
     WMS_CONTRACT_DEPTH,
 )
 from dynamic_functions.Terrain.tidal_connectivity import (
@@ -1005,6 +1007,8 @@ def demand_candidates(
     connection: sqlite3.Connection,
     target_ids: list[str],
     coverage_ids: list[str] | None = None,
+    prefill_ids: list[str] | None = None,
+    cure_ids: list[str] | None = None,
 ) -> dict[str, list[str]]:
     """Return dependency-staged missing work without altering state."""
 
@@ -1016,8 +1020,17 @@ def demand_candidates(
     coverage = list(dict.fromkeys(coverage_ids or []))
     for tile_id in coverage:
         require_tile_id(tile_id)
-    domain_ids = list(dict.fromkeys([*targets, *coverage]))
-    ready_dem = _present_ids(connection, "dem", targets)
+    prefill = list(dict.fromkeys(prefill_ids or []))
+    for tile_id in prefill:
+        require_tile_id(tile_id)
+    cures = list(dict.fromkeys(cure_ids or []))
+    for tile_id in cures:
+        require_tile_id(tile_id)
+    dem_ids = list(dict.fromkeys([*prefill, *targets, *cures]))
+    # Fine leaves do not acquire their exact cure-depth parents' masks.
+    # Retain those parents even once they cease to be rendered fallbacks.
+    domain_ids = list(dict.fromkeys([*prefill, *cures, *targets, *coverage]))
+    ready_dem = _present_ids(connection, "dem", dem_ids)
     ready_domain_dem = _present_ids(connection, "dem", domain_ids)
     ready_texture = _present_ids(connection, "textures", domain_ids)
     water_targets = list(
@@ -1053,7 +1066,7 @@ def demand_candidates(
     ]
     bathymetry_jobs = sorted(eligible_fjord_jobs(connection, domain_ids))
     return {
-        "dem": [tile_id for tile_id in targets if tile_id not in ready_dem],
+        "dem": [tile_id for tile_id in dem_ids if tile_id not in ready_dem],
         "texture": list(
             dict.fromkeys(
                 _metatile_id(tile_id) for tile_id in missing_texture_targets
@@ -1070,6 +1083,50 @@ def demand_candidates(
     }
 
 
+def camera_cure_ids(target_ids: list[str]) -> list[str]:
+    """Keep cure evidence beneath fine camera demand, in camera order."""
+
+    result = []
+    for tile_id in target_ids:
+        depth, column, row = require_tile_id(tile_id)
+        if depth < CURE_DEPTH:
+            continue
+        shift = depth - CURE_DEPTH
+        result.append(format_tile_id(CURE_DEPTH, column >> shift, row >> shift))
+    return list(dict.fromkeys(result))
+
+
+def camera_prefill_ids(selection: dict, target_ids: list[str]) -> list[str]:
+    """Prioritize coarse coverage, including the normal outer LOD ring."""
+
+    missing = {tile["tileId"]: tile for tile in selection.get("missing", [])}
+    seeds = []
+    for tile_id in target_ids:
+        depth, column, row = require_tile_id(tile_id)
+        if depth <= LOD_COARSE_FLOOR_DEPTH:
+            # These tiles already belong to normal camera demand. Keep their
+            # DEM and texture work ahead of fine detail even after DEM arrives.
+            seeds.append(tile_id)
+            continue
+        entry = missing.get(tile_id)
+        if entry is None:
+            continue
+        fallback_id = entry.get("fallbackTileId")
+        if fallback_id is not None:
+            # Keep a ready seed's texture ahead of refinement until its
+            # descendants replace it. Existing finer coverage needs no seed.
+            if require_tile_id(fallback_id)[0] <= LOD_COARSE_FLOOR_DEPTH:
+                seeds.append(fallback_id)
+            continue
+        if entry.get("state") != "missing":
+            continue
+        seed_depth = LOD_COARSE_FLOOR_DEPTH
+        shift = depth - seed_depth
+        seeds.append(format_tile_id(seed_depth, column >> shift, row >> shift))
+    # Multiple nearby fine leaves share one seed. Preserve camera priority.
+    return list(dict.fromkeys(seeds))
+
+
 def submit_camera_demand_from_selection(
     connection: sqlite3.Connection,
     selection: dict,
@@ -1081,7 +1138,9 @@ def submit_camera_demand_from_selection(
         raise ValueError(f"unsupported terrain demand origin: {demand_origin}")
     target_ids, coverage_ids = prioritized_selection_ids(selection)
     lanes = coordinator or _coordinator()
-    candidates = demand_candidates(connection, target_ids, coverage_ids)
+    prefill_ids = camera_prefill_ids(selection, target_ids) if demand_origin == "viewer" else []
+    cure_ids = camera_cure_ids(target_ids) if demand_origin == "viewer" else []
+    candidates = demand_candidates(connection, target_ids, coverage_ids, prefill_ids, cure_ids)
     if demand_origin == "viewer":
         # The latest camera claim authoritatively replaces stale unstarted
         # viewer work in every lane.
@@ -1345,6 +1404,10 @@ def compose_camera_demand_binary_from_ready_data(
         previous_depth,
         origin_x,
         origin_y,
+        # Live viewer requests must retain derived repairs even when the
+        # browser already holds the texture and never downloads it again.
+        # Standalone composition and bathymetry probes remain read-only.
+        persist_texture_repairs=demand_origin == "viewer",
     )
     selection = select_lod_tiles(
         camera_x,

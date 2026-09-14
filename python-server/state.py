@@ -230,6 +230,8 @@ def _scaffold_starter_functions():
             "@visible\n"
             "async def win_background() -> None:\n"
             "    \"\"\"Test the Windows 95 forest tile as a repeated terminal background.\"\"\"\n"
+            "    await atlantis.client_command(\"/terminal desaturate 0\")\n"
+            "    await atlantis.client_command(\"/terminal brightness 1\")\n"
             "    forest_path = os.path.join(os.path.dirname(__file__), \"win_forest.jpg\")\n"
             "    await atlantis.set_background(\n"
             "        forest_path,\n"

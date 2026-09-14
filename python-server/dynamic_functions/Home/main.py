@@ -32,18 +32,5 @@ async def README_LOBSTER():
 
     await atlantis.client_log("README_LOBSTER running")
 
-    return """# Atlantis Lobster MCP Tools
-
-Lobster exposes a small local MCP surface that forwards work to the connected Atlantis cloud session.
-
-Tools:
-- `readme`: show the Multix help text.
-- `command`: send an Atlantis command. If the command has no prefix, `/` is added automatically.
-- `chat`: send a plain chat message.
-
-Common command prefixes:
-- `/`: Atlantis slash command.
-- `@`: tool/function call.
-- `~`: routed tool/function call.
-"""
-
+    md_path = Path(__file__).parent / "MULTIX.md"
+    return md_path.read_text(encoding="utf-8")

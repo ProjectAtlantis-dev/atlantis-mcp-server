@@ -1,265 +1,59 @@
-# Terrain dynamic functions
+# Terrain
 
-DEM acquisition evaluates ArcticDEM 10 m and Copernicus GLO-30 independently,
-then persists the candidate with the most finite samples; ArcticDEM wins an
-equal-coverage tie because of its finer native resolution. A failure from one
-provider remains visible in the acquisition record but does not suppress valid
-data from the other. If neither provider resolves the tile, the worker raises
-one error containing both named provider failures.
+Greenland terrain acquisition, local storage, and viewer serving. Terrain owns
+its SQLite data and HTTP sidecar; the Atlantis MCP host runs independently.
 
-ArcticDEM supplies WGS84 ellipsoidal elevations. The Terrain tools convert
-them to orthometric EGM2008 elevations before comparison and persistence so
-that sea level is approximately zero metres. Copernicus GLO-30 is already
-EGM2008 orthometric.
+## Setup
 
-The conversion requires PROJ's open `us_nga_egm08_25.tif` grid. Install it in
-the Python environment used to run Atlantis:
+1. Create the git-ignored `Terrain/.env` with `DATAFORSYNINGEN_TOKEN`.
+   The file must exist even if the token is already in the environment.
+   Add `DATAFORSYNINGEN_FTP_USER` and `DATAFORSYNINGEN_FTP_PASS` for GTK50 downloads.
+2. Install the EGM2008 geoid grid in the Python environment running Atlantis:
+   `projsync --file us_nga_egm08_25.tif`.
+3. Call `Terrain/Server/start` through Atlantis. The default bind is
+   `127.0.0.1:5180`; `status` and `stop` live in the same folder.
 
-```bash
-projsync --file us_nga_egm08_25.tif
-```
+Each start reloads `.env`, overriding matching process environment values,
+and requires a nonblank token even when imagery is cached. The sidecar serves
+the viewer API; configure the viewer's proxy separately if its target differs.
+Check `/health` for HTTP availability and `/api/demand-status` for acquisition
+progress. Server logs are in `python-server/runServer.log`.
 
-The ArcticDEM candidate fails closed when the real grid-backed transformation
-is not available; Copernicus may still resolve the request independently.
-PROJ's ballpark zero-offset fallback must never be used because it would store
-sea-level terrain roughly 28–49 metres too high around Greenland.
+## Data guarantees
 
-## Acquisition dates
+- Persisted DEM elevations are EGM2008 orthometric. ArcticDEM requires the
+  real geoid transformation; a missing grid fails that candidate. Copernicus
+  can still supply the tile. Provider failures remain visible.
+- Ready-data composition does not acquire missing data. Camera demand and
+  texture HTTP requests can queue work; partial coverage is normal while
+  independent domains converge. Repeated camera requests advance acquisition
+  and eligible retries. Transient failures can be reclaimed after cooldown;
+  invalid data and configuration errors require intervention.
+- Acquisition dates describe source evidence, not cache freshness. Unknown
+  dates stay unknown, and older cached rows are not automatically backfilled.
+- Ocean-gap repair is derived imagery, enabled beyond the former trial area.
+  Serving may persist a separate repair cache; original provider images stay
+  intact. Repairs depend on available coastline and imagery evidence and are
+  a heuristic, not a provider NoData mask. Corrected `.jpg` responses contain
+  PNG bytes: honor `Content-Type`. `X-Tex-Repair` identifies the repair version.
 
-New acquisitions persist date provenance alongside each DEM, texture child,
-and coastline mask. `updated_at` remains the local publication time and is
-never used as an acquisition date.
+Live terrain and asset databases are untracked. Asset rebuilds require local
+source archives, metadata, and measured building-ground samples; an existing
+catalog alone is not a complete rebuild source.
 
-- Textures query `spot_optagetidspunkt` via WMS GetFeatureInfo and read
-  `timeutc` at each child's centre, with four bounded metadata workers per
-  metatile. These are SPOT footprint dates sampled at a point, not exhaustive
-  per-pixel dates or acquisition dates for Asiaq imagery.
-- ArcticDEM reads `start_datetime` / `end_datetime` from the static STAC item
-  matching each contributing 10 m COG. The combined interval describes source
-  mosaics, not a per-pixel measurement date. Unused source windows do not widen
-  the range. Copernicus dates remain unknown.
-- GTK50 reads `spatialsourcedatetime` from tidal-water and island features
-  intersecting the tile, aggregating their earliest and latest dates.
+## Verification and details
 
-Metadata requests and parsing finish before publication. Transport and malformed
-metadata failures remain visible and cannot publish undated replacement data.
-Valid missing dates remain null; `dateComplete` reports incomplete metadata.
-The schema adds nullable `acquisition_dates` JSON columns without changing existing
-payloads. Restart the terrain process to apply this schema migration. Legacy rows
-remain undated until reacquired after a reset; reads never fetch metadata or
-schedule backfills. Conflicting payloads or date metadata reject the entire write.
+`Terrain/Test/terrain_regression` runs the main offline suite and raises on a
+failed check. It includes fixture decoding, persistence, composition, demand,
+bathymetry, texture repair, and sidecar lifecycle checks. Some persistence
+checks use rollback savepoints on the current database, so use an isolated
+test database/process for a full run. Offline does not mean dependency-free:
+the geoid grid is still required, and the sidecar test binds a loopback port.
 
-JSON and binary tile responses include `provenance.textureDate` /
-`textureDateEnd`, `heightmapDate` / `heightmapDateEnd`, and `coastlineDate` /
-`coastlineDateEnd`, as UTC ISO timestamps. Resolved source tile IDs accompany
-them, so ancestor data retains its actual provenance. Domain metadata additionally
-exposes `dateSource`, `dateScope`, and `dateComplete`; coastline metadata is under
-`dem.water.coastlineDates`. Metadata is sent even when the client reuses an
-unchanged heightmap digest.
+`camera_prefill_offline` and `asset_coordinate_loading_offline` in the same
+Test folder are separate checks, not included in that runner.
 
-`Test.acquisition_dates_offline()` checks provider parsing, source selection,
-schema migration, persistence, ancestor provenance, worker failures, and binary
-responses using isolated temporary databases. It also runs in `terrain_regression()`.
-
-## Ready-data batch tools
-
-`compose_tiles(tile_ids)` returns independently available DEM, water, and
-texture state without provider access, scheduling, or writes.
-DEM geometry is publishable as soon as its measured heightmap exists;
-coastline, hydrography, connectivity, and bathymetry remain independent state
-and may refine that geometry later without withholding it from the viewer.
-Where a GTK50 coastline mask is available (including a projected depth-12
-ancestor), it controls both land and sea. Connected WMS hydrography supplies
-water only where that coastline coverage is absent; connectivity does not
-authorize cutting into GTK50 land. Both source masks remain visible in water
-status for diagnosis.
-
-`compose_tiles_binary(tile_ids, known_digests)` encodes the same ready-data
-batch with the browser's aligned `binary-v1` envelope. `known_digests` maps tile
-IDs to the eight-digit CRC32 returned in each tile's `heightmap` field. Matching
-heightmap blocks are omitted and reported with `heightmapBytes: 0`. Because MCP
-tool results are JSON, the visible tool base64-wraps the complete binary
-envelope in `contentBase64`; the decoded bytes are the exact browser payload.
-
-`camera_lod(camera_x, camera_y, max_range, max_depth, altitude,
-previous_depth)` applies the Flask viewer's radial and altitude LOD rules using
-only supplied EPSG:3413 camera values. It returns a deterministic, 2:1-balanced
-desired leaf set plus nearest-ready DEM fallback coverage and an explicit list
-of exact target tiles still missing. Render coverage follows the current
-desired leaves: exact tiles when ready, with ancestors retained only where
-needed to fill unresolved gaps. Finer cached descendants outside that leaf set
-remain in the database for later camera passes but do not override a coarser
-radial or altitude LOD. The call is read-only and never performs provider access
-or schedules work. Quality monotonicity is relative to the current camera
-request: while that request remains current, coverage may improve from ancestor
-fallback to the requested exact tiles but must never regress in the opposite
-direction. A camera move creates a new distance-derived request and can
-correctly select coarser leaves.
-
-`compose_camera_binary(...)` composes that hierarchical ready coverage and
-returns the same base64-wrapped `binary-v1` envelope as the explicit batch
-tool. Tile bboxes are relative to the supplied origin (or camera by default),
-while `stereoBbox` retains absolute EPSG:3413 bounds. Ready coverage is read in
-bounded chunks, so a camera leaf set may safely exceed the explicit batch
-tool's 256-ID input limit.
-
-## Nonblocking demand
-
-`submit_camera_demand(...)` compares the supplied camera's desired leaves with
-ready local rows, submits only absent work, and returns without waiting for a
-worker. DEM, texture, coastline, hydrography, and tidal-connectivity work use
-separate bounded lanes, so a slow or failing provider cannot consume another
-domain's capacity. Coastline and hydrography are dependency-staged behind a
-ready DEM and normalized to the depth-12 WMS contract; connectivity is staged
-behind ready hydrography and derived off the camera path.
-
-`compose_camera_demand_binary(...)` first composes the best coherent ready
-coverage, then performs the same quick submissions and returns the browser
-binary envelope. `demand_status()` exposes active, pending, completed, and
-failed lane state without waiting. Failed work is held rather than hot-looped;
-bounded retry eligibility is a separate migration step.
-
-Every new camera submission replaces each lane's unstarted queue with the
-current nearest-first demand. Work already running is never cancelled and may
-publish normally, while obsolete pending IDs are dropped before they consume
-provider capacity. Ready ancestor coverage follows the priority of the nearest
-desired leaf it represents.
-
-Transient transport, timeout, rate-limit, and server failures receive bounded
-retry deadlines (2 seconds, then 10 seconds). A worker performs one attempt and
-releases its slot; no worker sleeps for backoff. A later camera refresh makes
-eligible work runnable. Invalid inputs and payloads, credentials, dimensions,
-clobber conflicts, and exhausted attempts remain terminal and visible in lane
-status.
-
-Responses summarize whether useful work is active/pending (`nextAction: poll`),
-waiting for a future retry deadline (`nextAction: retry`), or terminal/complete
-(`nextAction: idle`). Retry timing is explicit, and failures from obsolete
-camera claims do not keep the current view polling. Repeated ready-data
-composition retains coherent ancestor fallback while exact leaves converge.
-
-## Bathymetry generation
-
-The complete regional bathymetry worker lives in [Bathymetry/](Bathymetry/README.md),
-including its numerical kernels and fixed detail atlas. Missing DEM/coastline
-inputs use Terrain's provider queues; camera polls retain those requests while
-the region remains visible. Generation uses the current Python environment,
-reads one database snapshot, and publishes finest and parent LODs atomically.
-Failures include captured worker diagnostics. No external checkout or viewer
-HTTP collector is required.
-
-`Test.bathymetry_worker_offline()` runs the isolated end-to-end and publication
-regressions and is included in `terrain_regression()`.
-
-## Ocean imagery repair trial
-
-`Test.ocean_texture_offline()` checks a conservative white-gap detector against
-the original cached textures for the diagonal gap `11-934-28`, offshore blank
-area `9-230-6`, and real ice `12-1858-52`. It also checks land exclusion, small
-bright flecks, and nonuniform bright pixels. All fixtures are offline.
-
-The viewer texture endpoint enables derived repair in depth-9 tiles
-`230..233 / 6..7`, covering the supplied southern Greenland examples. A shared
-depth-10 mosaic with a one-tile halo classifies connected defects across tile
-boundaries. Every requested LOD uses that same approval map, refines the gap
-footprint through connected bright neutral pixels, and requires current GTK50
-ocean coverage. Missing reference imagery or coastline is left unclassified;
-serving does not fetch provider data or write the database.
-
-Repair uses the fixed sampled ocean RGB `(10,20,25)` across the trial to avoid
-different fill colours per tile. Corrected textures are lossless PNGs served
-from the existing `.jpg` route with `image/png`; unchanged images retain their
-original bytes. The tile-composition digest and HTTP ETag both describe the
-actual derived bytes. Trial responses revalidate their cache, and derived
-caches invalidate when reference textures or coastline change. Reload an
-already-open viewer once to clear its existing GPU textures.
-
-`X-Tex-Repair: ocean-gap-v1` and `X-Tex-Repaired-Pixels` identify corrected
-responses. Outside the trial bounds, textures are unchanged. The original
-provider JPEGs remain in the database. The heuristic is not a provider NoData
-mask and has not been enabled nationwide.
-
-`Test.ocean_texture_serving_offline()` checks shared-boundary significance,
-ancestor/exact LOD agreement, late coastline and neighbour arrival, cache/ETag
-invalidation, untouched source bytes, and trial-area limits.
-
-Build the original/detection/candidate-fill comparison with:
-
-```bash
-PYTHONPATH=python-server python-server/venv/bin/python \
-  python-server/dynamic_functions/Terrain/Test/ocean_texture_preview.py /tmp/ocean-preview
-```
-
-Open `/tmp/ocean-preview/index.html`. The preview uses a sampled ocean colour
-as an experimental fill. A bounded repair mask includes bright neutral JPEG
-fringes within three pixels of the accepted core, constrained to known ocean;
-all pixels outside that mask are preserved. The detector
-requires at least one hectare (10,000 square metres in EPSG:3413) per connected
-component, along with colour, uniformity, and pixel-count checks. Small
-fragments in this standalone per-image preview can fall below that threshold.
-The live trial instead classifies the shared reference mosaic before sampling
-the requested tile.
-
-## Viewer HTTP sidecar
-
-Set `DATAFORSYNINGEN_TOKEN` to a nonblank webservice/API token in `Terrain/.env`
-or the server environment. `Terrain.Server.start()` explicitly loads this
-Git-ignored `.env` before checking credentials or starting the viewer, regardless
-of the launch directory. Values in the file replace existing process environment
-values on every start, so edited credentials take effect in the running MCP process.
-The file is required even when credentials are already in the environment;
-if missing, startup raises `FileNotFoundError`: `Missing Terrain/.env file.`
-The same file can hold `DATAFORSYNINGEN_FTP_USER` and `DATAFORSYNINGEN_FTP_PASS`
-for GTK50 coastline downloads. `Server.start()` raises immediately if the token is missing,
-before creating the HTTP sidecar, even when cached imagery is available.
-Create the token in your user profile at https://dataforsyningen.dk/ and
-restart the server after setting it.
-
-`Server.start(host="127.0.0.1", port=5180)` explicitly starts the Terrain-owned
-viewer compatibility server. It exposes `GET`/`POST /api/tiles` as raw
-`binary-v1`, `/api/texture/<tile_id>.jpg` with exact/ancestor provenance, and
-`/health`. A repeated start on the same bind is idempotent. The generic MCP
-`server.py` is not modified and continues listening independently on port 8025.
-
-`Server.stop()` explicitly shuts down the sidecar and releases its port; a
-repeated stop is also idempotent. The existing viewer's default Vite proxy
-already targets port 5180, so no proxy override is required for this layout.
-
-`Server.status()` returns the current running state, bind address, URL, thread
-state, and startup/runtime error without starting or stopping the sidecar.
-
-## Asset catalog
-
-`Asset.start()`, `Asset.stop()`, `Asset.status()`, and `Asset.list()` manage and
-inspect the MCP-owned catalog at `Asset/assets.db`. `Asset.rebuild()` performs a
-foreground-only rebuild into a temporary sibling database, validates it, and
-atomically replaces the catalog. It does not launch a worker or server.
-Start, stop, and successful rebuild calls refresh the Terrain dashboard, whose
-`ASSET DB` indicator reflects the shared catalog connection state.
-
-The rebuild reads model/seed metadata from `Asset/metadata.json`, the explicitly
-selected Asiaq settlement archives under `Asset/grundkort/`, and the required
-per-building terrain measurements in `Asset/building_ground_samples.json`.
-Missing archives, metadata, or ground measurements fail the rebuild without
-touching the active database. The settlement list is rebuild inventory, automatically extended by coordinate
-demand; it does not restrict runtime acquisition. Existing migrated packages
-remain available immediately.
-
-The viewer sidecar owns the complete runtime contract: `GET /api/assets`,
-`GET /api/buildings`, `POST /api/vehicle_state`, and
-`PATCH /api/asset/{asset_id}` all read or write this local catalog. There is no
-legacy asset-server path or network fallback.
-
-`GET /api/buildings` resolves camera coordinates against the complete Asiaq
-settlement index and queues nearby missing packages on an independent single
-worker lane. Downloads and measured ground acquisition run outside the HTTP
-request. A complete building/road package is published in one transaction;
-failed imports remain visible in `buildingsAcquisition.failures`. Loading
-responses set `shouldPoll` so stationary viewers receive the completed buildings.
-The worker extends the local archive, ground-sample, and rebuild inventories
-automatically. It samples measured depth-12 terrain and acquires missing DEMs
-through the MCP terrain providers; zero-confidence elevations are rejected.
-
-`Test.asset_coordinate_loading_offline()` verifies coordinate selection,
-nonblocking loading, deduplication, retry, import rollback, measured ground,
-and rebuild retention without provider access.
+See [bathymetry notes](Bathymetry/README.md) for regional generation,
+[HTTP request parsing](http_adapter.py) for the viewer wire contract, and
+[regression gates](Test/regression.py) for the suite's actual coverage.
+Use Atlantis tool help for current parameters.

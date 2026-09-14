@@ -1,16 +1,26 @@
-# Atlantis MCP tools
+# Atlantis Lobster MCP tools
 
 ## Overview
 
 Each Atlantis MCP acts as a filesystem node for Multix, our nix-like 'operating system' for future Greenland. However, since bots rely on tools, each folder in Multix contains functions instead of files. We feel this approach is closer to the original 1960s vision for UNIX, namely Multics.
 
-- **readme** - this file
-- **command** - use this to enter an Atlantis command
-- **chat** - use this to just talk into the chat
+Lobster connects your MCP client to the local Python server. Its command and chat tools route through the connected Atlantis cloud session.
+
+| Tool | Arguments | Purpose |
+| --- | --- | --- |
+| `readme` | `{}` | Read this file from the local server. |
+| `command` | `{"commandText": "/help ls"}` | Run an Atlantis shell command or tool call. |
+| `chat` | `{"message": "Hello"}` | Send a conversational message to the chat. |
+
+`command` preserves text starting with `/`, `\`, `%`, `@`, or `~`. Otherwise, it prepends `/`: `help ls` becomes `/help ls`. Use `chat` for plain conversation. To use a `$` remote-root path through `command`, prefix the tool call with `@`, for example `@$Tools/coffee`.
+
+Results contain `returnValue` and `transcript`, exposed as MCP structured content and JSON text. Command and chat results include up to five recent raw transcript entries; these can include earlier messages. The readme returns an empty transcript.
+
+Start with `/pwd` and `/ls` to inspect the current shell location, then `/help <topic>` to discover commands and function parameters. The cloud owns the Multix shell syntax; use its live help to check the commands below against the connected deployment.
 
 ## Commands
 
-`command` lets humans or bots send commands to Multix. All commands should start with `/`. They kinda follow a Linux style shell approach. In fact, you can enable terminal mode to enter the Multix terminal directly and avoid having to prefix everything with slashes. The main difference is that each MCP exposes a virtual filesystem of sorts but of functions instead of files. The file containers are essentially unwrapped and then hotloaded so they are call ready. Note that the default container is usually main.py and more than one function can be in the same file. Generally, you should not have to care about the containing file except for versioning.
+`command` lets humans or bots send commands to Multix. Shell commands use `/`; tool calls can use `@` or routed paths as described below. Each remote exposes folders of functions loaded from Python modules, and more than one function can be in the same file.
 
 Some interesting commands to get you started:
 
@@ -34,7 +44,7 @@ Some interesting commands to get you started:
 
 ## Tools
 
-You will start at the root of the Atlantis virtual filesystem arranged by usernames, and then you go into a user's home folder, and then connected MCP server for that user. You cannot go into disconnected servers.
+The Atlantis virtual filesystem is arranged as `/user/remote/App/function`, with nested app folders supported. The connected cloud session supplies the shell location; use `/pwd` to inspect it rather than assuming you start at root. You cannot go into disconnected servers.
 
 To run a tool in the current folder, you can simply use `@name` plus any params, much like a JavaScript function e.g. `@foo` or `@foo(3,100)`
 
@@ -77,14 +87,14 @@ If you just say `foo` from the top level it could be ambiguous which one you mea
 
 While purely positional parameters usually work, it is better to use explicitly named JSON arguments (parentheses are optional) to avoid escaping issues:
 
-- `foo { x: 3, name: "chicago" }`
-- `codeset { searchTerm: "bar", contents: "async def bar(): ... rest of code here ..." }`
+- `@foo { "x": 3, "name": "chicago" }`
+- `/codeset { "searchTerm": "bar", "contents": "async def bar(): ... rest of code here ..." }`
 
 The `help` command also provides parameter info.
 
 ## How the Description Field Is Populated
 
-The first comment in a Python function is the description displayed in `search` and other various commands.
+The Python function's docstring supplies its tool description. Use a string literal immediately inside the function body, not a `#` comment.
 
 ## SQL Select
 

@@ -90,16 +90,21 @@ def _scaffold_starter_functions():
         FUNCTIONS_DIR,
         "README.md",
         (
-            "# Dynamic Functions\n\n"
-            "This is your personal tool code directory. Everything here is YOUR code,\n"
-            "separate from the Atlantis server platform.\n\n"
-            "We recommend keeping this directory as its own git repo and symlinking it in:\n\n"
+            "# Dynamic Functions\n"
+            "\n"
+            "Terrain and Chat come pre-installed here, along with Home. These bundled apps\n"
+            "are tracked in the Atlantis MCP server repository. Demo is created on first run.\n"
+            "\n"
+            "Add your own tools in a separate app folder. To keep a custom app in its own\n"
+            "repository, symlink only that app into this directory:\n"
+            "\n"
             "    cd python-server\n"
-            "    rm -rf dynamic_functions\n"
-            "    ln -s ~/my-atlantis-functions dynamic_functions\n\n"
-            "This makes it clear to both you and AI coding agents (Claude, Codex, etc.)\n"
-            "where Atlantis platform code ends and your tool code begins.\n\n"
-            "See README.dynamic_functions.md in the server directory for authoring details.\n"
+            "    ln -s ~/my-atlantis-app dynamic_functions/MyApp\n"
+            "\n"
+            "Keep the bundled app folders in place; do not replace the entire directory.\n"
+            "Custom apps and runtime data are ignored by Git by default.\n"
+            "\n"
+            "See ../README.dynamic_functions.md for authoring details.\n"
         ),
     )
 

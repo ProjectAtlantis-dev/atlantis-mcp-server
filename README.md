@@ -62,7 +62,7 @@ To add Atlantis Open Weather for testing:
 
 7. Your remote(s) should autoconnect using email and default api key = 'foobar' (see 'api' command to generate a new key later). The first server to connect will be assigned your 'default' unless you manually change it later
 
-8. The `dynamic_functions/` directory does not ship with this repo — on first run, the server auto-scaffolds a starter `Demo` app with example functions. We recommend moving these into your own git repo and symlinking back (see **Dynamic Functions** below). The `dynamic_servers/` folder will be empty except for an example weather config
+8. **Terrain and Chat come pre-installed**, along with the Home app, in `python-server/dynamic_functions/`. On first run, the server also creates a starter `Demo` app with example functions. No separate installation is needed for these bundled apps. The `dynamic_servers/` folder includes an example weather config.
 
 9. You can run this standalone MCP or accessed from the cloud or both
 
@@ -123,30 +123,19 @@ For dynamic function authoring details, see [Dynamic Functions Documentation](py
 
 Dynamic functions give users the ability to create and maintain custom functions-as-tools. Functions are loaded on start and automatically reloaded when modified.
 
-The `dynamic_functions/` directory is **not part of this repo** — it is gitignored. You are expected to maintain your own functions in a separate repository and symlink it in.
+The `python-server/dynamic_functions/` directory includes the pre-installed **Terrain**, **Chat**, and **Home** apps. These apps are tracked with the server source. Seeing them on a new server is expected.
 
-**Why the separation matters:** Everything in this repo is Atlantis platform code — the MCP server, runtime, client. Everything under `dynamic_functions/` is **your code** — your tools, your apps, your data. Keeping them in separate repos makes this boundary explicit, which is especially important when working with AI coding agents (Claude Code, Codex, etc.) that need to understand what is platform infrastructure vs. what is user-authored tool code they can freely create and modify. It also means you can update the Atlantis server without touching your functions, and version your functions independently.
+On first run, the server also creates a starter `Demo` app with example functions, once per `.demo_scaffolded` marker. Your own apps and generated runtime data are separate from the bundled code and are ignored by Git by default.
 
-```bash
-cd python-server
-
-# create your own repo for your functions (or use an existing one)
-git init ~/my-atlantis-functions
-
-# symlink it into the server
-ln -s ~/my-atlantis-functions dynamic_functions
-```
-
-The first time the server starts, it auto-scaffolds a starter `Demo` app with example functions so you have something to play with immediately (this runs once, gated by a `.demo_scaffolded` marker file — not by whether the directory exists). From there, we recommend moving those files into your own repo and symlinking back:
+Add your own app in a new subfolder. If you keep its source in a separate repository, symlink just that app into `dynamic_functions/`:
 
 ```bash
+# After creating your app repository at ~/my-atlantis-app:
 cd python-server
-mv dynamic_functions ~/my-atlantis-functions
-git -C ~/my-atlantis-functions init
-ln -s ~/my-atlantis-functions dynamic_functions
+ln -s ~/my-atlantis-app dynamic_functions/MyApp
 ```
 
-The server doesn't care where the symlink points as long as the directory structure follows the expected layout (see below).
+Keep the bundled folders in place. Replacing or moving the entire `dynamic_functions/` directory would also remove the pre-installed apps from this checkout.
 
 For detailed information about creating and using dynamic functions, see the [Dynamic Functions Documentation](python-server/README.dynamic_functions.md). For an example of wiring a UI button back into a Python callback, see [Onclick Callbacks](python-server/README.onclick_callbacks.md).
 

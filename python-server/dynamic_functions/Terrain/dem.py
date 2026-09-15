@@ -5,22 +5,23 @@ import hashlib
 
 import numpy as np
 
-from dynamic_functions.Terrain.arctic_dem import (
-    _fetch_heightmap,
-    _heightmap_summary,
-)
+from dynamic_functions.Terrain.arctic_dem import _heightmap_summary
 from dynamic_functions.Terrain.Database.database import db
 from dynamic_functions.Terrain.Database.tiles import (
     read_dem_payload,
+    read_dem_with_ancestor,
     write_dem,
 )
+from dynamic_functions.Terrain.dem_acquisition import fetch_best_dem
 
 
 @visible
 async def list_tiles() -> list[tuple]:
-    """Return the tile ID, depth, and source for every terrain tile row."""
+    """Return address, source, datum, parent, and update time for every tile."""
 
-    return await atlantis.client_command("@Database/query 'SELECT tile_id, depth, source FROM tiles'");
+    return await atlantis.client_command(
+        "@Database/query 'SELECT tile_id, depth, source, vertical_datum,col, row, parent_id, updated_at FROM tiles'"
+    )
 
 
 def _read_dem(connection, tile_id: str) -> dict:
@@ -35,7 +36,9 @@ def _read_dem(connection, tile_id: str) -> dict:
         "tileId": tile_id,
         "found": True,
         "source": payload["source"],
+        "verticalDatum": payload["vertical_datum"],
         "updatedAt": payload["updated_at"],
+        **payload["acquisition_dates"],
         "geometricError": payload["geometric_error"],
         "confidenceLevels": [
             int(value) for value in np.unique(confidence_map)
@@ -55,23 +58,58 @@ def read_dem(tile_id: str) -> dict:
 
 
 @visible
+def read_dem_fallback(tile_id: str) -> dict:
+    """Return exact DEM metadata or the nearest stored ancestor explicitly."""
+
+    payload = read_dem_with_ancestor(db(), tile_id)
+    if payload is None:
+        return {"tileId": tile_id, "found": False}
+    return {
+        "tileId": tile_id,
+        "found": True,
+        "exact": payload["exact"],
+        "resolvedTileId": payload["resolved_tile_id"],
+        "depthDelta": payload["depth_delta"],
+        "source": payload["source"],
+        "verticalDatum": payload["vertical_datum"],
+        "updatedAt": payload["updated_at"],
+        **payload["acquisition_dates"],
+        "geometricError": payload["geometric_error"],
+        "confidenceLevels": [
+            int(value) for value in np.unique(payload["confidence_map"])
+        ],
+        "confidenceDigest": hashlib.sha256(
+            payload["confidence_map"].tobytes()
+        ).hexdigest(),
+        **_heightmap_summary(payload["heightmap"]),
+    }
+
+
+@visible
 def fetch_dem(tile_id: str) -> dict:
-    """Fetch one live ArcticDEM tile and persist it through the shared DB."""
+    """Fetch the best live DEM candidate and persist it through the shared DB."""
 
     # Acquisition finishes before the database is touched. Provider failures
     # therefore cannot create or alter a terrain row.
-    heightmap, sources = _fetch_heightmap(tile_id)
+    acquisition = fetch_best_dem(tile_id)
+    heightmap = acquisition["heightmap"]
     connection = db()
     written = write_dem(
         connection,
         tile_id,
         heightmap,
-        "arcticdem_10m",
+        acquisition["source"],
+        acquisition["verticalDatum"],
+        acquisition_dates=acquisition["acquisitionDates"],
     )
     return {
-        "provider": "arcticdem",
-        "dataset": "mosaics/v4.1/10m",
+        "provider": acquisition["provider"],
+        "dataset": acquisition["dataset"],
+        "verticalDatum": acquisition["verticalDatum"],
+        "geoidUndulation": acquisition["geoidUndulation"],
+        "acquisitionDates": acquisition["acquisitionDates"],
         "written": written,
-        "sources": sources,
+        "sources": acquisition["sources"],
+        "attempts": acquisition["attempts"],
         **_read_dem(connection, tile_id),
     }

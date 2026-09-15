@@ -3,6 +3,7 @@
 import hashlib
 import sqlite3
 from pathlib import Path
+from typing import cast
 
 from dynamic_functions.Terrain.dataforsyningen import _split_metatile
 from dynamic_functions.Terrain.Database.database import db
@@ -35,8 +36,19 @@ def texture_persistence(tile_id: str) -> dict:
     fixture = _FIXTURE_PATH.read_bytes()
     children = _split_metatile(fixture, tile_id)
     child_ids = sorted(children)
+    failing_children = _split_metatile(fixture, "10-332-212")
+    failing_ids = sorted(failing_children)
     connection.execute("SAVEPOINT texture_persistence_test")
     try:
+        # Both groups are fixtures, not prerequisites. Remove any live rows
+        # only inside the savepoint so this regression stays deterministic as
+        # real texture coverage expands, then restore them on rollback.
+        fixture_ids = child_ids + failing_ids
+        marks = ",".join("?" for _ in fixture_ids)
+        connection.execute(
+            f"DELETE FROM textures WHERE tile_id IN ({marks})",
+            fixture_ids,
+        )
         first_write = write_texture_metatile(
             connection,
             children,
@@ -91,12 +103,12 @@ def texture_persistence(tile_id: str) -> dict:
             partial_rejected = True
 
         failed_acquisition_rejected = False
-        failed_children = dict(children)
+        failed_children: dict[str, bytes | None] = dict(children)
         failed_children[child_ids[-1]] = None
         try:
             write_texture_metatile(
                 connection,
-                failed_children,
+                cast(dict[str, bytes], failed_children),
                 _SOURCE,
                 commit=False,
             )
@@ -109,8 +121,6 @@ def texture_persistence(tile_id: str) -> dict:
         )
 
         # Prove a database failure cannot expose an incomplete sibling set.
-        failing_children = _split_metatile(fixture, "10-332-212")
-        failing_ids = sorted(failing_children)
         connection.execute("DROP TRIGGER IF EXISTS texture_atomicity_test")
         connection.execute(
             "CREATE TEMP TRIGGER texture_atomicity_test "

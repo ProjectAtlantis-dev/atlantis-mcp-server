@@ -58,6 +58,8 @@ python-server/dynamic_functions/Chat/**/*_thumb.jpg
 !python-server/dynamic_functions/Terrain/**
 python-server/dynamic_functions/Terrain/**/__pycache__/
 python-server/dynamic_functions/Terrain/**/*.py[cod]
+python-server/dynamic_functions/Terrain/Coastline/blocks/*.gpkg
+python-server/dynamic_functions/Terrain/Coastline/blocks/*.part
 # Chat/Game holds static content (bots, locations, scenes) and is tracked.
 # Chat/Data holds live per-game state and is not.
 python-server/dynamic_functions/Chat/Data/
@@ -80,6 +82,7 @@ log/
 *.db
 *.db-*
 python-server/**/*.json
+!python-server/pyrightconfig.json
 python-server/**/*.log
 # Chat/Game content is config-as-JSON (bot/location config.json, Scenes/*.json).
 # Must come after the blanket json rule above - last matching rule wins.

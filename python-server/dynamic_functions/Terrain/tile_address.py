@@ -41,6 +41,38 @@ def format_tile_id(depth: int, column: int, row: int) -> str:
     return "-".join(str(value) for value in address)
 
 
+def ancestor_tile_ids(
+    tile_id: object,
+    *,
+    include_self: bool = False,
+) -> tuple[str, ...]:
+    """Return canonical ancestors from nearest to root.
+
+    The requested address is range-checked before any caller can use the
+    result for database lookup. Set ``include_self`` when exact data should
+    take precedence over fallback data.
+    """
+
+    depth, column, row = require_tile_id(tile_id)
+    tiles_per_axis = 1 << depth
+    if column >= tiles_per_axis or row >= tiles_per_axis:
+        raise ValueError(
+            f"terrain tile address is outside depth {depth}: {tile_id!r}"
+        )
+    if tile_id != format_tile_id(depth, column, row):
+        raise ValueError(f"terrain tile id is not canonical: {tile_id!r}")
+
+    result = []
+    if include_self:
+        result.append(format_tile_id(depth, column, row))
+    while depth > 0:
+        depth -= 1
+        column //= 2
+        row //= 2
+        result.append(format_tile_id(depth, column, row))
+    return tuple(result)
+
+
 def tile_bounds(tile_id: object, root_bbox: TileBounds) -> TileBounds:
     """Return one tile's bounds within the supplied quadtree root."""
     depth, column, row = require_tile_id(tile_id)

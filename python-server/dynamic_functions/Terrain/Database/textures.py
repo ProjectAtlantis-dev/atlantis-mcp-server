@@ -12,7 +12,11 @@ import sqlite3
 import uuid
 from collections.abc import Mapping
 
-from dynamic_functions.Terrain.tile_address import require_tile_id
+from dynamic_functions.Terrain.acquisition_dates import encode_dates, decode_dates
+from dynamic_functions.Terrain.tile_address import (
+    ancestor_tile_ids,
+    require_tile_id,
+)
 
 
 class TextureClobberError(RuntimeError):
@@ -91,6 +95,7 @@ def write_texture_metatile(
     children: Mapping[str, bytes],
     source: str,
     *,
+    acquisition_dates: Mapping[str, dict] | None = None,
     commit: bool = True,
 ) -> bool:
     """Atomically store one complete metatile without replacing source bytes.
@@ -104,9 +109,13 @@ def write_texture_metatile(
         raise ValueError("texture source must be a non-empty string")
     normalized = _validated_metatile_children(children)
     tile_ids = sorted(normalized)
+    if acquisition_dates is not None and set(acquisition_dates) != set(tile_ids):
+        raise ValueError("acquisition dates must describe every metatile child")
+    dates = {tile_id: encode_dates(acquisition_dates[tile_id])
+             if acquisition_dates is not None else None for tile_id in tile_ids}
     marks = ",".join("?" for _ in tile_ids)
     existing_rows = db.execute(
-        "SELECT tile_id, source, texture, updated_at FROM textures "
+        "SELECT tile_id, source, texture, updated_at, acquisition_dates FROM textures "
         f"WHERE tile_id IN ({marks})",
         tile_ids,
     ).fetchall()
@@ -115,8 +124,9 @@ def write_texture_metatile(
         row = existing.get(tile_id)
         if row is None:
             continue
-        existing_source, existing_payload, existing_updated_at = row
-        if existing_source != source or existing_payload != normalized[tile_id]:
+        existing_source, existing_payload, existing_updated_at, existing_dates = row
+        if (existing_source != source or existing_payload != normalized[tile_id]
+                or existing_dates != dates[tile_id]):
             raise TextureClobberError(
                 tile_id,
                 existing_source,
@@ -129,10 +139,10 @@ def write_texture_metatile(
         return False
 
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    values_sql = ",".join("(?, ?, ?, ?)" for _ in missing)
+    values_sql = ",".join("(?, ?, ?, ?, ?)" for _ in missing)
     parameters = []
     for tile_id in missing:
-        parameters.extend((tile_id, source, normalized[tile_id], now))
+        parameters.extend((tile_id, source, normalized[tile_id], now, dates[tile_id]))
 
     savepoint = f"texture_metatile_{uuid.uuid4().hex}"
     db.execute(f"SAVEPOINT {savepoint}")
@@ -140,7 +150,7 @@ def write_texture_metatile(
         # One SQLite statement makes the sibling insert indivisible even when
         # a constraint or trigger rejects a child in the middle of the set.
         db.execute(
-            "INSERT INTO textures (tile_id, source, texture, updated_at) "
+            "INSERT INTO textures (tile_id, source, texture, updated_at, acquisition_dates) "
             f"VALUES {values_sql}",
             parameters,
         )
@@ -163,7 +173,7 @@ def read_texture_payload(
 
     require_tile_id(tile_id)
     row = db.execute(
-        "SELECT source, texture, updated_at FROM textures WHERE tile_id = ?",
+        "SELECT source, texture, updated_at, acquisition_dates FROM textures WHERE tile_id = ?",
         (tile_id,),
     ).fetchone()
     if row is None:
@@ -173,4 +183,27 @@ def read_texture_payload(
         "source": row[0],
         "texture": row[1],
         "updated_at": row[2],
+        "acquisition_dates": decode_dates(row[3]),
     }
+
+
+def read_texture_with_ancestor(
+    db: sqlite3.Connection,
+    tile_id: str,
+) -> dict | None:
+    """Read exact texture data or the nearest stored ancestor without writing."""
+
+    requested_depth, _, _ = require_tile_id(tile_id)
+    for candidate_id in ancestor_tile_ids(tile_id, include_self=True):
+        payload = read_texture_payload(db, candidate_id)
+        if payload is None:
+            continue
+        resolved_depth, _, _ = require_tile_id(candidate_id)
+        return {
+            **payload,
+            "requested_tile_id": tile_id,
+            "resolved_tile_id": candidate_id,
+            "depth_delta": requested_depth - resolved_depth,
+            "exact": candidate_id == tile_id,
+        }
+    return None

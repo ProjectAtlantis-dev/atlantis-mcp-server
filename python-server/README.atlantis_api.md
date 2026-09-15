@@ -316,5 +316,7 @@ atlantis.session_shared.set("last_query", q)
 | --- | --- |
 | `image_to_base64(image_path)` | Read a file and return a base64 string. Raises `FileNotFoundError` / `IOError`. |
 | `video_to_base64(video_path)` | Same for video. |
+| `get_uncalled_dynamic_functions()` | Return registered dynamic functions with no distinct static caller in the live remote's `dynamic_functions` tree. |
+| `get_single_called_dynamic_functions()` | Return registered dynamic functions with exactly one distinct static caller in that tree. Multiple calls from the same caller count once. |
 </content>
 </invoke>

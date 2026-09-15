@@ -275,7 +275,6 @@ def encode_tiles_binary(result: TileResult) -> bytes:
 # 
 # _bathymetry_demand = BathymetryDemandScheduler(
 #   DB_PATH,
-#   glacier_root=os.environ.get("GLACIER_ROOT") or None,
 #   workers=max(1, _env_int("BATHYMETRY_WORKERS", 1)),
 #   retry_seconds=max(1, _env_int("BATHYMETRY_RETRY_SECONDS", 300)),
 #   retry_max_seconds=max(

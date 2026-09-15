@@ -22,6 +22,7 @@ def create(db: sqlite3.Connection) -> None:
             parent_id        TEXT,
             geometric_error  REAL NOT NULL DEFAULT 0.0,
             source           TEXT NOT NULL DEFAULT 'empty',
+            vertical_datum   TEXT,
             updated_at       TEXT NOT NULL,
             dem_demanded_at  TEXT,
             dem_requested_at TEXT,
@@ -44,6 +45,71 @@ def create(db: sqlite3.Connection) -> None:
             texture    BLOB NOT NULL,
             updated_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS ocean_texture_repairs (
+            tile_id         TEXT PRIMARY KEY,
+            evidence_digest TEXT NOT NULL,
+            texture         BLOB,
+            media_type      TEXT NOT NULL,
+            repaired_pixels INTEGER NOT NULL CHECK (repaired_pixels >= 0)
+        );
+
+        CREATE TABLE IF NOT EXISTS coastline_masks (
+            tile_id    TEXT PRIMARY KEY,
+            width      INTEGER NOT NULL CHECK (width > 0),
+            height     INTEGER NOT NULL CHECK (height > 0),
+            mask       BLOB NOT NULL,
+            source     TEXT NOT NULL,
+            version    INTEGER NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (tile_id) REFERENCES tiles(tile_id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS hydrography_masks (
+            tile_id    TEXT PRIMARY KEY,
+            width      INTEGER NOT NULL CHECK (width > 0),
+            height     INTEGER NOT NULL CHECK (height > 0),
+            mask       BLOB NOT NULL,
+            source     TEXT NOT NULL,
+            version    INTEGER NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (tile_id) REFERENCES tiles(tile_id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS tidal_connectivity_masks (
+            tile_id    TEXT PRIMARY KEY,
+            width      INTEGER NOT NULL CHECK (width > 0),
+            height     INTEGER NOT NULL CHECK (height > 0),
+            mask       BLOB NOT NULL,
+            source     TEXT NOT NULL,
+            version    INTEGER NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (tile_id) REFERENCES tiles(tile_id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS bathymetry (
+            tile_id    TEXT PRIMARY KEY,
+            heightmap  BLOB NOT NULL,
+            water_px   INTEGER NOT NULL,
+            min_z      REAL NOT NULL,
+            max_z      REAL NOT NULL,
+            source     TEXT NOT NULL,
+            version    INTEGER NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (tile_id) REFERENCES tiles(tile_id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS bathymetry_source
+            ON bathymetry(source, version);
         """
     )
+    tile_columns = {
+        row[1] for row in db.execute("PRAGMA table_info(tiles)").fetchall()
+    }
+    if "vertical_datum" not in tile_columns:
+        db.execute("ALTER TABLE tiles ADD COLUMN vertical_datum TEXT")
+    for table in ("tiles", "textures", "coastline_masks"):
+        columns = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
+        if "acquisition_dates" not in columns:
+            db.execute(f"ALTER TABLE {table} ADD COLUMN acquisition_dates TEXT")
     db.commit()

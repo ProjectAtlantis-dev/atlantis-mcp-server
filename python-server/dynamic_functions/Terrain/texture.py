@@ -4,15 +4,16 @@ import atlantis
 
 import base64
 import hashlib
-import os
 
 from dynamic_functions.Terrain.dataforsyningen import (
     _fetch_metatile,
+    _require_token,
     _split_metatile,
 )
 from dynamic_functions.Terrain.Database.database import db
 from dynamic_functions.Terrain.Database.textures import (
     read_texture_payload,
+    read_texture_with_ancestor,
     write_texture_metatile,
 )
 
@@ -41,6 +42,7 @@ def _read_texture(connection, tile_id: str, *, include_data: bool) -> dict:
         "found": True,
         "source": payload["source"],
         "updatedAt": payload["updated_at"],
+        **payload["acquisition_dates"],
         "mediaType": _MEDIA_TYPE,
         "contentLength": len(texture),
         "digest": hashlib.sha256(texture).hexdigest(),
@@ -58,6 +60,31 @@ def read_texture(tile_id: str) -> dict:
 
 
 @visible
+def read_texture_fallback(tile_id: str) -> dict:
+    """Return exact texture bytes or the nearest stored ancestor explicitly."""
+
+    payload = read_texture_with_ancestor(db(), tile_id)
+    if payload is None:
+        return {"tileId": tile_id, "found": False}
+
+    texture = payload["texture"]
+    return {
+        "tileId": tile_id,
+        "found": True,
+        "exact": payload["exact"],
+        "resolvedTileId": payload["resolved_tile_id"],
+        "depthDelta": payload["depth_delta"],
+        "source": payload["source"],
+        "updatedAt": payload["updated_at"],
+        **payload["acquisition_dates"],
+        "mediaType": _MEDIA_TYPE,
+        "contentLength": len(texture),
+        "digest": hashlib.sha256(texture).hexdigest(),
+        "contentBase64": base64.b64encode(texture).decode("ascii"),
+    }
+
+
+@visible
 def fetch_texture(tile_id: str) -> dict:
     """Fetch and atomically persist one aligned Dataforsyningen metatile.
 
@@ -66,11 +93,7 @@ def fetch_texture(tile_id: str) -> dict:
     therefore cannot create or alter texture rows.
     """
 
-    token = os.environ.get("DATAFORSYNINGEN_TOKEN", "").strip()
-    if not token:
-        raise RuntimeError(
-            "DATAFORSYNINGEN_TOKEN is required for live imagery requests"
-        )
+    token = _require_token()
 
     metatile_bytes, provider = _fetch_metatile(tile_id, token)
     if metatile_bytes is None:
@@ -88,6 +111,7 @@ def fetch_texture(tile_id: str) -> dict:
         connection,
         children,
         _SOURCE,
+        acquisition_dates=provider["childAcquisitionDates"],
     )
     child_summaries = [
         _read_texture(connection, child_id, include_data=False)

@@ -233,6 +233,8 @@ def _bot_rows() -> List[Dict[str, Any]]:
         })
     return bots
 
+# % ls 
+
 
 @public
 async def bot_list() -> List[Dict[str, Any]]:

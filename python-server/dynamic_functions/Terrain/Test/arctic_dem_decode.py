@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from dynamic_functions.Terrain.arctic_dem import (
+    _correct_vertical_datum,
     _decode_source,
     _heightmap_summary,
 )
@@ -26,11 +27,16 @@ def arcticdem_decode(tile_id: str) -> dict:
             f"ArcticDEM fixture does not exist: {_FIXTURE_PATH}"
         )
 
-    heightmap = _decode_source(
-        _FIXTURE_PATH,
-        tile_bounds(tile_id, GREENLAND_BBOX),
+    bbox = tile_bounds(tile_id, GREENLAND_BBOX)
+    ellipsoidal = _decode_source(_FIXTURE_PATH, bbox)
+    heightmap, geoid_undulation = _correct_vertical_datum(
+        ellipsoidal,
+        bbox,
     )
     return {
         "tileId": tile_id,
+        "verticalDatum": "EGM2008",
+        "geoidUndulation": geoid_undulation,
+        "ellipsoidalDigest": _heightmap_summary(ellipsoidal)["digest"],
         **_heightmap_summary(heightmap),
     }

@@ -4,6 +4,12 @@ import logging
 logger = logging.getLogger("dynamic_function")
 
 
+@public
+async def first_menu():
+    """Terrain tools"""
+    return None
+
+
 @visible
 @index
 async def index():
@@ -16,4 +22,3 @@ async def index():
 
     # Replace this return statement with your function's result
     return f"Placeholder function 'index' executed successfully."
-

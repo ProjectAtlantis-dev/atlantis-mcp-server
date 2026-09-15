@@ -31,7 +31,7 @@ def get_default_lobster_tools() -> List[Tool]:
         ),
         Tool(
             name="command",
-            description="Send a command to Atlantis. The text is passed through as-is (e.g. '/help', '@myFunction()', 'hello').",
+            description="Send an Atlantis shell command or tool call (e.g. '/help ls', '@myFunction()'). A leading '/' is added unless the text starts with /, \\, %, @, or ~. Use chat for conversation.",
             inputSchema={
                 "type": "object",
                 "properties": {

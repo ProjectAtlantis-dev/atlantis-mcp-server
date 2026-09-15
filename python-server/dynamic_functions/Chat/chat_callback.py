@@ -39,7 +39,8 @@ def _require_roster_assigned(game_key: str) -> None:
 @public
 @preflight
 async def preflight_callback():
-    await atlantis.client_log("doing preflight")
+    #await atlantis.client_log("doing preflight")
+    pass
 
 
 

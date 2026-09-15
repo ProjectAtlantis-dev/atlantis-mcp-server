@@ -1,26 +1,98 @@
 """ArcticDEM request construction for explicit terrain tile IDs."""
 
 import hashlib
+import json
+import urllib.request
+from functools import lru_cache
+import logging
 import math
 from pathlib import Path
 
 import numpy as np
 import rasterio
+from pyproj import Transformer
+from pyproj.transformer import TransformerGroup
 from rasterio.windows import Window, from_bounds as window_from_bounds
 
+from dynamic_functions.Terrain.acquisition_dates import date_range
 from dynamic_functions.Terrain.Database.tiles import GRID_N
 from dynamic_functions.Terrain.terrain_config import GREENLAND_BBOX
 from dynamic_functions.Terrain.tile_address import tile_bounds
+
+
+# Rasterio probes for optional boto3 support for every remote dataset open.
+# ArcticDEM uses ordinary HTTPS and does not require boto3, so exposing that
+# fallback at INFO once per demanded tile only obscures useful terrain logs.
+logging.getLogger("rasterio.session").setLevel(logging.WARNING)
 
 
 _GRID_ORIGIN = -4_000_000
 _SOURCE_TILE_SIZE = 100_000
 _URL_TEMPLATE = (
     "https://pgc-opendata-dems.s3.us-west-2.amazonaws.com/"
-    "arcticdem/mosaics/v4.1/10m/{row}_{column}/"
-    "{row}_{column}_10m_v4.1_dem.tif"
+    "arcticdem/mosaics/v4.1/10m/{row:02d}_{column:02d}/"
+    "{row:02d}_{column:02d}_10m_v4.1_dem.tif"
 )
 _NODATA = -9999.0
+_EGM2008_GRID = "us_nga_egm08_25.tif"
+
+# ArcticDEM elevations are WGS84 ellipsoidal heights. Terrain consumers use
+# orthometric EGM2008 heights so that sea level is approximately zero metres.
+_TO_WGS84_3D = Transformer.from_crs(3413, 4979, always_xy=True)
+_EGM2008_TRANSFORMERS = TransformerGroup(4979, 9518, always_xy=True)
+
+
+def _egm2008_transformer() -> Transformer:
+    """Return the real grid-backed transform, never PROJ's zero-offset shim."""
+
+    if not _EGM2008_TRANSFORMERS.best_available:
+        raise RuntimeError(
+            "ArcticDEM vertical-datum correction requires the PROJ grid "
+            f"{_EGM2008_GRID}; install it with: "
+            f"projsync --file {_EGM2008_GRID}"
+        )
+    for transformer in _EGM2008_TRANSFORMERS.transformers:
+        if "WGS 84 to EGM2008 height (1)" in transformer.description:
+            return transformer
+    raise RuntimeError(
+        "PROJ reports an EGM2008 transform but did not expose the required "
+        f"grid-backed operation ({_EGM2008_GRID})"
+    )
+
+
+def _geoid_undulation(
+    bbox: tuple[float, float, float, float],
+) -> float:
+    """Return EGM2008 geoid undulation at the EPSG:3413 bbox centre."""
+
+    center_x = (bbox[0] + bbox[2]) / 2.0
+    center_y = (bbox[1] + bbox[3]) / 2.0
+    longitude, latitude, _ = _TO_WGS84_3D.transform(
+        center_x,
+        center_y,
+        0.0,
+    )
+    _, _, orthometric_at_zero = _egm2008_transformer().transform(
+        longitude,
+        latitude,
+        0.0,
+    )
+    undulation = -float(orthometric_at_zero)
+    if not math.isfinite(undulation):
+        raise RuntimeError("EGM2008 geoid correction returned a non-finite value")
+    return undulation
+
+
+def _correct_vertical_datum(
+    heightmap: np.ndarray,
+    bbox: tuple[float, float, float, float],
+) -> tuple[np.ndarray, float]:
+    """Convert an ArcticDEM grid from ellipsoidal to EGM2008 heights."""
+
+    corrected = np.asarray(heightmap, dtype=np.float32).copy()
+    geoid_undulation = _geoid_undulation(bbox)
+    corrected -= np.float32(geoid_undulation)
+    return corrected, geoid_undulation
 
 
 def _source_tile_for_point(x: float, y: float) -> tuple[int, int]:
@@ -133,24 +205,48 @@ def _heightmap_summary(heightmap: np.ndarray) -> dict:
     }
 
 
-def _fetch_heightmap(tile_id: str) -> tuple[np.ndarray, list[dict]]:
+@lru_cache(maxsize=512)
+def _source_dates(url: str) -> dict:
+    """Read the immutable STAC item belonging to this exact mosaic COG."""
+    metadata_url = url.removesuffix("_dem.tif") + ".json"
+    with urllib.request.urlopen(metadata_url, timeout=30) as response:
+        item = json.load(response)
+    if item["assets"]["dem"]["href"] != url:
+        raise ValueError("ArcticDEM STAC item references a different DEM")
+    properties = item["properties"]
+    return date_range(
+        [properties.get("start_datetime"), properties.get("end_datetime")],
+        source="arcticdem_stac:start_datetime/end_datetime",
+        scope="source_mosaic",
+    )
+
+
+def _fetch_heightmap(
+    tile_id: str,
+) -> tuple[np.ndarray, list[dict], float]:
     """Fetch and merge the ArcticDEM COG windows needed by one tile."""
 
     bbox = tile_bounds(tile_id, GREENLAND_BBOX)
     sources = _sources_for_bbox(bbox)
     heightmap = None
 
+    contributing = []
     for source in sources:
         decoded = _decode_source(source["url"], bbox)
+        fill = np.isfinite(decoded)
+        if heightmap is not None:
+            fill &= np.isnan(heightmap)
+        if np.any(fill):
+            contributing.append({**source, **_source_dates(source["url"])})
         if heightmap is None:
             heightmap = decoded
         else:
-            fill = np.isnan(heightmap) & np.isfinite(decoded)
             heightmap[fill] = decoded[fill]
 
     if heightmap is None:
         raise RuntimeError(f"No ArcticDEM sources found for {tile_id}")
-    return heightmap, sources
+    heightmap, geoid_undulation = _correct_vertical_datum(heightmap, bbox)
+    return heightmap, contributing, geoid_undulation
 
 
 @visible
@@ -190,11 +286,13 @@ def arcticdem_fetch(tile_id: str) -> dict:
         arcticdem_fetch("10-334-192")
     """
 
-    heightmap, sources = _fetch_heightmap(tile_id)
+    heightmap, sources, geoid_undulation = _fetch_heightmap(tile_id)
     return {
         "provider": "arcticdem",
         "dataset": "mosaics/v4.1/10m",
         "tileId": tile_id,
         "sources": sources,
+        "verticalDatum": "EGM2008",
+        "geoidUndulation": geoid_undulation,
         **_heightmap_summary(heightmap),
     }

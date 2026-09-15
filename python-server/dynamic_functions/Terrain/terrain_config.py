@@ -1,4 +1,19 @@
-"""Shared terrain runtime configuration constants."""
+"""Shared terrain runtime configuration and local environment loading."""
+
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+def _load_environment() -> None:
+    """Require and reload Terrain/.env on every server start."""
+    env_path = Path(__file__).resolve().parent / ".env"
+    try:
+        env_file = env_path.open(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise FileNotFoundError("Missing Terrain/.env file.") from exc
+    with env_file:
+        load_dotenv(stream=env_file, override=True)
 
 # Canonical EPSG:3413 root square used by every terrain tile address. The raw
 # Greenland bounds are approximately x=[-627247, 849164],
@@ -26,6 +41,9 @@ MAX_TILE_DEPTH = 16
 # Depth 12 ≈ 659 m tiles — Sentinel-2 z14 (~2.4 m/px) and ArcticDEM 10 m
 # still have headroom there.
 WMS_CONTRACT_DEPTH = 12
+
+# Exact evidence depth shared by cure inventory and camera demand.
+CURE_DEPTH = 11
 
 # Dataforsyningen is only trusted without a detail check through depth 10.
 # Starting at depth 11, score every fetched metatile for evidence that the

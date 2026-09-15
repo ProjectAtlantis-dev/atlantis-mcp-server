@@ -13,11 +13,13 @@ import zlib
 
 import numpy as np
 
+from dynamic_functions.Terrain.acquisition_dates import encode_dates, decode_dates
 from dynamic_functions.Terrain.terrain_config import (
     GREENLAND_BBOX,
     MAX_TILE_DEPTH,
 )
 from dynamic_functions.Terrain.tile_address import (
+    ancestor_tile_ids,
     format_tile_id,
     require_tile_id,
 )
@@ -28,6 +30,7 @@ GRID_N = 65
 
 CONFIDENCE = {
     "empty": 0,
+    "copernicus": 4,
     "arcticdem": 5,
     "arcticdem_10m": 6,
 }
@@ -166,7 +169,9 @@ def write_dem(
     tile_id: str,
     heightmap: np.ndarray,
     source: str,
+    vertical_datum: str,
     *,
+    acquisition_dates: dict | None = None,
     commit: bool = True,
 ) -> bool:
     """Store one decoded DEM without silently replacing existing data.
@@ -186,7 +191,10 @@ def write_dem(
         raise TypeError(f"heightmap dtype {heightmap.dtype} != float32")
     if source not in CONFIDENCE or CONFIDENCE[source] == 0:
         raise ValueError(f"Unknown measured DEM source: {source}")
+    if not isinstance(vertical_datum, str) or not vertical_datum.strip():
+        raise ValueError("vertical_datum must be a non-empty string")
 
+    dates_json = encode_dates(acquisition_dates)
     ensure_tile_row(db, tile_id)
     confidence = np.where(
         np.isfinite(heightmap),
@@ -203,14 +211,16 @@ def write_dem(
 
     cursor = db.execute(
         "UPDATE tiles SET heightmap = ?, confidence_map = ?, "
-        "geometric_error = ?, source = ?, updated_at = ? "
+        "geometric_error = ?, source = ?, vertical_datum = ?, updated_at = ?, acquisition_dates = ? "
         "WHERE tile_id = ? AND heightmap IS NULL AND confidence_map IS NULL",
         (
             heightmap_blob,
             confidence_blob,
             geometric_error,
             source,
+            vertical_datum,
             now,
+            dates_json,
             tile_id,
         ),
     )
@@ -220,18 +230,27 @@ def write_dem(
         return True
 
     row = db.execute(
-        "SELECT source, updated_at, heightmap, confidence_map "
+        "SELECT source, vertical_datum, updated_at, heightmap, confidence_map, acquisition_dates "
         "FROM tiles WHERE tile_id = ?",
         (tile_id,),
     ).fetchone()
     if row is None:
         raise KeyError(f"Unknown tile_id: {tile_id}")
 
-    existing_source, existing_updated_at, existing_heightmap, existing_confidence = row
+    (
+        existing_source,
+        existing_vertical_datum,
+        existing_updated_at,
+        existing_heightmap,
+        existing_confidence,
+        existing_dates,
+    ) = row
     if (
         existing_source == source
+        and existing_vertical_datum == vertical_datum
         and existing_heightmap == heightmap_blob
         and existing_confidence == confidence_blob
+        and existing_dates == dates_json
     ):
         return False
     raise TileClobberError(
@@ -246,25 +265,50 @@ def read_dem_payload(db: sqlite3.Connection, tile_id: str) -> dict | None:
     """Read and decode one stored DEM, restoring no-confidence samples to NaN."""
 
     row = db.execute(
-        "SELECT source, updated_at, geometric_error, heightmap, confidence_map "
+        "SELECT source, vertical_datum, updated_at, geometric_error, "
+        "heightmap, confidence_map, acquisition_dates "
         "FROM tiles WHERE tile_id = ?",
         (tile_id,),
     ).fetchone()
-    if row is None or row[3] is None or row[4] is None:
+    if row is None or row[4] is None or row[5] is None:
         return None
 
-    stored_heightmap = _decompress_float32(row[3])
-    confidence_map = _decompress_uint8(row[4])
+    stored_heightmap = _decompress_float32(row[4])
+    confidence_map = _decompress_uint8(row[5])
     heightmap = stored_heightmap.copy()
     heightmap[confidence_map == 0] = np.nan
     return {
         "tile_id": tile_id,
         "source": row[0],
-        "updated_at": row[1],
-        "geometric_error": row[2],
+        "vertical_datum": row[1],
+        "updated_at": row[2],
+        "geometric_error": row[3],
         "heightmap": heightmap,
         "confidence_map": confidence_map,
+        "acquisition_dates": decode_dates(row[6]),
     }
+
+
+def read_dem_with_ancestor(
+    db: sqlite3.Connection,
+    tile_id: str,
+) -> dict | None:
+    """Read exact DEM data or the nearest stored ancestor without writing."""
+
+    requested_depth, _, _ = require_tile_id(tile_id)
+    for candidate_id in ancestor_tile_ids(tile_id, include_self=True):
+        payload = read_dem_payload(db, candidate_id)
+        if payload is None:
+            continue
+        resolved_depth, _, _ = require_tile_id(candidate_id)
+        return {
+            **payload,
+            "requested_tile_id": tile_id,
+            "resolved_tile_id": candidate_id,
+            "depth_delta": requested_depth - resolved_depth,
+            "exact": candidate_id == tile_id,
+        }
+    return None
 
 
 def seed_tiles(

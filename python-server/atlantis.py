@@ -199,6 +199,21 @@ def _get_external_caller_name(default: str = "unknown_caller") -> str:
 
 # --- Accessor Functions ---
 
+def _resolve_callback_shell(shell: str) -> str:
+    """Resolve call-context selectors; Node selects open tabs for other targets."""
+    if not isinstance(shell, str):
+        raise TypeError("shell must be a string")
+    shell = shell.strip()
+    if shell in ("exec", "caller"):
+        path = get_exec_shell_path() if shell == "exec" else get_caller_shell_path()
+        if not path:
+            raise RuntimeError(f"Callback shell {shell!r} is unavailable in the current call context")
+        return path
+    # Names, types, and numeric paths are preferences evaluated by the server.
+    # A missing target (including an empty name) uses the caller's terminal.
+    return shell or "caller"
+
+
 async def client_log(
     message: Any,
     level: str = "INFO",
@@ -224,7 +239,9 @@ async def client_log(
     Args:
         is_private: If True (default), send only to requesting client.
                    If False, pass a cloud-side routing hint.
-        shell: Optional render target shell: "exec", "display", "user", or "caller".
+        shell: Optional shell name (e.g. "d_map"), type (e.g. "display"),
+               numeric path, or context selector ("exec" / "caller").
+               Unavailable targets use the caller's terminal.
                When omitted, preserve the notification's legacy routing.
 
     Calls the underlying log function directly; async dispatch is handled internally.
@@ -238,17 +255,7 @@ async def client_log(
         try:
             target_shell_path = None
             if shell is not None:
-                shell_paths = {
-                    "exec": get_exec_shell_path(),
-                    "display": get_display_shell_path(),
-                    "user": get_user_shell_path(),
-                    "caller": get_caller_shell_path(),
-                }
-                if shell not in shell_paths:
-                    raise ValueError(f"Unknown client_log shell {shell!r}; expected exec, display, user, or caller")
-                target_shell_path = shell_paths[shell]
-                if not target_shell_path:
-                    raise RuntimeError(f"client_log shell {shell!r} is unavailable in the current call context")
+                target_shell_path = _resolve_callback_shell(shell)
 
             # Get current sequence number and increment it for the next call
             current_seq_to_send = await get_and_increment_seq_num(
@@ -705,7 +712,9 @@ async def client_image(
         max_width: Optional CSS max-width for the rendered image (e.g. "25vw", "320px").
         sid: Optional author sid; the client/database resolves its display name.
         location: Optional game-location tag for the image event.
-        shell: Render target shell — "exec" (default), "display", "user", or "caller".
+        shell: Shell name, type, numeric path, or "exec" (default) / "caller".
+               Names select an open matching tab; types select the first open match.
+               Unavailable targets use the caller's terminal.
 
     Raises:
         FileNotFoundError: If the image file doesn't exist
@@ -1074,7 +1083,8 @@ async def _client_command(
         message_type: The message type for the protocol (default "command").
         is_private: If True, send only to requesting client.
         notification_params: Internal-only params flattened beside messageType/data.
-        shell: Callback target: "exec" (default), "display", "user", or "caller".
+        shell: Shell name, type, numeric path, or "exec" (default) / "caller".
+               Unavailable targets use the caller's terminal.
 
     Returns:
         The result returned by the client for the command.
@@ -1090,17 +1100,7 @@ async def _client_command(
     current_function_name = _get_external_caller_name()
     caller_sid = get_caller()
     session_key = get_session_key()
-    shell_paths = {
-        "exec": get_exec_shell_path(),
-        "display": get_display_shell_path(),
-        "user": get_user_shell_path(),
-        "caller": get_caller_shell_path(),
-    }
-    if shell not in shell_paths:
-        raise ValueError(f"Unknown client_command shell {shell!r}; expected exec, display, user, or caller")
-    target_shell_path = shell_paths[shell]
-    if not target_shell_path:
-        raise RuntimeError(f"client_command shell {shell!r} is unavailable in the current call context")
+    target_shell_path = _resolve_callback_shell(shell)
 
     logger.info(
         f"📡 client_command '{command}' (entry={entry_point_name}, currentFunction={current_function_name}, caller_sid={caller_sid}, shell={shell}:{target_shell_path})",
@@ -1166,8 +1166,9 @@ async def client_command(
 ) -> Any:
     """Send a command and wait for its result.
 
-    Set shell="display" for the live-only display surface or shell="user" for
-    the replaying user surface. Existing callers continue to use the exec shell.
+    Use a name such as shell="d_map" for a specific open tab, or a type such
+    as shell="display" for the first open tab of that type. Unavailable targets
+    use the caller's terminal. The default "exec" retains isolated tool execution.
     """
     return await _client_command(
         command,
@@ -1185,7 +1186,9 @@ async def client_html(content: str, modal: bool = False, title: Optional[str] = 
         content: The HTML content to send
         modal: If True, render the HTML in a client modal.
         title: Optional modal title.
-        shell: Render target shell — "exec" (default), "display", "user", or "caller".
+        shell: Shell name, type, numeric path, or "exec" (default) / "caller".
+               Names select an open matching tab; types select the first open match.
+               Unavailable targets use the caller's terminal.
     """
     # Internal carrier only: these keys are flattened into notifications/message.params
     # beside messageType and data; no wrapper is exposed or sent to clients.
@@ -1209,7 +1212,9 @@ async def client_modal(content: str, title: Optional[str] = None, shell: str = "
     Args:
         content: The modal HTML.
         title: Optional modal title.
-        shell: Render target shell — "exec" (default), "display", "user", or "caller".
+        shell: Shell name, type, numeric path, or "exec" (default) / "caller".
+               Names select an open matching tab; types select the first open match.
+               Unavailable targets use the caller's terminal.
 
     Returns:
         The modal UUID returned by the client ack.
@@ -1385,7 +1390,9 @@ async def set_background(
         horizontal_align: Horizontal alignment for background-position. Defaults to "center".
         background_repeat: CSS background-repeat value. Defaults to "no-repeat".
         background_size: CSS background-size value. Defaults to "cover".
-        shell: Render target shell — "exec" (default), "display", "user", or "caller".
+        shell: Shell name, type, numeric path, or "exec" (default) / "caller".
+               Names select an open matching tab; types select the first open match.
+               Unavailable targets use the caller's terminal.
     """
     # Auto-detect MIME type from file extension if not provided
     if image_format is None:

@@ -50,7 +50,7 @@ FUNCTION_TIMESTAMP_CACHE_PATH = os.path.join(
 )
 
 # Visibility decorators that allow remote function calls
-VISIBILITY_DECORATORS = ['visible', 'public', 'protected', 'tick', 'chat', 'text', 'button', 'preflight', 'session', 'game', 'index', 'homepage', 'price', 'location', 'app', 'copy']
+VISIBILITY_DECORATORS = ['visible', 'public', 'protected', 'tick', 'chat', 'text', 'button', 'preflight', 'session', 'game', 'file', 'index', 'homepage', 'price', 'location', 'app', 'copy']
 
 # Module-level statements shared by every generated main.py. They belong to the
 # FILE, not to each function. Checked for presence INDIVIDUALLY (not as one
@@ -305,6 +305,7 @@ class DynamicFunctionManager:
             ("text", text),
             ("public", _mcp_identity_decorator),
             ("preflight", _mcp_identity_decorator),
+            ("file", _mcp_identity_decorator),
             ("session", _mcp_identity_decorator),
             ("game", _mcp_identity_decorator),
             ("app", app),
@@ -2314,6 +2315,7 @@ async def {name}():
                         module.__dict__['text'] = text
                         module.__dict__['public'] = _mcp_identity_decorator
                         module.__dict__['preflight'] = _mcp_identity_decorator
+                        module.__dict__['file'] = _mcp_identity_decorator
                         module.__dict__['session'] = _mcp_identity_decorator
                         module.__dict__['game'] = _mcp_identity_decorator
                         # Add app decorator which takes parameters

@@ -102,6 +102,7 @@ async def homepage() -> dict:
             f"/cd {script_folder}",
             f"/path push {script_folder}",
             "/env save",
+            "/callback set file auto",
             "/terminal on",
             "app on",
             "term_default",

@@ -129,9 +129,23 @@ each ack).
 
 ## Commands & interaction
 
+Callback helpers with a `shell` argument accept a name such as `"d_map"`,
+`"t_main"`, or `"u_roster"`, a shell type such as `"display"`, `"terminal"`, or
+`"user"`, or a numeric execution path. Names select their open tab; types select
+the first open matching tab in the current game/session. If the target is unknown
+or has no open tab, output goes to the caller's terminal. No shell is created.
+`"exec"` preserves isolated tool execution; `"caller"` explicitly uses the caller.
+These rules apply to commands, logs, HTML, modals, images, widgets, and backgrounds
+that expose `shell`. Omitted arguments retain each helper's existing default.
+
+```python
+await atlantis.client_html("<h1>Map</h1>", shell="d_map")
+await atlantis.client_log("Ready", shell="terminal")
+```
+
 | Function | Notes |
 | --- | --- |
-| `client_command(command, data=None, message_type="command", is_private=True, shell="exec")` | Sends a command to the client and **waits for its result**. Use `shell="display"` for live-only output or `shell="user"` for output that replays after reconnect; `exec` remains the default. `shell="caller"` explicitly targets the originating terminal. |
+| `client_command(command, data=None, message_type="command", is_private=True, shell="exec")` | Sends a command to the client and **waits for its result**. Use a named tab or `shell="display"` / `shell="user"` for the first open tab of that type (caller terminal if unavailable); `exec` remains the default. `shell="caller"` explicitly targets the originating terminal. |
 | `tool_result(name, result)` | Pushes a tool-call result into the transcript so the LLM sees it on the next turn. |
 | `client_onclick(key, callback)` | Registers an async `callback` to fire when the client reports a click for `key`. |
 | `client_upload(key, callback)` | Registers an async `callback` to fire when an upload occurs for `key`. |

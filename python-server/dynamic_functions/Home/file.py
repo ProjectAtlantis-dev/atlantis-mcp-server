@@ -1,7 +1,7 @@
 """UTF-8 file storage for Atlantis file callbacks.
 
 Configure with /callback set file Home/file_callback (or file auto).
-Only bare filenames in the current working directory are accepted. Reading
+Only bare filenames in the script's directory are accepted. Reading
 a missing file raises FileNotFoundError. Saving creates files. Paths fail.
 """
 
@@ -20,7 +20,7 @@ def _file_path(filename: str) -> Path:
         or PureWindowsPath(filename).drive
     ):
         raise ValueError("Expected a bare filename; paths are not allowed")
-    path = Path.cwd() / filename
+    path = Path(__file__).resolve().parent / filename
     if path.is_symlink():
         raise ValueError("Symbolic links are not allowed")
     return path
@@ -33,29 +33,29 @@ def file_get(filename: str) -> str:
 
 
 def file_set(filename: str, content: str) -> str:
-    """Save a UTF-8 file in the current working directory."""
+    """Save a UTF-8 file in the script's directory."""
     path = _file_path(filename)
     path.write_text(content, encoding="utf-8")
     return "Saved " + filename
 
 
-def file_list(suffix: str) -> list[str]:
-    """List files with the given extension (without a dot), excluding symlinks."""
+def file_list(suffix: str) -> list[dict[str, str]]:
+    """List files with the given extension (without a dot) as name/suffix rows, excluding symlinks."""
     if not suffix.strip() or any(char in suffix for char in ". /\\:"):
         raise ValueError("Suffix must be an extension without a dot or path, e.g. 'json'")
-    return sorted(
-        path.name
-        for path in Path.cwd().iterdir()
+    return [
+        {"name": path.stem, "suffix": suffix}
+        for path in sorted(Path(__file__).resolve().parent.iterdir())
         if path.suffix == "." + suffix and not path.is_symlink() and path.is_file()
-    )
+    ]
 
 
 @file
 async def file_callback(
     operation: str, filename: str = "", content: Optional[str] = None,
     suffix: Optional[str] = None,
-) -> str | list[str]:
-    """Get/set a bare filename, or list files by suffix in the current directory.
+) -> str | list[dict[str, str]]:
+    """Get/set a bare filename, or list files by suffix in the script's directory.
 
     List takes its suffix as the second argument or named suffix (e.g. "json",
     without a dot). Supply only one of these forms.

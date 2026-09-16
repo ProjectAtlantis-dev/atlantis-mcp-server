@@ -14,12 +14,12 @@ class FileCallbackTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name) / "files"
+        self.root = Path(self.temp.name).resolve() / "files"
         self.root.mkdir()
-        cwd = patch.object(Path, "cwd", return_value=self.root)
+        cwd = patch.object(Path, "cwd", side_effect=AssertionError("File storage must not use the process working directory"))
         cwd.start()
         self.addCleanup(cwd.stop)
-        self.scope = {"__file__": str(SOURCE), "file": lambda function: function}
+        self.scope = {"__file__": str(self.root / "file.py"), "file": lambda function: function}
         exec(compile(SOURCE.read_text(), str(SOURCE), "exec"), self.scope)
 
     def call(self, operation, filename, content=None):
@@ -79,7 +79,7 @@ class FileCallbackTests(unittest.TestCase):
         self.call("set", "example.py", "def example(): pass")
         self.assertEqual(self.call("get", "example.py"), "def example(): pass")
 
-    def test_list_returns_only_current_folder_json_files(self):
+    def test_list_returns_only_script_folder_json_files(self):
         self.assertEqual(asyncio.run(self.scope["file_callback"]("list", suffix="json")), [])
         for filename in ["z.json", "a.json", "notes.txt"]:
             self.call("set", filename, "{}")
@@ -89,11 +89,11 @@ class FileCallbackTests(unittest.TestCase):
         (self.root / "link.json").symlink_to(self.root / "a.json")
         self.assertEqual(
             asyncio.run(self.scope["file_callback"]("list", suffix="json")),
-            ["a.json", "z.json"],
+            [{"name": "a", "suffix": "json"}, {"name": "z", "suffix": "json"}],
         )
         self.assertEqual(
             asyncio.run(self.scope["file_callback"]("list", suffix="txt")),
-            ["notes.txt"],
+            [{"name": "notes", "suffix": "txt"}],
         )
 
     def test_list_requires_a_valid_suffix(self):
@@ -107,7 +107,7 @@ class FileCallbackTests(unittest.TestCase):
     def test_list_accepts_positional_suffix(self):
         self.call("set", "a.json", "{}")
         self.call("set", "notes.txt", "notes")
-        self.assertEqual(self.call("list", "json"), ["a.json"])
+        self.assertEqual(self.call("list", "json"), [{"name": "a", "suffix": "json"}])
         for suffix in ["", " ", ".json", "../json", "nested/json", "nested\\json"]:
             with self.subTest(suffix=suffix):
                 with self.assertRaises(ValueError):

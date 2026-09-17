@@ -33,7 +33,7 @@ Operations:
 Rules:
 
 - Files live in the `Home/` folder itself. Only bare filenames are accepted. Paths, `.`/`..`, drive letters and symlinks raise `ValueError`.
-- For `get`/`set`, if you pass a `suffix`, any extension on `filename` must match it.
+- For `get`/`set`, if you pass a `suffix`, a `filename` without an extension gets `.<suffix>` added (`foo` becomes `foo.json`). A filename that already has an extension must match the suffix.
 - Unknown operations raise `ValueError`.
 
 Tests are in `python-server/test_file_callback.py`.

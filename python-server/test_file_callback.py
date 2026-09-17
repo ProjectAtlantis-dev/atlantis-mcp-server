@@ -137,6 +137,29 @@ class FileCallbackTests(unittest.TestCase):
             "get", "sketch.json", suffix="json")), "{}")
         self.assertEqual([path.name for path in self.root.iterdir()], ["sketch.json"])
 
+    def test_missing_extension_gets_suffix_appended(self):
+        self.assertEqual(asyncio.run(self.scope["file_callback"](
+            "set", "sketch", content="{}", suffix="json")), "Saved sketch.json")
+        self.assertEqual([path.name for path in self.root.iterdir()], ["sketch.json"])
+        self.assertEqual(asyncio.run(self.scope["file_callback"](
+            "get", "sketch", suffix="json")), "{}")
+
+    def test_get_and_set_reject_invalid_suffix(self):
+        for operation in ["get", "set"]:
+            for suffix in ["", ".json", "a/b"]:
+                with self.subTest(operation=operation, suffix=suffix):
+                    with self.assertRaisesRegex(ValueError, "Suffix must be"):
+                        asyncio.run(self.scope["file_callback"](
+                            operation, "sketch", content="{}", suffix=suffix))
+        self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_get_and_set_with_suffix_still_require_filename(self):
+        for operation in ["get", "set"]:
+            with self.subTest(operation=operation):
+                with self.assertRaisesRegex(ValueError, "Must specify a filename"):
+                    asyncio.run(self.scope["file_callback"](operation, content="{}", suffix="json"))
+        self.assertEqual(list(self.root.iterdir()), [])
+
     def test_get_and_set_still_require_filename(self):
         for operation in ["get", "set"]:
             with self.subTest(operation=operation):

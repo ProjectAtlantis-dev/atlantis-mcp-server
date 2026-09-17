@@ -39,10 +39,14 @@ def file_set(filename: str, content: str) -> str:
     return "Saved " + filename
 
 
-def file_list(suffix: str) -> list[dict[str, str]]:
-    """List files with the given extension (without a dot) as name/suffix rows, excluding symlinks."""
+def _check_suffix(suffix: str) -> None:
     if not suffix.strip() or any(char in suffix for char in ". /\\:"):
         raise ValueError("Suffix must be an extension without a dot or path, e.g. 'json'")
+
+
+def file_list(suffix: str) -> list[dict[str, str]]:
+    """List files with the given extension (without a dot) as name/suffix rows, excluding symlinks."""
+    _check_suffix(suffix)
     return [
         {"name": path.stem, "suffix": suffix}
         for path in sorted(Path(__file__).resolve().parent.iterdir())
@@ -59,8 +63,8 @@ async def file_callback(
 
     List takes its suffix as the second argument or named suffix (e.g. "json",
     without a dot). Supply only one of these forms.
-    Set requires content. For get/set, an explicit filename extension must
-    match suffix when supplied.
+    Set requires content. For get/set with a suffix, a filename without an
+    extension gets ".<suffix>" appended; an explicit extension must match it.
     """
     if operation == "list":
         if filename:
@@ -71,8 +75,13 @@ async def file_callback(
             raise ValueError("The list operation requires a suffix")
         return await asyncio.to_thread(file_list, suffix)
     if operation in {"get", "set"} and suffix is not None:
+        _check_suffix(suffix)
+        if not filename.strip():
+            raise ValueError("Must specify a filename")
         extension = Path(filename).suffix
-        if extension and extension != "." + suffix:
+        if not extension:
+            filename += "." + suffix
+        elif extension != "." + suffix:
             raise ValueError(f"Filename extension {extension!r} does not match suffix {suffix!r}")
     if operation == "get":
         return await asyncio.to_thread(file_get, filename)

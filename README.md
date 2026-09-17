@@ -7,7 +7,7 @@ Basically we have a distributed linux-style system that provides tool infra for 
 
 To get started, clone the repo, do the Python env stuff, set up your API keys as environment variables (OPENROUTER_API_KEY, ANTHROPIC_API_KEY, etc.) and connect this local Python server to the main server (see runServer). We give you all the source code to build your own tool-calling chatbot just like Claude or whatever. See `Bot/Kitty/` for working examples using OpenRouter and Anthropic APIs — the bot discovers tools dynamically via search rather than pre-loading them.
 
-*note that Home/game.py is run whenever a new chat is created and will set the default chat tool
+*note that the `@game` callback runs whenever a new chat is created
 
 
 ## Project Atlantis Network
@@ -96,26 +96,18 @@ Note that MCP auth and security are still being worked out so using the cloud fo
 
 ### Python Server Layout
 
-If you are trying to understand the Python source, start in `python-server/server.py` and then branch out from there:
+Start in `python-server/server.py`. It is the protocol host: it owns the WebSocket and cloud connections, and MCP `tools/call` goes through `DynamicAdditionServer._handle_tools_call()`. From there:
 
-- **`server.py`** - main entry point and protocol host. It starts the Starlette app, owns the `DynamicAdditionServer` class, manages WebSocket and cloud Socket.IO connections, and wires together the function/server managers. If you are tracing a tool invocation, the consolidated MCP `tools/call` handler lives here in `DynamicAdditionServer._handle_tools_call()`, which then delegates to `_execute_tool()`.
-- **`DynamicFunctionManager.py`** - owns the dynamic Python tool system under `dynamic_functions/`. This is where function decorators are defined (`@visible`, `@public`, `@protected`, etc.), files are scanned and validated, Python modules are loaded/reloaded, and tool calls are dispatched into user code.
-- **`DynamicServerManager.py`** - manages third-party MCP server configs under `dynamic_servers/`. It saves/loads JSON configs, starts stdio MCP servers, keeps sessions alive, and fetches their tool lists.
-- **`atlantis.py`** - the dynamic function harness/runtime API injected into dynamic functions. This is the bridge that tool code uses for `client_log`, streaming, HTML/image/video responses, click/upload callbacks, request context, and persistent shared state. See the [Dynamic Functions Documentation](python-server/README.dynamic_functions.md) for the function-authoring side of this API.
-- **`lobster.py`** - compatibility layer for the local Atlantis MCP client. It defines the `readme` / `command` / `chat` tools and translates those local calls into the cloud-backed command flow.
-- **`state.py`** - central configuration and process-wide state. It sets up logging, defines `FUNCTIONS_DIR` and `SERVERS_DIR`, and stores base server constants like host/port and request timeout.
-- **`utils.py`** - low-level helpers shared across the server and dynamic functions. It contains search-term parsing, JSON/log formatting, the global server-instance bridge, and client command/log plumbing used by `atlantis.py`.
-- **`PIDManager.py`** - single-instance guard for the Python server process via PID files.
-- **`ColoredFormatter.py`** - logging formatter and request-context filter used by `state.py`.
+- **`DynamicFunctionManager.py`** loads, validates and calls the Python tools in `dynamic_functions/`, and defines the decorators.
+- **`DynamicServerManager.py`** runs the third-party MCP servers configured in `dynamic_servers/`.
+- **`atlantis.py`** is the runtime API that tool code calls back into.
+- **`lobster.py`** holds the local Lobster client's `readme` / `command` / `chat` tools.
+- **`state.py`** and **`utils.py`** hold config, logging and shared helpers.
 
-The runtime split is basically:
-
-1. `server.py` receives MCP traffic.
-2. `server.py` routes MCP `tools/call` through `DynamicAdditionServer._handle_tools_call()`.
-3. `_handle_tools_call()` delegates Python tool execution to `DynamicFunctionManager.py` and proxied MCP tool execution to `DynamicServerManager.py`.
-4. Dynamic functions call back into the host through `atlantis.py` and `utils.py`.
-
-For dynamic function authoring details, see [Dynamic Functions Documentation](python-server/README.dynamic_functions.md). For wiring browser callbacks (button clicks, uploads) into Python functions, see [Onclick Callbacks](python-server/README.onclick_callbacks.md). For auth and trust boundaries, see [Security Model](python-server/README_SECURITY.md).
+Further docs:
+- [Dynamic Functions](python-server/README.dynamic_functions.md): writing tools.
+- [atlantis API](python-server/README.atlantis_api.md): the runtime, including browser callbacks.
+- [Security Model](python-server/README_SECURITY.md): auth and trust boundaries.
 
 ## Features
 
@@ -137,7 +129,7 @@ ln -s ~/my-atlantis-app dynamic_functions/MyApp
 
 Keep the bundled folders in place. Replacing or moving the entire `dynamic_functions/` directory would also remove the pre-installed apps from this checkout.
 
-For detailed information about creating and using dynamic functions, see the [Dynamic Functions Documentation](python-server/README.dynamic_functions.md). For an example of wiring a UI button back into a Python callback, see [Onclick Callbacks](python-server/README.onclick_callbacks.md).
+For detailed information about creating and using dynamic functions, see the [Dynamic Functions Documentation](python-server/README.dynamic_functions.md).
 
 #### Dynamic MCP Servers
 

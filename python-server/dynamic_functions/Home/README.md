@@ -12,28 +12,6 @@ The default shell path should include the Home folder, so its tools resolve from
 
 ## File Callback
 
-`file.py` defines `file_callback`, which is marked with `@file`. The cloud calls it to read, write and list text files. Right now only **Excalidraw** uses it, to load and save `.excalidraw` scenes (see `foo.json` for a sample scene).
+`file.py` is the `@file` callback the cloud uses to read, write and list text files in this folder. Right now only **Excalidraw** uses it, for `.excalidraw` scenes. `homepage.py` turns it on at startup with `/callback set file auto`.
 
-To turn it on:
-
-```
-/callback set file Home/file_callback
-```
-
-or `/callback set file auto`, which is what `homepage.py` runs at startup.
-
-Operations:
-
-| Operation | Arguments | Result |
-| --- | --- | --- |
-| `get` | `filename` | The UTF-8 contents. Raises `FileNotFoundError` if the file doesn't exist. |
-| `set` | `filename`, `content` | Creates or overwrites the file and returns `"Saved <filename>"`. `content` is required. |
-| `list` | `suffix`, passed either as the second argument or by name (not both) | `{"name", "suffix"}` rows for files with that extension, e.g. `excalidraw`, written without the dot |
-
-Rules:
-
-- Files live in the `Home/` folder itself. Only bare filenames are accepted. Paths, `.`/`..`, drive letters and symlinks raise `ValueError`.
-- For `get`/`set`, if you pass a `suffix`, a `filename` without an extension gets `.<suffix>` added (`foo` becomes `foo.json`). A filename that already has an extension must match the suffix.
-- Unknown operations raise `ValueError`.
-
-Tests are in `python-server/test_file_callback.py`.
+It only accepts bare filenames, and it raises instead of guessing. The docstrings cover the operations, and `python-server/test_file_callback.py` covers the behavior.

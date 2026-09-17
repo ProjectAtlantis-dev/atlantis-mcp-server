@@ -1,38 +1,34 @@
 # Regional bathymetry runtime
 
-This directory owns bathymetry generation. It requires only the server's Python
-environment, Terrain SQLite database, and the two bundled detail-atlas arrays.
-There are no external checkout, shell-wrapper, viewer HTTP, or temporary survey
-file dependencies.
+This directory owns bathymetry generation. It needs only the server's Python
+environment, the Terrain SQLite database, and the two bundled detail-atlas
+arrays. There are no external checkouts, shell wrappers, viewer HTTP calls or
+survey files involved.
 
-`inputs.py` describes exact DEM/coastline coverage for a depth-8 job: the
-depth-9 regional solve and halo, depth-11 slope evidence covering that halo,
-depth-12 carving and apron, and intermediate parent LODs. Terrain's existing
-provider lanes acquire missing inputs. An authoritative all-water mask can
-supply the sea-level source surface without a DEM; land requires measured DEM.
-Camera polls retain pending prerequisites without reopening completed ones;
-moving away releases the old region's pending claims.
+## Pipeline
 
-`solver.py` retains the established slope-constrained solve, flow routing,
-multiscale shore slopes, and sediment deposition. The production parameters
-remain decay 14,000 m, slope limits 0.02–1.5, flow exponent 0.35, maximum flow
-multiplier 2.5, curvature projection 250 m, and sediment fill 0.7. Experimental
-survey fitting/scoring commands are not part of acquisition: the production
-solve uses fixed parameters and never reads calibration surveys.
+1. **Inputs (`inputs.py`):** determine the DEM and coastline coverage a depth-8
+   job needs. Terrain's normal provider lanes fetch whatever is missing. Water can
+   come from an all-water mask, but land needs a measured DEM.
+2. **Solve (`solver.py`):** runs with fixed production parameters and never reads
+   calibration surveys. The survey fitting commands are experimental and not part
+   of acquisition.
+3. **Detail (`raster.py`, `detail.py`, `lod.py`):** adds detail from the atlas,
+   pins shorelines, and builds parent LODs.
+4. **Publish (`worker.py`):** computes from one read-only snapshot and publishes
+   every raster in one transaction.
 
-`raster.py`, `detail.py`, and `lod.py` preserve world-coordinate detail,
-shoreline pinning/drop limits, and water-aware parent filtering. The bundled
-`data/detail_atlas.npy` and `data/detail_atlas_res.npy` are the original atlas
-harvested from detrended ArcticDEM land patches; keep both files in source
-control so a clean checkout reproduces the same seafloor detail.
+## Invariants
 
-`worker.py` computes from one read-only database snapshot, then publishes all
-finest and parent rasters in one transaction. It never changes existing DEM
-or coastline payloads. An existing depth-8 result makes a repeated job a no-op.
-The demand wrapper executes it with the current interpreter and reports the
-full captured error output on failure.
+- Bathymetry never modifies DEM or coastline source data.
+- An existing depth-8 result makes a repeated job a no-op.
+- Moving the camera away releases that region's pending claims.
+- Keep `data/detail_atlas.npy` and `data/detail_atlas_res.npy` in source
+  control, so a clean checkout reproduces the same seafloor.
 
-For a prepared database, run from the repository root:
+## Running
+
+To run a job against a prepared database, from the repository root:
 
 ```bash
 PYTHONPATH=python-server python-server/venv/bin/python -m \
@@ -40,9 +36,5 @@ PYTHONPATH=python-server python-server/venv/bin/python -m \
   --db /path/to/terrain.db --tile 8-123-5
 ```
 
-This command publishes derived bathymetry. `Test.bathymetry_worker_offline()`
-uses temporary synthetic databases to verify the pipeline, atomic rollback,
-source preservation, shoreline constraints, and prerequisite queue lifetime.
-It also removes DEM/coastline inputs, exercises the real demand lanes and
-retry path with fixture acquisitions, and runs the local worker subprocess
-through successful publication.
+This publishes derived data into that database. `Test.bathymetry_worker_offline()`
+runs the whole pipeline against temporary synthetic databases.

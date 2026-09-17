@@ -12,6 +12,28 @@ logger = logging.getLogger("dynamic_function")
 
 
 
+# % file_callback_auto
+
+
+@public
+async def file_callback_auto():
+    """Turn on the file callback only when a file tool is visible."""
+
+    file_tools = await atlantis.client_command("tool find file")
+    logger.info(f"tool find file returned:\n{format_json_log(file_tools, colored=True)}")
+
+    # `tool find` returns a list of tool rows; an empty list means none are visible.
+    if not isinstance(file_tools, list):
+        raise TypeError(f"tool find file returned {type(file_tools).__name__}, expected a list")
+
+    if len(file_tools) == 0:
+        logger.info("No file tool visible; leaving the file callback off")
+        return None
+
+    await atlantis.client_command("/callback set file auto")
+    return None
+
+
 # % first_menu
 
 
@@ -102,7 +124,7 @@ async def homepage() -> dict:
             f"/cd {script_folder}",
             f"/path push {script_folder}",
             "/env save",
-            "/callback set file auto",
+            "file_callback_auto",
             "/terminal on",
             "app on",
             "term_default",

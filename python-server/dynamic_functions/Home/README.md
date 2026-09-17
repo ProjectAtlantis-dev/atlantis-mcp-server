@@ -12,6 +12,6 @@ The default shell path should include the Home folder, so its tools resolve from
 
 ## File Callback
 
-`file.py` is the `@file` callback the cloud uses to read, write and list text files in this folder. Right now only **Excalidraw** uses it, for `.excalidraw` scenes. `homepage.py` turns it on at startup with `/callback set file auto`.
+`file.py` is the `@file` callback the cloud uses to read, write and list text files in this folder. Right now only **Excalidraw** uses it, for `.excalidraw` scenes. See `homepage.py` for how it is turned on at startup.
 
 It only accepts bare filenames, and it raises instead of guessing. The docstrings cover the operations, and `python-server/test_file_callback.py` covers the behavior.

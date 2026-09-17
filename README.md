@@ -303,4 +303,4 @@ Visitor-related log lines include `"Visitor:"`, `"New conversation for"`, and `"
 ## Our Greenland Terrain Server
 ![lobby](/lobby.png)
 
-The goal is to use this system as the main bot infrastructure (tool etc.) for our [Greenland terrain server](https://github.com/ProjectAtlantis-dev/atlantis-terrain-server)
+The goal is to use this system as the main bot infrastructure (tool etc.) for our [Greenland terrain server](https://github.com/ProjectAtlantis-dev/atlantis-mcp-server)

@@ -6,6 +6,8 @@ Each Atlantis MCP acts as a filesystem node for Multix, our nix-like 'operating 
 
 Lobster connects your MCP client to the local Python server. Its command and chat tools route through the connected Atlantis cloud session.
 
+🦞 **Avoid Lobster commands that return images.** Image responses do not work reliably through Lobster. Use commands that return text or structured data instead.
+
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
 | `readme` | `{}` | Read this file from the local server. |

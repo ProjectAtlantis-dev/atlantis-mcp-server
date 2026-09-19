@@ -44,15 +44,21 @@ python server.py  \
   --cloud-port=443  \
   --service-name=home                        # remote name, can be anything but must be unique across all machines
 ```
-5. The MCP client is now called **Lobster**. To connect it to Claude Code:
+5. The MCP client is now called **Lobster**. Use the port configured by `--port` in the Python server's launch command (for example, your `runServer` script). Replace `YOUR_SERVER_PORT` below with that number; do not assume it is `8000`.
 
-```claude mcp add atlantis -- npx atlantis-mcp --port 8000```
+To connect it to Claude Code:
+
+```bash
+claude mcp add atlantis_lobster -- npx atlantis-mcp --port YOUR_SERVER_PORT
+```
 
 To connect to Codex:
 
-```codex mcp add atlantis -- npx atlantis-mcp --port 8000```
+```bash
+codex mcp add atlantis_lobster -- npx atlantis-mcp --port YOUR_SERVER_PORT
+```
 
-The default local MCP port is `8000`. If the client reports handshake errors, first check that the Python server and the MCP client are using the same port.
+The default port is `8000` only when no port override is configured. If you change the server port, update the MCP entry's `--port` argument too. See the [Lobster client README](client/node-mcp-client/README.md) for a JSON configuration template.
 
 To add Atlantis Open Weather for testing:
 

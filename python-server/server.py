@@ -4152,6 +4152,24 @@ class ServiceClient:
             logger.info(f"{BOLD}{BRIGHT_WHITE}LOCAL PORT  : {self.server_port}{RESET}")
             logger.info(f"{BOLD}{BRIGHT_WHITE}PID         : {os.getpid()}{RESET}")
             logger.info("") # Blank line after
+            logger.info(f"{BOLD}{RED}🦞 Add Lobster to an MCP client on this machine:{RESET}")
+            logger.info(f"{BOLD}{RED}🦞 Claude Code: claude mcp add atlantis_lobster -- npx atlantis-mcp --port {self.server_port}{RESET}")
+            logger.info(f"{BOLD}{RED}🦞 Codex: codex mcp add atlantis_lobster -- npx atlantis-mcp --port {self.server_port}{RESET}")
+            logger.info(f"{BOLD}{RED}🦞 For JSON MCP configuration, add or replace the atlantis_lobster entry under mcpServers:{RESET}")
+            lobster_config = {
+                "mcpServers": {
+                    "atlantis_lobster": {
+                        "command": "npx",
+                        "args": ["atlantis-mcp", "--port", str(self.server_port)],
+                    }
+                }
+            }
+            for line in json.dumps(lobster_config, indent=2).splitlines():
+                logger.info(f"{BOLD}{RED}{line}{RESET}")
+            logger.info(f"{BOLD}{RED}🦞 If already configured, update its --port argument to the port shown above.{RESET}")
+            logger.info(f"{BOLD}{RED}🦞 If the old entry is named atlantis, rename it to atlantis_lobster. Reload your MCP client after editing.{RESET}")
+            logger.info(f"{BOLD}{RED}🦞 Avoid Lobster commands that return images; image responses do not work reliably through Lobster.{RESET}")
+            logger.info("")
             logger.info("") # Blank line after
 
             # --- ADDED: Register this connection with the MCP server ---

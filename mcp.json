@@ -1,6 +1,6 @@
 {
     "mcpServers": {
-        "atlantis": {
+        "atlantis_lobster": {
            "command": "npx",
            "args": [
               "atlantis-mcp",

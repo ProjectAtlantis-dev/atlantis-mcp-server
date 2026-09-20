@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import builtins
 import json
+import os
 import sqlite3
 import threading
 import uuid
@@ -15,7 +16,7 @@ import atlantis
 from dynamic_functions.Terrain.Asset import schema
 
 
-DATABASE_PATH = Path(__file__).with_name("assets.db")
+DATABASE_PATH = Path(os.environ.get('TERRAIN_ASSET_DB_PATH', str(Path(__file__).with_name("assets.db")))).expanduser()
 _CONNECTION_KEY = "Terrain.Asset.connection.v1"
 _CONNECTION_LOCK_KEY = "Terrain.Asset.connection_lock.v1"
 _LOCK_INIT_GUARD = threading.Lock()

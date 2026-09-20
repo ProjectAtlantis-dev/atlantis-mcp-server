@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import math
 import sqlite3
 import struct
@@ -24,7 +25,8 @@ class AssetCatalogUnavailable(RuntimeError):
 
 def resolve_assets_db_path() -> Path | None:
     """Resolve only the MCP-owned asset catalog path."""
-    return _LOCAL_ASSETS_DB if _LOCAL_ASSETS_DB.is_file() else None
+    path = Path(os.environ.get('TERRAIN_ASSET_DB_PATH', str(_LOCAL_ASSETS_DB))).expanduser()
+    return path if path.is_file() else None
 
 
 def _required_assets_db_path() -> Path:
@@ -55,9 +57,7 @@ def _catalog_metadata(connection: sqlite3.Connection) -> dict[str, Any]:
     required = {
         "schema_version",
         "vehicle_asset_type",
-        "structure_asset_type",
         "vehicle_definition",
-        "structure_definition",
     }
     try:
         rows = connection.execute(
@@ -75,7 +75,10 @@ def _catalog_metadata(connection: sqlite3.Connection) -> dict[str, Any]:
             + ", ".join(missing)
         )
     try:
-        metadata = {key: json.loads(raw[key]) for key in required}
+        optional = {"vehicle_definitions", "structure_asset_type", "structure_definition"} & raw.keys()
+        if ("structure_asset_type" in optional) != ("structure_definition" in optional):
+            raise AssetCatalogUnavailable("structure metadata must include both type and definition")
+        metadata = {key: json.loads(raw[key]) for key in required | optional}
     except (TypeError, json.JSONDecodeError) as exc:
         raise AssetCatalogUnavailable(
             f"local asset catalog metadata is invalid JSON: {exc}"
@@ -83,9 +86,13 @@ def _catalog_metadata(connection: sqlite3.Connection) -> dict[str, Any]:
     if not isinstance(metadata["schema_version"], int):
         raise AssetCatalogUnavailable("schema_version metadata must be an integer")
     for key in ("vehicle_asset_type", "structure_asset_type"):
+        if key not in metadata:
+            continue
         if not isinstance(metadata[key], str) or not metadata[key].strip():
             raise AssetCatalogUnavailable(f"{key} metadata must be a non-empty string")
     for key in ("vehicle_definition", "structure_definition"):
+        if key not in metadata:
+            continue
         if not isinstance(metadata[key], dict):
             raise AssetCatalogUnavailable(f"{key} metadata must be an object")
     vehicle_definition = metadata["vehicle_definition"]
@@ -102,6 +109,16 @@ def _catalog_metadata(connection: sqlite3.Connection) -> dict[str, Any]:
             raise AssetCatalogUnavailable(
                 f"vehicle_definition.{key} metadata must be numeric"
             )
+    if "vehicle_definitions" in metadata:
+        definitions = metadata["vehicle_definitions"]
+        if not isinstance(definitions, dict) or not definitions or any(
+            not isinstance(value, dict) for value in definitions.values()
+        ):
+            raise AssetCatalogUnavailable("vehicle_definitions must be a nonempty object of definitions")
+    if "structure_asset_type" not in metadata and not (
+        metadata["schema_version"] == 5 and "vehicle_definitions" in metadata
+    ):
+        raise AssetCatalogUnavailable("Only the version-5 multi-vehicle catalog may omit structure metadata")
     return metadata
 
 
@@ -133,15 +150,23 @@ def startup_assets() -> dict[str, Any]:
                 "savedAt": row[6],
                 "z": row[4],
             }
+            if "vehicle_definitions" in metadata:
+                definition_id = props.get("definitionId")
+                if definition_id not in metadata["vehicle_definitions"]:
+                    raise AssetCatalogUnavailable(f"vehicle {row[0]!r} has an unknown definitionId")
+                item["definitionId"] = definition_id
+            elif "definitionId" in props:
+                raise AssetCatalogUnavailable("instance definitionId requires vehicle_definitions metadata")
             for key in ("terrainDepth", "terrainTileId"):
                 if props.get(key) is not None:
                     item[key] = props[key]
             vehicles.append(item)
-        for row in connection.execute(
+        structure_rows = connection.execute(
             "SELECT id,lat,lon,heading_deg,properties FROM assets "
             "WHERE enabled=1 AND type=? ORDER BY updated_at DESC,id",
             (metadata["structure_asset_type"],),
-        ):
+        ) if "structure_asset_type" in metadata else []
+        for row in structure_rows:
             props = _decoded_properties(row[4])
             if "scale" not in props:
                 raise AssetCatalogUnavailable(
@@ -171,7 +196,7 @@ def startup_assets() -> dict[str, Any]:
         "catalogPath": str(path),
         "schemaVersion": metadata["schema_version"],
         "vehicle_definition": metadata["vehicle_definition"],
-        "structure_definition": metadata["structure_definition"],
+        **{key: metadata[key] for key in ("structure_definition", "vehicle_definitions") if key in metadata},
         "vehicle_instances": vehicles,
         "structure_instances": structures,
     }
@@ -210,15 +235,14 @@ def query_buildings(qx: float, qy: float, max_range: float, ox: float, oy: float
     buildings = []
     for asset_id, raw in rows:
         props = _decoded_properties(raw)
+        source_properties = props.get("sourceProperties") or {}
+        for field, source_field in (("buildingType", "bygningsty"), ("buildingUse", "bygningsbr")):
+            if field not in props and source_field in source_properties:
+                props[field] = source_properties[source_field]
         ring = props.get("ring")
         if not isinstance(ring, list) or len(ring) < 3:
             continue
         area, center_x, center_y = _ring_area_and_center(ring)
-        if (
-            math.hypot(center_x - qx, center_y - qy) > _BUILDING_FULL_DETAIL_RANGE_M
-            and area < _BUILDING_FAR_MIN_AREA_M2
-        ):
-            continue
         relative = [
             [float(point[0]) - ox, float(point[1]) - oy, float(point[2])]
             for point in ring
@@ -233,6 +257,12 @@ def query_buildings(qx: float, qy: float, max_range: float, ox: float, oy: float
                 "id": str(asset_id),
                 "groundZ": float(props["groundZ"]),
                 "ring": relative,
+                **{key: props[key] for key in (
+                    "buildingType", "buildingUse", "buildingModelId", "buildingFamily",
+                    "buildingArchetype", "buildingModelProvenance", "roofColor",
+                ) if key in props},
+                **({"buildingType": props["bygningsty"]} if "buildingType" not in props and "bygningsty" in props else {}),
+                **({"buildingUse": props["bygningsbr"]} if "buildingUse" not in props and "bygningsbr" in props else {}),
             })
     return buildings, "asset_catalog"
 
@@ -253,6 +283,7 @@ def encode_buildings_response(
             "id": building["id"],
             "groundZ": building["groundZ"],
             "ringBytes": len(blob),
+            **{key: value for key, value in building.items() if key not in ("id", "groundZ", "ring")},
         }
         entries.append(entry)
         blobs.append(blob)

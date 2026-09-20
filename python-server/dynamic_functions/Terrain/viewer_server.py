@@ -19,6 +19,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route, request_response
+from dynamic_functions.Terrain.viewer_extensions import install_viewer_routes
 
 from dynamic_functions.Terrain.Database.database import connection_lock, db
 from dynamic_functions.Terrain.Asset.catalog import (
@@ -597,7 +598,19 @@ async def _favicon(_request: Request) -> Response:
     )
 
 
+async def _viewer_session(request):
+    from dynamic_functions.Terrain.Objects.session import keep_alive
+    return await keep_alive(request)
+
+
+async def _object_functions(request):
+    from dynamic_functions.Terrain.Objects.http import handle
+    return await handle(request)
+
+
 _HOTLOAD_ROUTE_ENDPOINTS = {
+    "/api/simulation/{game_id}/viewer-session": "_viewer_session",
+    "/api/simulation/{game_id}/objects/{asset_id}/functions": "_object_functions",
     "/health": "_health",
     "/api/demand-status": "_demand_status",
     "/api/coverage/cure.json": "_coverage_cure",
@@ -619,6 +632,8 @@ _HOTLOAD_ROUTE_ENDPOINTS = {
     "/api/texture/{tile_id}.jpg": "_texture",
 }
 _HOTLOAD_ADDED_ROUTE_METHODS = {
+    "/api/simulation/{game_id}/viewer-session": ["POST"],
+    "/api/simulation/{game_id}/objects/{asset_id}/functions": ["GET", "POST"],
     "/api/demand-status": ["GET"],
     "/api/coverage/cure.json": ["GET"],
     "/api/coverage/coastline.json": ["GET"],
@@ -707,6 +722,7 @@ def _viewer_app() -> Starlette:
         ]
     )
     _bind_hotload_routes(app)
+    install_viewer_routes(app)
     return app
 
 

@@ -56,9 +56,7 @@ def _metadata(connection: sqlite3.Connection) -> dict[str, Any]:
     required = {
         "schema_version",
         "vehicle_asset_type",
-        "structure_asset_type",
         "vehicle_definition",
-        "structure_definition",
     }
     missing = sorted(required - raw.keys())
     if missing:
@@ -66,7 +64,16 @@ def _metadata(connection: sqlite3.Connection) -> dict[str, Any]:
             "asset metadata is incomplete; missing: " + ", ".join(missing)
         )
     try:
-        return {key: json.loads(raw[key]) for key in required}
+        optional = {"vehicle_definitions", "structure_asset_type", "structure_definition"} & raw.keys()
+        if ("structure_asset_type" in optional) != ("structure_definition" in optional):
+            raise AssetCatalogUnavailable("structure metadata must include both type and definition")
+        metadata = {key: json.loads(raw[key]) for key in required | optional}
+        if "structure_asset_type" not in metadata and not (
+            metadata["schema_version"] == 5 and isinstance(metadata.get("vehicle_definitions"), dict)
+            and metadata["vehicle_definitions"]
+        ):
+            raise AssetCatalogUnavailable("Only the version-5 multi-vehicle catalog may omit structure metadata")
+        return metadata
     except (TypeError, json.JSONDecodeError) as exc:
         raise AssetCatalogUnavailable(f"asset metadata is invalid JSON: {exc}") from exc
 
@@ -127,6 +134,8 @@ def save_vehicle_state(payload: Any) -> dict[str, Any]:
                 "local asset catalog contains no vehicle asset to update"
             )
         vehicle_id, raw_properties = row
+        from dynamic_functions.Terrain.viewer_extensions import guard_asset_write
+        guard_asset_write(vehicle_id)
         try:
             existing_properties = json.loads(raw_properties)
         except (TypeError, json.JSONDecodeError) as exc:
@@ -182,6 +191,8 @@ def patch_asset(asset_id: str, payload: Any) -> dict[str, Any] | None:
     normalized_id = str(asset_id).strip()
     if not normalized_id:
         raise ValueError("missing asset id")
+    from dynamic_functions.Terrain.viewer_extensions import guard_asset_write
+    guard_asset_write(normalized_id)
     source = _object(payload, "request body")
     allowed = {"enabled", "lat", "lon", "headingDeg", "z", "properties"}
     unknown = sorted(set(source) - allowed)

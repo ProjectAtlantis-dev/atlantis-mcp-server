@@ -1,0 +1,3387 @@
+{
+  "schema": "atlantis-infrastructure-catalog-v1",
+  "models": [
+    {
+      "id": "radio-lattice-tower",
+      "label": "radio lattice tower",
+      "glb": "infrastructure-models/radio-lattice-tower.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -2.700000047683716,
+          -1.4901161415892261e-9,
+          -2.700000047683716
+        ],
+        "max": [
+          4.125,
+          24.84000015258789,
+          2.700000047683716
+        ]
+      },
+      "triangles": 3060,
+      "meshes": 8,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "fixed antenna mounting in authored model"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "radio-guyed-mast",
+      "label": "radio guyed mast",
+      "glb": "infrastructure-models/radio-guyed-mast.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -7.328203201293945,
+          -2.9802322831784522e-9,
+          -4.400000095367432
+        ],
+        "max": [
+          7.328203201293945,
+          19.200000762939453,
+          8.399999618530273
+        ]
+      },
+      "triangles": 1200,
+      "meshes": 8,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "fixed antenna mounting in authored model"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "radio-rooftop-mast",
+      "label": "radio rooftop mast",
+      "glb": "infrastructure-models/radio-rooftop-mast.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -1.399999976158142,
+          -5.9604645663569045e-9,
+          -1.399999976158142
+        ],
+        "max": [
+          2.7249999046325684,
+          6.300000190734863,
+          1.399999976158142
+        ]
+      },
+      "triangles": 480,
+      "meshes": 8,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "fixed antenna mounting in authored model"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "sensor-radar",
+      "label": "sensor radar",
+      "glb": "infrastructure-models/sensor-radar.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -2.5,
+          -1.4901161415892261e-9,
+          -2.3499999046325684
+        ],
+        "max": [
+          3.700000047683716,
+          5.632821961861075,
+          5.449999809265137
+        ]
+      },
+      "triangles": 19636,
+      "meshes": 14,
+      "motion": {
+        "mode": "generic-mechanical-scan",
+        "autoDemo": true,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Generic mechanically scanned reflector analogy. Demo speed is artistic, not measured. This is NOT a Green Pine or MMR/AESA motion profile.",
+        "evidence": "mechanical-radar analogy"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "sensor-camera-thermal",
+      "label": "sensor camera thermal",
+      "glb": "infrastructure-models/sensor-camera-thermal.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -0.5,
+          -1.4901161415892261e-9,
+          -0.550000011920929
+        ],
+        "max": [
+          1.9250000715255737,
+          4.827499994635581,
+          0.550000011920929
+        ]
+      },
+      "triangles": 732,
+      "meshes": 12,
+      "motion": {
+        "mode": "camera-hold",
+        "autoDemo": false,
+        "manualYaw": true,
+        "manualPitch": true,
+        "evidence": "commercial positioning-camera analogy",
+        "note": "Independent pan and tilt joints with a fixed yoke. Manual art inspection only; real hardware travel limits and target tracking are not established."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "sensor-weather",
+      "label": "sensor weather",
+      "glb": "infrastructure-models/sensor-weather.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -1.1800000667572021,
+          -5.9604645663569045e-9,
+          -0.550000011920929
+        ],
+        "max": [
+          2.125,
+          3.8499999046325684,
+          0.6499999761581421
+        ]
+      },
+      "triangles": 1704,
+      "meshes": 9,
+      "motion": {
+        "mode": "wind-driven",
+        "autoDemo": true,
+        "manualYaw": false,
+        "manualPitch": false,
+        "evidence": "cup-anemometer analogy",
+        "note": "Cups rotate with wind, not target detection. Demo rotation is illustrative; wind coupling and calibration are missing."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "concrete-drone-pad",
+      "label": "concrete drone pad",
+      "glb": "infrastructure-models/concrete-drone-pad.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -20.5,
+          -7.450580707946131e-10,
+          -20.5
+        ],
+        "max": [
+          21.950000762939453,
+          1.3550000190734863,
+          21.700000762939453
+        ]
+      },
+      "triangles": 34382,
+      "meshes": 9,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "static surface"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "concrete-helicopter-pad",
+      "label": "concrete helicopter pad",
+      "glb": "infrastructure-models/concrete-helicopter-pad.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -20.5,
+          -7.450580707946131e-10,
+          -20.5
+        ],
+        "max": [
+          20.5,
+          0.2565000057220459,
+          21.700000762939453
+        ]
+      },
+      "triangles": 33086,
+      "meshes": 6,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "static surface"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "defense-upper-tier",
+      "label": "Arrow-inspired launcher",
+      "glb": "infrastructure-models/defense-upper-tier.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -2.700000047683716,
+          0.0004999985103495419,
+          -4.599999904632568
+        ],
+        "max": [
+          2.700000047683716,
+          9.173500213623047,
+          4.679999828338623
+        ]
+      },
+      "triangles": 59032,
+      "meshes": 23,
+      "motion": {
+        "mode": "deployed-hold",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Hold the depicted deployed pose. Pack erection is deployment, not continuous target tracking. Exact deployment joints, speeds and traversal limits remain unverified.",
+        "evidence": "deployed-pose reference; other mechanics unknown"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "defense-middle-tier",
+      "label": "David’s Sling-inspired launcher",
+      "glb": "infrastructure-models/defense-middle-tier.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -2.5,
+          0.0004999985103495419,
+          -4.800000190734863
+        ],
+        "max": [
+          2.5,
+          7.905892012465548,
+          4.800000190734863
+        ]
+      },
+      "triangles": 37528,
+      "meshes": 23,
+      "motion": {
+        "mode": "deployed-hold",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Hold the depicted deployed pose. Pack erection is deployment, not continuous target tracking. Exact deployment joints, speeds and traversal limits remain unverified.",
+        "evidence": "deployed-pose reference; other mechanics unknown"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "defense-point-defense",
+      "label": "Iron Dome-inspired launcher",
+      "glb": "infrastructure-models/defense-point-defense.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -2.3499999046325684,
+          0.0004999985103495419,
+          -2.299999952316284
+        ],
+        "max": [
+          2.3499999046325684,
+          5.431050603413793,
+          2.317500114440918
+        ]
+      },
+      "triangles": 43404,
+      "meshes": 22,
+      "motion": {
+        "mode": "deployed-hold",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Hold the depicted deployed pose. Pack erection is deployment, not continuous target tracking. Exact deployment joints, speeds and traversal limits remain unverified.",
+        "evidence": "deployed-pose reference; other mechanics unknown"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "defense-laser",
+      "label": "Iron Beam-inspired laser installation",
+      "glb": "infrastructure-models/defense-laser.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -2.450000047683716,
+          0.0004999985103495419,
+          -3.0999999046325684
+        ],
+        "max": [
+          2.450000047683716,
+          3.9888755982561257,
+          3.0999999046325684
+        ]
+      },
+      "triangles": 20688,
+      "meshes": 26,
+      "motion": {
+        "mode": "director-hold",
+        "autoDemo": false,
+        "manualYaw": true,
+        "manualPitch": true,
+        "note": "Directed pointing, not continuous search rotation. Manual controls inspect the model only; their ranges are NOT verified hardware limits. Target-following and obstruction validation remain unwired.",
+        "evidence": "manufacturer describes tracking beam directors; limits unknown"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "defense-microwave",
+      "label": "THOR-inspired microwave installation",
+      "glb": "infrastructure-models/defense-microwave.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -1.725000023841858,
+          0,
+          -4.0403923988342285
+        ],
+        "max": [
+          1.725000023841858,
+          6.669336768042193,
+          3.2100000381469727
+        ]
+      },
+      "triangles": 31820,
+      "meshes": 27,
+      "motion": {
+        "mode": "director-hold",
+        "autoDemo": false,
+        "manualYaw": true,
+        "manualPitch": true,
+        "note": "Barrier appearance and initial antenna orientation corrected against AFRL’s 2023 photo. Manual poses are art inspection only; the photo does not establish unrestricted rotation or RF clearance at other angles.",
+        "evidence": "AFRL 2023 photograph: slender posts and sagging chain-style barriers behind the antenna in the depicted pose"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "partial-tested",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "defense-radar",
+      "label": "Surveillance radar — generic",
+      "glb": "infrastructure-models/defense-radar.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -2.5,
+          -1.4901161415892261e-9,
+          -2.3499999046325684
+        ],
+        "max": [
+          3.700000047683716,
+          5.632821961861075,
+          5.449999809265137
+        ]
+      },
+      "triangles": 19636,
+      "meshes": 14,
+      "motion": {
+        "mode": "generic-mechanical-scan",
+        "autoDemo": true,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Generic mechanically scanned reflector analogy. Demo speed is artistic, not measured. This is NOT a Green Pine or MMR/AESA motion profile.",
+        "evidence": "mechanical-radar analogy, not exact defense equipment"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "network-leo-panel",
+      "label": "network leo panel",
+      "glb": "infrastructure-models/network-leo-panel.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -0.6499999761581421,
+          -1.4901161415892261e-9,
+          -0.6499999761581421
+        ],
+        "max": [
+          0.6499999761581421,
+          0.9776412141976577,
+          0.6499999761581421
+        ]
+      },
+      "triangles": 764,
+      "meshes": 5,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "fixed exterior art; electronic beam steering is not mechanical rotation"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "network-radome",
+      "label": "network radome",
+      "glb": "infrastructure-models/network-radome.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -2.5556864738464355,
+          -1.4901161415892261e-9,
+          -2.5556864738464355
+        ],
+        "max": [
+          2.5556864738464355,
+          5.948004722595215,
+          2.5556864738464355
+        ]
+      },
+      "triangles": 4916,
+      "meshes": 6,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "fixed exterior art; electronic beam steering is not mechanical rotation"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "network-radome-tower",
+      "label": "network radome tower",
+      "glb": "infrastructure-models/network-radome-tower.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -2.5,
+          -1.4901161415892261e-9,
+          -2.5
+        ],
+        "max": [
+          2.5,
+          10.808345794677734,
+          2.5
+        ]
+      },
+      "triangles": 5864,
+      "meshes": 6,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "fixed exterior art; electronic beam steering is not mechanical rotation"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "network-tracking-dish",
+      "label": "network tracking dish",
+      "glb": "infrastructure-models/network-tracking-dish.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -1.600000023841858,
+          -1.4901161415892261e-9,
+          -1.600000023841858
+        ],
+        "max": [
+          1.600000023841858,
+          4.535407200445058,
+          1.9562838164453473
+        ]
+      },
+      "triangles": 5504,
+      "meshes": 11,
+      "motion": {
+        "mode": "commanded-pointing",
+        "autoDemo": false,
+        "manualYaw": true,
+        "manualPitch": true,
+        "evidence": "generic tracking mount analogy; no verified hardware travel limits",
+        "note": "Manual art inspection only. Commanded pointing, not perpetual scanning. No satellite tracking or network simulation is connected."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "network-optical-observatory",
+      "label": "network optical observatory",
+      "glb": "infrastructure-models/network-optical-observatory.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -2.75,
+          -1.4901161415892261e-9,
+          -2.75
+        ],
+        "max": [
+          2.75,
+          4.130000114440918,
+          2.8034534454345703
+        ]
+      },
+      "triangles": 7372,
+      "meshes": 16,
+      "motion": {
+        "mode": "commanded-pointing",
+        "autoDemo": false,
+        "manualYaw": true,
+        "manualPitch": true,
+        "evidence": "generic tracking mount analogy; no verified hardware travel limits",
+        "note": "Manual art inspection only. Commanded pointing, not perpetual scanning. No satellite tracking or network simulation is connected."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "network-optical-container",
+      "label": "network optical container",
+      "glb": "infrastructure-models/network-optical-container.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -1.309999942779541,
+          -5.9604645663569045e-9,
+          -2.309999942779541
+        ],
+        "max": [
+          1.502500057220459,
+          4.479881176054005,
+          2.362499952316284
+        ]
+      },
+      "triangles": 6408,
+      "meshes": 20,
+      "motion": {
+        "mode": "commanded-pointing",
+        "autoDemo": false,
+        "manualYaw": true,
+        "manualPitch": true,
+        "evidence": "generic tracking mount analogy; no verified hardware travel limits",
+        "note": "Manual art inspection only. Commanded pointing, not perpetual scanning. No satellite tracking or network simulation is connected."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "network-microwave-backhaul",
+      "label": "network microwave backhaul",
+      "glb": "infrastructure-models/network-microwave-backhaul.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -0.699999988079071,
+          -1.4901161415892261e-9,
+          -0.699999988079071
+        ],
+        "max": [
+          0.699999988079071,
+          3.3849999785423277,
+          0.8174999833106995
+        ]
+      },
+      "triangles": 7884,
+      "meshes": 14,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "fixed exterior art; electronic beam steering is not mechanical rotation"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "network-fiber-cabinet",
+      "label": "network fiber cabinet",
+      "glb": "infrastructure-models/network-fiber-cabinet.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -0.8500000238418579,
+          -1.4901161415892261e-9,
+          -0.5
+        ],
+        "max": [
+          0.8500000238418579,
+          1.9600000381469727,
+          0.5
+        ]
+      },
+      "triangles": 2580,
+      "meshes": 8,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "fixed exterior art; electronic beam steering is not mechanical rotation"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "network-shelter",
+      "label": "network shelter",
+      "glb": "infrastructure-models/network-shelter.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -2.200000047683716,
+          -5.9604645663569045e-9,
+          -3
+        ],
+        "max": [
+          2.3699999856948852,
+          3.0899999141693115,
+          3.160459280014038
+        ]
+      },
+      "triangles": 6300,
+      "meshes": 16,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "fixed exterior art; electronic beam steering is not mechanical rotation"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "network-server-rack",
+      "label": "network server rack",
+      "glb": "infrastructure-models/network-server-rack.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -0.36000001430511475,
+          -7.450580707946131e-10,
+          -0.5
+        ],
+        "max": [
+          0.3659972548484802,
+          2.1649999618530273,
+          0.5690065622329712
+        ]
+      },
+      "triangles": 8568,
+      "meshes": 5,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "fixed exterior art; electronic beam steering is not mechanical rotation"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "network-sky-monitor",
+      "label": "network sky monitor",
+      "glb": "infrastructure-models/network-sky-monitor.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -0.6000000238418579,
+          -1.4901161415892261e-9,
+          -0.6000000238418579
+        ],
+        "max": [
+          0.6000000238418579,
+          1.965000033378601,
+          0.6000000238418579
+        ]
+      },
+      "triangles": 3384,
+      "meshes": 5,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "fixed exterior art; electronic beam steering is not mechanical rotation"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "network-generator",
+      "label": "network generator",
+      "glb": "infrastructure-models/network-generator.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -1,
+          -5.9604645663569045e-9,
+          -1.850000023841858
+        ],
+        "max": [
+          1,
+          2.7125000953674316,
+          1.850000023841858
+        ]
+      },
+      "triangles": 4264,
+      "meshes": 14,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "fixed exterior art; electronic beam steering is not mechanical rotation"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "network-battery",
+      "label": "network battery",
+      "glb": "infrastructure-models/network-battery.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -1.2999999523162842,
+          -1.4901161415892261e-9,
+          -0.625
+        ],
+        "max": [
+          1.2999999523162842,
+          2.359999895095825,
+          0.6924999952316284
+        ]
+      },
+      "triangles": 6192,
+      "meshes": 8,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "fixed exterior art; electronic beam steering is not mechanical rotation"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "network-fuel-tank",
+      "label": "network fuel tank",
+      "glb": "infrastructure-models/network-fuel-tank.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -1.2000000476837158,
+          -1.4901161415892261e-9,
+          -2
+        ],
+        "max": [
+          1.2000000476837158,
+          2.4100000858306885,
+          2
+        ]
+      },
+      "triangles": 3872,
+      "meshes": 8,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "fixed exterior art; electronic beam steering is not mechanical rotation"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "support-sisu-gtt",
+      "label": "support sisu gtt",
+      "glb": "infrastructure-models/support-sisu-gtt.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -1.3899999856948853,
+          0.0070895635145066666,
+          -4.940000057220459
+        ],
+        "max": [
+          1.3899999856948853,
+          2.8999999713897706,
+          4.675000190734863
+        ]
+      },
+      "triangles": 43840,
+      "meshes": 317,
+      "motion": {
+        "mode": "tracked-carrier",
+        "autoDemo": true,
+        "manualYaw": false,
+        "manualPitch": false,
+        "evidence": "manufacturer photographs and brochures; preview travel limits are artistic",
+        "note": "Moving tracks and wheels; GTT articulation or TRACKX differential belt speed. Plow lift/angle and recovery cable payout have separate controls. Recovery cable is an unloaded inspection pose, not recovery physics. Not yet drivable."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "support-sisu-gtt-civilian",
+      "label": "support sisu gtt civilian",
+      "glb": "infrastructure-models/support-sisu-gtt-civilian.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -1.3899999856948853,
+          0.0070895635145066666,
+          -4.940000057220459
+        ],
+        "max": [
+          1.3899999856948853,
+          2.8999999713897706,
+          4.675000190734863
+        ]
+      },
+      "triangles": 45136,
+      "meshes": 318,
+      "motion": {
+        "mode": "tracked-carrier",
+        "autoDemo": true,
+        "manualYaw": false,
+        "manualPitch": false,
+        "evidence": "manufacturer photographs and brochures; preview travel limits are artistic",
+        "note": "Moving tracks and wheels; GTT articulation or TRACKX differential belt speed. Plow lift/angle and recovery cable payout have separate controls. Recovery cable is an unloaded inspection pose, not recovery physics. Not yet drivable."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "support-sisu-gtt-logistics",
+      "label": "support sisu gtt logistics",
+      "glb": "infrastructure-models/support-sisu-gtt-logistics.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -1.3899999856948853,
+          0.0070895635145066666,
+          -4.940000057220459
+        ],
+        "max": [
+          1.3899999856948853,
+          2.5980000495910645,
+          4.675000190734863
+        ]
+      },
+      "triangles": 43864,
+      "meshes": 315,
+      "motion": {
+        "mode": "tracked-carrier",
+        "autoDemo": true,
+        "manualYaw": false,
+        "manualPitch": false,
+        "evidence": "manufacturer photographs and brochures; preview travel limits are artistic",
+        "note": "Moving tracks and wheels; GTT articulation or TRACKX differential belt speed. Plow lift/angle and recovery cable payout have separate controls. Recovery cable is an unloaded inspection pose, not recovery physics. Not yet drivable."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "support-sisu-gtt-plow",
+      "label": "support sisu gtt plow",
+      "glb": "infrastructure-models/support-sisu-gtt-plow.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -1.725000023841858,
+          0.0070895635145066666,
+          -4.940000057220459
+        ],
+        "max": [
+          1.725000023841858,
+          2.8999999713897706,
+          5.7280016767978665
+        ]
+      },
+      "triangles": 49180,
+      "meshes": 332,
+      "motion": {
+        "mode": "tracked-carrier",
+        "autoDemo": true,
+        "manualYaw": false,
+        "manualPitch": false,
+        "evidence": "manufacturer photographs and brochures; preview travel limits are artistic",
+        "note": "Moving tracks and wheels; GTT articulation or TRACKX differential belt speed. Plow lift/angle and recovery cable payout have separate controls. Recovery cable is an unloaded inspection pose, not recovery physics. Not yet drivable."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "support-sisu-gtt-recovery",
+      "label": "support sisu gtt recovery",
+      "glb": "infrastructure-models/support-sisu-gtt-recovery.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -1.3899999856948853,
+          0.0070895635145066666,
+          -4.940000057220459
+        ],
+        "max": [
+          1.3899999856948853,
+          2.5980000495910645,
+          4.675000190734863
+        ]
+      },
+      "triangles": 59296,
+      "meshes": 320,
+      "motion": {
+        "mode": "tracked-carrier",
+        "autoDemo": true,
+        "manualYaw": false,
+        "manualPitch": false,
+        "evidence": "manufacturer photographs and brochures; preview travel limits are artistic",
+        "note": "Moving tracks and wheels; GTT articulation or TRACKX differential belt speed. Plow lift/angle and recovery cable payout have separate controls. Recovery cable is an unloaded inspection pose, not recovery physics. Not yet drivable."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "support-patria-trackx",
+      "label": "support patria trackx",
+      "glb": "infrastructure-models/support-patria-trackx.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -1.4900000095367432,
+          0.005553771614089334,
+          -3.762500001192093
+        ],
+        "max": [
+          1.4900000095367432,
+          2.197999954223633,
+          3.6500000953674316
+        ]
+      },
+      "triangles": 31268,
+      "meshes": 224,
+      "motion": {
+        "mode": "tracked-carrier",
+        "autoDemo": true,
+        "manualYaw": false,
+        "manualPitch": false,
+        "evidence": "manufacturer photographs and brochures; preview travel limits are artistic",
+        "note": "Moving tracks and wheels; GTT articulation or TRACKX differential belt speed. Plow lift/angle and recovery cable payout have separate controls. Recovery cable is an unloaded inspection pose, not recovery physics. Not yet drivable."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "support-patria-trackx-civilian",
+      "label": "support patria trackx civilian",
+      "glb": "infrastructure-models/support-patria-trackx-civilian.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -1.4900000095367432,
+          0.005553771614089334,
+          -3.6500000953674316
+        ],
+        "max": [
+          1.4900000095367432,
+          2.9599999713897702,
+          3.6500000953674316
+        ]
+      },
+      "triangles": 34100,
+      "meshes": 229,
+      "motion": {
+        "mode": "tracked-carrier",
+        "autoDemo": true,
+        "manualYaw": false,
+        "manualPitch": false,
+        "evidence": "manufacturer photographs and brochures; preview travel limits are artistic",
+        "note": "Moving tracks and wheels; GTT articulation or TRACKX differential belt speed. Plow lift/angle and recovery cable payout have separate controls. Recovery cable is an unloaded inspection pose, not recovery physics. Not yet drivable."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "support-patria-trackx-logistics",
+      "label": "support patria trackx logistics",
+      "glb": "infrastructure-models/support-patria-trackx-logistics.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -1.4900000095367432,
+          0.005553771614089334,
+          -3.6500000953674316
+        ],
+        "max": [
+          1.4900000095367432,
+          2.5474999475479123,
+          3.6500000953674316
+        ]
+      },
+      "triangles": 32828,
+      "meshes": 226,
+      "motion": {
+        "mode": "tracked-carrier",
+        "autoDemo": true,
+        "manualYaw": false,
+        "manualPitch": false,
+        "evidence": "manufacturer photographs and brochures; preview travel limits are artistic",
+        "note": "Moving tracks and wheels; GTT articulation or TRACKX differential belt speed. Plow lift/angle and recovery cable payout have separate controls. Recovery cable is an unloaded inspection pose, not recovery physics. Not yet drivable."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "support-patria-trackx-plow",
+      "label": "support patria trackx plow",
+      "glb": "infrastructure-models/support-patria-trackx-plow.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -1.725000023841858,
+          0.005553771614089334,
+          -3.6500000953674316
+        ],
+        "max": [
+          1.725000023841858,
+          2.9599999713897702,
+          4.928001676797867
+        ]
+      },
+      "triangles": 38144,
+      "meshes": 243,
+      "motion": {
+        "mode": "tracked-carrier",
+        "autoDemo": true,
+        "manualYaw": false,
+        "manualPitch": false,
+        "evidence": "manufacturer photographs and brochures; preview travel limits are artistic",
+        "note": "Moving tracks and wheels; GTT articulation or TRACKX differential belt speed. Plow lift/angle and recovery cable payout have separate controls. Recovery cable is an unloaded inspection pose, not recovery physics. Not yet drivable."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "support-patria-trackx-recovery",
+      "label": "support patria trackx recovery",
+      "glb": "infrastructure-models/support-patria-trackx-recovery.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -1.4900000095367432,
+          0.005553771614089334,
+          -3.6500000953674316
+        ],
+        "max": [
+          1.4900000095367432,
+          2.5474999475479123,
+          3.6500000953674316
+        ]
+      },
+      "triangles": 48260,
+      "meshes": 231,
+      "motion": {
+        "mode": "tracked-carrier",
+        "autoDemo": true,
+        "manualYaw": false,
+        "manualPitch": false,
+        "evidence": "manufacturer photographs and brochures; preview travel limits are artistic",
+        "note": "Moving tracks and wheels; GTT articulation or TRACKX differential belt speed. Plow lift/angle and recovery cable payout have separate controls. Recovery cable is an unloaded inspection pose, not recovery physics. Not yet drivable."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "support-snowcat-civilian",
+      "label": "support snowcat civilian",
+      "glb": "infrastructure-models/support-snowcat-civilian.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -1.7300000190734863,
+          0.010000000670552203,
+          -3.5150000429153443
+        ],
+        "max": [
+          1.7300000190734863,
+          2.9999999713897703,
+          2.992500066757202
+        ]
+      },
+      "triangles": 37862,
+      "meshes": 352,
+      "motion": {
+        "mode": "tracked-carrier",
+        "autoDemo": true,
+        "manualYaw": false,
+        "manualPitch": false,
+        "evidence": "Prinoth/PistenBully appearance references; original chassis and role bodies",
+        "note": "Animated grouser tracks. Plow lift/angle or recovery cable payout have independent controls. Inspection poses only, not vehicle or recovery physics."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "support-snowcat-military",
+      "label": "support snowcat military",
+      "glb": "infrastructure-models/support-snowcat-military.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -1.7300000190734863,
+          0.010000000670552203,
+          -3.5150000429153443
+        ],
+        "max": [
+          1.7300000190734863,
+          2.9999999713897703,
+          2.992500066757202
+        ]
+      },
+      "triangles": 36566,
+      "meshes": 351,
+      "motion": {
+        "mode": "tracked-carrier",
+        "autoDemo": true,
+        "manualYaw": false,
+        "manualPitch": false,
+        "evidence": "Prinoth/PistenBully appearance references; original chassis and role bodies",
+        "note": "Animated grouser tracks. Plow lift/angle or recovery cable payout have independent controls. Inspection poses only, not vehicle or recovery physics."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "support-snowcat-logistics",
+      "label": "support snowcat logistics",
+      "glb": "infrastructure-models/support-snowcat-logistics.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -1.7300000190734863,
+          0.010000000670552203,
+          -3.2750000953674316
+        ],
+        "max": [
+          1.7300000190734863,
+          2.9649999141693115,
+          2.992500066757202
+        ]
+      },
+      "triangles": 36590,
+      "meshes": 349,
+      "motion": {
+        "mode": "tracked-carrier",
+        "autoDemo": true,
+        "manualYaw": false,
+        "manualPitch": false,
+        "evidence": "Prinoth/PistenBully appearance references; original chassis and role bodies",
+        "note": "Animated grouser tracks. Plow lift/angle or recovery cable payout have independent controls. Inspection poses only, not vehicle or recovery physics."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "support-snowcat-plow",
+      "label": "support snowcat plow",
+      "glb": "infrastructure-models/support-snowcat-plow.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -1.7300000190734863,
+          0.009999978542327925,
+          -3.5150000429153443
+        ],
+        "max": [
+          1.7300000190734863,
+          2.9999999713897703,
+          4.3480016767978675
+        ]
+      },
+      "triangles": 41906,
+      "meshes": 366,
+      "motion": {
+        "mode": "tracked-carrier",
+        "autoDemo": true,
+        "manualYaw": false,
+        "manualPitch": false,
+        "evidence": "Prinoth/PistenBully appearance references; original chassis and role bodies",
+        "note": "Animated grouser tracks. Plow lift/angle or recovery cable payout have independent controls. Inspection poses only, not vehicle or recovery physics."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "support-snowcat-recovery",
+      "label": "support snowcat recovery",
+      "glb": "infrastructure-models/support-snowcat-recovery.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -1.7300000190734863,
+          0.010000000670552203,
+          -3.5199999994039537
+        ],
+        "max": [
+          1.7300000190734863,
+          2.9649999141693115,
+          2.992500066757202
+        ]
+      },
+      "triangles": 52022,
+      "meshes": 354,
+      "motion": {
+        "mode": "tracked-carrier",
+        "autoDemo": true,
+        "manualYaw": false,
+        "manualPitch": false,
+        "evidence": "Prinoth/PistenBully appearance references; original chassis and role bodies",
+        "note": "Animated grouser tracks. Plow lift/angle or recovery cable payout have independent controls. Inspection poses only, not vehicle or recovery physics."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "support-landing-craft-large",
+      "label": "support landing craft large",
+      "glb": "infrastructure-models/support-landing-craft-large.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -5.09499979019165,
+          0,
+          -20.719999957084656
+        ],
+        "max": [
+          5.09499979019165,
+          9.84000015258789,
+          20.140000000596046
+        ]
+      },
+      "triangles": 74888,
+      "meshes": 30,
+      "motion": {
+        "mode": "marine-propulsion",
+        "autoDemo": true,
+        "manualYaw": false,
+        "manualPitch": false,
+        "evidence": "original utility craft visual rig",
+        "note": "Bow ramp slider controls deployment and attached lifting cables. Throttle/steering animate stern gear. Art preview only; cargo handling and beaching physics are not connected."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "support-landing-craft-small",
+      "label": "support landing craft small",
+      "glb": "infrastructure-models/support-landing-craft-small.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -1.9950000047683716,
+          0,
+          -5.831199980258941
+        ],
+        "max": [
+          1.9950000047683716,
+          5.489999771118164,
+          5.6400000005960464
+        ]
+      },
+      "triangles": 23692,
+      "meshes": 29,
+      "motion": {
+        "mode": "marine-propulsion",
+        "autoDemo": true,
+        "manualYaw": false,
+        "manualPitch": false,
+        "evidence": "original utility craft visual rig",
+        "note": "Bow ramp slider controls deployment and attached lifting cables. Throttle/steering animate stern gear. Art preview only; cargo handling and beaching physics are not connected."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "support-landing-craft",
+      "label": "support landing craft",
+      "glb": "infrastructure-models/support-landing-craft.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -3.9700000286102295,
+          0,
+          -13.719999957084655
+        ],
+        "max": [
+          3.9700000286102295,
+          8.010000228881836,
+          12.189999997615814
+        ]
+      },
+      "triangles": 37736,
+      "meshes": 30,
+      "motion": {
+        "mode": "marine-propulsion",
+        "autoDemo": true,
+        "manualYaw": false,
+        "manualPitch": false,
+        "evidence": "original utility craft visual rig",
+        "note": "Bow ramp slider controls deployment; lifting cables follow. Throttle and steering animate stern gear. Beach contact, loading and sailing physics are not connected."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "support-ice-coaster",
+      "label": "Arctic coastal container vessel — concept",
+      "glb": "infrastructure-models/support-ice-coaster.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -4.5915846824646,
+          0,
+          -18.619999957084655
+        ],
+        "max": [
+          4.5915846824646,
+          12.640000343322754,
+          18.08132553100586
+        ]
+      },
+      "triangles": 54540,
+      "meshes": 59,
+      "motion": {
+        "mode": "marine-propulsion",
+        "autoDemo": true,
+        "manualYaw": false,
+        "manualPitch": false,
+        "evidence": "original twin-shaft game-art rig",
+        "note": "Throttle spins separate propellers; steering turns rudders. Preview speed and ±35° steering are artistic inspection settings, not measured specifications. Sailing physics is not connected."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "sensor-panel-surveillance",
+      "label": "Panel surveillance sensor — fictional",
+      "glb": "infrastructure-models/sensor-panel-surveillance.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -1.5,
+          0,
+          -1.5
+        ],
+        "max": [
+          2.0999999046325684,
+          4.010000228881836,
+          1.5
+        ]
+      },
+      "triangles": 4672,
+      "meshes": 25,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "original static game-art asset; deployment mechanisms not verified"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "support-command",
+      "label": "Command and communications vehicle",
+      "glb": "infrastructure-models/support-command.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -2.299999952316284,
+          0.0004999985103495419,
+          -3.75
+        ],
+        "max": [
+          2.299999952316284,
+          4.75,
+          3.809999942779541
+        ]
+      },
+      "triangles": 16692,
+      "meshes": 11,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "original static game-art asset; deployment mechanisms not verified"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "support-maintenance",
+      "label": "Mobile maintenance workshop",
+      "glb": "infrastructure-models/support-maintenance.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -2.299999952316284,
+          0.0004999985103495419,
+          -3.75
+        ],
+        "max": [
+          2.299999952316284,
+          3.055000066757202,
+          3.809999942779541
+        ]
+      },
+      "triangles": 19516,
+      "meshes": 11,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "original static game-art asset; deployment mechanisms not verified"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "support-resupply",
+      "label": "Logistics cargo vehicle",
+      "glb": "infrastructure-models/support-resupply.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -2.299999952316284,
+          0.0004999985103495419,
+          -3.75
+        ],
+        "max": [
+          2.299999952316284,
+          2.9749999046325684,
+          3.809999942779541
+        ]
+      },
+      "triangles": 17944,
+      "meshes": 11,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "original static game-art asset; deployment mechanisms not verified"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "support-recovery",
+      "label": "Recovery vehicle — stowed",
+      "glb": "infrastructure-models/support-recovery.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -2.299999952316284,
+          0.0004999985103495419,
+          -3.950000047683716
+        ],
+        "max": [
+          2.299999952316284,
+          2.9749999046325684,
+          3.809999942779541
+        ]
+      },
+      "triangles": 16852,
+      "meshes": 11,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "original static game-art asset; deployment mechanisms not verified"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-clinic",
+      "label": "future city clinic",
+      "glb": "infrastructure-models/future-city-clinic.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -16,
+          -5.9604645663569045e-9,
+          -12
+        ],
+        "max": [
+          16,
+          6.619999885559082,
+          20.749999809265137
+        ]
+      },
+      "triangles": 42884,
+      "meshes": 107,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-fire-rescue",
+      "label": "future city fire rescue",
+      "glb": "infrastructure-models/future-city-fire-rescue.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -16,
+          -5.9604645663569045e-9,
+          -12
+        ],
+        "max": [
+          16,
+          6.619999885559082,
+          20.749999809265137
+        ]
+      },
+      "triangles": 56224,
+      "meshes": 106,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-solid-waste",
+      "label": "future city solid waste",
+      "glb": "infrastructure-models/future-city-solid-waste.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -16,
+          -5.9604645663569045e-9,
+          -12
+        ],
+        "max": [
+          16,
+          6.619999885559082,
+          20.749999809265137
+        ]
+      },
+      "triangles": 36332,
+      "meshes": 106,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-water-plant",
+      "label": "future city water plant",
+      "glb": "infrastructure-models/future-city-water-plant.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -16,
+          -5.9604645663569045e-9,
+          -12
+        ],
+        "max": [
+          16,
+          6.619999885559082,
+          20.749999809265137
+        ]
+      },
+      "triangles": 55680,
+      "meshes": 106,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-wastewater",
+      "label": "future city wastewater",
+      "glb": "infrastructure-models/future-city-wastewater.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -16,
+          -5.9604645663569045e-9,
+          -12
+        ],
+        "max": [
+          16,
+          6.619999885559082,
+          20.749999809265137
+        ]
+      },
+      "triangles": 66660,
+      "meshes": 106,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-backup-power",
+      "label": "future city backup power",
+      "glb": "infrastructure-models/future-city-backup-power.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -16,
+          -5.9604645663569045e-9,
+          -12
+        ],
+        "max": [
+          16,
+          6.619999885559082,
+          20.749999809265137
+        ]
+      },
+      "triangles": 89972,
+      "meshes": 106,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-logistics",
+      "label": "future city logistics",
+      "glb": "infrastructure-models/future-city-logistics.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -16,
+          -5.9604645663569045e-9,
+          -12
+        ],
+        "max": [
+          16,
+          6.619999885559082,
+          20.749999809265137
+        ]
+      },
+      "triangles": 49556,
+      "meshes": 109,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-ridge",
+      "label": "future city ridge",
+      "glb": "infrastructure-models/future-city-ridge.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -240,
+          -63.79784393310547,
+          -220
+        ],
+        "max": [
+          240,
+          104.11983871459961,
+          260
+        ]
+      },
+      "triangles": 1119648,
+      "meshes": 1564,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-cliff",
+      "label": "future city cliff",
+      "glb": "infrastructure-models/future-city-cliff.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -240,
+          -62.09990310668945,
+          -220
+        ],
+        "max": [
+          240,
+          141.6999053955078,
+          260
+        ]
+      },
+      "triangles": 575892,
+      "meshes": 1357,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-coastal",
+      "label": "future city coastal",
+      "glb": "infrastructure-models/future-city-coastal.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -240,
+          -4.899981498718262,
+          -220
+        ],
+        "max": [
+          240,
+          51.11989212036133,
+          260
+        ]
+      },
+      "triangles": 1174706,
+      "meshes": 1818,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-vertical-farm",
+      "label": "future city vertical farm",
+      "glb": "infrastructure-models/future-city-vertical-farm.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -31,
+          -5.9604645663569045e-9,
+          -21
+        ],
+        "max": [
+          31,
+          15.80999984741211,
+          22.375
+        ]
+      },
+      "triangles": 288408,
+      "meshes": 251,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-aquaponics",
+      "label": "future city aquaponics",
+      "glb": "infrastructure-models/future-city-aquaponics.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -50.09000015258789,
+          0,
+          -75.0999984741211
+        ],
+        "max": [
+          50.09000015258789,
+          13.09284782409668,
+          84.94999980926514
+        ]
+      },
+      "triangles": 65708,
+      "meshes": 91,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-residential-dome",
+      "label": "future city residential dome",
+      "glb": "infrastructure-models/future-city-residential-dome.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -90.06999969482422,
+          0,
+          -90.06999969482422
+        ],
+        "max": [
+          90.06999969482422,
+          64.09894561767578,
+          99.94999980926514
+        ]
+      },
+      "triangles": 684490,
+      "meshes": 751,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-housing-terrace",
+      "label": "future housing terrace",
+      "glb": "infrastructure-models/future-housing-terrace.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -18.200000762939453,
+          0,
+          -25.449999809265137
+        ],
+        "max": [
+          18.200000762939453,
+          26.290000915527344,
+          15
+        ]
+      },
+      "triangles": 145656,
+      "meshes": 129,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-housing-balcony",
+      "label": "future housing balcony",
+      "glb": "infrastructure-models/future-housing-balcony.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -15,
+          -5.9604645663569045e-9,
+          -25.449999809265137
+        ],
+        "max": [
+          15,
+          42.599998474121094,
+          15
+        ]
+      },
+      "triangles": 184160,
+      "meshes": 305,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-housing-courtyard",
+      "label": "future housing courtyard",
+      "glb": "infrastructure-models/future-housing-courtyard.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -21.200000762939453,
+          0,
+          -25.449999809265137
+        ],
+        "max": [
+          21.274999618530273,
+          26.290000915527344,
+          15
+        ]
+      },
+      "triangles": 157776,
+      "meshes": 99,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-smr",
+      "label": "future city smr",
+      "glb": "infrastructure-models/future-city-smr.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -55,
+          -5.9604645663569045e-9,
+          -42.5
+        ],
+        "max": [
+          55,
+          16.799999237060547,
+          42.5
+        ]
+      },
+      "triangles": 8568,
+      "meshes": 5,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-thermal-storage",
+      "label": "future city thermal storage",
+      "glb": "infrastructure-models/future-city-thermal-storage.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -10.5,
+          -2.9802322831784522e-9,
+          -11.5
+        ],
+        "max": [
+          16.5,
+          13.119999885559082,
+          11.5
+        ]
+      },
+      "triangles": 12400,
+      "meshes": 10,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-greenhouse",
+      "label": "future city greenhouse",
+      "glb": "infrastructure-models/future-city-greenhouse.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -14.520000457763672,
+          -5.9604645663569045e-9,
+          -17.5
+        ],
+        "max": [
+          14.520000457763672,
+          8.878849983215332,
+          26.949999809265137
+        ]
+      },
+      "triangles": 68648,
+      "meshes": 137,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-residential",
+      "label": "future city residential",
+      "glb": "infrastructure-models/future-city-residential.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -30.5,
+          -5.9604645663569045e-9,
+          -32.5
+        ],
+        "max": [
+          30.5,
+          32.09989929199219,
+          41.94999980926514
+        ]
+      },
+      "triangles": 27580,
+      "meshes": 166,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-residential-block",
+      "label": "future city residential block",
+      "glb": "infrastructure-models/future-city-residential-block.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -21.5,
+          -5.9604645663569045e-9,
+          -12
+        ],
+        "max": [
+          21.5,
+          17.184999465942383,
+          12
+        ]
+      },
+      "triangles": 9228,
+      "meshes": 6,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-demo",
+      "label": "future city demo",
+      "glb": "infrastructure-models/future-city-demo.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -495,
+          -4.7683716530855236e-8,
+          -490.0699996948242
+        ],
+        "max": [
+          490.0699996948242,
+          190.5,
+          485.0999984741211
+        ]
+      },
+      "triangles": 3518628,
+      "meshes": 3675,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-hydroponics",
+      "label": "future city hydroponics",
+      "glb": "infrastructure-models/future-city-hydroponics.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -12,
+          2.6822091214739885e-9,
+          -12
+        ],
+        "max": [
+          12,
+          5.909999847412109,
+          12
+        ]
+      },
+      "triangles": 46856,
+      "meshes": 37,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-circulation",
+      "label": "future city circulation",
+      "glb": "infrastructure-models/future-city-circulation.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -181.22943115234375,
+          39.01005172729492,
+          -181.22943115234375
+        ],
+        "max": [
+          181.22943115234375,
+          134.6752166748047,
+          181.22943115234375
+        ]
+      },
+      "triangles": 193168,
+      "meshes": 64,
+      "motion": {
+        "mode": "city-circulation",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Use Circulation fans to run or stop the independent rotors. Rotation speed is illustrative; airflow, temperature control and persistent MCP state are not simulated.",
+        "evidence": "authored fan rigs with rotor-clearance tests"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-heat-recovery",
+      "label": "future city heat recovery",
+      "glb": "infrastructure-models/future-city-heat-recovery.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -5,
+          -5.9604645663569045e-9,
+          -2.5
+        ],
+        "max": [
+          5,
+          4.340000152587891,
+          2.5
+        ]
+      },
+      "triangles": 4500,
+      "meshes": 5,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-airlock-pedestrian",
+      "label": "future airlock pedestrian",
+      "glb": "infrastructure-models/future-airlock-pedestrian.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -4.099999904632568,
+          0,
+          -5.449999809265137
+        ],
+        "max": [
+          4.099999904632568,
+          3.9749999046325684,
+          5.449999809265137
+        ]
+      },
+      "triangles": 14544,
+      "meshes": 83,
+      "motion": {
+        "mode": "airlock-preview",
+        "autoDemo": true,
+        "manualYaw": false,
+        "manualPitch": false,
+        "evidence": "authored interlocked visual sequence",
+        "note": "Demonstrate articulation cycles doors one end at a time. Manual requests check preview state. Decon spray is illustrative, not evidence of chemical safety. Persistent MCP control remains unimplemented."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-airlock-vehicle",
+      "label": "future airlock vehicle",
+      "glb": "infrastructure-models/future-airlock-vehicle.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -8.699999809265137,
+          0,
+          -12.949999809265137
+        ],
+        "max": [
+          8.699999809265137,
+          7.574999809265137,
+          12.949999809265137
+        ]
+      },
+      "triangles": 17688,
+      "meshes": 111,
+      "motion": {
+        "mode": "airlock-preview",
+        "autoDemo": true,
+        "manualYaw": false,
+        "manualPitch": false,
+        "evidence": "authored interlocked visual sequence",
+        "note": "Demonstrate articulation cycles doors one end at a time. Manual requests check preview state. Decon spray is illustrative, not evidence of chemical safety. Persistent MCP control remains unimplemented."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-decon-pedestrian",
+      "label": "future decon pedestrian",
+      "glb": "infrastructure-models/future-decon-pedestrian.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -4.099999904632568,
+          0,
+          -5.449999809265137
+        ],
+        "max": [
+          4.480000019073486,
+          3.9749999046325684,
+          5.449999809265137
+        ]
+      },
+      "triangles": 19744,
+      "meshes": 90,
+      "motion": {
+        "mode": "airlock-preview",
+        "autoDemo": true,
+        "manualYaw": false,
+        "manualPitch": false,
+        "evidence": "authored interlocked visual sequence",
+        "note": "Demonstrate articulation cycles doors one end at a time. Manual requests check preview state. Decon spray is illustrative, not evidence of chemical safety. Persistent MCP control remains unimplemented."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-decon-vehicle",
+      "label": "future decon vehicle",
+      "glb": "infrastructure-models/future-decon-vehicle.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -8.699999809265137,
+          0,
+          -12.949999809265137
+        ],
+        "max": [
+          9.079999923706055,
+          7.574999809265137,
+          12.949999809265137
+        ]
+      },
+      "triangles": 28504,
+      "meshes": 118,
+      "motion": {
+        "mode": "airlock-preview",
+        "autoDemo": true,
+        "manualYaw": false,
+        "manualPitch": false,
+        "evidence": "authored interlocked visual sequence",
+        "note": "Demonstrate articulation cycles doors one end at a time. Manual requests check preview state. Decon spray is illustrative, not evidence of chemical safety. Persistent MCP control remains unimplemented."
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-services",
+      "label": "future city services",
+      "glb": "infrastructure-models/future-city-services.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -243.25601196289062,
+          -5.9604645663569045e-9,
+          -243.25601196289062
+        ],
+        "max": [
+          243.25601196289062,
+          188.4562530517578,
+          243.25601196289062
+        ]
+      },
+      "triangles": 653388,
+      "meshes": 89,
+      "motion": {
+        "mode": "city-circulation",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Use Circulation fans to run or stop the independent rotors. Rotation speed is illustrative; airflow, temperature control and persistent MCP state are not simulated.",
+        "evidence": "authored fan rigs with rotor-clearance tests"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-dome",
+      "label": "future city dome",
+      "glb": "infrastructure-models/future-city-dome.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -251.22317504882812,
+          -5.9604645663569045e-9,
+          -251.22317504882812
+        ],
+        "max": [
+          251.22317504882812,
+          190.5,
+          251.22317504882812
+        ]
+      },
+      "triangles": 779856,
+      "meshes": 127,
+      "motion": {
+        "mode": "city-circulation",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Use Circulation fans to run or stop the independent rotors. Rotation speed is illustrative; airflow, temperature control and persistent MCP state are not simulated.",
+        "evidence": "authored fan rigs with rotor-clearance tests"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-tunnel",
+      "label": "future city tunnel",
+      "glb": "infrastructure-models/future-city-tunnel.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -9.100000381469727,
+          -5.9604645663569045e-9,
+          -75.0999984741211
+        ],
+        "max": [
+          9.100000381469727,
+          13.099518775939941,
+          75.0999984741211
+        ]
+      },
+      "triangles": 7548,
+      "meshes": 6,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-climate",
+      "label": "future city climate",
+      "glb": "infrastructure-models/future-city-climate.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -15,
+          -1.1920929132713809e-8,
+          -16.5
+        ],
+        "max": [
+          15,
+          11.925000190734863,
+          10
+        ]
+      },
+      "triangles": 8784,
+      "meshes": 9,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-spire",
+      "label": "future city spire",
+      "glb": "infrastructure-models/future-city-spire.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -23,
+          -2.3841858265427618e-8,
+          -23
+        ],
+        "max": [
+          23,
+          147.06365966796875,
+          23
+        ]
+      },
+      "triangles": 47644,
+      "meshes": 7,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-petals",
+      "label": "future city petals",
+      "glb": "infrastructure-models/future-city-petals.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -23,
+          -2.3841858265427618e-8,
+          -23
+        ],
+        "max": [
+          23,
+          103.30000305175781,
+          23
+        ]
+      },
+      "triangles": 39248,
+      "meshes": 7,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-arc",
+      "label": "future city arc",
+      "glb": "infrastructure-models/future-city-arc.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -23,
+          -2.3841858265427618e-8,
+          -23
+        ],
+        "max": [
+          23,
+          123.82499694824219,
+          23
+        ]
+      },
+      "triangles": 9520,
+      "meshes": 7,
+      "motion": {
+        "mode": "fixed",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Static asset. No mechanical scan or aiming animation.",
+        "evidence": "speculative city architecture; climate/maintenance systems are visual only"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    },
+    {
+      "id": "future-city-district",
+      "label": "future city district",
+      "glb": "infrastructure-models/future-city-district.glb",
+      "units": "metres",
+      "upAxis": "Y",
+      "bounds": {
+        "min": [
+          -251.22317504882812,
+          -2.3841858265427618e-8,
+          -251.22317504882812
+        ],
+        "max": [
+          251.22317504882812,
+          190.5,
+          901.2231750488281
+        ]
+      },
+      "triangles": 1760364,
+      "meshes": 304,
+      "motion": {
+        "mode": "city-circulation",
+        "autoDemo": false,
+        "manualYaw": false,
+        "manualPitch": false,
+        "note": "Use Circulation fans to run or stop the independent rotors. Rotation speed is illustrative; airflow, temperature control and persistent MCP state are not simulated.",
+        "evidence": "authored fan rigs with rotor-clearance tests"
+      },
+      "audit": {
+        "finiteGeometry": true,
+        "jointsPresent": true,
+        "supportConnectivity": "manual-review-required",
+        "sweptCollision": "not-validated",
+        "transportPose": "not-validated",
+        "lod": "not-authored"
+      },
+      "simulationReady": false
+    }
+  ]
+}

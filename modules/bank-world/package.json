@@ -1,0 +1,21 @@
+{
+  "name": "greenland-game-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Test-only authoritative Greenland game, bank, and realtime foundation",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node apps/api/src/server.js",
+    "test": "node --test test/*.test.js",
+    "check:test-db": "node -e \"require('./packages/persistence/src/test-config').validateOptionalPostgresTestUrl()\""
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "ioredis": "5.10.1",
+    "sqlite3": "^5.1.6",
+    "uuid": "^9.0.0"
+  }
+}

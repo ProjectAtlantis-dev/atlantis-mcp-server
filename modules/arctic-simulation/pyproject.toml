@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "atlantis-simulation-module"
+version = "0.1.0"
+description = "Isolated Atlantis simulation authority and MCP application adapters"
+requires-python = ">=3.11"
+dependencies = ["starlette>=1.4.1,<2", "atlantis-host-adapters>=0.1,<0.2", "atlantis-economy>=0.1,<0.2"]
+
+[project.optional-dependencies]
+terrain = ["pyproj>=3.6,<4"]
+
+[project.entry-points."atlantis.viewer_routes"]
+arctic_simulation = "atlantis_simulation.viewer:routes"
+
+[project.entry-points."atlantis.asset_write_guards"]
+arctic_simulation = "atlantis_simulation.terrain_adapter:guard_asset_write"
+
+[tool.setuptools.packages.find]
+where = ["python"]
+include = ["atlantis_simulation*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+atlantis_simulation = ["runtime/src/*.mjs", "runtime/src/*.json", "runtime/package.json"]

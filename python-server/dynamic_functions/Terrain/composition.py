@@ -275,6 +275,7 @@ def _effective_from_ready(
         "version": EFFECTIVE_VERSION,
         "maskSource": mask_source,
         "verticalDatum": dem_payload["vertical_datum"] if dem_payload else None,
+        "datumConversion": dem_payload.get("datum_conversion") if dem_payload else None,
         "shape": [int(value) for value in heightmap.shape],
         "dtype": "float32",
         "minimum": float(np.min(valid)) if valid.size else None,

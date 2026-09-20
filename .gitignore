@@ -36,6 +36,13 @@ yarn-error.log
 *.swp
 *.swo
 .DS_Store
+.venv/
+viewer/dist/
+runtime-data/
+!python-server/dynamic_functions/ArcticSimulation/
+!python-server/dynamic_functions/GreenlandBank/
+!python-server/dynamic_functions/GreenlandGame/
+!python-server/dynamic_functions/GreenlandWarehouse/
 *.pid
 
 *.OLD
@@ -93,3 +100,22 @@ python-server/dynamic_functions copy 2/
 python-server/dynamic_functions copy/
 python-server/dynamic_functions/Chat/Game/Bots/.DS_Store
 python-server/dynamic_functions/Chat/.DS_Store
+
+# Local port modules are real source, not ignored application symlinks.
+!python-server/dynamic_functions/ArcticSimulation/
+!python-server/dynamic_functions/ArcticSimulation/**
+!python-server/dynamic_functions/GreenlandBank/
+!python-server/dynamic_functions/GreenlandBank/**
+!python-server/dynamic_functions/GreenlandGame/
+!python-server/dynamic_functions/GreenlandGame/**
+!python-server/dynamic_functions/GreenlandWarehouse/
+!python-server/dynamic_functions/GreenlandWarehouse/**
+python-server/dynamic_functions/**/__pycache__/
+python-server/dynamic_functions/**/*.py[cod]
+
+# The browser is maintained in the paired atlantis-3d-viewer repository.
+/viewer/
+/python-server/venv
+
+# Machine-specific integration notes.
+/LOCAL_PORT.md

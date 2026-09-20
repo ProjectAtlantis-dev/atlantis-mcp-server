@@ -10,6 +10,7 @@ from __future__ import annotations
 import datetime
 import sqlite3
 import zlib
+from functools import lru_cache
 
 import numpy as np
 
@@ -261,6 +262,16 @@ def write_dem(
     )
 
 
+@lru_cache(maxsize=8192)
+def _legacy_arctic_geoid(tile_id: str) -> float:
+    # Imported pre-datum ArcticDEM caches contain provider ellipsoidal samples.
+    # Use the same grid-backed transform as new acquisition; never a constant
+    # camera/LOD offset. Keep the stored payload untouched and normalize on read.
+    from dynamic_functions.Terrain.arctic_dem import _geoid_undulation
+    from dynamic_functions.Terrain.tile_address import tile_bounds
+    return _geoid_undulation(tile_bounds(tile_id, GREENLAND_BBOX))
+
+
 def read_dem_payload(db: sqlite3.Connection, tile_id: str) -> dict | None:
     """Read and decode one stored DEM, restoring no-confidence samples to NaN."""
 
@@ -277,10 +288,19 @@ def read_dem_payload(db: sqlite3.Connection, tile_id: str) -> dict | None:
     confidence_map = _decompress_uint8(row[5])
     heightmap = stored_heightmap.copy()
     heightmap[confidence_map == 0] = np.nan
+    vertical_datum = row[1]
+    datum_conversion = None
+    if not vertical_datum and row[0] in ('arcticdem_10m', 'unmasked_arcticdem_10m'):
+        undulation = _legacy_arctic_geoid(tile_id)
+        heightmap -= np.float32(undulation)
+        vertical_datum = 'EGM2008'
+        datum_conversion = {'from': 'legacy_arcticdem_ellipsoidal', 'geoidUndulation': undulation}
     return {
         "tile_id": tile_id,
         "source": row[0],
-        "vertical_datum": row[1],
+        "vertical_datum": vertical_datum,
+        "stored_vertical_datum": row[1],
+        "datum_conversion": datum_conversion,
         "updated_at": row[2],
         "geometric_error": row[3],
         "heightmap": heightmap,

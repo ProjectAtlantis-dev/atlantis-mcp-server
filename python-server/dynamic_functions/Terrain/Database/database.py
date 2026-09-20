@@ -1,6 +1,7 @@
 """Connection lifecycle for the terrain heightmap SQLite database."""
 
 import sqlite3
+import os
 import threading
 import uuid
 from pathlib import Path
@@ -10,7 +11,7 @@ import atlantis
 from dynamic_functions.Terrain.Database import schema
 
 
-DATABASE_PATH = Path(__file__).with_name("terrain.db")
+DATABASE_PATH = Path(os.environ.get('TERRAIN_DB_PATH', str(Path(__file__).with_name("terrain.db")))).expanduser()
 _CONNECTION_KEY = "Terrain.Database.connection"
 _CONNECTION_LOCK_KEY = "Terrain.Database.connection_lock.v1"
 _LOCK_INIT_GUARD = threading.Lock()

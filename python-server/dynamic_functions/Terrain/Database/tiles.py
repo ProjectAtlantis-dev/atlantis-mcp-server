@@ -290,6 +290,10 @@ def read_dem_payload(db: sqlite3.Connection, tile_id: str) -> dict | None:
     heightmap[confidence_map == 0] = np.nan
     vertical_datum = row[1]
     datum_conversion = None
+    if not vertical_datum and row[0] == 'copernicus':
+        # The original Copernicus acquisition contract is already orthometric.
+        vertical_datum = 'EGM2008'
+        datum_conversion = {'from': 'legacy_copernicus_egm2008', 'heightOffsetM': 0}
     if not vertical_datum and row[0] in ('arcticdem_10m', 'unmasked_arcticdem_10m'):
         undulation = _legacy_arctic_geoid(tile_id)
         heightmap -= np.float32(undulation)
@@ -315,9 +319,10 @@ def read_dem_with_ancestor(
 ) -> dict | None:
     """Read exact DEM data or the nearest stored ancestor without writing."""
 
+    from dynamic_functions.Terrain.dem_seams import read_continuous_dem
     requested_depth, _, _ = require_tile_id(tile_id)
     for candidate_id in ancestor_tile_ids(tile_id, include_self=True):
-        payload = read_dem_payload(db, candidate_id)
+        payload = read_continuous_dem(db, candidate_id)
         if payload is None:
             continue
         resolved_depth, _, _ = require_tile_id(candidate_id)

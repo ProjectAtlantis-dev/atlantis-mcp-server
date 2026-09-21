@@ -1,12 +1,12 @@
-"""Owner-only bank-linked habitat and infrastructure tools."""
+"""Bank-linked habitat and infrastructure with server-enforced access."""
 from atlantis_simulation import infrastructure_control as infrastructure
 from atlantis_simulation.host import simulation_host
 
 
-@visible
+@protected("terrain_access_authorized")
 def index() -> dict:
     """Bank UUIDs identify models; simulation tick owns all component transitions."""
-    return {"module": "Terrain/Infrastructure", "visibility": "owner-only"}
+    return {"module": "Terrain/Infrastructure", "visibility": "authenticated; object access enforced at execution"}
 
 
 @visible
@@ -42,7 +42,14 @@ def instructions() -> dict:
     return simulation_host.command("GET", infrastructure.path(principal, "component-contract"))
 
 
+@protected("terrain_access_authorized")
+def component_command(asset_id: str, action: str, expected_revision: int,
+                      subject_kind: str, subject_id: str) -> dict:
+    """Request a component action through an authorized nearby player or owned vehicle. Server rechecks bank identity, structure policy, authoritative proximity, revision and interlocks; inspect observes actual completion."""
+    return infrastructure.control(asset_id, action, expected_revision, subject_kind, subject_id)
+
+
 @visible
-def component_command(asset_id: str, action: str, expected_revision: int) -> dict:
-    """Request a supported action on your bank-owned structure. Server validates revision and interlocks; inspect observes actual completion."""
-    return infrastructure.control(asset_id, action, expected_revision)
+def configure_access(asset_id: str, interaction_radius_m: float = 5, allowed_account_ids: list = None) -> dict:
+    """Owner-only: protect the authored structure volume, set interaction range, and replace additional permitted bank accounts. The owner remains permitted. Proximity uses an authoritative player or vehicle, never a camera. Omitted accounts means owner-only."""
+    return infrastructure.configure_access(asset_id, interaction_radius_m, [] if allowed_account_ids is None else allowed_account_ids)

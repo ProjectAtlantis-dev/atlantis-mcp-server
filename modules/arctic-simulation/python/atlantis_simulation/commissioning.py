@@ -1,4 +1,5 @@
 """Explicit bank registration of existing Terrain instances, without moving them."""
+from .controller_models import CONTROLLER_MODELS
 import fcntl
 import json
 import os
@@ -25,7 +26,7 @@ def register_vehicle(terrain_asset_id):
     if instance is None:
         raise ValueError("Enabled vehicle instance not found in the selected Terrain catalog")
     # Commission only what the current authoritative controller implements.
-    if instance["definitionId"] not in {"patria-amv", "black-hornet", "v22-osprey"}:
+    if instance["definitionId"] not in CONTROLLER_MODELS:
         raise ValueError("This model's authoritative controller is not implemented; registration did not change its authority")
     path = Path(os.environ[keys[2]])
     path.parent.mkdir(parents=True, exist_ok=True)

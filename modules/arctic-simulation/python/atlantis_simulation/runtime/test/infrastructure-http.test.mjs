@@ -23,6 +23,11 @@ test('authenticated infrastructure routes persist across isolated server restart
   assert.equal((await request('infrastructure','PATCH',{id:'test-pad',position:{x:20,y:30,z:4},headingDeg:90})).status,200);
   assert.equal((await request('infrastructure','POST',{id:'test-facility',modelId:'future-city-water-plant',position:{x:40,y:30,z:4}})).status,201);
   assert.equal((await request('component-command','POST',{id:'test-facility',action:'facility_freight_open',expectedRevision:0})).status,200);
+  const owner=randomUUID(),policy={version:1,ownerAccountId:owner,allowedAccountIds:[],interactionRadiusM:5,bounds:{minX:-2,maxX:2,minY:-2,maxY:2,minZ:0,maxZ:4}};
+  assert.equal((await request('infrastructure-access','POST',{operation:'configure',id:'test-facility',accountId:owner,policy})).status,200);
+  assert.equal((await request('component-command','POST',{id:'test-facility',action:'facility_freight_close',expectedRevision:1})).status,400);
+  const access=await request('infrastructure-access','POST',{operation:'discover',id:'test-facility',accountId:owner,subjects:[]});assert.equal(access.status,200);assert.deepEqual(access.body,{protected:true,subjects:[]});
+  assert.equal((await request('infrastructure-access','POST',{operation:'command',id:'test-facility',action:'facility_freight_close',expectedRevision:1,accountId:owner,subjectKind:'camera',subjectId:randomUUID(),position:{x:40,y:30,z:4}})).status,400);
   await stop();await start();const snapshot=(await request('snapshot')).body;
   assert.deepEqual(snapshot.infrastructure[0].position,{x:20,y:30,z:4});
   const facility=snapshot.infrastructure.find(e=>e.id==='test-facility');assert.equal(facility.componentState.freightTarget,1);assert.equal(facility.componentState.revision,1);

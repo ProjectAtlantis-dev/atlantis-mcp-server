@@ -1,0 +1,419 @@
+{
+  "patria-amv": {
+    "model": "Patria AMV 8x8",
+    "manufacturer": "Patria / licensed manufacturer \u0110uro \u0110akovi\u0107",
+    "sourceUrl": "https://duro-dakovic.com/wp-content/uploads/2023/11/Patria_AMV_8x8.pdf",
+    "verifiedOn": "2026-09-20",
+    "published": {
+      "maximumSpeedKph": {
+        "relation": ">",
+        "value": 100
+      },
+      "climbingGradePercent": 70,
+      "sideSlopePercent": 40
+    },
+    "simulation": {
+      "forwardSpeedLimitKph": 100,
+      "reverseSpeedLimitKph": 21.6,
+      "accelerationMps2": 3,
+      "brakingMps2": 7,
+      "planningDecelerationMps2": 2,
+      "rollingDecelerationMps2": 0.15,
+      "wheelbaseM": 4.5,
+      "maxSteeringRad": 0.5,
+      "lateralAccelerationMps2": 2,
+      "predictionSeconds": 2
+    },
+    "notes": "100 km/h is a conservative cap from the published >100 km/h maximum, not a guaranteed cruising speed. No separate offroad cruising speed is published in this source. Reverse speed, acceleration, braking, steering and comfort limits are simulation tuning, not manufacturer claims. Values apply to AMV 8x8, not AMV XP."
+  },
+  "at1-hrim": {
+    "model": "AT-1 Hrim procedural snowcat",
+    "simulation": {
+      "forwardSpeedLimitKph": 40,
+      "reverseSpeedLimitKph": 12,
+      "accelerationMps2": 2,
+      "brakingMps2": 5,
+      "planningDecelerationMps2": 2,
+      "rollingDecelerationMps2": 0.2,
+      "wheelbaseM": 3.2,
+      "maxSteeringRad": 0.65,
+      "lateralAccelerationMps2": 1.5,
+      "predictionSeconds": 2,
+      "climbingGradePercent": 60,
+      "sideSlopePercent": 30
+    },
+    "notes": "Procedural vehicle: these are explicit simulation tuning values, not manufacturer specifications. Equivalent steering geometry approximates tracked steering."
+  },
+  "support-sisu-gtt": {
+    "model": "support-sisu-gtt",
+    "simulation": {
+      "forwardSpeedLimitKph": 40,
+      "reverseSpeedLimitKph": 12,
+      "accelerationMps2": 2,
+      "brakingMps2": 5,
+      "planningDecelerationMps2": 2,
+      "rollingDecelerationMps2": 0.2,
+      "wheelbaseM": 3.2,
+      "maxSteeringRad": 0.65,
+      "lateralAccelerationMps2": 1.5,
+      "predictionSeconds": 2,
+      "climbingGradePercent": 60,
+      "sideSlopePercent": 30
+    },
+    "notes": "Authored vehicle variant. Reverse, acceleration, braking, steering and slope limits are explicit simulation tuning; no recovery/load or amphibious physics. Maximum speed is simulation tuning; a matching manufacturer maximum has not been established."
+  },
+  "support-sisu-gtt-civilian": {
+    "model": "support-sisu-gtt-civilian",
+    "simulation": {
+      "forwardSpeedLimitKph": 40,
+      "reverseSpeedLimitKph": 12,
+      "accelerationMps2": 2,
+      "brakingMps2": 5,
+      "planningDecelerationMps2": 2,
+      "rollingDecelerationMps2": 0.2,
+      "wheelbaseM": 3.2,
+      "maxSteeringRad": 0.65,
+      "lateralAccelerationMps2": 1.5,
+      "predictionSeconds": 2,
+      "climbingGradePercent": 60,
+      "sideSlopePercent": 30
+    },
+    "notes": "Authored vehicle variant. Reverse, acceleration, braking, steering and slope limits are explicit simulation tuning; no recovery/load or amphibious physics. Maximum speed is simulation tuning; a matching manufacturer maximum has not been established."
+  },
+  "support-sisu-gtt-logistics": {
+    "model": "support-sisu-gtt-logistics",
+    "simulation": {
+      "forwardSpeedLimitKph": 40,
+      "reverseSpeedLimitKph": 12,
+      "accelerationMps2": 2,
+      "brakingMps2": 5,
+      "planningDecelerationMps2": 2,
+      "rollingDecelerationMps2": 0.2,
+      "wheelbaseM": 3.2,
+      "maxSteeringRad": 0.65,
+      "lateralAccelerationMps2": 1.5,
+      "predictionSeconds": 2,
+      "climbingGradePercent": 60,
+      "sideSlopePercent": 30
+    },
+    "notes": "Authored vehicle variant. Reverse, acceleration, braking, steering and slope limits are explicit simulation tuning; no recovery/load or amphibious physics. Maximum speed is simulation tuning; a matching manufacturer maximum has not been established."
+  },
+  "support-sisu-gtt-plow": {
+    "model": "support-sisu-gtt-plow",
+    "simulation": {
+      "forwardSpeedLimitKph": 40,
+      "reverseSpeedLimitKph": 12,
+      "accelerationMps2": 2,
+      "brakingMps2": 5,
+      "planningDecelerationMps2": 2,
+      "rollingDecelerationMps2": 0.2,
+      "wheelbaseM": 3.2,
+      "maxSteeringRad": 0.65,
+      "lateralAccelerationMps2": 1.5,
+      "predictionSeconds": 2,
+      "climbingGradePercent": 60,
+      "sideSlopePercent": 30
+    },
+    "notes": "Authored vehicle variant. Reverse, acceleration, braking, steering and slope limits are explicit simulation tuning; no recovery/load or amphibious physics. Maximum speed is simulation tuning; a matching manufacturer maximum has not been established."
+  },
+  "support-sisu-gtt-recovery": {
+    "model": "support-sisu-gtt-recovery",
+    "simulation": {
+      "forwardSpeedLimitKph": 40,
+      "reverseSpeedLimitKph": 12,
+      "accelerationMps2": 2,
+      "brakingMps2": 5,
+      "planningDecelerationMps2": 2,
+      "rollingDecelerationMps2": 0.2,
+      "wheelbaseM": 3.2,
+      "maxSteeringRad": 0.65,
+      "lateralAccelerationMps2": 1.5,
+      "predictionSeconds": 2,
+      "climbingGradePercent": 60,
+      "sideSlopePercent": 30
+    },
+    "notes": "Authored vehicle variant. Reverse, acceleration, braking, steering and slope limits are explicit simulation tuning; no recovery/load or amphibious physics. Maximum speed is simulation tuning; a matching manufacturer maximum has not been established."
+  },
+  "support-patria-trackx": {
+    "model": "support-patria-trackx",
+    "simulation": {
+      "forwardSpeedLimitKph": 80,
+      "reverseSpeedLimitKph": 12,
+      "accelerationMps2": 2,
+      "brakingMps2": 5,
+      "planningDecelerationMps2": 2,
+      "rollingDecelerationMps2": 0.2,
+      "wheelbaseM": 4.5,
+      "maxSteeringRad": 0.65,
+      "lateralAccelerationMps2": 1.5,
+      "predictionSeconds": 2,
+      "climbingGradePercent": 60,
+      "sideSlopePercent": 30
+    },
+    "notes": "Authored vehicle variant. Reverse, acceleration, braking, steering and slope limits are explicit simulation tuning; no recovery/load or amphibious physics. 80 km/h uses the reference TRACKX APC maximum; role bodies are authored variants, not certified factory configurations.",
+    "sourceUrl": "https://www.patriagroup.com/download/patria-trackx-brochurepdf",
+    "referenceMaximumSpeedKph": 80,
+    "verifiedOn": "2026-09-21"
+  },
+  "support-patria-trackx-civilian": {
+    "model": "support-patria-trackx-civilian",
+    "simulation": {
+      "forwardSpeedLimitKph": 80,
+      "reverseSpeedLimitKph": 12,
+      "accelerationMps2": 2,
+      "brakingMps2": 5,
+      "planningDecelerationMps2": 2,
+      "rollingDecelerationMps2": 0.2,
+      "wheelbaseM": 4.5,
+      "maxSteeringRad": 0.65,
+      "lateralAccelerationMps2": 1.5,
+      "predictionSeconds": 2,
+      "climbingGradePercent": 60,
+      "sideSlopePercent": 30
+    },
+    "notes": "Authored vehicle variant. Reverse, acceleration, braking, steering and slope limits are explicit simulation tuning; no recovery/load or amphibious physics. 80 km/h uses the reference TRACKX APC maximum; role bodies are authored variants, not certified factory configurations.",
+    "sourceUrl": "https://www.patriagroup.com/download/patria-trackx-brochurepdf",
+    "referenceMaximumSpeedKph": 80,
+    "verifiedOn": "2026-09-21"
+  },
+  "support-patria-trackx-logistics": {
+    "model": "support-patria-trackx-logistics",
+    "simulation": {
+      "forwardSpeedLimitKph": 80,
+      "reverseSpeedLimitKph": 12,
+      "accelerationMps2": 2,
+      "brakingMps2": 5,
+      "planningDecelerationMps2": 2,
+      "rollingDecelerationMps2": 0.2,
+      "wheelbaseM": 4.5,
+      "maxSteeringRad": 0.65,
+      "lateralAccelerationMps2": 1.5,
+      "predictionSeconds": 2,
+      "climbingGradePercent": 60,
+      "sideSlopePercent": 30
+    },
+    "notes": "Authored vehicle variant. Reverse, acceleration, braking, steering and slope limits are explicit simulation tuning; no recovery/load or amphibious physics. 80 km/h uses the reference TRACKX APC maximum; role bodies are authored variants, not certified factory configurations.",
+    "sourceUrl": "https://www.patriagroup.com/download/patria-trackx-brochurepdf",
+    "referenceMaximumSpeedKph": 80,
+    "verifiedOn": "2026-09-21"
+  },
+  "support-patria-trackx-plow": {
+    "model": "support-patria-trackx-plow",
+    "simulation": {
+      "forwardSpeedLimitKph": 80,
+      "reverseSpeedLimitKph": 12,
+      "accelerationMps2": 2,
+      "brakingMps2": 5,
+      "planningDecelerationMps2": 2,
+      "rollingDecelerationMps2": 0.2,
+      "wheelbaseM": 4.5,
+      "maxSteeringRad": 0.65,
+      "lateralAccelerationMps2": 1.5,
+      "predictionSeconds": 2,
+      "climbingGradePercent": 60,
+      "sideSlopePercent": 30
+    },
+    "notes": "Authored vehicle variant. Reverse, acceleration, braking, steering and slope limits are explicit simulation tuning; no recovery/load or amphibious physics. 80 km/h uses the reference TRACKX APC maximum; role bodies are authored variants, not certified factory configurations.",
+    "sourceUrl": "https://www.patriagroup.com/download/patria-trackx-brochurepdf",
+    "referenceMaximumSpeedKph": 80,
+    "verifiedOn": "2026-09-21"
+  },
+  "support-patria-trackx-recovery": {
+    "model": "support-patria-trackx-recovery",
+    "simulation": {
+      "forwardSpeedLimitKph": 80,
+      "reverseSpeedLimitKph": 12,
+      "accelerationMps2": 2,
+      "brakingMps2": 5,
+      "planningDecelerationMps2": 2,
+      "rollingDecelerationMps2": 0.2,
+      "wheelbaseM": 4.5,
+      "maxSteeringRad": 0.65,
+      "lateralAccelerationMps2": 1.5,
+      "predictionSeconds": 2,
+      "climbingGradePercent": 60,
+      "sideSlopePercent": 30
+    },
+    "notes": "Authored vehicle variant. Reverse, acceleration, braking, steering and slope limits are explicit simulation tuning; no recovery/load or amphibious physics. 80 km/h uses the reference TRACKX APC maximum; role bodies are authored variants, not certified factory configurations.",
+    "sourceUrl": "https://www.patriagroup.com/download/patria-trackx-brochurepdf",
+    "referenceMaximumSpeedKph": 80,
+    "verifiedOn": "2026-09-21"
+  },
+  "support-snowcat-civilian": {
+    "model": "support-snowcat-civilian",
+    "simulation": {
+      "forwardSpeedLimitKph": 25,
+      "reverseSpeedLimitKph": 12,
+      "accelerationMps2": 2,
+      "brakingMps2": 5,
+      "planningDecelerationMps2": 2,
+      "rollingDecelerationMps2": 0.2,
+      "wheelbaseM": 3.2,
+      "maxSteeringRad": 0.65,
+      "lateralAccelerationMps2": 1.5,
+      "predictionSeconds": 2,
+      "climbingGradePercent": 60,
+      "sideSlopePercent": 30
+    },
+    "notes": "Authored vehicle variant. Reverse, acceleration, braking, steering and slope limits are explicit simulation tuning; no recovery/load or amphibious physics. 25 km/h uses PB100 as an appearance-reference maximum; this original snowcat is not a manufacturer replica.",
+    "sourceUrl": "https://www.pistenbully.com/en/snow-groomers/pistenbully-100",
+    "referenceMaximumSpeedKph": 25,
+    "verifiedOn": "2026-09-21"
+  },
+  "support-snowcat-military": {
+    "model": "support-snowcat-military",
+    "simulation": {
+      "forwardSpeedLimitKph": 25,
+      "reverseSpeedLimitKph": 12,
+      "accelerationMps2": 2,
+      "brakingMps2": 5,
+      "planningDecelerationMps2": 2,
+      "rollingDecelerationMps2": 0.2,
+      "wheelbaseM": 3.2,
+      "maxSteeringRad": 0.65,
+      "lateralAccelerationMps2": 1.5,
+      "predictionSeconds": 2,
+      "climbingGradePercent": 60,
+      "sideSlopePercent": 30
+    },
+    "notes": "Authored vehicle variant. Reverse, acceleration, braking, steering and slope limits are explicit simulation tuning; no recovery/load or amphibious physics. 25 km/h uses PB100 as an appearance-reference maximum; this original snowcat is not a manufacturer replica.",
+    "sourceUrl": "https://www.pistenbully.com/en/snow-groomers/pistenbully-100",
+    "referenceMaximumSpeedKph": 25,
+    "verifiedOn": "2026-09-21"
+  },
+  "support-snowcat-logistics": {
+    "model": "support-snowcat-logistics",
+    "simulation": {
+      "forwardSpeedLimitKph": 25,
+      "reverseSpeedLimitKph": 12,
+      "accelerationMps2": 2,
+      "brakingMps2": 5,
+      "planningDecelerationMps2": 2,
+      "rollingDecelerationMps2": 0.2,
+      "wheelbaseM": 3.2,
+      "maxSteeringRad": 0.65,
+      "lateralAccelerationMps2": 1.5,
+      "predictionSeconds": 2,
+      "climbingGradePercent": 60,
+      "sideSlopePercent": 30
+    },
+    "notes": "Authored vehicle variant. Reverse, acceleration, braking, steering and slope limits are explicit simulation tuning; no recovery/load or amphibious physics. 25 km/h uses PB100 as an appearance-reference maximum; this original snowcat is not a manufacturer replica.",
+    "sourceUrl": "https://www.pistenbully.com/en/snow-groomers/pistenbully-100",
+    "referenceMaximumSpeedKph": 25,
+    "verifiedOn": "2026-09-21"
+  },
+  "support-snowcat-plow": {
+    "model": "support-snowcat-plow",
+    "simulation": {
+      "forwardSpeedLimitKph": 25,
+      "reverseSpeedLimitKph": 12,
+      "accelerationMps2": 2,
+      "brakingMps2": 5,
+      "planningDecelerationMps2": 2,
+      "rollingDecelerationMps2": 0.2,
+      "wheelbaseM": 3.2,
+      "maxSteeringRad": 0.65,
+      "lateralAccelerationMps2": 1.5,
+      "predictionSeconds": 2,
+      "climbingGradePercent": 60,
+      "sideSlopePercent": 30
+    },
+    "notes": "Authored vehicle variant. Reverse, acceleration, braking, steering and slope limits are explicit simulation tuning; no recovery/load or amphibious physics. 25 km/h uses PB100 as an appearance-reference maximum; this original snowcat is not a manufacturer replica.",
+    "sourceUrl": "https://www.pistenbully.com/en/snow-groomers/pistenbully-100",
+    "referenceMaximumSpeedKph": 25,
+    "verifiedOn": "2026-09-21"
+  },
+  "support-snowcat-recovery": {
+    "model": "support-snowcat-recovery",
+    "simulation": {
+      "forwardSpeedLimitKph": 25,
+      "reverseSpeedLimitKph": 12,
+      "accelerationMps2": 2,
+      "brakingMps2": 5,
+      "planningDecelerationMps2": 2,
+      "rollingDecelerationMps2": 0.2,
+      "wheelbaseM": 3.2,
+      "maxSteeringRad": 0.65,
+      "lateralAccelerationMps2": 1.5,
+      "predictionSeconds": 2,
+      "climbingGradePercent": 60,
+      "sideSlopePercent": 30
+    },
+    "notes": "Authored vehicle variant. Reverse, acceleration, braking, steering and slope limits are explicit simulation tuning; no recovery/load or amphibious physics. 25 km/h uses PB100 as an appearance-reference maximum; this original snowcat is not a manufacturer replica.",
+    "sourceUrl": "https://www.pistenbully.com/en/snow-groomers/pistenbully-100",
+    "referenceMaximumSpeedKph": 25,
+    "verifiedOn": "2026-09-21"
+  },
+  "support-command": {
+    "model": "support-command",
+    "simulation": {
+      "forwardSpeedLimitKph": 50,
+      "reverseSpeedLimitKph": 12,
+      "accelerationMps2": 2,
+      "brakingMps2": 5,
+      "planningDecelerationMps2": 2,
+      "rollingDecelerationMps2": 0.2,
+      "wheelbaseM": 3.2,
+      "maxSteeringRad": 0.65,
+      "lateralAccelerationMps2": 1.5,
+      "predictionSeconds": 2,
+      "climbingGradePercent": 60,
+      "sideSlopePercent": 30
+    },
+    "notes": "Authored vehicle variant. Reverse, acceleration, braking, steering and slope limits are explicit simulation tuning; no recovery/load or amphibious physics. Maximum speed is simulation tuning; a matching manufacturer maximum has not been established."
+  },
+  "support-maintenance": {
+    "model": "support-maintenance",
+    "simulation": {
+      "forwardSpeedLimitKph": 50,
+      "reverseSpeedLimitKph": 12,
+      "accelerationMps2": 2,
+      "brakingMps2": 5,
+      "planningDecelerationMps2": 2,
+      "rollingDecelerationMps2": 0.2,
+      "wheelbaseM": 3.2,
+      "maxSteeringRad": 0.65,
+      "lateralAccelerationMps2": 1.5,
+      "predictionSeconds": 2,
+      "climbingGradePercent": 60,
+      "sideSlopePercent": 30
+    },
+    "notes": "Authored vehicle variant. Reverse, acceleration, braking, steering and slope limits are explicit simulation tuning; no recovery/load or amphibious physics. Maximum speed is simulation tuning; a matching manufacturer maximum has not been established."
+  },
+  "support-resupply": {
+    "model": "support-resupply",
+    "simulation": {
+      "forwardSpeedLimitKph": 50,
+      "reverseSpeedLimitKph": 12,
+      "accelerationMps2": 2,
+      "brakingMps2": 5,
+      "planningDecelerationMps2": 2,
+      "rollingDecelerationMps2": 0.2,
+      "wheelbaseM": 3.2,
+      "maxSteeringRad": 0.65,
+      "lateralAccelerationMps2": 1.5,
+      "predictionSeconds": 2,
+      "climbingGradePercent": 60,
+      "sideSlopePercent": 30
+    },
+    "notes": "Authored vehicle variant. Reverse, acceleration, braking, steering and slope limits are explicit simulation tuning; no recovery/load or amphibious physics. Maximum speed is simulation tuning; a matching manufacturer maximum has not been established."
+  },
+  "support-recovery": {
+    "model": "support-recovery",
+    "simulation": {
+      "forwardSpeedLimitKph": 50,
+      "reverseSpeedLimitKph": 12,
+      "accelerationMps2": 2,
+      "brakingMps2": 5,
+      "planningDecelerationMps2": 2,
+      "rollingDecelerationMps2": 0.2,
+      "wheelbaseM": 3.2,
+      "maxSteeringRad": 0.65,
+      "lateralAccelerationMps2": 1.5,
+      "predictionSeconds": 2,
+      "climbingGradePercent": 60,
+      "sideSlopePercent": 30
+    },
+    "notes": "Authored vehicle variant. Reverse, acceleration, braking, steering and slope limits are explicit simulation tuning; no recovery/load or amphibious physics. Maximum speed is simulation tuning; a matching manufacturer maximum has not been established."
+  }
+}

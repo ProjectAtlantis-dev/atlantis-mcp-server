@@ -77,6 +77,8 @@ class SimulationHost:
                 if isinstance(conflict, dict):
                     return conflict
             raise RuntimeError(f"simulation request failed ({exc.code}): {detail}") from exc
+        except TimeoutError as exc:
+            raise RuntimeError(f"simulation request timed out after {timeout:g} seconds") from exc
         except URLError as exc:
             raise RuntimeError(f"simulation service unavailable: {exc.reason}") from exc
 
@@ -202,8 +204,13 @@ class SimulationHost:
             return self._request(method, path, payload)
 
 
-simulation_host = SimulationHost()
-atexit.register(simulation_host.stop)
+# Preserve the supervised singleton during an explicit installed-code reload.
+# Adapters holding this instance must not acquire a second process owner.
+if 'simulation_host' in globals():
+    simulation_host.__class__ = SimulationHost
+else:
+    simulation_host = SimulationHost()
+    atexit.register(simulation_host.stop)
 
 
 def shutdown_simulation_host() -> None:

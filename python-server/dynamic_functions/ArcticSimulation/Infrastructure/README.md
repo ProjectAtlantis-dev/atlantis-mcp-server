@@ -22,5 +22,12 @@ remain explicitly marked. The 5 new support/sensor designs are original game art
 not claimed manufacturer replicas.
 
 Deployment: running Node processes need a supervised restart to load new routes;
-no live process was restarted as part of authoring. Test on a temporary room before
-using an existing scenario. The Python dynamic-function files hot-load normally.
+use the owner-only `ArcticSimulation/reload_controllers` after package installation.
+This preserves placements and viewer grants; active missions restore paused.
+The Python dynamic-function files hot-load normally.
+
+For the current live bank-owned placement and interaction flow, read
+`Terrain/instructions(topic="infrastructure")`. Component aliases require
+`subject_kind` and `subject_id` as well as the current revision; the server checks
+bank identity, commissioned access policy and authoritative proximity. Prefer
+`Terrain/Objects/functions` to discover currently runnable bound arguments.

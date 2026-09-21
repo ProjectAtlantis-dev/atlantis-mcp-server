@@ -52,47 +52,47 @@ def component_instructions(game_id: str = "default") -> dict:
     """Discover airlock and facility access preconditions, completion semantics and simulation limitations."""
     return simulation_host.command("GET", _path(game_id, "component-contract"))
 
-def _airlock_command(asset_id: str, action: str, expected_revision: int, game_id: str) -> dict:
+def _airlock_command(asset_id: str, action: str, expected_revision: int, subject_kind: str, subject_id: str, game_id: str) -> dict:
     if isinstance(expected_revision, bool) or not isinstance(expected_revision, int) or expected_revision < 0:
         raise ValueError("expected_revision must be a nonnegative integer from list_assets")
-    return bank_infrastructure.control(asset_id, action, expected_revision, game_id)
+    return bank_infrastructure.control(asset_id, action, expected_revision, subject_kind, subject_id, game_id)
 
 @visible
-def airlock_open_outer(asset_id: str, expected_revision: int, game_id: str = "default") -> dict:
+def airlock_open_outer(asset_id: str, expected_revision: int, subject_kind: str, subject_id: str, game_id: str = "default") -> dict:
     """Request outer-door opening. Inner position AND target must be closed. Read list_assets for completion; not a safety controller."""
-    return _airlock_command(asset_id, "airlock_open_outer", expected_revision, game_id)
+    return _airlock_command(asset_id, "airlock_open_outer", expected_revision, subject_kind, subject_id, game_id)
 
 @visible
-def airlock_open_inner(asset_id: str, expected_revision: int, game_id: str = "default") -> dict:
+def airlock_open_inner(asset_id: str, expected_revision: int, subject_kind: str, subject_id: str, game_id: str = "default") -> dict:
     """Request inner-door opening after outer closure completes. Server tick owns animation. No pressure/occupancy guarantee."""
-    return _airlock_command(asset_id, "airlock_open_inner", expected_revision, game_id)
+    return _airlock_command(asset_id, "airlock_open_inner", expected_revision, subject_kind, subject_id, game_id)
 
 @visible
-def airlock_close(asset_id: str, expected_revision: int, game_id: str = "default") -> dict:
+def airlock_close(asset_id: str, expected_revision: int, subject_kind: str, subject_id: str, game_id: str = "default") -> dict:
     """Request both doors closed. Acceptance is not completion; inspect componentState positions. Not emergency evacuation control."""
-    return _airlock_command(asset_id, "airlock_close", expected_revision, game_id)
+    return _airlock_command(asset_id, "airlock_close", expected_revision, subject_kind, subject_id, game_id)
 
 @visible
-def facility_entry_outer(asset_id: str, expected_revision: int, game_id: str = "default") -> dict:
+def facility_entry_outer(asset_id: str, expected_revision: int, subject_kind: str, subject_id: str, game_id: str = "default") -> dict:
     """Open a standalone facility's outer entry door. Inner and freight doors must be fully closed. Read list_assets for completion; no pressure safety claim."""
-    return _airlock_command(asset_id, "facility_entry_outer", expected_revision, game_id)
+    return _airlock_command(asset_id, "facility_entry_outer", expected_revision, subject_kind, subject_id, game_id)
 
 @visible
-def facility_entry_inner(asset_id: str, expected_revision: int, game_id: str = "default") -> dict:
+def facility_entry_inner(asset_id: str, expected_revision: int, subject_kind: str, subject_id: str, game_id: str = "default") -> dict:
     """Open a standalone facility's inner entry door after outer and freight closure. Server tick moves it; not an emergency egress controller."""
-    return _airlock_command(asset_id, "facility_entry_inner", expected_revision, game_id)
+    return _airlock_command(asset_id, "facility_entry_inner", expected_revision, subject_kind, subject_id, game_id)
 
 @visible
-def facility_entry_close(asset_id: str, expected_revision: int, game_id: str = "default") -> dict:
+def facility_entry_close(asset_id: str, expected_revision: int, subject_kind: str, subject_id: str, game_id: str = "default") -> dict:
     """Request facility entry doors closed. Acceptance is not completed closure; inspect returned state and list_assets."""
-    return _airlock_command(asset_id, "facility_entry_close", expected_revision, game_id)
+    return _airlock_command(asset_id, "facility_entry_close", expected_revision, subject_kind, subject_id, game_id)
 
 @visible
-def facility_freight_open(asset_id: str, expected_revision: int, game_id: str = "default") -> dict:
+def facility_freight_open(asset_id: str, expected_revision: int, subject_kind: str, subject_id: str, game_id: str = "default") -> dict:
     """Open simulated freight doors only after entry doors and targets are closed. This bypasses the envelope; no environmental release or obstacle safety is simulated."""
-    return _airlock_command(asset_id, "facility_freight_open", expected_revision, game_id)
+    return _airlock_command(asset_id, "facility_freight_open", expected_revision, subject_kind, subject_id, game_id)
 
 @visible
-def facility_freight_close(asset_id: str, expected_revision: int, game_id: str = "default") -> dict:
+def facility_freight_close(asset_id: str, expected_revision: int, subject_kind: str, subject_id: str, game_id: str = "default") -> dict:
     """Request freight closure. Read componentState.freight for completion before opening an entry door."""
-    return _airlock_command(asset_id, "facility_freight_close", expected_revision, game_id)
+    return _airlock_command(asset_id, "facility_freight_close", expected_revision, subject_kind, subject_id, game_id)

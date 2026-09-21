@@ -1,5 +1,6 @@
 """Keep an actively used owner viewer connected without changing its control scope."""
 import hashlib
+import atlantis
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
 from atlantis_simulation.viewer import capabilities
@@ -14,9 +15,12 @@ async def keep_alive(request):
         digest = hashlib.sha256(token.encode()).digest()
         with capabilities.lock:
             grant = capabilities.grants.get(digest)
-        if grant is None or not grant[2]:
-            raise PermissionError('An active vehicle viewer session is required')
-        await run_in_threadpool(owned_asset, principal, grant[2])
+        if grant is None:
+            raise PermissionError('An active viewer session is required')
+        if grant[2]:
+            await run_in_threadpool(owned_asset, principal, grant[2])
+        elif principal.caller not in atlantis.get_owner_usernames():
+            raise PermissionError('Authenticated host owner required for a scene viewer session')
         with capabilities.lock:
             current = capabilities.grants.get(digest)
             if current != grant or current[1] <= capabilities.clock():

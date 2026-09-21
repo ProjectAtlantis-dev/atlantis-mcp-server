@@ -9,6 +9,21 @@ from atlantis_simulation.host import SimulationHost
 
 
 class HostContractTests(unittest.TestCase):
+    def test_request_timeout_is_a_readiness_failure_with_cause(self):
+        host = SimulationHost()
+        with patch('atlantis_simulation.host.urlopen', side_effect=TimeoutError('slow child')):
+            with self.assertRaisesRegex(RuntimeError, 'timed out after') as caught:
+                host._request('GET', '/health', authenticated=False, timeout=.25)
+        self.assertIsInstance(caught.exception.__cause__, TimeoutError)
+
+    def test_reload_preserves_the_single_supervisor(self):
+        import importlib
+        from atlantis_simulation import host as module
+        instance = module.simulation_host
+        importlib.reload(module)
+        self.assertIs(module.simulation_host, instance)
+        self.assertIs(instance.__class__, module.SimulationHost)
+
     def test_explicit_database_required(self):
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaisesRegex(RuntimeError, 'ATLANTIS_SIM_DB_PATH'):

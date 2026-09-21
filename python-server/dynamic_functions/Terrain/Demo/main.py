@@ -13,7 +13,7 @@ def _snapshot():
 @visible
 def index() -> dict:
     """Start with briefing, then drive, fly, introduce a test threat and operate the habitat. status reports live completion rather than command acceptance."""
-    return {'module':'Terrain/Demo','visibility':'owner-only','sequence':['briefing','Terrain/Vehicles/drive_to','Terrain/Vehicles/fly_to','defense_threat','Terrain/Infrastructure/component_command','status']}
+    return {'module':'Terrain/Demo','visibility':'owner-only','sequence':['briefing','Terrain/Vehicles/drive_to','Terrain/Vehicles/fly_to','Terrain/Defense/instructions','defense_threat','Terrain/Defense/observe','Terrain/Defense/intercept','Terrain/Infrastructure/component_command','status']}
 
 
 @visible
@@ -28,14 +28,14 @@ def briefing() -> dict:
         'sequence':[
           {'step':'Ground logistics','command':'Terrain/Vehicles/drive_to','show':'AMV follows a terrain-validated route; wheel travel comes from the server.'},
           {'step':'Drone flight','command':'Terrain/Vehicles/fly_to','show':'VTOL takeoff, cruise and arrival; position and rotor state come from the server.'},
-          {'step':'Layered defense','command':'Terrain/Demo/defense_threat','show':'Sensor detection, track formation, selected layer, engagement and outcome.'},
+          {'step':'Layered defense','command':'Terrain/Defense/instructions','show':'Functions mode: simulated detection, AI/Lobster observation, explicit intercept function, server outcome.'},
           {'step':'Habitat access','command':'Terrain/Infrastructure/component_command','show':'Open outer door, close and wait, then open inner door; interlocks and animation follow server positions.'}],
         'defense':{'description':'Fictional layered-defense gameplay simulation; not a model of real weapon performance.',
           'layers':{'upper-tier':'high-altitude ballistic targets','middle-tier':'medium-range mixed targets','point-defense':'nearby drones and cruise targets','directed-energy':'close-range drone engagement'},
           'automatic':snapshot.get('automaticDefense'),
           'distinctEntities':'Defense radar/launcher/logistics entities are separate from bank-owned catalog vehicles.'},
-        'limitations':['Ground navigation plans within supplied terrain patches; it is not yet a settlement-wide road-network planner.',
-                       'VTOL demo profiles support Black Hornet and Osprey. Fixed-wing RQ-180 and authoritative boat control are unfinished.',
+        'limitations':['Ground navigation plans a complete destination route, with local terrain checks and replanning.',
+                       'VTOL supports Black Hornet/Osprey; RQ-180 supports flyover/loiter without landing; boats use verified water routes.',
                        'Habitat demo models door/access interlocks; pressure, oxygen and power production are not simulated.']}
 
 
@@ -65,4 +65,4 @@ def defense_threat(request_id: str) -> dict:
         'id':target_id,'catalogId':'shahed','kind':'drone','label':'Demo test drone',
         'start':{'x':p['x']-4500,'y':p['y']+1200,'z':p['z']+300},
         'destination':{'x':p['x'],'y':p['y'],'z':p['z']+25},'speedMps':70})
-    return {'accepted':result,'site':site['id'],'observe':'Terrain/Demo/status or ArcticSimulation/events'}
+    return {'accepted':result,'site':site['id'],'observe':'Terrain/Defense/observe and Terrain/Defense/events; functions mode requires an explicit intercept call'}

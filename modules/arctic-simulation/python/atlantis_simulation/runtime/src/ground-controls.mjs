@@ -1,5 +1,13 @@
+import {readFileSync} from 'node:fs';
+const assetMobility=JSON.parse(readFileSync(new URL('./asset-mobility.json',import.meta.url),'utf8'));
+import {attachBoat,startBoat,stepBoat} from './boat-controls.mjs';
+import {stepFixedWing} from './fixed-wing-controls.mjs';
+import {localRouteTarget,smoothLocalRoute} from './route-guidance.mjs';
+import {groundProfile,groundPerformance} from './vehicle-performance.mjs';
+import {advanceGroundPose,terrainCheckedMissionInput} from './ground-kinematics.mjs';
+import {surfaceHeight,surfaceNormal,groundHazard,groundSegmentClear} from './ground-surface.mjs';
 import {queueCompletedReturn} from './return-mission.mjs';
-import {FLIGHT_PROFILES,attachFlight,startFlight,stepFlight} from './flight-controls.mjs';
+import {FLIGHT_MISSION_LIMIT_M,FLIGHT_PROFILES,attachFlight,startFlight,stepFlight} from './flight-controls.mjs';
 import {planTerrainRoute} from './terrain-route.mjs';
 import {randomUUID} from 'node:crypto';
 import {terminalMission,missionView,startMission,changeMission,blockMission,missionInput} from './drive-mission.mjs';
@@ -10,30 +18,15 @@ function number(value,name,min=-Infinity,max=Infinity){
   return value;
 }
 function text(value,name){if(typeof value!=='string'||!value.trim())throw Error(`missing ${name}`);return value;}
-function surfaceHeight(surface,x,y){
-  const gx=(x-surface.minX)/surface.stepM,gy=(y-surface.minY)/surface.stepM;
-  if(gx<0||gy<0||gx>surface.cols-1||gy>surface.rows-1)return null;
-  const ix=Math.min(surface.cols-2,Math.floor(gx)),iy=Math.min(surface.rows-2,Math.floor(gy));
-  const tx=gx-ix,ty=gy-iy,h=(xx,yy)=>surface.heights[yy*surface.cols+xx];
-  return (h(ix,iy)*(1-tx)+h(ix+1,iy)*tx)*(1-ty)+(h(ix,iy+1)*(1-tx)+h(ix+1,iy+1)*tx)*ty;
-}
 function validateSurface(s){
   if(!s||typeof s!=='object')throw Error('server elevation grid required');
   for(const key of ['minX','minY'])number(s[key],key);
   number(s.stepM,'stepM',.1,1000);
   for(const key of ['rows','cols'])if(!Number.isInteger(s[key])||s[key]<2||s[key]>1024)throw Error(`invalid ${key}`);
   if(!Array.isArray(s.heights)||s.heights.length!==s.rows*s.cols)throw Error('invalid elevation grid');
-  s.heights.forEach(h=>number(h,'height'));
+  s.heights.forEach(h=>{if(h!==null)number(h,'height');});
   number(s.origin?.lat,'origin.lat',-85,85);number(s.origin?.lon,'origin.lon',-180,180);
 }
-function surfaceNormal(s,p){
-  const d=Math.min(1,s.stepM/2),x0=Math.max(s.minX,p.x-d),x1=Math.min(s.minX+(s.cols-1)*s.stepM,p.x+d);
-  const y0=Math.max(s.minY,p.y-d),y1=Math.min(s.minY+(s.rows-1)*s.stepM,p.y+d);
-  const x=-(surfaceHeight(s,x1,p.y)-surfaceHeight(s,x0,p.y))/(x1-x0);
-  const y=-(surfaceHeight(s,p.x,y1)-surfaceHeight(s,p.x,y0))/(y1-y0);
-  const length=Math.hypot(x,y,1);return {x:x/length,y:y/length,z:1/length};
-}
-
 /** Ground-only controller. All mutation is called by the authenticated server. */
 export class GroundControls {
   constructor(saved=[],now=()=>Date.now()){
@@ -44,6 +37,8 @@ export class GroundControls {
       // Restart pauses the simulation at its durable pose. Never replay held
       // input or let residual velocity drift the vehicle before a fresh claim.
       v.signedDistanceM??=v.distanceM;
+      if(!v.flightProfile&&!v.boatProfile)v.surface.groundProfile=groundProfile(v.definitionId);
+      if(!v.flightProfile&&!v.boatProfile&&v.mission)v.mission.maxSpeedMps=groundProfile(v.definitionId).maxForwardMps;
       v.lease=null;v.input=null;v.speedMps=0;v.controlStatus='restart-paused';
       if(v.mission&&['queued','running'].includes(v.mission.status)){v.mission.status='paused';v.mission.reason='server-restarted';}
       v.missionTerrainReady=false;
@@ -54,10 +49,13 @@ export class GroundControls {
     const {id,terrainAssetId,definitionId,ownerAccountId,pose,surface}=input;
     if(!uuid.test(id)||!uuid.test(ownerAccountId))throw Error('canonical bank UUIDs required');
     text(terrainAssetId,'terrainAssetId');
-    if(definitionId!=='patria-amv'&&!FLIGHT_PROFILES[definitionId])throw Error('controller unavailable for this model');
+    if(!['patria-amv','at1-hrim','patrol-boat','rq180'].includes(definitionId)&&!FLIGHT_PROFILES[definitionId]&&!assetMobility[definitionId])throw Error('controller unavailable for this model');
     validateSurface(surface);
     number(pose?.x,'pose.x');number(pose?.y,'pose.y');number(pose?.headingRad,'pose.headingRad');
-    if(FLIGHT_PROFILES[definitionId])return attachFlight(this,input,surfaceHeight);
+    if(definitionId==='patrol-boat')return attachBoat(this,input);
+    if(assetMobility[definitionId]?.domain==='water')return attachBoat(this,{...input,definition:{boat:assetMobility[definitionId].boat}});
+    if(definitionId==='rq180'||FLIGHT_PROFILES[definitionId])return attachFlight(this,input,surfaceHeight);
+    surface.groundProfile=groundProfile(definitionId);
     const z=surfaceHeight(surface,pose.x,pose.y);
     if(z===null)throw Error('initial pose outside authoritative elevation grid');
     const current=this.vehicles.get(id);
@@ -72,29 +70,80 @@ export class GroundControls {
     return this.observe(id);
   }
   get(id){const v=this.vehicles.get(id);if(!v)throw Error('controlled vehicle not found');return v;}
+  sail_to(payload){return startBoat(this.get(payload.id),payload,this.now());}
   fly_to(payload){return startFlight(this.get(payload.id),payload,this.now());}
-  drive_to(payload){if(this.get(payload.id).flightProfile)throw Error('aircraft requires fly_to');return startMission(this.get(payload.id),payload,this.now());}
+  drive_to(payload){if(this.get(payload.id).flightProfile||this.get(payload.id).boatProfile)throw Error('drive_to requires a ground vehicle; use fly_to for aircraft or sail_to for boats');return startMission(this.get(payload.id),payload,this.now());}
   mission_control(payload){const v=this.get(payload.id),result=changeMission(v,payload,this.now());queueCompletedReturn(v,this.now());return result;}
   mission_status({id}){const v=this.get(id);return {mission:missionView(v),history:structuredClone(v.missionHistory??[])};}
-  capabilities({id}){const v=this.get(id);if(v.flightProfile)return {actions:[{id:'fly_to',label:'Fly here (60 m above terrain)',destination:'latlon'}],missionActions:['pause','resume','cancel','complete_task'],returnDestination:true,waitForTask:true,limits:{maxDistanceM:2000,maxSpeedMps:v.flightProfile.maxSpeedMps},controller:'simulated-vtol-v1'};return {actions:[{id:'drive_to',label:'Drive here',destination:'latlon'}],missionActions:['pause','resume','cancel','complete_task'],returnDestination:true,waitForTask:true,limits:{maxDistanceM:20000,maxSpeedMps:4},routing:'surveyed-road preference with local offroad obstacle detours; bounded by verified terrain'};}
-  mission_surface({id,missionId,surface,error}){
+  capabilities({id}){
+    const v=this.get(id),base={missionActions:['pause','resume','cancel','complete_task'],returnDestination:true,autoReturn:true,waitForTask:true};
+    if(v.boatProfile)return {...base,actions:[{id:'sail_to',label:'Sail to coordinates',destination:'latlon'}],controller:'simulated-boat-v1',limits:{maxDistanceM:20000,maxSpeedMps:v.boatProfile.maxSpeedMs},routing:'verified water only'};
+    if(v.flightProfile){
+      const fixed=v.flightProfile.kind==='fixed-wing';
+      return {...base,autoReturn:!fixed||v.airborne,landing:!fixed,takeoffHeading:fixed&&!v.airborne,actions:[{id:'fly_to',label:fixed?'Fly over coordinates, then loiter':'Fly to coordinates',destination:'latlon'}],limits:{maxDistanceM:FLIGHT_MISSION_LIMIT_M,maxSpeedMps:v.flightProfile.maxSpeedMps},controller:fixed?'simulated-fixed-wing-v1':'simulated-vtol-v1'};
+    }
+    return {...base,actions:[{id:'drive_to',label:'Drive to coordinates',destination:'latlon'}],limits:{maxDistanceM:20000,maxSpeedMps:groundProfile(v.definitionId).maxForwardMps},performance:groundPerformance(v.definitionId),routing:'surveyed roads and verified offroad terrain'};
+  }
+  mission_surface({id,missionId,surface,error,destinationRoute}){
     const v=this.get(id);if(!v.mission||v.mission.id!==missionId)throw Error('stale terrain update');
-    if(!['queued','running'].includes(v.mission.status))return missionView(v);
-    if(error){blockMission(v,error,this.now());return missionView(v);}
+    if(!['queued','running'].includes(v.mission.status)&&!(v.flightProfile?.kind==='fixed-wing'&&v.airborne&&['completed','awaiting_task'].includes(v.mission.status)))return missionView(v);
+    if(error){if(v.flightProfile?.kind==='fixed-wing'&&v.mission.status==='completed')v.mission.status='running';blockMission(v,error,this.now());return missionView(v);}
     validateSurface(surface);
     if(surface.origin.lat!==v.surface.origin.lat||surface.origin.lon!==v.surface.origin.lon)throw Error('terrain coordinate frame changed');
     const height=surfaceHeight(surface,v.position.x,v.position.y);
-    if(height===null||(!v.flightProfile&&Math.abs(height-v.position.z)>2))throw Error('new terrain does not agree with current vehicle pose');
+    if(height===null||(!v.flightProfile&&!v.boatProfile&&Math.abs(height-v.position.z)>2))throw Error('new terrain does not agree with current vehicle pose');
     if(v.flightProfile){v.surface=structuredClone(surface);v.missionTerrainReady=true;return missionView(v);}
+    if(v.boatProfile)surface.navigationDomain='water';else surface.groundProfile=groundProfile(v.definitionId);
+    if(destinationRoute){
+      if(destinationRoute.complete!==true||!Array.isArray(destinationRoute.points)||!destinationRoute.points.length)throw Error('complete destination route required');
+      for(const p of destinationRoute.points){number(p.x,'route.x');number(p.y,'route.y');}
+      number(destinationRoute.stepM,'route.stepM',.1,1000);
+      const end=destinationRoute.points.at(-1);
+      if(Math.hypot(end.x-v.mission.target.x,end.y-v.mission.target.y)>.01)throw Error('destination route endpoint mismatch');
+      v.mission.destinationRoute={...structuredClone(destinationRoute),index:0};
+    }
+    const current=v.mission.navigation;
     let navigation;
-    try {navigation=planTerrainRoute(surface,v.position,v.mission.target);}
-    catch(error){blockMission(v,'route-unavailable: '+error.message,this.now());return missionView(v);}
+    try {
+      const goal=localRouteTarget({...v,surface});
+      const routeGoalIndex=v.mission.destinationRoute?.points.indexOf(goal)??-1;
+      const reachesDestination=Math.hypot(goal.x-v.mission.target.x,goal.y-v.mission.target.y)<.01;
+      if(!destinationRoute&&v.missionTerrainReady&&current?.points?.length){
+        let a=v.position;
+        const clear=current.points.slice(current.index).every(b=>{const ok=groundSegmentClear(surface,a,b);a=b;return ok;});
+        if(clear){
+          // Append verified road ahead without replacing the path being driven.
+          // A terrain patch boundary is not a destination or a required stop.
+          if(!current.complete&&routeGoalIndex>(current.routeGoalIndex??-1)){
+            const end=current.points.at(-1),extension=planTerrainRoute(surface,end,goal);
+            if(!extension.complete)throw Error('route extension is outside verified terrain');
+            current.points.push(...smoothLocalRoute(surface,end,extension.points));
+            current.complete=reachesDestination;current.routeGoalIndex=routeGoalIndex;
+          }
+          v.surface=structuredClone(surface);return missionView(v);
+        }
+      }
+      navigation=planTerrainRoute(surface,v.position,goal);
+      navigation.points=smoothLocalRoute(surface,v.position,navigation.points);
+      navigation.complete=navigation.complete&&reachesDestination;
+      navigation.routeGoalIndex=routeGoalIndex;
+    }
+    catch(error){
+      if(v.mission.destinationRoute&&!destinationRoute){
+        v.mission.routeNeedsReplan=true;v.missionTerrainReady=false;
+        v.mission.status='queued';v.mission.reason='replanning-route: '+error.message;
+        v.mission.updatedAt=this.now();return missionView(v);
+      }
+      blockMission(v,'route-unavailable: '+error.message,this.now());return missionView(v);
+    }
+    delete v.mission.maneuverPlan;
+    v.mission.routeNeedsReplan=false;v.mission.reason=null;
     v.surface=structuredClone(surface);v.mission.navigation={...navigation,index:0};
     v.missionTerrainReady=true;return missionView(v);
   }
   claim({id,actor,ownerAccountId}){
     const v=this.get(id);text(actor,'actor');
-    if(v.flightProfile)throw Error('VTOL controller uses fly_to missions; manual flight control is not implemented');
+    if(v.flightProfile||v.boatProfile)throw Error('This vehicle uses coordinate missions; manual control is not implemented');
     if(v.ownerAccountId!==ownerAccountId)throw Error('vehicle ownership mismatch');
     if(!terminalMission(v.mission))throw Error('cancel mission before taking manual control');
     if(v.lease&&v.lease.expiresAt>this.now()){
@@ -121,47 +170,55 @@ export class GroundControls {
     v.lease=null;v.input=null;v.controlStatus='released-braking';v.revision++;
     return {released:true};
   }
-  step(dt){
+  step(dt,movementGuard=()=>null){
+    const enforce=(v,before)=>{
+      const reason=movementGuard(v,before.position,v.position);if(!reason)return;
+      Object.assign(v,before);v.speedMps=0;v.input=null;v.controlStatus=reason;
+      if(v.mission&&['queued','running','awaiting_task','completed'].includes(v.mission.status)){v.mission.status='blocked';v.mission.reason=reason;v.mission.updatedAt=this.now();v.mission.travelledM=v.distanceM-v.mission.startDistanceM;}
+    };
     for(const v of this.vehicles.values()){
-      if(v.flightProfile){stepFlight(v,dt,this.now(),surfaceHeight);queueCompletedReturn(v,this.now());continue;}
+      const before={position:{...v.position},headingRad:v.headingRad,distanceM:v.distanceM,signedDistanceM:v.signedDistanceM};
+      if(v.boatProfile){stepBoat(v,dt,this.now());enforce(v,before);queueCompletedReturn(v,this.now());continue;}
+      if(v.flightProfile?.kind==='fixed-wing'){stepFixedWing(v,dt,this.now());enforce(v,before);queueCompletedReturn(v,this.now());continue;}
+      if(v.flightProfile){stepFlight(v,dt,this.now(),surfaceHeight);enforce(v,before);queueCompletedReturn(v,this.now());continue;}
       if(v.lease&&v.lease.expiresAt<=this.now()){v.lease=null;v.input=null;v.controlStatus='lease-expired-braking';}
       if(v.input&&(v.input.remaining<=0||v.input.expiresAt<=this.now())){v.input=null;v.controlStatus='input-expired-braking';}
-      const input=missionInput(v,this.now())??v.input??{throttle:0,steering:0,brake:1};
-      // Explicit kinematic commissioning profile, not manufacturer-rated physics.
-      let speed=Math.max(-6,Math.min(20,v.speedMps+input.throttle*3*dt));
-      const decel=(input.brake*7+.15)*dt;
-      speed=Math.sign(speed)*Math.max(0,Math.abs(speed)-decel);
-      const heading=v.headingRad+speed/4.5*Math.tan(input.steering*.5)*dt;
-      const x=v.position.x-Math.sin(heading)*speed*dt,y=v.position.y+Math.cos(heading)*speed*dt;
+      let input=missionInput(v,this.now())??v.input??{throttle:0,steering:0,brake:1};
+      if(v.missionTerrainReady&&['queued','running'].includes(v.mission?.status))input=terrainCheckedMissionInput(v,input,dt);
+      v.steeringRad=input.steering*groundProfile(v.definitionId).maxSteeringRad;
+      const next=advanceGroundPose(v,input,dt);
+      const {x,y}=next.position,speed=next.speedMps,heading=next.headingRad;
       const z=surfaceHeight(v.surface,x,y);
       let hazard=null;
       if(v.mission&&!terminalMission(v.mission)){
-        if(z===null)hazard='terrain-coverage-boundary';
-        else if(z<=.25)hazard='water-or-sea-level-terrain';
-        else if(v.surface.water&&v.surface.water[Math.min(v.surface.rows-1,Math.max(0,Math.round((y-v.surface.minY)/v.surface.stepM)))*v.surface.cols+Math.min(v.surface.cols-1,Math.max(0,Math.round((x-v.surface.minX)/v.surface.stepM)))]!==false)hazard='water-or-unknown-surface';
-        else if(Math.hypot(surfaceNormal(v.surface,{x,y}).x,surfaceNormal(v.surface,{x,y}).y)>.5)hazard='terrain-slope-exceeds-profile';
-        else if((v.surface.obstacles??[]).some(o=>x>=o.minX&&x<=o.maxX&&y>=o.minY&&y<=o.maxY))hazard='building-clearance';
+        hazard=groundHazard(v.surface,{x,y},heading);
       }
       if(hazard){blockMission(v,hazard,this.now());v.speedMps=0;v.controlStatus='mission-blocked';}
       else if(z===null){v.speedMps=0;v.input=null;v.controlStatus='surface-boundary-stopped';}
       else {v.position={x,y,z};v.headingRad=heading;v.speedMps=speed;v.distanceM+=Math.abs(speed)*dt;v.signedDistanceM+=speed*dt;}
       if(v.input)v.input.remaining-=dt;
       if(v.mission&&!v.lease&&!v.input)v.controlStatus=`mission-${v.mission.status}`;
+      enforce(v,before);
       queueCompletedReturn(v,this.now());
       v.revision++;
     }
   }
   observe(id){
     const v=this.get(id),s=v.surface;
-    return {id:v.id,terrainAssetId:v.terrainAssetId,definitionId:v.definitionId,authority:v.flightProfile?'server-vtol-v1':'server-ground-v1',
-      ...(v.flightProfile?{flightPhase:v.flightPhase,rotorRpm:v.rotorRpm,rotorAngleRad:v.rotorAngleRad,pitchRad:v.pitchRad,rollRad:v.rollRad}:{}),
+    return {id:v.id,presentation:v.presentation??'terrain',terrainAssetId:v.terrainAssetId,definitionId:v.definitionId,authority:v.boatProfile?'server-boat-v1':v.flightProfile?.kind==='fixed-wing'?'server-fixed-wing-v1':v.flightProfile?'server-vtol-v1':'server-ground-v1',
+      ...(v.flightProfile?{airborne:v.airborne===true,flightPhase:v.flightPhase,rotorRpm:v.rotorRpm,rotorAngleRad:v.rotorAngleRad,pitchRad:v.pitchRad,rollRad:v.rollRad}:{}),
       lat:s.origin.lat+v.position.y/6378137*180/Math.PI,
       lon:s.origin.lon+v.position.x/(6378137*Math.cos(s.origin.lat*Math.PI/180))*180/Math.PI,
-      position:{...v.position},groundNormal:surfaceNormal(s,v.position),headingRad:v.headingRad,speedMps:v.speedMps,distanceM:v.distanceM,signedDistanceM:v.signedDistanceM??v.distanceM,
-      revision:v.revision,controlStatus:v.controlStatus,controlled:!!v.lease,
-      surfaceId:s.id??null,ownerAccountId:v.ownerAccountId,mission:missionView(v),
+      position:{...v.position},groundNormal:v.boatProfile?{x:0,y:0,z:1}:surfaceNormal(s,v.position),headingRad:v.headingRad,speedMps:v.speedMps,distanceM:v.distanceM,signedDistanceM:v.signedDistanceM??v.distanceM,
+      steeringRad:v.steeringRad??0,revision:v.revision,controlStatus:v.controlStatus,controlled:!!v.lease,
+      missionTerrainReady:v.missionTerrainReady===true,surfaceId:s.id??null,ownerAccountId:v.ownerAccountId,mission:missionView(v),
       navigationFrame:{origin:{...s.origin},minX:s.minX,minY:s.minY,maxX:s.minX+(s.cols-1)*s.stepM,maxY:s.minY+(s.rows-1)*s.stepM}};
   }
   snapshot(){return [...this.vehicles.keys()].map(id=>this.observe(id));}
-  exportState(){return structuredClone([...this.vehicles.values()]);}
+  exportState({encodeSurface}={}){
+    return [...this.vehicles.values()].map(vehicle=>{
+      const {surface,...state}=vehicle;
+      return structuredClone({...state,surface:encodeSurface?encodeSurface(surface):surface});
+    });
+  }
 }

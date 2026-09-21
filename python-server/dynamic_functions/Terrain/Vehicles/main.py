@@ -35,7 +35,7 @@ def attach(asset_id: str, allow_ground_snap: bool = False) -> dict:
         raise ValueError("Bank model and Terrain model disagree")
     surface = plan["surface"]
     ground = surface["heights"][(surface["rows"] // 2) * surface["cols"] + surface["cols"] // 2]
-    if plan["definitionId"] == "patria-amv" and abs(plan["sourcePose"]["z"] - ground) > 2 and allow_ground_snap is not True:
+    if plan["definitionId"] in ("patria-amv", "at1-hrim") and abs(plan["sourcePose"]["z"] - ground) > 2 and allow_ground_snap is not True:
         raise ValueError("Saved altitude differs from DEM by over 2m; inspect commissioning_plan and approve ground snap explicitly")
     payload = dict(plan, operation="attach", id=asset_id, ownerAccountId=asset["ownerAccountId"],
                    actor=f"mcp:{principal.external_user_id}:{principal.user_game_id}")
@@ -86,11 +86,21 @@ def _return_destination(latitude, longitude):
 @visible
 def drive_to(asset_id: str, latitude: float, longitude: float, request_id: str,
              return_latitude: float = None, return_longitude: float = None,
-             wait_for_task: bool = False) -> dict:
-    """Drive to supplied coordinates. Optional return coordinates queue a linked return after completion. wait_for_task holds at arrival until complete_task is called. Surveyed roads are preferred with local terrain detours; blocked is not completed. Same request_id retries retain identity. See instructions and README.md."""
+             wait_for_task: bool = False, auto_return: bool = False) -> dict:
+    """Drive to supplied coordinates. auto_return=True captures the departure point and returns there after completion; otherwise supply optional return coordinates. wait_for_task holds at arrival until complete_task is called. Surveyed roads are preferred with local terrain detours; blocked is not completed. Same request_id retries retain identity. See instructions and README.md."""
     return mcp_command("drive_to", asset_id, {"destination": {"lat": latitude, "lon": longitude},
         "requestId": request_id, "returnDestination": _return_destination(return_latitude, return_longitude),
-        "waitForTask": wait_for_task})
+        "waitForTask": wait_for_task, "autoReturn": auto_return})
+
+
+@visible
+def sail_to(asset_id: str, latitude: float, longitude: float, request_id: str,
+            return_latitude: float = None, return_longitude: float = None,
+            wait_for_task: bool = False, auto_return: bool = False) -> dict:
+    """Sail through verified water to supplied coordinates, preferring open water with hull clearance from the asset dimensions and turning room from its steering profile. Unsafe endpoints are rejected, not moved. Optional auto_return captures departure; wait_for_task holds until complete_task. Unknown water/land is impassable."""
+    return mcp_command("sail_to", asset_id, {"destination": {"lat": latitude, "lon": longitude},
+        "requestId": request_id, "returnDestination": _return_destination(return_latitude, return_longitude),
+        "waitForTask": wait_for_task, "autoReturn": auto_return})
 
 
 @visible
@@ -98,20 +108,24 @@ def fly_to(asset_id: str, latitude: float, longitude: float, request_id: str,
            altitude_agl_m: float = 60, land: bool = False,
            return_latitude: float = None, return_longitude: float = None,
            return_altitude_agl_m: float = 60, return_land: bool = False,
-           wait_for_task: bool = False) -> dict:
-    """Fly Black Hornet/Osprey to supplied coordinates at 10..300m above destination terrain, optionally landing. Optional return coordinates/altitude/landing define a second leg. wait_for_task requires explicit complete_task after arrival. RQ-180 is unsupported. See instructions and README.md."""
+           wait_for_task: bool = False, auto_return: bool = False, takeoff_heading_deg: float = None,
+           water_level_m: float = None) -> dict:
+    """Fly an attached aircraft up to 10km at 10..300m above destination terrain, optionally landing. For flight over verified water, supply water_level_m in the terrain vertical datum; missing land elevation remains impassable and water landing is rejected. auto_return=True returns to the departure coordinates and initial landing/hover state; alternatively supply return coordinates/altitude/landing. wait_for_task requires explicit complete_task after arrival. RQ-180 performs a fixed-wing flyover then loiters; landing is unsupported. Ground departures require a clear level takeoff roll; takeoff_heading_deg sets its heading counterclockwise from north. Fixed-wing auto_return requires an airborne departure. See instructions and README.md."""
     destination = _return_destination(return_latitude, return_longitude)
     if destination is not None:
         destination.update(altitudeAglM=return_altitude_agl_m, landing=return_land)
     return mcp_command("fly_to", asset_id, {"destination": {"lat": latitude, "lon": longitude},
-        "requestId": request_id, "altitudeAglM": altitude_agl_m, "landing": land,
-        "returnDestination": destination, "waitForTask": wait_for_task})
+        "requestId": request_id, "altitudeAglM": altitude_agl_m, "landing": land, "takeoffHeadingDeg": takeoff_heading_deg,
+        "waterLevelM": water_level_m,
+        "returnDestination": destination, "waitForTask": wait_for_task, "autoReturn": auto_return})
 
 
 @visible
 def takeoff(asset_id: str, request_id: str, altitude_agl_m: float = 30) -> dict:
     """Spin up and climb vertically at the attached VTOL aircraft's current location. Observe flightPhase and mission status for actual completion."""
     state = mcp_command("observe", asset_id)
+    if state["authority"] != "server-vtol-v1":
+        raise ValueError("Vertical takeoff/landing requires a VTOL controller")
     return mcp_command("fly_to", asset_id, {"destination": {"lat": state["lat"], "lon": state["lon"]},
         "requestId": request_id, "altitudeAglM": altitude_agl_m, "landing": False})
 
@@ -120,6 +134,8 @@ def takeoff(asset_id: str, request_id: str, altitude_agl_m: float = 30) -> dict:
 def land(asset_id: str, request_id: str) -> dict:
     """Descend at the VTOL aircraft's current location using verified terrain. Building clearance can block touchdown; inspect the result."""
     state = mcp_command("observe", asset_id)
+    if state["authority"] != "server-vtol-v1":
+        raise ValueError("Vertical takeoff/landing requires a VTOL controller")
     return mcp_command("fly_to", asset_id, {"destination": {"lat": state["lat"], "lon": state["lon"]},
         "requestId": request_id, "altitudeAglM": 30, "landing": True})
 
@@ -149,23 +165,24 @@ def instructions() -> dict:
         "dispatch": {
             "ground": "drive_to(asset_id, latitude, longitude, request_id)",
             "vtol": "fly_to(asset_id, latitude, longitude, request_id, altitude_agl_m=60, land=False)",
+            "auto_return": "auto_return=True captures the departure point atomically; do not also supply return coordinates",
             "optional_return": "return_latitude + return_longitude; aircraft also return_altitude_agl_m and return_land",
             "task_at_destination": "wait_for_task=True holds after arrival until complete_task(asset_id, outbound_mission_id)",
         },
         "sequence": [
             "Use the owned bank UUID; register/attach its supported controller once; inspect capabilities.",
-            "Supply destination coordinates. For return to start, observe first and pass that lat/lon as return coordinates.",
+            "Supply destination coordinates. Set auto_return=True to return to the departure point without entering return coordinates.",
             "Save the returned mission id. Poll mission_status; queued means accepted, not arrived.",
             "If awaiting_task, execute the desired dynamic_function and observe its actual completion, then call complete_task.",
-            "If return coordinates were supplied, follow the new current mission with leg=return and parentMissionId=outbound id.",
+            "If auto_return or return coordinates were supplied, follow the new current mission with leg=return and parentMissionId=outbound id.",
             "The round trip finishes only when the return leg reports completed. Blocked/paused/cancelled are not success.",
         ],
         "states": ["queued", "running", "awaiting_task", "completed", "blocked", "paused", "cancelled"],
         "authority": "Server simulation state persisted in SQLite; viewer animates snapshots; Lobster orchestrates task functions.",
         "restart": "Queued/running legs restore paused; resume explicitly. Awaiting tasks remain waiting. No task function is replayed automatically.",
         "retry": "Reuse request_id with identical parameters to recover the original mission; new parameters need a new request_id. return: prefix is reserved.",
-        "routing": "Runtime destination-based local road preference and offroad detours over verified terrain, not saved demo waypoints or a settlement-wide road graph.",
-        "limitations": "AMV ground + Black Hornet/Osprey VTOL. Fixed-wing/boat controllers and generic mission-task execution are not implemented.",
+        "routing": "A complete destination route with road preference, detailed terrain validation and turning-aware local maneuvers. Coordinates are supplied per command.",
+        "limitations": "AMV/Hrim ground, Black Hornet/Osprey VTOL, water-only boat missions, RQ-180 fixed-wing flyover/loiter. Fixed-wing landing and generic mission-task execution are not implemented. Hrim and catalog aircraft/boat values are simulation tuning unless explicitly sourced.",
     }
 
 

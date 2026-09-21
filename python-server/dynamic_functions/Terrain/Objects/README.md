@@ -31,9 +31,9 @@ currently permitted component actions; the server still enforces interlocks.
 ## MCP
 
 ```text
-%YOUR_USERNAME/**/Terrain/Objects/functions {"asset_id":"OBJECT_UUID"}
-%YOUR_USERNAME/**/Terrain/Objects/inspect {"asset_id":"OBJECT_UUID"}
-%YOUR_USERNAME/**/Terrain/Objects/call {"asset_id":"OBJECT_UUID","action_id":"ACTION_ID","parameters":{}}
+@/YOUR_USERNAME/YOUR_REMOTE/Terrain/Objects/functions {"asset_id":"OBJECT_UUID"}
+@/YOUR_USERNAME/YOUR_REMOTE/Terrain/Objects/inspect {"asset_id":"OBJECT_UUID"}
+@/YOUR_USERNAME/YOUR_REMOTE/Terrain/Objects/call {"asset_id":"OBJECT_UUID","action_id":"ACTION_ID","parameters":{}}
 ```
 
 `functions` returns function names, parameter descriptions and bound values. Supply
@@ -41,3 +41,7 @@ all required parameters and the returned bound values to `call`. The correspondi
 `Terrain/Vehicles` and `Terrain/Infrastructure` functions remain usable directly.
 Both paths delegate to the same simulation authority; no private viewer state machine
 executes these commands.
+
+Copied commands use `@/OWNER/REMOTE/Terrain/...`, with the exact owner and remote name supplied by the running server. No percent prefix or wildcard routing is generated.
+
+The host-owner defense scenario console uses the reserved ID `defense-demo` (not a bank asset). Its `spawn_incoming` action uses the same coordinate fields and map picker as vehicle actions and calls `Terrain/Defense/spawn_incoming` through a shared gateway. The copied command omits `asset_id`, because this is a scenario command. Authorization is checked on discovery and execution.

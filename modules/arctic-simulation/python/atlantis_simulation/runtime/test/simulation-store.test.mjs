@@ -81,3 +81,24 @@ test('resetting a game starts a new run without deleting the prior event ledger'
   assert.ok(firstRunEventCount > 1);
   store.close();
 });
+
+
+test('terrain references persist once, refresh with a new patch, and restore exact verified samples',t=>{
+ const store=new SimulationStore(temporaryDatabase(t)),engine=new SimulationEngine(),room=engine.room('terrain');
+ const id='12345678-1234-4234-8234-123456789abc',ownerAccountId='22345678-1234-4234-8234-123456789abc';
+ const surface={origin:{lat:64,lon:-51},minX:-10,minY:-10,stepM:2,rows:11,cols:11,heights:Array(121).fill(10),water:Array(121).fill(false)};
+ room.groundControls.attach({id,ownerAccountId,definitionId:'patria-amv',terrainAssetId:'test',pose:{x:0,y:0,headingRad:0},surface});
+ store.saveRoom(room);store.saveRoom(room);
+ assert.equal(store.database.prepare('SELECT COUNT(*) AS n FROM simulation_terrain').get().n,1);
+ const persisted=JSON.parse(store.database.prepare('SELECT state_json FROM simulation_room').get().state_json);
+ assert.equal(persisted.storageVersion,2);assert.ok(persisted.controlledVehicles[0].surface.terrainRef);assert.equal(persisted.controlledVehicles[0].surface.heights,undefined);
+ const vehicle=room.groundControls.get(id);vehicle.surface={...vehicle.surface,id:'new-patch',heights:Array(121).fill(10.5)};store.saveRoom(room);
+ assert.equal(store.database.prepare('SELECT COUNT(*) AS n FROM simulation_terrain').get().n,2);
+ const restored=new SimulationEngine();store.restoreEngine(restored);
+ assert.deepEqual(restored.room('terrain').groundControls.get(id).surface,vehicle.surface);
+ // Legacy embedded-terrain checkpoints remain readable.
+ store.database.prepare('UPDATE simulation_room SET state_json=?').run(JSON.stringify(room.exportState()));
+ const legacy=new SimulationEngine();store.restoreEngine(legacy);assert.deepEqual(legacy.room('terrain').groundControls.get(id).surface,vehicle.surface);
+ store.saveRoom(room);store.database.prepare('DELETE FROM simulation_terrain').run();
+ assert.throws(()=>store.restoreEngine(new SimulationEngine()),/grid is missing/);store.close();
+});

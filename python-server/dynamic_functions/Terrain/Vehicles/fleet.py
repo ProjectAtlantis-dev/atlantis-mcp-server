@@ -14,7 +14,9 @@ def _fleet_snapshot():
     rows = []
     for asset in assets:
         metadata = asset.get('metadata', {})
-        if asset['kind'] != 'vehicle' or metadata.get('world') != principal.scenario:
+        if (metadata.get('world') != principal.scenario or asset.get('status') != 'active'
+                or (asset['kind'] != 'vehicle' and not (asset['kind'] == 'structure'
+                    and controlled.get(asset['id'], {}).get('presentation') == 'infrastructure'))):
             continue
         vehicle = controlled.get(asset['id'])
         mission = vehicle.get('mission') if vehicle else None

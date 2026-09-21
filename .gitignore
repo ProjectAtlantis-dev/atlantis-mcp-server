@@ -119,3 +119,5 @@ python-server/dynamic_functions/**/*.py[cod]
 
 # Machine-specific integration notes.
 /LOCAL_PORT.md
+
+!python-server/dynamic_functions/terrain_access_authorized.py

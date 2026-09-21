@@ -13,12 +13,7 @@ async def first_menu():
 @visible
 @index
 async def index():
-    """
-    Terrain Stuff
-    """
-    logger.info(f"Executing placeholder function: index...")
-
-    await atlantis.client_log("index running")
-
-    # Replace this return statement with your function's result
-    return f"Placeholder function 'index' executed successfully."
+    """Live Terrain controls. Start with instructions for AI/Lobster workflows, then discover current per-object actions."""
+    return {"module": "Terrain", "start": "Terrain/instructions",
+            "controlGuides": ["vehicles", "objects", "defense", "infrastructure", "demo"],
+            "objectActions": "Terrain/Objects/functions"}

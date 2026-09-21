@@ -1,3 +1,4 @@
+import {equipmentState,commandEquipment,stepEquipment} from './equipment-state.mjs';
 function finite(value, fallback, minimum = -Infinity, maximum = Infinity) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(minimum, Math.min(maximum, parsed)) : fallback;
@@ -30,12 +31,14 @@ export class VehicleLogisticsSystem {
       ...(site.layers ?? []).map(layer => [`launcher-${layer.id}`, 'launcher']),
     ];
     for (const [suffix, role] of roles) {
-      const id = `${site.id}:${suffix}`;
+      const bankAsset=site.bankAssets?.[suffix];
+      const id = bankAsset?bankAsset.id:`${site.id}:${suffix}`;
       if (this.vehicles.has(id)) continue;
       const tankCapacityLiters = role === 'launcher' ? 500 : role === 'logistics' ? 900 : 650;
       const vehicle = {
         id,
         assetType: 'vehicle',
+        ...(bankAsset?{bankAssetId:bankAsset.id,modelId:bankAsset.modelId,ownerAccountId:bankAsset.ownerAccountId,ownerUsername:bankAsset.ownerUsername,equipmentState:equipmentState(bankAsset.modelId)}:{}),
         siteId: site.id,
         role,
         position: { ...site.position },
@@ -122,9 +125,18 @@ export class VehicleLogisticsSystem {
     }
   }
 
+  commandEquipment(input){
+    const vehicle=this.vehicles.get(input.id);
+    if(!vehicle?.bankAssetId||!vehicle.equipmentState)throw Error('Unknown bank-owned site equipment');
+    if(vehicle.ownerAccountId!==input.accountId)throw Error('Equipment owner required');
+    commandEquipment(vehicle.modelId,vehicle.equipmentState,input);
+    return structuredClone(vehicle);
+  }
+
   step(dt) {
     const seconds = finite(dt, 0, 0, 1);
     for (const vehicle of this.vehicles.values()) {
+      if(vehicle.equipmentState)stepEquipment(vehicle.modelId,vehicle.equipmentState,seconds);
       if (vehicle.status === 'lost' || vehicle.status === 'deploying') continue;
       if (vehicle.status === 'maintenance' || vehicle.status === 'recovering') {
         vehicle.recoveryRemainingSeconds = Math.max(0, vehicle.recoveryRemainingSeconds - seconds);
@@ -179,7 +191,9 @@ export class VehicleLogisticsSystem {
       const id = String(source?.id ?? '').trim();
       if (!id) throw new Error('persisted vehicle is missing an id');
       if (restored.has(id)) throw new Error(`duplicate persisted vehicle id: ${id}`);
-      restored.set(id, structuredClone(source));
+      const vehicle=structuredClone(source);
+      if(vehicle.bankAssetId)vehicle.equipmentState=equipmentState(vehicle.modelId,vehicle.equipmentState);
+      restored.set(id,vehicle);
     }
     this.vehicles = restored;
   }

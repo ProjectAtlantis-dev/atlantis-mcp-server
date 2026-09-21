@@ -381,7 +381,11 @@ def _ingest_buildings(
                 f"building {building_id!r} has no authoritative ground sample"
             )
         roof_minimum = min(elevations)
-        ground = min(ground, roof_minimum - 0.5)
+        if ground >= roof_minimum:
+            raise AssetRebuildError(
+                f"building {building_id!r} ground sample {ground} is at/above roof {roof_minimum}; "
+                "verify the ground sample vertical datum instead of clamping its base to the roof"
+            )
         ring_3413 = [
             [round(x, 2), round(y, 2), round(z, 2)]
             for x, y, z in zip(projected_x, projected_y, elevations)

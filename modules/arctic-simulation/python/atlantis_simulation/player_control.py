@@ -6,6 +6,7 @@ from urllib.request import Request, urlopen
 from uuid import UUID
 from atlantis_host_adapters.identity import current_principal
 from .host import simulation_host
+from atlantis_economy.gateway import account_for
 
 
 def player_id(principal):
@@ -33,7 +34,7 @@ def execute(principal, operation, *, actor, parameters=None):
     parameters = parameters or {}
     if operation not in allowed or not isinstance(parameters, dict) or set(parameters) - allowed[operation]:
         raise ValueError('Unsupported player operation or fields')
-    payload = dict(parameters, operation=operation, id=player_id(principal), actor=actor)
+    payload = dict(parameters, operation=operation, id=player_id(principal), actor=actor, ownerAccountId=account_for(principal)["id"])
     return simulation_host.command('POST', f'/games/{quote(principal.scenario, safe="")}/player-control', payload)
 
 

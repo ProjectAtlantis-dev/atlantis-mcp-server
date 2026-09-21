@@ -1,0 +1,99 @@
+{
+  "support-sisu-gtt": {
+    "domain": "ground"
+  },
+  "support-sisu-gtt-civilian": {
+    "domain": "ground"
+  },
+  "support-sisu-gtt-logistics": {
+    "domain": "ground"
+  },
+  "support-sisu-gtt-plow": {
+    "domain": "ground"
+  },
+  "support-sisu-gtt-recovery": {
+    "domain": "ground"
+  },
+  "support-patria-trackx": {
+    "domain": "ground"
+  },
+  "support-patria-trackx-civilian": {
+    "domain": "ground"
+  },
+  "support-patria-trackx-logistics": {
+    "domain": "ground"
+  },
+  "support-patria-trackx-plow": {
+    "domain": "ground"
+  },
+  "support-patria-trackx-recovery": {
+    "domain": "ground"
+  },
+  "support-snowcat-civilian": {
+    "domain": "ground"
+  },
+  "support-snowcat-military": {
+    "domain": "ground"
+  },
+  "support-snowcat-logistics": {
+    "domain": "ground"
+  },
+  "support-snowcat-plow": {
+    "domain": "ground"
+  },
+  "support-snowcat-recovery": {
+    "domain": "ground"
+  },
+  "support-landing-craft-large": {
+    "domain": "water",
+    "boat": {
+      "maxSpeedMs": 7,
+      "accelMs2": 0.8,
+      "rudderTurnRadS2": 0.3,
+      "yawDamping": 1.2
+    },
+    "notes": "Original authored craft; explicit simulation tuning, not manufacturer performance."
+  },
+  "support-landing-craft-small": {
+    "domain": "water",
+    "boat": {
+      "maxSpeedMs": 7,
+      "accelMs2": 0.8,
+      "rudderTurnRadS2": 0.3,
+      "yawDamping": 1.2
+    },
+    "notes": "Original authored craft; explicit simulation tuning, not manufacturer performance."
+  },
+  "support-landing-craft": {
+    "domain": "water",
+    "boat": {
+      "maxSpeedMs": 7,
+      "accelMs2": 0.8,
+      "rudderTurnRadS2": 0.3,
+      "yawDamping": 1.2
+    },
+    "notes": "Original authored craft; explicit simulation tuning, not manufacturer performance."
+  },
+  "support-ice-coaster": {
+    "domain": "water",
+    "boat": {
+      "maxSpeedMs": 7,
+      "accelMs2": 0.8,
+      "rudderTurnRadS2": 0.3,
+      "yawDamping": 1.2
+    },
+    "notes": "Original authored craft; explicit simulation tuning, not manufacturer performance."
+  },
+  "support-command": {
+    "domain": "ground"
+  },
+  "support-maintenance": {
+    "domain": "ground"
+  },
+  "support-resupply": {
+    "domain": "ground"
+  },
+  "support-recovery": {
+    "domain": "ground"
+  }
+}

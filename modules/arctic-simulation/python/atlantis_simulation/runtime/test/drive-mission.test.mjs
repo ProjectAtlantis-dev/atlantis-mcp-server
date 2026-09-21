@@ -37,15 +37,16 @@ test('a building blocking the direct line is routed around',()=>{
   assert.equal(state.mission.status,'completed');assert.ok(state.distanceM>100);
 });
 
-test('vehicle backs along an escape waypoint without a false destination-progress timeout',()=>{
+test('vehicle turns forward onto an escape route without reversing for the whole leg',()=>{
  const {controls,step}=fixture();dispatch(controls);
  const v=controls.get(id);v.headingRad=Math.PI;
+ v.surface={...v.surface,minX:-40,minY:-40,cols:41,rows:401,heights:Array(41*401).fill(10)};
  // Escape route runs north even though the eventual destination is south.
  v.mission.target={x:0,y:-100};v.mission.bestRemainingM=100;
- v.mission.navigation={points:[{x:0,y:110},{x:50,y:110}],index:0,complete:false};
- for(let i=0;i<2100;i++)step();
+ v.mission.navigation={points:[{x:0,y:700},{x:20,y:700}],index:0,complete:false};
+ let reverseSteps=0;for(let i=0;i<2100;i++){step();if(v.speedMps<-.01)reverseSteps++;}
  const state=controls.observe(id);
  assert.equal(state.mission.status,'running');assert.equal(state.mission.reason,null);
- assert.ok(state.position.y>80);assert.ok(Math.abs(state.position.x)<.01);
- assert.ok(state.speedMps<0);assert.ok(state.mission.remainingM>180);
+ assert.ok(state.position.y>80);
+ assert.equal(reverseSteps,0);assert.ok(state.mission.remainingM>180);
 });

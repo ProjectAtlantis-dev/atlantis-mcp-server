@@ -28,12 +28,14 @@ export class PlayerPresence {
     if(!['minX','maxX','minY','maxY','floorZ'].every(k=>finite(zone[k]))||zone.minX>=zone.maxX||zone.minY>=zone.maxY)throw Error('Invalid walking zone');
     return {binding,zone};
   }
-  attach({id}){
+  attach({id,ownerAccountId}){
     const {binding,zone}=this.binding(id);
     if(!this.players.has(id)){
       if(!binding.spawn||!['x','y','z'].every(k=>finite(binding.spawn[k]))||!inside(binding.spawn,zone))throw Error('Spawn outside walking zone');
       this.players.set(id,{id,position:{...binding.spawn},zoneId:binding.zoneId,revision:0,lease:null,input:null,lastSeenAt:0});
     }
+    const p=this.get(id);
+    if(ownerAccountId!==undefined){if(p.ownerAccountId&&p.ownerAccountId!==ownerAccountId)throw Error('Player account binding conflict');p.ownerAccountId=ownerAccountId;}
     return this.observe(id);
   }
   get(id){const p=this.players.get(id);if(!p)throw Error('Attach player first');return p;}
@@ -56,7 +58,7 @@ export class PlayerPresence {
     return {accepted:true,sequence};
   }
   release(args){const p=this.get(args.id);this.lease(p,args);p.lease=null;p.input=null;p.lastSeenAt=0;return {released:true};}
-  step(dt){
+  step(dt,movementGuard=()=>null){
     for(const p of this.players.values()){
       if(!p.input)continue;
       if(!p.lease||p.lease.expiresAt<=this.now()||p.input.expiresAt<=this.now()){p.input=null;continue;}
@@ -70,12 +72,14 @@ export class PlayerPresence {
       }
       const elapsed=Math.min(dt,p.input.remaining),speed=2;
       const next={x:p.position.x+p.input.east*speed*elapsed,y:p.position.y+p.input.north*speed*elapsed,z:p.position.z};
+      const denied=movementGuard(p,p.position,next);
+      if(denied){p.input=null;p.controlError={code:'access-denied',message:denied};p.revision++;continue;}
       if(inside(next,zone)){p.position=next;p.revision++;}
       else p.input.remaining=0;
       p.input.remaining-=elapsed;if(p.input.remaining<=0)p.input=null;
     }
   }
-  observe(id){const p=this.get(id);return {id:p.id,position:{...p.position},zoneId:p.zoneId,revision:p.revision,
+  observe(id){const p=this.get(id);return {id:p.id,ownerAccountId:p.ownerAccountId,position:{...p.position},zoneId:p.zoneId,revision:p.revision,
     controlError:p.controlError??null,lastSeenAt:p.lastSeenAt,fresh:!!p.lease&&p.lease.expiresAt>this.now()&&this.now()-p.lastSeenAt<3000,
     moving:!!p.input&&p.input.expiresAt>this.now()&&Math.hypot(p.input.east,p.input.north)>0};}
   authorizeEntrance(id,entrance,entity){
@@ -97,7 +101,7 @@ export class PlayerPresence {
     if(!entrance||!entity||entity.sourceVehicleId)throw Error('Configured stationary airlock required');
     this.authorizeEntrance(args.id,entrance,entity);
     if(p.entryAction?.status==='running')throw Error('Entry action already running');
-    infrastructure.command({id:args.airlockId,action:'airlock_open_outer',expectedRevision:args.expectedRevision});
+    infrastructure.command({id:args.airlockId,action:'airlock_open_outer',expectedRevision:args.expectedRevision},{accountId:p.ownerAccountId,subject:{kind:'player',...this.observe(p.id)}});
     entity.componentState.paused=false;
     p.entryAction={id:randomUUID(),airlockId:args.airlockId,status:'running',target:1,revision:entity.componentState.revision};
     return structuredClone(p.entryAction);

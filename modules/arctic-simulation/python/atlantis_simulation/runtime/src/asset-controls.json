@@ -1,0 +1,3287 @@
+{
+  "version": 1,
+  "models": {
+    "radio-lattice-tower": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "radio-guyed-mast": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "radio-rooftop-mast": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "sensor-radar": {
+      "mechanisms": [
+        {
+          "id": "rotation",
+          "kind": "rotation",
+          "fields": {
+            "rpm": {
+              "type": "number",
+              "unit": "rpm",
+              "min": 0,
+              "max": 12,
+              "default": 0
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "sensor-camera-thermal": {
+      "mechanisms": [
+        {
+          "id": "pointing",
+          "kind": "pointing",
+          "fields": {
+            "yaw_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -180,
+              "max": 180,
+              "default": 0,
+              "rate": 30
+            },
+            "elevation_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": 0,
+              "max": 45,
+              "default": 0,
+              "rate": 15
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "sensor-weather": {
+      "mechanisms": [
+        {
+          "id": "rotation",
+          "kind": "rotation",
+          "fields": {
+            "rpm": {
+              "type": "number",
+              "unit": "rpm",
+              "min": 0,
+              "max": 12,
+              "default": 0
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "concrete-drone-pad": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "concrete-helicopter-pad": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "defense-upper-tier": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "defense-middle-tier": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "defense-point-defense": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "defense-laser": {
+      "mechanisms": [
+        {
+          "id": "pointing",
+          "kind": "pointing",
+          "fields": {
+            "yaw_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -180,
+              "max": 180,
+              "default": 0,
+              "rate": 30
+            },
+            "elevation_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": 0,
+              "max": 45,
+              "default": 0,
+              "rate": 15
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "defense-microwave": {
+      "mechanisms": [
+        {
+          "id": "pointing",
+          "kind": "pointing",
+          "fields": {
+            "yaw_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -180,
+              "max": 180,
+              "default": 0,
+              "rate": 30
+            },
+            "elevation_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": 0,
+              "max": 45,
+              "default": 0,
+              "rate": 15
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "defense-radar": {
+      "mechanisms": [
+        {
+          "id": "rotation",
+          "kind": "rotation",
+          "fields": {
+            "rpm": {
+              "type": "number",
+              "unit": "rpm",
+              "min": 0,
+              "max": 12,
+              "default": 0
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "network-leo-panel": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "network-radome": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "network-radome-tower": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "network-tracking-dish": {
+      "mechanisms": [
+        {
+          "id": "pointing",
+          "kind": "pointing",
+          "fields": {
+            "yaw_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -180,
+              "max": 180,
+              "default": 0,
+              "rate": 30
+            },
+            "elevation_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": 0,
+              "max": 45,
+              "default": 0,
+              "rate": 15
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "network-optical-observatory": {
+      "mechanisms": [
+        {
+          "id": "pointing",
+          "kind": "pointing",
+          "fields": {
+            "yaw_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -180,
+              "max": 180,
+              "default": 0,
+              "rate": 30
+            },
+            "elevation_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": 0,
+              "max": 45,
+              "default": 0,
+              "rate": 15
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "network-optical-container": {
+      "mechanisms": [
+        {
+          "id": "pointing",
+          "kind": "pointing",
+          "fields": {
+            "yaw_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -180,
+              "max": 180,
+              "default": 0,
+              "rate": 30
+            },
+            "elevation_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": 0,
+              "max": 45,
+              "default": 0,
+              "rate": 15
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "network-microwave-backhaul": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "network-fiber-cabinet": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "network-shelter": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "network-server-rack": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "network-sky-monitor": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "network-generator": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "network-battery": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "network-fuel-tank": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "support-sisu-gtt": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "id": "tracks",
+          "kind": "tracks",
+          "fields": {
+            "track_speed_mps": {
+              "type": "number",
+              "unit": "m/s",
+              "min": -2,
+              "max": 2,
+              "default": 0
+            },
+            "steering_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -15,
+              "max": 15,
+              "default": 0,
+              "rate": 30
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "support-sisu-gtt-civilian": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "id": "tracks",
+          "kind": "tracks",
+          "fields": {
+            "track_speed_mps": {
+              "type": "number",
+              "unit": "m/s",
+              "min": -2,
+              "max": 2,
+              "default": 0
+            },
+            "steering_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -15,
+              "max": 15,
+              "default": 0,
+              "rate": 30
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "support-sisu-gtt-logistics": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "id": "tracks",
+          "kind": "tracks",
+          "fields": {
+            "track_speed_mps": {
+              "type": "number",
+              "unit": "m/s",
+              "min": -2,
+              "max": 2,
+              "default": 0
+            },
+            "steering_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -15,
+              "max": 15,
+              "default": 0,
+              "rate": 30
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "support-sisu-gtt-plow": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "id": "tracks",
+          "kind": "tracks",
+          "fields": {
+            "track_speed_mps": {
+              "type": "number",
+              "unit": "m/s",
+              "min": -2,
+              "max": 2,
+              "default": 0
+            },
+            "steering_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -15,
+              "max": 15,
+              "default": 0,
+              "rate": 30
+            }
+          }
+        },
+        {
+          "id": "plow",
+          "kind": "plow",
+          "fields": {
+            "lift_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": 0,
+              "max": 18,
+              "default": 0,
+              "rate": 9
+            },
+            "angle_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -20,
+              "max": 20,
+              "default": 0,
+              "rate": 15
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "support-sisu-gtt-recovery": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "id": "tracks",
+          "kind": "tracks",
+          "fields": {
+            "track_speed_mps": {
+              "type": "number",
+              "unit": "m/s",
+              "min": -2,
+              "max": 2,
+              "default": 0
+            },
+            "steering_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -15,
+              "max": 15,
+              "default": 0,
+              "rate": 30
+            }
+          }
+        },
+        {
+          "id": "recovery",
+          "kind": "recovery",
+          "fields": {
+            "cable_length_m": {
+              "type": "number",
+              "unit": "metres",
+              "min": 0.2,
+              "max": 2.2,
+              "default": 0.2,
+              "rate": 0.5
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "support-patria-trackx": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "id": "tracks",
+          "kind": "tracks",
+          "fields": {
+            "track_speed_mps": {
+              "type": "number",
+              "unit": "m/s",
+              "min": -2,
+              "max": 2,
+              "default": 0
+            },
+            "steering_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -15,
+              "max": 15,
+              "default": 0,
+              "rate": 30
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "support-patria-trackx-civilian": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "id": "tracks",
+          "kind": "tracks",
+          "fields": {
+            "track_speed_mps": {
+              "type": "number",
+              "unit": "m/s",
+              "min": -2,
+              "max": 2,
+              "default": 0
+            },
+            "steering_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -15,
+              "max": 15,
+              "default": 0,
+              "rate": 30
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "support-patria-trackx-logistics": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "id": "tracks",
+          "kind": "tracks",
+          "fields": {
+            "track_speed_mps": {
+              "type": "number",
+              "unit": "m/s",
+              "min": -2,
+              "max": 2,
+              "default": 0
+            },
+            "steering_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -15,
+              "max": 15,
+              "default": 0,
+              "rate": 30
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "support-patria-trackx-plow": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "id": "tracks",
+          "kind": "tracks",
+          "fields": {
+            "track_speed_mps": {
+              "type": "number",
+              "unit": "m/s",
+              "min": -2,
+              "max": 2,
+              "default": 0
+            },
+            "steering_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -15,
+              "max": 15,
+              "default": 0,
+              "rate": 30
+            }
+          }
+        },
+        {
+          "id": "plow",
+          "kind": "plow",
+          "fields": {
+            "lift_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": 0,
+              "max": 18,
+              "default": 0,
+              "rate": 9
+            },
+            "angle_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -20,
+              "max": 20,
+              "default": 0,
+              "rate": 15
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "support-patria-trackx-recovery": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "id": "tracks",
+          "kind": "tracks",
+          "fields": {
+            "track_speed_mps": {
+              "type": "number",
+              "unit": "m/s",
+              "min": -2,
+              "max": 2,
+              "default": 0
+            },
+            "steering_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -15,
+              "max": 15,
+              "default": 0,
+              "rate": 30
+            }
+          }
+        },
+        {
+          "id": "recovery",
+          "kind": "recovery",
+          "fields": {
+            "cable_length_m": {
+              "type": "number",
+              "unit": "metres",
+              "min": 0.2,
+              "max": 2.2,
+              "default": 0.2,
+              "rate": 0.5
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "support-snowcat-civilian": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "id": "tracks",
+          "kind": "tracks",
+          "fields": {
+            "track_speed_mps": {
+              "type": "number",
+              "unit": "m/s",
+              "min": -2,
+              "max": 2,
+              "default": 0
+            },
+            "steering_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -15,
+              "max": 15,
+              "default": 0,
+              "rate": 30
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "support-snowcat-military": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "id": "tracks",
+          "kind": "tracks",
+          "fields": {
+            "track_speed_mps": {
+              "type": "number",
+              "unit": "m/s",
+              "min": -2,
+              "max": 2,
+              "default": 0
+            },
+            "steering_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -15,
+              "max": 15,
+              "default": 0,
+              "rate": 30
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "support-snowcat-logistics": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "id": "tracks",
+          "kind": "tracks",
+          "fields": {
+            "track_speed_mps": {
+              "type": "number",
+              "unit": "m/s",
+              "min": -2,
+              "max": 2,
+              "default": 0
+            },
+            "steering_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -15,
+              "max": 15,
+              "default": 0,
+              "rate": 30
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "support-snowcat-plow": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "id": "tracks",
+          "kind": "tracks",
+          "fields": {
+            "track_speed_mps": {
+              "type": "number",
+              "unit": "m/s",
+              "min": -2,
+              "max": 2,
+              "default": 0
+            },
+            "steering_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -15,
+              "max": 15,
+              "default": 0,
+              "rate": 30
+            }
+          }
+        },
+        {
+          "id": "plow",
+          "kind": "plow",
+          "fields": {
+            "lift_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": 0,
+              "max": 18,
+              "default": 0,
+              "rate": 9
+            },
+            "angle_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -20,
+              "max": 20,
+              "default": 0,
+              "rate": 15
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "support-snowcat-recovery": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "id": "tracks",
+          "kind": "tracks",
+          "fields": {
+            "track_speed_mps": {
+              "type": "number",
+              "unit": "m/s",
+              "min": -2,
+              "max": 2,
+              "default": 0
+            },
+            "steering_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -15,
+              "max": 15,
+              "default": 0,
+              "rate": 30
+            }
+          }
+        },
+        {
+          "id": "recovery",
+          "kind": "recovery",
+          "fields": {
+            "cable_length_m": {
+              "type": "number",
+              "unit": "metres",
+              "min": 0.2,
+              "max": 2.2,
+              "default": 0.2,
+              "rate": 0.5
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "support-landing-craft-large": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "id": "propulsion",
+          "kind": "propulsion",
+          "fields": {
+            "shaft_rpm": {
+              "type": "number",
+              "unit": "rpm",
+              "min": -48,
+              "max": 48,
+              "default": 0
+            },
+            "rudder_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -35,
+              "max": 35,
+              "default": 0,
+              "rate": 20
+            }
+          }
+        },
+        {
+          "id": "ramp",
+          "kind": "ramp",
+          "fields": {
+            "angle_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": 0,
+              "max": 105,
+              "default": 0,
+              "rate": 25
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "support-landing-craft-small": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "id": "propulsion",
+          "kind": "propulsion",
+          "fields": {
+            "shaft_rpm": {
+              "type": "number",
+              "unit": "rpm",
+              "min": -48,
+              "max": 48,
+              "default": 0
+            },
+            "rudder_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -35,
+              "max": 35,
+              "default": 0,
+              "rate": 20
+            }
+          }
+        },
+        {
+          "id": "ramp",
+          "kind": "ramp",
+          "fields": {
+            "angle_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": 0,
+              "max": 105,
+              "default": 0,
+              "rate": 25
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "support-landing-craft": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "id": "propulsion",
+          "kind": "propulsion",
+          "fields": {
+            "shaft_rpm": {
+              "type": "number",
+              "unit": "rpm",
+              "min": -48,
+              "max": 48,
+              "default": 0
+            },
+            "rudder_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -35,
+              "max": 35,
+              "default": 0,
+              "rate": 20
+            }
+          }
+        },
+        {
+          "id": "ramp",
+          "kind": "ramp",
+          "fields": {
+            "angle_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": 0,
+              "max": 105,
+              "default": 0,
+              "rate": 25
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "support-ice-coaster": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "id": "propulsion",
+          "kind": "propulsion",
+          "fields": {
+            "shaft_rpm": {
+              "type": "number",
+              "unit": "rpm",
+              "min": -48,
+              "max": 48,
+              "default": 0
+            },
+            "rudder_deg": {
+              "type": "number",
+              "unit": "degrees",
+              "min": -35,
+              "max": 35,
+              "default": 0,
+              "rate": 20
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "sensor-panel-surveillance": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "support-command": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "support-maintenance": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "support-resupply": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "support-recovery": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "future-city-clinic": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": true
+    },
+    "future-city-fire-rescue": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": true
+    },
+    "future-city-solid-waste": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": true
+    },
+    "future-city-water-plant": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": true
+    },
+    "future-city-wastewater": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": true
+    },
+    "future-city-backup-power": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": true
+    },
+    "future-city-logistics": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": true
+    },
+    "future-city-ridge": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "id": "freight-0",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            1
+          ],
+          "label": "future-city-water-plant",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-1",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            1,
+            3
+          ],
+          "label": "future-city-water-plant-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "freight-2",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            2
+          ],
+          "label": "future-city-wastewater",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-3",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            2,
+            3
+          ],
+          "label": "future-city-wastewater-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "freight-4",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            3
+          ],
+          "label": "future-city-backup-power",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-5",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            3,
+            3
+          ],
+          "label": "future-city-backup-power-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "freight-6",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            4
+          ],
+          "label": "future-city-logistics",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-7",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            4,
+            3
+          ],
+          "label": "future-city-logistics-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "freight-8",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            5
+          ],
+          "label": "future-city-clinic",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-9",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            5,
+            3
+          ],
+          "label": "future-city-clinic-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "freight-10",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            6
+          ],
+          "label": "future-city-fire-rescue",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-11",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            6,
+            3
+          ],
+          "label": "future-city-fire-rescue-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "freight-12",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            7
+          ],
+          "label": "future-city-solid-waste",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-13",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            7,
+            3
+          ],
+          "label": "future-city-solid-waste-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-14",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            9,
+            1
+          ],
+          "label": "ridge-crest-canopy-entry",
+          "physicalAccess": true
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "future-city-cliff": {
+      "mechanisms": [
+        {
+          "id": "freight-0",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            1
+          ],
+          "label": "future-city-water-plant",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-1",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            1,
+            3
+          ],
+          "label": "future-city-water-plant-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "freight-2",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            2
+          ],
+          "label": "future-city-wastewater",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-3",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            2,
+            3
+          ],
+          "label": "future-city-wastewater-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "freight-4",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            3
+          ],
+          "label": "future-city-backup-power",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-5",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            3,
+            3
+          ],
+          "label": "future-city-backup-power-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "freight-6",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            4
+          ],
+          "label": "future-city-logistics",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-7",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            4,
+            3
+          ],
+          "label": "future-city-logistics-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "freight-8",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            5
+          ],
+          "label": "future-city-clinic",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-9",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            5,
+            3
+          ],
+          "label": "future-city-clinic-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "freight-10",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            6
+          ],
+          "label": "future-city-fire-rescue",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-11",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            6,
+            3
+          ],
+          "label": "future-city-fire-rescue-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "freight-12",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            7
+          ],
+          "label": "future-city-solid-waste",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-13",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            7,
+            3
+          ],
+          "label": "future-city-solid-waste-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-14",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            9,
+            1
+          ],
+          "label": "cliff-terrace-20-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-15",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            14,
+            1
+          ],
+          "label": "cliff-terrace-44-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-16",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            19,
+            1
+          ],
+          "label": "cliff-terrace-68-entry",
+          "physicalAccess": true
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "future-city-coastal": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "id": "freight-0",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            1
+          ],
+          "label": "future-city-water-plant",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-1",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            1,
+            3
+          ],
+          "label": "future-city-water-plant-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "freight-2",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            2
+          ],
+          "label": "future-city-wastewater",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-3",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            2,
+            3
+          ],
+          "label": "future-city-wastewater-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "freight-4",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            3
+          ],
+          "label": "future-city-backup-power",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-5",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            3,
+            3
+          ],
+          "label": "future-city-backup-power-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "freight-6",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            4
+          ],
+          "label": "future-city-logistics",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-7",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            4,
+            3
+          ],
+          "label": "future-city-logistics-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "freight-8",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            5
+          ],
+          "label": "future-city-clinic",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-9",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            5,
+            3
+          ],
+          "label": "future-city-clinic-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "freight-10",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            6
+          ],
+          "label": "future-city-fire-rescue",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-11",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            6,
+            3
+          ],
+          "label": "future-city-fire-rescue-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "freight-12",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            7
+          ],
+          "label": "future-city-solid-waste",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-13",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            7,
+            3
+          ],
+          "label": "future-city-solid-waste-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-14",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            8,
+            1
+          ],
+          "label": "coastal-civic-garden-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-15",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            9,
+            1
+          ],
+          "label": "coastal-residential--115-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-16",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            11,
+            1
+          ],
+          "label": "coastal-residential-115-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-17",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            13,
+            1
+          ],
+          "label": "coastal-food-hall-entry",
+          "physicalAccess": true
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "future-city-vertical-farm": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "future-city-aquaponics": {
+      "mechanisms": [
+        {
+          "id": "airlock-0",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            1
+          ],
+          "label": "aquaponics-entry",
+          "physicalAccess": true
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "future-city-residential-dome": {
+      "mechanisms": [
+        {
+          "id": "airlock-0",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            1
+          ],
+          "label": "residential-dome-entry",
+          "physicalAccess": true
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "future-housing-terrace": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "future-housing-balcony": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "future-housing-courtyard": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "future-city-smr": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "future-city-thermal-storage": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "future-city-greenhouse": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "id": "airlock-0",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            2
+          ],
+          "label": "greenhouse-entry",
+          "physicalAccess": true
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "future-city-residential": {
+      "mechanisms": [
+        {
+          "id": "airlock-0",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            2
+          ],
+          "label": "residential-annex-entry",
+          "physicalAccess": true
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "future-city-residential-block": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "future-city-demo": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "id": "fans",
+          "kind": "fans",
+          "fields": {
+            "rpm": {
+              "type": "number",
+              "unit": "rpm",
+              "min": 0,
+              "max": 60,
+              "default": 0
+            }
+          },
+          "paths": [
+            [
+              0,
+              13,
+              7,
+              2,
+              0
+            ],
+            [
+              0,
+              13,
+              7,
+              4,
+              0
+            ],
+            [
+              0,
+              13,
+              7,
+              6,
+              0
+            ],
+            [
+              0,
+              13,
+              7,
+              8,
+              0
+            ],
+            [
+              0,
+              13,
+              7,
+              10,
+              0
+            ],
+            [
+              0,
+              13,
+              7,
+              12,
+              0
+            ],
+            [
+              0,
+              13,
+              7,
+              14,
+              0
+            ],
+            [
+              0,
+              13,
+              7,
+              16,
+              0
+            ]
+          ]
+        },
+        {
+          "id": "airlock-8",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            5,
+            1
+          ],
+          "label": "demo-aquaponics-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-9",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            6,
+            1
+          ],
+          "label": "demo-residential-north-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-10",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            7,
+            1
+          ],
+          "label": "demo-residential-east-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "freight-11",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            16
+          ],
+          "label": "future-city-water-plant",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-12",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            16,
+            3
+          ],
+          "label": "future-city-water-plant-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "freight-13",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            17
+          ],
+          "label": "future-city-wastewater",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-14",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            17,
+            3
+          ],
+          "label": "future-city-wastewater-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "freight-15",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            18
+          ],
+          "label": "future-city-backup-power",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-16",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            18,
+            3
+          ],
+          "label": "future-city-backup-power-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "freight-17",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            19
+          ],
+          "label": "future-city-logistics",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-18",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            19,
+            3
+          ],
+          "label": "future-city-logistics-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "freight-19",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            20
+          ],
+          "label": "future-city-clinic",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-20",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            20,
+            3
+          ],
+          "label": "future-city-clinic-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "freight-21",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            21
+          ],
+          "label": "future-city-fire-rescue",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-22",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            21,
+            3
+          ],
+          "label": "future-city-fire-rescue-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "freight-23",
+          "kind": "freight",
+          "fields": {
+            "open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            22
+          ],
+          "label": "future-city-solid-waste",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-24",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            22,
+            3
+          ],
+          "label": "future-city-solid-waste-entry",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-25",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            37
+          ],
+          "label": "demo-airlock-0",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-26",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "path": [
+            39
+          ],
+          "label": "demo-airlock-1",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-27",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "cycle_seconds": {
+              "type": "number",
+              "unit": "seconds",
+              "min": 0,
+              "max": 60,
+              "default": 0
+            }
+          },
+          "path": [
+            41
+          ],
+          "label": "demo-airlock-2",
+          "physicalAccess": true
+        },
+        {
+          "id": "airlock-28",
+          "kind": "airlock",
+          "fields": {
+            "outer_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "inner_open": {
+              "type": "boolean",
+              "default": false
+            },
+            "cycle_seconds": {
+              "type": "number",
+              "unit": "seconds",
+              "min": 0,
+              "max": 60,
+              "default": 0
+            }
+          },
+          "path": [
+            43
+          ],
+          "label": "demo-airlock-3",
+          "physicalAccess": true
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "future-city-hydroponics": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "future-city-circulation": {
+      "mechanisms": [
+        {
+          "id": "fans",
+          "kind": "fans",
+          "fields": {
+            "rpm": {
+              "type": "number",
+              "unit": "rpm",
+              "min": 0,
+              "max": 60,
+              "default": 0
+            }
+          },
+          "paths": [
+            [
+              2,
+              0
+            ],
+            [
+              4,
+              0
+            ],
+            [
+              6,
+              0
+            ],
+            [
+              8,
+              0
+            ],
+            [
+              10,
+              0
+            ],
+            [
+              12,
+              0
+            ],
+            [
+              14,
+              0
+            ],
+            [
+              16,
+              0
+            ]
+          ]
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "future-city-heat-recovery": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "future-airlock-pedestrian": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": true
+    },
+    "future-airlock-vehicle": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": true
+    },
+    "future-decon-pedestrian": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": true
+    },
+    "future-decon-vehicle": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": true
+    },
+    "future-city-services": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "id": "fans",
+          "kind": "fans",
+          "fields": {
+            "rpm": {
+              "type": "number",
+              "unit": "rpm",
+              "min": 0,
+              "max": 60,
+              "default": 0
+            }
+          },
+          "paths": [
+            [
+              7,
+              2,
+              0
+            ],
+            [
+              7,
+              4,
+              0
+            ],
+            [
+              7,
+              6,
+              0
+            ],
+            [
+              7,
+              8,
+              0
+            ],
+            [
+              7,
+              10,
+              0
+            ],
+            [
+              7,
+              12,
+              0
+            ],
+            [
+              7,
+              14,
+              0
+            ],
+            [
+              7,
+              16,
+              0
+            ]
+          ]
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "future-city-dome": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "id": "fans",
+          "kind": "fans",
+          "fields": {
+            "rpm": {
+              "type": "number",
+              "unit": "rpm",
+              "min": 0,
+              "max": 60,
+              "default": 0
+            }
+          },
+          "paths": [
+            [
+              13,
+              7,
+              2,
+              0
+            ],
+            [
+              13,
+              7,
+              4,
+              0
+            ],
+            [
+              13,
+              7,
+              6,
+              0
+            ],
+            [
+              13,
+              7,
+              8,
+              0
+            ],
+            [
+              13,
+              7,
+              10,
+              0
+            ],
+            [
+              13,
+              7,
+              12,
+              0
+            ],
+            [
+              13,
+              7,
+              14,
+              0
+            ],
+            [
+              13,
+              7,
+              16,
+              0
+            ]
+          ]
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "future-city-tunnel": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "future-city-climate": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "future-city-spire": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "future-city-petals": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "future-city-arc": {
+      "mechanisms": [],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    },
+    "future-city-district": {
+      "mechanisms": [
+        {
+          "id": "lights",
+          "kind": "lights",
+          "fields": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        {
+          "id": "fans",
+          "kind": "fans",
+          "fields": {
+            "rpm": {
+              "type": "number",
+              "unit": "rpm",
+              "min": 0,
+              "max": 60,
+              "default": 0
+            }
+          },
+          "paths": [
+            [
+              0,
+              13,
+              7,
+              2,
+              0
+            ],
+            [
+              0,
+              13,
+              7,
+              4,
+              0
+            ],
+            [
+              0,
+              13,
+              7,
+              6,
+              0
+            ],
+            [
+              0,
+              13,
+              7,
+              8,
+              0
+            ],
+            [
+              0,
+              13,
+              7,
+              10,
+              0
+            ],
+            [
+              0,
+              13,
+              7,
+              12,
+              0
+            ],
+            [
+              0,
+              13,
+              7,
+              14,
+              0
+            ],
+            [
+              0,
+              13,
+              7,
+              16,
+              0
+            ],
+            [
+              5,
+              13,
+              7,
+              2,
+              0
+            ],
+            [
+              5,
+              13,
+              7,
+              4,
+              0
+            ],
+            [
+              5,
+              13,
+              7,
+              6,
+              0
+            ],
+            [
+              5,
+              13,
+              7,
+              8,
+              0
+            ],
+            [
+              5,
+              13,
+              7,
+              10,
+              0
+            ],
+            [
+              5,
+              13,
+              7,
+              12,
+              0
+            ],
+            [
+              5,
+              13,
+              7,
+              14,
+              0
+            ],
+            [
+              5,
+              13,
+              7,
+              16,
+              0
+            ]
+          ]
+        }
+      ],
+      "scope": "authored mechanisms; rates are demo tuning, not manufacturer specifications",
+      "legacyDoors": false
+    }
+  }
+}

@@ -39,3 +39,16 @@ class SessionTests(unittest.TestCase):
     def test_anonymous_request_rejects(self):
         self.request.headers={}
         self.assertEqual(asyncio.run(session.keep_alive(self.request)).status_code,403)
+
+    def test_owner_scene_session_renews_without_adding_vehicle_scope(self):
+        self.capabilities.grants[self.digest] = (self.principal, 10, None, None)
+        self.now = 9
+        with patch.object(session.atlantis, 'get_owner_usernames', return_value=['Tester']):
+            self.assertEqual(asyncio.run(session.keep_alive(self.request)).status_code, 200)
+        self.assertEqual(self.capabilities.grants[self.digest], (self.principal, 909, None, None))
+
+    def test_scene_owner_revocation_prevents_renewal(self):
+        self.capabilities.grants[self.digest] = (self.principal, 10, None, None)
+        with patch.object(session.atlantis, 'get_owner_usernames', return_value=[]):
+            self.assertEqual(asyncio.run(session.keep_alive(self.request)).status_code, 403)
+        self.assertEqual(self.capabilities.grants[self.digest][1], 10)

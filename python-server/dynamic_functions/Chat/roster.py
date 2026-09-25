@@ -33,7 +33,6 @@ STATE_KEY_BY_LABEL = {label: key for key, label in STATE_LABELS.items()}
 # A row's state is stored as `ai`: None = nobody, True = bot, False = person.
 AI_BY_STATE_KEY = {KEY_AVAILABLE: None, KEY_AI: True, KEY_HUMAN: False}
 
-KITTY_BOT_SID = "kitty"
 SIGHTINGS_FILENAME = "sightings.json"
 
 
@@ -190,11 +189,11 @@ def _load_sightings(game_key: str) -> Dict[str, List[str]]:
     return sightings
 
 
-async def _show_kitty_first_sighting(
+async def _show_bot_first_sightings(
     game_key: str,
     rows: Optional[List[Dict[str, Any]]] = None,
 ) -> bool:
-    """Show Kitty's portrait once when the calling human first shares her location."""
+    """Show configured bot portraits once when the calling human first shares their location."""
     human_sid = str(atlantis.get_caller() or "").strip()
     if not human_sid:
         return False
@@ -208,38 +207,39 @@ async def _show_kitty_first_sighting(
     if not human_locations:
         return False
 
-    kitty_row = next(
-        (
-            row for row in roster
-            if row.get("ai") is True
-            and row.get("bot_sid") == KITTY_BOT_SID
-            and row.get("location") in human_locations
-        ),
-        None,
-    )
-    if kitty_row is None:
-        return False
-
+    from .camera import _load_cameras
+    session_key = atlantis.get_session_key()
+    if not session_key:
+        raise RuntimeError("Portrait delivery requires a Chat session")
+    cameras = _load_cameras(game_key)
+    locations_by_slot = {row["key"]: row.get("location") for row in roster}
     sightings = _load_sightings(game_key)
-    seen_by = sightings.setdefault(KITTY_BOT_SID, [])
-    if human_sid in seen_by:
-        return False
-
-    image_path = bot_image_path(KITTY_BOT_SID)
-    if not image_path:
-        raise FileNotFoundError(f"Kitty portrait is not configured or is missing")
-
-    location = str(kitty_row.get("location") or "")
-    await atlantis.client_image(
-        image_path,
-        sid=KITTY_BOT_SID,
-        location=location,
-        shell="user",
-    )
-
-    seen_by.append(human_sid)
-    _write_json(_sightings_path(game_key), sightings)
-    return True
+    shown = False
+    for terminal_key, camera in cameras.items():
+        prefix = session_key + ":"
+        if not terminal_key.startswith(prefix):
+            continue
+        location = camera.get("location") if camera.get("target_type") == "location" else locations_by_slot.get(camera.get("slot_key"))
+        if location not in human_locations:
+            continue
+        for row in roster:
+            if row.get("ai") is not True or row.get("location") != location:
+                continue
+            bot_sid = row["bot_sid"]
+            seen_by = sightings.setdefault(bot_sid, [])
+            if terminal_key in seen_by or not load_bot(bot_sid)["image"]:
+                continue
+            image_path = bot_image_path(bot_sid)
+            if not image_path:
+                raise FileNotFoundError(f"Configured portrait is missing for {bot_sid}")
+            await atlantis.client_image(
+                image_path, sid=bot_sid, who=row.get("displayName") or bot_roster_name(bot_sid),
+                location=location, shell=terminal_key[len(prefix):],
+            )
+            seen_by.append(terminal_key)
+            _write_json(_sightings_path(game_key), sightings)
+            shown = True
+    return shown
 
 
 def _roster_rows() -> List[Dict[str, Any]]:
@@ -363,7 +363,10 @@ def _set_roster_slot_human(target: Dict[str, Any], display_name: str) -> None:
     display_name = str(display_name or "").strip()
     if not display_name:
         raise ValueError("display_name required")
+    # Rebinding an existing human changes identity, not their world position.
+    position = {key: target.get(key) for key in ("location", "spawned_at")} if target.get("ai") is False else {}
     _reset_roster_slot(target)
+    target.update(position)
     target["session_key"] = session_key
     target["sid"] = atlantis.get_caller() or None
     target["user_game_id"] = atlantis.get_user_game_id()
@@ -566,8 +569,11 @@ async def _roster_move(game_key: str, sid_or_slot: str, location: str, reason: s
         await _describe_roster_slot_exited(target, previous)
     if previous != location:
         await _describe_roster_slot_entered(target, location)
-    await _show_kitty_first_sighting(game_key, rows)
+    await _show_bot_first_sightings(game_key, rows)
     await _notify_roster_slot_moved(game_key, target, location)
+    if previous != location and target.get("ai") is False and target.get("sid") == atlantis.get_caller():
+        from .chat_callback import greet_entrant
+        await greet_entrant(game_key, target["sid"], location)
     return target
 
 

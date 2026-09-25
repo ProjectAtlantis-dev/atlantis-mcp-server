@@ -346,6 +346,7 @@ def _transcript_for_bot(
             continue
         if speaker_sid in bot_names:
             message["name"] = bot_names[speaker_sid]
+            message["role"] = "assistant" if speaker_sid == bot_sid else "user"
         scrubbed = _scrub_value(message, unknown_names)
         message.clear()
         message.update(scrubbed)
@@ -425,9 +426,46 @@ async def remember_visitor(name: str, game_key: str, bot_sid: str) -> Dict[str, 
     return {"visitor": name, "status": "remembered"}
 
 
+@visible
 async def greet_entrant(game_key: str, entrant_sid: str, location: str):
-    """Fire an in-character greeting from a bot already at `location` toward a newcomer."""
-    raise NotImplementedError("greet_entrant: slot system removed — needs reimplementation")
+    """Greet the authenticated human once per room entry, using a colocated AI persona."""
+    from .bot import render_bot_prompt
+    if entrant_sid != atlantis.get_caller():
+        raise PermissionError("Only the calling human's arrival can trigger a greeting")
+    data_dir = require_membership(game_key)
+    if not _game_is_running(game_key):
+        return {"greeted": False, "reason": "game stopped"}
+    roster = _load_game_roster(game_key)
+    human = next((r for r in roster if r.get("ai") is False and r.get("sid") == entrant_sid and r.get("location") == location), None)
+    if human is None:
+        raise ValueError("Calling human is not in the requested room")
+    bots = [r for r in roster if r.get("ai") is True and r.get("location") == location]
+    if not bots:
+        return {"greeted": False, "reason": "no AI in room"}
+    bot = bots[0]
+    path = os.path.join(data_dir, "greetings.json")
+    greetings = _read_json(path) or {}
+    entry = [location, human.get("spawned_at"), bot.get("spawned_at")]
+    key = entrant_sid + ":" + bot["key"]
+    if greetings.get(key) == entry:
+        return {"greeted": False, "reason": "arrival already greeted"}
+    if atlantis.session_shared.get(_BUSY_KEY):
+        return {"greeted": False, "reason": "chat turn in progress"}
+    atlantis.session_shared.set(_BUSY_KEY, "greeting")
+    try:
+        names = {r["bot_sid"]: r["displayName"] for r in roster if r.get("bot_sid") and r.get("displayName")}
+        prompt = render_bot_prompt(bot["bot_sid"], names)
+        prompt += "\nAn authenticated human has entered your room. Give a brief in-character greeting in one or two sentences and ask what they would like to do. Do not call tools, issue orders, or claim you checked any live system."
+        result = await bot_turn(bot_sid=bot["bot_sid"], game_key=game_key,
+            transcript=[{"role": "user", "content": "I have arrived in " + location + "."}],
+            system_prompt=prompt, roster_names=names, tools=[])
+        if not result:
+            raise RuntimeError("Greeting model returned no text")
+        greetings[key] = entry
+        _write_json(path, greetings)
+        return {"greeted": True, "bot": bot["bot_sid"], "message": result}
+    finally:
+        atlantis.session_shared.remove(_BUSY_KEY)
 
 
 async def _respond_as_bot(

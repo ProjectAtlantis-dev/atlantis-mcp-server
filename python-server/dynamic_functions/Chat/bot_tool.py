@@ -31,7 +31,7 @@ _TOOL_DEFINITIONS: Dict[str, AtlantisSearchToolT] = {
         ),
         "input_schema": (
             '{"type":"object","properties":{"query":{"type":"string",'
-            '"description":"One or two words describing the capability to find."}},'
+            '"description":"A single function name or topic, such as fleet or instructions. Do not combine synonyms into a sentence."}},'
             '"required":["query"]}'
         ),
     },
@@ -52,6 +52,7 @@ _TOOL_DEFINITIONS: Dict[str, AtlantisSearchToolT] = {
 
 _DEFAULT_TOOL_NAMES: Dict[str, List[str]] = {
     "kitty": ["search", "remember_visitor"],
+    "commander": ["search"],
 }
 
 

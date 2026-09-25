@@ -1018,7 +1018,13 @@ async def _game_join_authorized(game_key: str, meta: Dict[str, Any]) -> Dict[str
 
 @public
 async def first_menu() -> str:
-    """To the bots"""
+    """Open Chat setup with its shared modal callbacks on the modal execution shell's tool path."""
+    folder = atlantis.get_script_folder()
+    if not folder:
+        raise RuntimeError("Chat setup requires an Atlantis function context")
+    home_folder = folder.rsplit("/", 1)[0] + "/Home"
+    await atlantis.client_command("/path push " + home_folder, shell="exec")
+    await atlantis.client_command("/which modal_menu_select", shell="exec")
     games = _game_rows()
     joinable_games = _game_candidates(games, "join")
     resumable_games = _game_candidates(games, "resume")
@@ -1124,6 +1130,8 @@ async def game_init(game_key: str):
 
     if not await _camera_edit(roster=roster, game_key=game_key):
         raise RuntimeError("Camera selection cancelled")
+    from .roster import _show_bot_first_sightings
+    await _show_bot_first_sightings(game_key)
 
     # Setting a game up is already the decision to play it, so the owner does
     # not get asked again — game_stop is there for anyone who wants it stopped.
@@ -1134,3 +1142,9 @@ async def game_init(game_key: str):
     ):
         await game_start(game_key)
         meta = _game_read_from_dir(data_dir)
+
+    from .chat_callback import greet_entrant
+    from .roster import _load_game_roster
+    human = next((row for row in _load_game_roster(game_key) if row.get("ai") is False and row.get("sid") == atlantis.get_caller()), None)
+    if human and human.get("location"):
+        await greet_entrant(game_key, human["sid"], human["location"])

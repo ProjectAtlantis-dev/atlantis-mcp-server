@@ -45,14 +45,22 @@ def index() -> dict:
 
 @visible
 def link(asset_id: str, ttl_seconds: int = 900) -> str:
-    """Return a complete browser URL that loads your bank ownership, fleet table and server state. Open this URL directly; do not append an access-response JSON object to the viewer address."""
+    """Return a complete browser URL that loads your bank ownership, fleet table and server state. Open this URL directly; do not append an access-response JSON object to the viewer address.
+
+    :param asset_id: Canonical bank UUID returned by fleet or placement; never a display name or model ID.
+    :param ttl_seconds: Requested lifetime of the scoped viewer access grant in seconds. The returned link contains a temporary credential.
+    """
     _, url = _viewer_session(asset_id, ttl_seconds)
     return url
 
 
 @visible
 async def open(asset_id: str, ttl_seconds: int = 900) -> dict:
-    """Display the owner-scoped viewer in the calling terminal. The returned viewerUrl also opens it in a browser with the same fleet and ownership."""
+    """Display the owner-scoped viewer in the calling terminal. The returned viewerUrl also opens it in a browser with the same fleet and ownership.
+
+    :param asset_id: Canonical bank UUID returned by fleet or placement; never a display name or model ID.
+    :param ttl_seconds: Requested lifetime of the scoped viewer access grant in seconds. The returned link contains a temporary credential.
+    """
     principal, url = _viewer_session(asset_id, ttl_seconds)
     await atlantis.set_background_player(url, frame=True, interactive=True, remove_on_ended=False)
     return {"world": principal.scenario, "vehicleId": asset_id, "expiresInSeconds": ttl_seconds,
@@ -61,14 +69,22 @@ async def open(asset_id: str, ttl_seconds: int = 900) -> dict:
 
 @visible
 def map_link(asset_id: str = None, ttl_seconds: int = 900) -> str:
-    """Return an authenticated viewer URL that starts in map mode. No vehicle UUID is required; optionally focus the session on an owned vehicle. The URL contains a temporary access token: open it directly and do not commit or publish it."""
+    """Return an authenticated viewer URL that starts in map mode. No vehicle UUID is required; optionally focus the session on an owned vehicle. The URL contains a temporary access token: open it directly and do not commit or publish it.
+
+    :param asset_id: Optional owned vehicle bank UUID to focus the session. Omit for a scene session, which requires the authenticated host owner.
+    :param ttl_seconds: Requested lifetime of the scoped viewer access grant in seconds. The returned link contains a temporary credential.
+    """
     _, url = _viewer_session(asset_id, ttl_seconds, map_mode=True)
     return url
 
 
 @visible
 async def open_map(asset_id: str = None, ttl_seconds: int = 900) -> dict:
-    """Open the authenticated map in the calling terminal. Same viewer, fleet, placement tools and server state as 3D mode. Optional owned vehicle UUID; no separate map simulation is created."""
+    """Open the authenticated map in the calling terminal. Same viewer, fleet, placement tools and server state as 3D mode. Optional owned vehicle UUID; no separate map simulation is created.
+
+    :param asset_id: Optional owned vehicle bank UUID to focus the session. Omit for a scene session, which requires the authenticated host owner.
+    :param ttl_seconds: Requested lifetime of the scoped viewer access grant in seconds. The returned link contains a temporary credential.
+    """
     principal, url = _viewer_session(asset_id, ttl_seconds, map_mode=True)
     await atlantis.set_background_player(url, frame=True, interactive=True, remove_on_ended=False)
     return {"world": principal.scenario, "view": "map", "vehicleId": asset_id,
@@ -77,7 +93,11 @@ async def open_map(asset_id: str = None, ttl_seconds: int = 900) -> dict:
 
 @visible
 def workshop_link(asset_id: str, ttl_seconds: int = 900) -> str:
-    """Open one bank-owned placed model in the habitat/equipment workshop with live dynamic-function controls. Requires its asset UUID. The workshop shares server state with Terrain; this is not a separate simulation. Unauthenticated model previews remain art inspection only."""
+    """Open one bank-owned placed model in the habitat/equipment workshop with live dynamic-function controls. Requires its asset UUID. The workshop shares server state with Terrain; this is not a separate simulation. Unauthenticated model previews remain art inspection only.
+
+    :param asset_id: Canonical bank UUID returned by fleet or placement; never a display name or model ID.
+    :param ttl_seconds: Requested lifetime of the scoped viewer access grant in seconds. The returned link contains a temporary credential.
+    """
     from atlantis_simulation import infrastructure_control
     principal = current_principal('simulation')
     infrastructure_control.owned(principal, asset_id)
@@ -91,7 +111,11 @@ def workshop_link(asset_id: str, ttl_seconds: int = 900) -> str:
 
 @visible
 async def open_workshop(asset_id: str, ttl_seconds: int = 900) -> dict:
-    """Display the connected habitat/equipment workshop in the calling terminal. Each visible mechanism is controlled by dynamic functions and persistent server state."""
+    """Display the connected habitat/equipment workshop in the calling terminal. Each visible mechanism is controlled by dynamic functions and persistent server state.
+
+    :param asset_id: Canonical bank UUID returned by fleet or placement; never a display name or model ID.
+    :param ttl_seconds: Requested lifetime of the scoped viewer access grant in seconds. The returned link contains a temporary credential.
+    """
     url = workshop_link(asset_id, ttl_seconds)
     await atlantis.set_background_player(url, frame=True, interactive=True, remove_on_ended=False)
     return {'assetId': asset_id, 'viewerUrl': url, 'mode': 'connected-workshop'}

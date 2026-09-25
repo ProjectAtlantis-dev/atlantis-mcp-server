@@ -3,6 +3,9 @@
 Greenland terrain acquisition, local storage, and viewer serving. Terrain owns
 its SQLite data and HTTP sidecar; the Atlantis MCP host runs independently.
 
+For the complete local demo stack, follow the [operator runbook](OPERATIONS.md):
+MCP, bank, terrain, simulation, connected viewer, Chat, and shutdown/recovery.
+
 ## Setup
 
 1. Create the git-ignored `Terrain/.env` with `DATAFORSYNINGEN_TOKEN`.

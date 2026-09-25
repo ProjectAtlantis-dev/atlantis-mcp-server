@@ -62,9 +62,16 @@ def make_surface(world, state, *, radius=None, step=None, center=None, allow_unk
             if not path or len(path) < 2:
                 raise ValueError(f"Road {asset_id} has no centerline geometry")
             points = [to_geo.transform(p[0], p[1]) for p in path]
-            roads.append({"id":asset_id,"path":[{
+            if any(len(p) < 3 or not math.isfinite(p[2]) for p in path):
+                raise ValueError(f"Road {asset_id} has no finite surveyed elevation")
+            # Preserve the surveyed road deck, including causeways/bridges that
+            # a bare-earth DEM or an older water mask cannot represent.
+            # This is the existing simulation's 4m centerline corridor, not a
+            # claim that the source supplies measured pavement/bridge widths.
+            roads.append({"id":asset_id,"surfaceHalfWidthM":4,"path":[{
                 "x":(lon-frame["lon"])*math.pi/180*6378137*math.cos(math.radians(frame["lat"])),
-                "y":(lat-frame["lat"])*math.pi/180*6378137} for lon,lat in points]})
+                "y":(lat-frame["lat"])*math.pi/180*6378137,
+                "z":source[2]} for (lon,lat),source in zip(points,path)]})
     finally:
         connection.close()
     grid["obstacles"] = obstacles
@@ -91,6 +98,10 @@ def make_surface(world, state, *, radius=None, step=None, center=None, allow_unk
     return grid
 
 
+class DestinationRouteError(RuntimeError):
+    """The destination planner could not produce a complete route."""
+
+
 def destination_route(world, state):
     """Plan across the entire trip before releasing local vehicle controls.
 
@@ -115,7 +126,7 @@ def destination_route(world, state):
         input=json.dumps({"surface":surface,"start":start,"target":target}),
         text=True,capture_output=True,timeout=120)
     if result.returncode:
-        raise RuntimeError("Destination routing failed: " + result.stderr[-1600:])
+        raise DestinationRouteError("Destination routing failed: " + result.stderr[-1600:])
     return json.loads(result.stdout)
 
 
@@ -170,6 +181,9 @@ class MissionTerrainWorker:
                                 payload["destinationRoute"] = destination_route(world,state)
                             # Unknown cells stay impassable; one off-route hole must not discard the entire local patch.
                             payload["surface"] = make_surface(world,state,allow_unknown=True)
+                        except DestinationRouteError as error:
+                            log.warning("Terrain mission %s route failed: %s", mission["id"], error)
+                            payload["error"] = "route-planning-failed: " + str(error)[:500]
                         except subprocess.TimeoutExpired as error:
                             log.warning('Terrain mission %s route planning timed out: %s',mission['id'],error)
                             payload['error'] = 'route-planning-timeout: planner exceeded its time limit; no physical obstacle established'

@@ -1,15 +1,50 @@
 import {waterClearance} from './water-clearance.mjs';
+import {SpatialIndex} from './spatial-index.mjs';
 import {groundProfile} from './vehicle-performance.mjs';
 const legacyProfile=groundProfile('patria-amv');
+// Surveyed road decks are a separate driving surface; water remains water
+// outside the explicit road corridor. Cache the index by immutable surface.
+const roadIndexes=new WeakMap();
+function roadDeck(surface,x,y){
+ if(surface.navigationDomain==='water')return null;
+ let index=roadIndexes.get(surface);
+ if(!index){
+  const segments=[];
+  for(const road of surface.roads??[]){
+   if(road.surfaceHalfWidthM===undefined)continue;
+   if(!Number.isFinite(road.surfaceHalfWidthM)||road.surfaceHalfWidthM<=0)throw Error('invalid surveyed road corridor');
+   for(let i=1;i<road.path.length;i++){
+    const a=road.path[i-1],b=road.path[i];
+    if(![a.x,a.y,a.z,b.x,b.y,b.z].every(Number.isFinite))throw Error('invalid surveyed road elevation');
+    const dx=b.x-a.x,dy=b.y-a.y,length2=dx*dx+dy*dy;
+    if(length2>0)segments.push({a,b,dx,dy,length2,width:road.surfaceHalfWidthM});
+   }
+  }
+  index=new SpatialIndex(segments,s=>({minX:Math.min(s.a.x,s.b.x)-s.width,maxX:Math.max(s.a.x,s.b.x)+s.width,minY:Math.min(s.a.y,s.b.y)-s.width,maxY:Math.max(s.a.y,s.b.y)+s.width}));
+  roadIndexes.set(surface,index);
+ }
+ let best=null,bestDistance=Infinity;
+ for(const s of index.at(x,y)){
+  const t=Math.max(0,Math.min(1,((x-s.a.x)*s.dx+(y-s.a.y)*s.dy)/s.length2));
+  const distance=Math.hypot(x-s.a.x-t*s.dx,y-s.a.y-t*s.dy);
+  if(distance<=s.width&&distance<bestDistance){
+   const dz=s.b.z-s.a.z;best={height:s.a.z+t*dz,dx:dz*s.dx/s.length2,dy:dz*s.dy/s.length2};bestDistance=distance;
+  }
+ }
+ return best;
+}
 export function surfaceHeight(surface,x,y){
   const gx=(x-surface.minX)/surface.stepM,gy=(y-surface.minY)/surface.stepM;
   if(gx<0||gy<0||gx>surface.cols-1||gy>surface.rows-1)return null;
+  const deck=roadDeck(surface,x,y);if(deck)return deck.height;
   const ix=Math.min(surface.cols-2,Math.floor(gx)),iy=Math.min(surface.rows-2,Math.floor(gy));
   const tx=gx-ix,ty=gy-iy,h=(xx,yy)=>surface.heights[yy*surface.cols+xx];
   if([h(ix,iy),h(ix+1,iy),h(ix,iy+1),h(ix+1,iy+1)].some(v=>!Number.isFinite(v)))return NaN;
   return (h(ix,iy)*(1-tx)+h(ix+1,iy)*tx)*(1-ty)+(h(ix,iy+1)*(1-tx)+h(ix+1,iy+1)*tx)*ty;
 }
 export function surfaceNormal(s,p){
+  const deck=roadDeck(s,p.x,p.y);
+  if(deck){const length=Math.hypot(deck.dx,deck.dy,1);return {x:-deck.dx/length,y:-deck.dy/length,z:1/length};}
   const d=Math.min(1,s.stepM/2),x0=Math.max(s.minX,p.x-d),x1=Math.min(s.minX+(s.cols-1)*s.stepM,p.x+d);
   const y0=Math.max(s.minY,p.y-d),y1=Math.min(s.minY+(s.rows-1)*s.stepM,p.y+d);
   const x=-(surfaceHeight(s,x1,p.y)-surfaceHeight(s,x0,p.y))/(x1-x0);
@@ -32,7 +67,7 @@ export function groundHazard(surface,point,headingRad,obstacles=surface.obstacle
  if(z===null)return 'terrain-coverage-boundary';
  if(!Number.isFinite(z))return 'terrain-elevation-unavailable';
  if(z<=.25)return 'water-or-sea-level-terrain';
- if(surface.water){
+ if(surface.water&&!roadDeck(surface,x,y)){
   const row=Math.round((y-surface.minY)/surface.stepM),col=Math.round((x-surface.minX)/surface.stepM);
   if(surface.water[row*surface.cols+col]!==false)return 'water-or-unknown-surface';
  }

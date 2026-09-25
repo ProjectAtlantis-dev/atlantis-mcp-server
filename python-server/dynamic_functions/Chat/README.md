@@ -44,3 +44,17 @@ Server log: `python-server/runServer.log`
   per-game tool-name inventory.
 
 Both resolve through `common.home_path()`, rooted at this folder.
+
+## Simulation command center
+
+Source the ignored `Chat/.env` in the MCP launcher before starting Python. It
+exports `OPENROUTER_API_KEY`; Chat reads the process environment and never loads
+credentials through Terrain. Keep this file readable only by its owner.
+
+Call `Chat/command_center` with the Atlantis HTTPS origin from an owner session.
+It returns that session's authenticated chat link and configures the Command
+persona, human operator, camera, and chat callbacks. The `command_center` scene
+uses the normal Chat engine: the bot starts with discovery and receives callable
+schemas from live search, rather than a hardcoded simulation tool inventory.
+Commands run under the caller's authorization. Automatic tick-driven bot turns
+are not implemented; the operator responds to chat messages.

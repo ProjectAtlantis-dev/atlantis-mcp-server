@@ -1,0 +1,15 @@
+{
+  "description": "Command-center operator and a human directing the simulation demo",
+  "slots": [
+    {
+      "key": "Command",
+      "bot_sid": "commander",
+      "state": "ai"
+    },
+    {
+      "key": "Operator",
+      "bot_sid": "chad",
+      "state": "human"
+    }
+  ]
+}

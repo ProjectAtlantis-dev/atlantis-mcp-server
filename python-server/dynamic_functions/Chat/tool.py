@@ -212,6 +212,9 @@ def convert_discovery_rows(
             continue
 
         search_term = row.get('searchTerm', '')
+        # Search includes folder/index navigation rows with no callable schema.
+        if search_term.endswith('/') and not row.get('tool'):
+            continue
         if not search_term.startswith('/'):
             raise ValueError(f"Discovery row has a non-rooted path: {search_term!r}")
 
@@ -234,7 +237,7 @@ def convert_discovery_rows(
             },
         })
         tool_lookup[sanitized] = {
-            'searchTerm': '%' + search_term.lstrip('/'),
+            'searchTerm': '@' + search_term,
             'filename': row.get('filename', ''),
             'functionName': name,
         }

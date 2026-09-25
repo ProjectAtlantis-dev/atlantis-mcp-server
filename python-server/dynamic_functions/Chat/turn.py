@@ -1,9 +1,11 @@
 import atlantis
 import json
+import copy
 import os
 import time as _t
 
 from openai import OpenAI
+from mcp.shared.exceptions import McpError
 from typing import List, Dict, Any, Optional, cast
 
 from .bot import bot_roster_name, load_bot, render_bot_prompt
@@ -27,10 +29,6 @@ async def _close_streams(talk_id, think_id):
 
 
 _DISCOVERY_TOOLS = ("search",)
-
-# Each discovery call costs a full model round trip, so a bot that keeps
-# guessing synonyms stalls the reply. Close discovery after this many calls.
-_MAX_DISCOVERY_CALLS = 3
 
 
 def _openrouter_payload_path(game_key: str, sid: str) -> str:
@@ -63,19 +61,6 @@ async def openrouter_payload(sid: str) -> Dict[str, Any]:
     return payload
 
 
-def _close_discovery(
-    openai_tools: List[OpenAITool],
-    tool_lookup: Dict[str, ToolLookupInfo],
-) -> None:
-    """Withdraw search for the rest of this reply."""
-    openai_tools[:] = [
-        tool for tool in openai_tools
-        if tool["function"]["name"] not in _DISCOVERY_TOOLS
-    ]
-    for name in _DISCOVERY_TOOLS:
-        tool_lookup.pop(name, None)
-
-
 async def _execute_discovery_tool(
     tool_key: str,
     arguments: Dict[str, Any],
@@ -94,19 +79,29 @@ async def _execute_discovery_tool(
 
     results = await atlantis.client_command(f"{command} {value}")
     if not results:
-        return (
-            f"Nothing in the system provides {value!r}. This is the complete "
-            f"answer, not a hint to rephrase — do not retry with synonyms."
-        )
+        return f"No matches for {value!r}. Search one function name or topic, rather than a sentence or a list of synonyms."
     if not isinstance(results, list):
         raise TypeError(f"{command} returned {type(results).__name__}, expected a list")
 
     discovered_tools, discovered_lookup = convert_discovery_rows(results)
+    if not discovered_tools:
+        return f"No connected callable functions matched {value!r}; nothing was loaded. Search a single relevant function name or topic."
     added: List[str] = []
     for tool in discovered_tools:
         name = tool["function"]["name"]
-        if name in tool_lookup:
-            continue
+        path = discovered_lookup[name]["searchTerm"].removeprefix("@")
+        detail = await atlantis.client_command("/which " + path)
+        if not isinstance(detail, dict) or not detail.get("input_schema"):
+            raise ValueError(f"Discovery could not obtain the full schema for {path}")
+        schema = json.loads(detail["input_schema"])
+        if not isinstance(schema, dict) or schema.get("type") != "object":
+            raise ValueError(f"Invalid function input schema for {path}")
+        description = detail.get("tool_description")
+        if not isinstance(description, str) or not description.strip():
+            raise ValueError(f"Missing function description for {path}")
+        tool["function"]["description"] = f"{path}\n{description}"
+        tool["function"]["parameters"] = schema
+        openai_tools[:] = [existing for existing in openai_tools if existing["function"]["name"] != name]
         openai_tools.append(tool)
         added.append(
             f"{name}: {tool['function'].get('description', '')}".rstrip()
@@ -115,9 +110,7 @@ async def _execute_discovery_tool(
         if name not in tool_lookup:
             tool_lookup[name] = lookup
 
-    if not added:
-        return f"{tool_key} found tools for {value!r}, but they were already loaded."
-    return "Added tools to this turn:\n" + "\n".join(f"- {item}" for item in added)
+    return "Loaded current function descriptions and parameter schemas:\n" + "\n".join(f"- {item}" for item in added)
 
 
 @visible
@@ -131,8 +124,10 @@ async def execute_tool(search_term: str, arguments: Dict[str, Any] = {}) -> Any:
 
     t0 = _t.monotonic()
     await atlantis.client_command("/silent on")
-    tool_result = await atlantis.client_command(search_term, data=arguments)
-    await atlantis.client_command("/silent off")
+    try:
+        tool_result = await atlantis.client_command(search_term, data=arguments)
+    finally:
+        await atlantis.client_command("/silent off")
 
     logger.info(f"TOOL {search_term} returned in {_t.monotonic() - t0:.2f}s: {str(tool_result)[:200]}")
     await atlantis.tool_result(search_term, tool_result)
@@ -184,10 +179,21 @@ async def run_turn(
     )
     client = OpenAI(api_key=api_key, base_url=base_url)
     openai_tools, tool_lookup = convert_search_tools(tools or [])
+    discovery_enabled = "search" in tool_lookup
+    cache_key = f"chat_discovered_tools:{game_key}:{bot_sid}"
+    if discovery_enabled and game_key and atlantis.get_session_key():
+        cached = atlantis.session_shared.get(cache_key)
+        if cached:
+            for tool in copy.deepcopy(cached["tools"]):
+                name = tool["function"]["name"]
+                if name not in tool_lookup:
+                    openai_tools.append(tool)
+                    tool_lookup[name] = copy.deepcopy(cached["lookup"][name])
+    system_prompt += "\nOnly call exact function names declared in the tools supplied with this request. Names mentioned in old conversation text are not tool declarations. Use search to discover missing capabilities. Tool errors are failures, not successful actions; correct arguments using observed data and do not invent replacement tools."
+    system_prompt += "\nThe current tool list is a discovered subset, not the full inventory. If search is declared, it remains available regardless of old messages saying discovery is closed. Search for a missing requested function before claiming it is unavailable. A state/observe result is not a capabilities result; do not label one as the other. Tool declarations alone do not prove an action is runnable for a particular asset: inspect that asset's capabilities and prerequisites. Finish each requested lookup before reporting it complete."
     stream_talk_id = None
     stream_think_id = None
     max_turns = 10
-    discovery_calls = 0
     accumulated_text = ""
 
     try:
@@ -314,6 +320,15 @@ async def run_turn(
             for tc in tool_calls_accumulator.values():
                 try:
                     tool_key = tc['name']
+                    if tool_key not in tool_lookup:
+                        error_result = {"ok": False, "error": "unknown_tool", "requested": tool_key,
+                            "availableTools": list(tool_lookup),
+                            "instruction": "Nothing was executed. Call an advertised tool by its exact name; use search if the needed capability is absent."}
+                        logger.error("Model requested undeclared tool: %s", tool_key)
+                        await atlantis.client_log("Tool not executed: undeclared function " + tool_key)
+                        transcript.append({'role': 'tool', 'tool_call_id': tc['id'], 'content': json.dumps(error_result)})
+                        any_executed = True
+                        continue
                     lookup_info = tool_lookup[tool_key]
                     search_term = lookup_info['searchTerm']
                     arguments = _parse_tool_arguments(tc['arguments'], tool_key)
@@ -332,27 +347,31 @@ async def run_turn(
                             break
 
                     if tool_key in _DISCOVERY_TOOLS:
-                        discovery_calls += 1
                         tool_result = await _execute_discovery_tool(
                             tool_key,
                             arguments,
                             openai_tools,
                             tool_lookup,
                         )
-                        if discovery_calls >= _MAX_DISCOVERY_CALLS:
-                            _close_discovery(openai_tools, tool_lookup)
-                            tool_result = (
-                                f"{tool_result}\n\nTool discovery is now closed for "
-                                f"this reply. Answer with what you have."
-                            )
-                            logger.info(
-                                f"Discovery closed after {discovery_calls} calls"
-                            )
+                        if game_key and atlantis.get_session_key():
+                            discovered = [tool for tool in openai_tools if tool["function"]["name"] not in _DISCOVERY_TOOLS]
+                            atlantis.session_shared.set(cache_key, copy.deepcopy({"tools": discovered,
+                                "lookup": {tool["function"]["name"]: tool_lookup[tool["function"]["name"]] for tool in discovered}}))
                     else:
-                        tool_result = await execute_tool(
-                            search_term=search_term,
-                            arguments=arguments,
-                        )
+                        try:
+                            tool_result = await execute_tool(
+                                search_term=search_term,
+                                arguments=arguments,
+                            )
+                        except McpError as error:
+                            # Provider tool errors belong in the conversation so the
+                            # model can correct its arguments. Programming errors still raise.
+                            logger.error("MCP tool %s failed: %s", search_term, error)
+                            tool_result = {
+                                "ok": False, "tool": search_term, "error": str(error),
+                                "instruction": "Report this failure accurately. Inspect the tool schema and observed identifiers before correcting arguments. For a timeout or uncertain outcome, observe state before issuing another action; do not assume nothing happened.",
+                            }
+                            await atlantis.tool_result(search_term, tool_result)
                     transcript.append({
                         'role': 'tool',
                         'tool_call_id': tc['id'],

@@ -19,19 +19,37 @@ def catalog() -> dict:
 @visible
 def place(model_id: str, instance_key: str, x: float, y: float, z: float,
           heading_deg: float = 0) -> dict:
-    """Owner scenario-authoring: register and place a model with a bank UUID. Retry identical terms with the same instance_key. Coordinates are world-local ENU metres, not latitude/longitude."""
+    """Owner scenario-authoring: register and place a model with a bank UUID. Retry identical terms with the same instance_key. Coordinates are world-local ENU metres, not latitude/longitude.
+
+    :param model_id: Original model ID from Terrain/Placement/assets; identifies a model type, not a placed bank UUID.
+    :param instance_key: Unique key for this placed copy. Reuse only for an identical retry; a different key creates another copy and bank UUID.
+    :param x: World-local ENU easting in metres, not longitude.
+    :param y: World-local ENU northing in metres, not latitude.
+    :param z: World-local ENU vertical coordinate in metres; an absolute world position, not an offset above terrain.
+    :param heading_deg: Placement orientation in degrees using the scene heading convention; zero is north and positive angles turn clockwise.
+    """
     return infrastructure.place(model_id, {"x": x, "y": y, "z": z}, heading_deg, instance_key)
 
 
 @visible
 def inspect(asset_id: str) -> dict:
-    """Read ownership and live component positions/targets/revision. Accepted commands are not completed actions."""
+    """Read ownership and live component positions/targets/revision. Accepted commands are not completed actions.
+
+    :param asset_id: Canonical bank UUID returned by fleet or placement; never a display name or model ID.
+    """
     return infrastructure.inspect(asset_id)
 
 
 @visible
 def move(asset_id: str, x: float, y: float, z: float, heading_deg: float = 0) -> dict:
-    """Owner scenario-authoring: reposition your registered structure; component state is preserved."""
+    """Owner scenario-authoring: reposition your registered structure; component state is preserved.
+
+    :param asset_id: Canonical bank UUID returned by fleet or placement; never a display name or model ID.
+    :param x: World-local ENU easting in metres, not longitude.
+    :param y: World-local ENU northing in metres, not latitude.
+    :param z: World-local ENU vertical coordinate in metres; an absolute world position, not an offset above terrain.
+    :param heading_deg: Placement orientation in degrees using the scene heading convention; zero is north and positive angles turn clockwise.
+    """
     return infrastructure.move(asset_id, {"x": x, "y": y, "z": z}, heading_deg)
 
 
@@ -45,11 +63,23 @@ def instructions() -> dict:
 @protected("terrain_access_authorized")
 def component_command(asset_id: str, action: str, expected_revision: int,
                       subject_kind: str, subject_id: str) -> dict:
-    """Request a component action through an authorized nearby player or owned vehicle. Server rechecks bank identity, structure policy, authoritative proximity, revision and interlocks; inspect observes actual completion."""
+    """Request a component action through an authorized nearby player or owned vehicle. Server rechecks bank identity, structure policy, authoritative proximity, revision and interlocks; inspect observes actual completion.
+
+    :param asset_id: Canonical bank UUID returned by fleet or placement; never a display name or model ID.
+    :param action: Exact component action from current object functions/component instructions; door interlocks and proximity are checked again.
+    :param expected_revision: Exact revision returned by the current inspection/discovery for the component being changed. Re-inspect after a conflict.
+    :param subject_kind: Physical interaction subject kind: player or vehicle. Use an authorized nearby subject returned by object discovery.
+    :param subject_id: Exact ID of the discovered physical subject; a bank UUID for vehicle subjects. Never use the camera position as a subject.
+    """
     return infrastructure.control(asset_id, action, expected_revision, subject_kind, subject_id)
 
 
 @visible
 def configure_access(asset_id: str, interaction_radius_m: float = 5, allowed_account_ids: list = None) -> dict:
-    """Owner-only: protect the authored structure volume, set interaction range, and replace additional permitted bank accounts. The owner remains permitted. Proximity uses an authoritative player or vehicle, never a camera. Omitted accounts means owner-only."""
+    """Owner-only: protect the authored structure volume, set interaction range, and replace additional permitted bank accounts. The owner remains permitted. Proximity uses an authoritative player or vehicle, never a camera. Omitted accounts means owner-only.
+
+    :param asset_id: Canonical bank UUID returned by fleet or placement; never a display name or model ID.
+    :param interaction_radius_m: Maximum interaction distance in metres, checked against authoritative physical subject positions.
+    :param allowed_account_ids: Additional permitted bank account UUIDs. Replaces the previous list; omission or an empty list permits only the owner.
+    """
     return infrastructure.configure_access(asset_id, interaction_radius_m, [] if allowed_account_ids is None else allowed_account_ids)

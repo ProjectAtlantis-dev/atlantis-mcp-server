@@ -142,7 +142,9 @@ def describe(principal, asset_id):
                     continue
                 result['actions'].append(action(command,
                     'Terrain/Vehicles/complete_task' if command == 'complete_task' else 'Terrain/Vehicles/mission_control',
-                    'Confirm task completed' if command == 'complete_task' else command.title() + ' mission',
+                    'Confirm task completed' if command == 'complete_task' else
+                    'Retry route' if command == 'resume' and mission['status'] == 'blocked' else
+                    command.title() + ' mission',
                     bound={'mission_id': mission['id'], **({} if command == 'complete_task' else {'action': command})}))
     if asset['kind'] == 'structure':
         infrastructure_control.verified(principal, asset_id)

@@ -305,3 +305,20 @@ def load_bot(bot_sid: str) -> BotConfigT:
         apiKeyEnv=str(raw.get("apiKeyEnv", "")),
         image=str(raw.get("image", "")),
     )
+
+
+@visible
+async def show_character(game_key: str, bot_sid: str) -> dict:
+    """Show a configured AI character portrait in the caller's chat, requiring shared location and game membership."""
+    from .roster import _load_game_roster
+    rows = _load_game_roster(game_key)
+    locations = {r['location'] for r in rows if r.get('ai') is False and r.get('sid') == atlantis.get_caller() and r.get('location')}
+    row = next((r for r in rows if r.get('ai') is True and r.get('bot_sid') == bot_sid and r.get('location') in locations), None)
+    if row is None:
+        raise PermissionError('Character must share your location')
+    path = bot_image_path(bot_sid)
+    if not path:
+        raise FileNotFoundError(f'No configured portrait for {bot_sid}')
+    name = row.get('displayName') or bot_roster_name(bot_sid)
+    await atlantis.client_image(path, sid=bot_sid, who=name, location=row['location'], shell='caller')
+    return {'shown': True, 'character': name, 'location': row['location']}

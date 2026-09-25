@@ -26,7 +26,10 @@ def instructions() -> str:
 
 @visible
 def set_mode(mode: str = 'functions') -> dict:
-    """Choose functions (sensors track; only explicit intercept calls authorize engagement) or automatic (existing game rules authorize). Preserves fleet, structures and live engagements; clears pending unlaunched orders when switching to functions. No credits."""
+    """Choose functions (sensors track; only explicit intercept calls authorize engagement) or automatic (existing game rules authorize). Preserves fleet, structures and live engagements; clears pending unlaunched orders when switching to functions. No credits.
+
+    :param mode: functions requires explicit intercept calls; automatic lets existing simulation rules authorize engagements.
+    """
     if mode not in ('functions', 'automatic'):
         raise ValueError('mode must be functions or automatic')
     return _request('POST', 'defense-mode', {'mode': mode})
@@ -49,7 +52,12 @@ def tracks_table() -> list[dict]:
 
 @visible
 def intercept(target_id: str, site_id: str, layer_id: str) -> dict:
-    """Request one fictional intercept using exact target/site/layer IDs from observe. Requires a current complete track; rechecks eligibility at execution, refuses duplicate active engagements, and never queues an untracked target. accepted means launched, not success; read events/observe for outcome."""
+    """Request one fictional intercept using exact target/site/layer IDs from observe. Requires a current complete track; rechecks eligibility at execution, refuses duplicate active engagements, and never queues an untracked target. accepted means launched, not success; read events/observe for outcome.
+
+    :param target_id: Current detected synthetic track ID from defense observe/alerts or asset_status; not a vehicle bank UUID.
+    :param site_id: Fictional defense site identifier, distinct from component bank UUIDs. For existing sites, copy it from observe or test_cases.
+    :param layer_id: Exact fictional layer identifier available for the selected site and action; inspect current readiness before intercepting.
+    """
     if any(not isinstance(v, str) or not v.strip() for v in (target_id, site_id, layer_id)):
         raise ValueError('Explicit target_id, site_id and layer_id from observe are required')
     return _request('POST', 'intercept', {'targetId': target_id, 'siteId': site_id,
@@ -58,7 +66,10 @@ def intercept(target_id: str, site_id: str, layer_id: str) -> dict:
 
 @visible
 def events(after_sequence: int = 0) -> dict:
-    """Read simulation events after a cursor; retain the greatest sequence returned. Track observation is polled, not an automatic AI callback. Events report launch, miss, simulated interception and target arrival; never infer success from command acceptance."""
+    """Read simulation events after a cursor; retain the greatest sequence returned. Track observation is polled, not an automatic AI callback. Events report launch, miss, simulated interception and target arrival; never infer success from command acceptance.
+
+    :param after_sequence: Nonnegative event cursor. Zero reads from the beginning; retain the returned cursor for subsequent polls.
+    """
     if type(after_sequence) is not int or after_sequence < 0:
         raise ValueError('after_sequence must be a nonnegative integer')
     return _request('GET', f'events?after={after_sequence}')
@@ -75,14 +86,24 @@ def test_cases() -> list[dict]:
 
 @visible
 def spawn_layer_test(incoming_type: str, request_id: str, site_id: str, test_layer_id: str, heading_deg: float = 90) -> dict:
-    """Spawn a synthetic drone, cruise or ballistic label with a chosen direction of travel: heading_deg is clockwise from north, 0 north/90 east/180 south/270 west. Use test_cases for compatible IDs/types. Placement derives from game bounds; motion is a simple 120-second fixture, not realistic flight. Does not activate any layer. Same request_id/terms returns the same target; conflicting reuse rejects. Observe radar detection and explicitly call intercept separately."""
+    """Spawn a synthetic drone, cruise or ballistic label with a chosen direction of travel: heading_deg is clockwise from north, 0 north/90 east/180 south/270 west. Use test_cases for compatible IDs/types. Placement derives from game bounds; motion is a simple 120-second fixture, not realistic flight. Does not activate any layer. Same request_id/terms returns the same target; conflicting reuse rejects. Observe radar detection and explicitly call intercept separately.
+
+    :param incoming_type: Synthetic incoming label: drone, cruise or ballistic. For a layer test, select a supported type from test_cases.
+    :param request_id: Caller-chosen unique operation key. Retain it for retries of identical terms; use a new key for a new operation.
+    :param site_id: Fictional defense site identifier, distinct from component bank UUIDs. For existing sites, copy it from observe or test_cases.
+    :param test_layer_id: Layer fixture identifier from test_cases for the selected site. Selecting it does not activate interception.
+    :param heading_deg: Incoming travel direction in degrees clockwise from north: 0 north, 90 east, 180 south, 270 west.
+    """
     return _request('POST', 'test-incoming', {'incomingType': incoming_type, 'requestId': request_id,
                                           'siteId': site_id, 'testLayerId': test_layer_id, 'headingDeg': heading_deg})
 
 
 @visible
 def alerts(after_sequence: int = 0) -> dict:
-    """Read radar alerts for the AI/Lobster loop. Each alert carries event sequence, incoming type, target ID, detecting sensors, current track state and currently runnable game-layer choices. Poll using next_sequence. Only ready_for_action alerts permit an explicit intercept call; stale/engaged/lost tracks have no runnable choices. Does not activate a layer or start a background AI."""
+    """Read radar alerts for the AI/Lobster loop. Each alert carries event sequence, incoming type, target ID, detecting sensors, current track state and currently runnable game-layer choices. Poll using next_sequence. Only ready_for_action alerts permit an explicit intercept call; stale/engaged/lost tracks have no runnable choices. Does not activate a layer or start a background AI.
+
+    :param after_sequence: Nonnegative event cursor. Zero reads from the beginning; retain the returned cursor for subsequent polls.
+    """
     if type(after_sequence) is not int or after_sequence < 0:
         raise ValueError('after_sequence must be a nonnegative integer')
     events_read = events(after_sequence)['events']
@@ -109,7 +130,17 @@ def alerts(after_sequence: int = 0) -> dict:
 def spawn_incoming(incoming_type: str, request_id: str, latitude: float, longitude: float,
                    heading_deg: float = 90, approach_distance_m: float = 5000,
                    altitude_m: float = 300, speed_mps: float = 70) -> dict:
-    """Send a synthetic incoming toward picked destination coordinates. Types: drone/cruise/ballistic. Heading is travel direction clockwise from north (270 travels west). Start is approach_distance_m behind the destination, altitude_m above its verified terrain height. Simple synthetic motion, not real weapon performance. Map/object picking uses current coordinates; it does not follow a moving object. No defense layer is selected or activated. Observe radar alerts, then call intercept explicitly. Reuse request_id only with identical terms."""
+    """Send a synthetic incoming toward picked destination coordinates. Types: drone/cruise/ballistic. Heading is travel direction clockwise from north (270 travels west). Start is approach_distance_m behind the destination, altitude_m above its verified terrain height. Simple synthetic motion, not real weapon performance. Map/object picking uses current coordinates; it does not follow a moving object. No defense layer is selected or activated. Observe radar alerts, then call intercept explicitly. Reuse request_id only with identical terms.
+
+    :param incoming_type: Synthetic incoming label: drone, cruise or ballistic. For a layer test, select a supported type from test_cases.
+    :param request_id: Caller-chosen unique operation key. Retain it for retries of identical terms; use a new key for a new operation.
+    :param latitude: Destination WGS84 latitude in decimal degrees.
+    :param longitude: Destination WGS84 longitude in decimal degrees.
+    :param heading_deg: Incoming travel direction in degrees clockwise from north: 0 north, 90 east, 180 south, 270 west.
+    :param approach_distance_m: Distance in metres behind the destination at which the synthetic incoming starts along its travel heading.
+    :param altitude_m: Synthetic incoming altitude in metres above verified destination terrain, not an absolute terrain-datum elevation.
+    :param speed_mps: Synthetic incoming travel speed in metres per second; simulation tuning, not a manufacturer specification.
+    """
     from dynamic_functions.Terrain.Defense import gateway
     return gateway.spawn(current_principal('simulation'),incoming_type=incoming_type,request_id=request_id,
                          latitude=latitude,longitude=longitude,heading_deg=heading_deg,
@@ -118,13 +149,20 @@ def spawn_incoming(incoming_type: str, request_id: str, latitude: float, longitu
 
 @visible
 def asset_status(asset_id: str) -> dict:
-    """Read an owned defense component's site, role, sensors, layers and currently runnable synthetic targets. The bank UUID distinguishes copies. Standalone display models reject."""
+    """Read an owned defense component's site, role, sensors, layers and currently runnable synthetic targets. The bank UUID distinguishes copies. Standalone display models reject.
+
+    :param asset_id: Canonical bank UUID returned by fleet or placement; never a display name or model ID.
+    """
     from dynamic_functions.Terrain.Defense import gateway
     return gateway.asset_status(current_principal('simulation'), asset_id)
 
 
 @visible
 def intercept_asset(asset_id: str, target_id: str) -> dict:
-    """Run the existing fictional interception through this specific bank-owned launcher. Read asset_status first. Requires a currently tracked eligible synthetic target; rechecks the site/layer on invocation. Acceptance means launched, not success."""
+    """Run the existing fictional interception through this specific bank-owned launcher. Read asset_status first. Requires a currently tracked eligible synthetic target; rechecks the site/layer on invocation. Acceptance means launched, not success.
+
+    :param asset_id: Canonical bank UUID returned by fleet or placement; never a display name or model ID.
+    :param target_id: Current detected synthetic track ID from defense observe/alerts or asset_status; not a vehicle bank UUID.
+    """
     from dynamic_functions.Terrain.Defense import gateway
     return gateway.intercept_asset(current_principal('simulation'), asset_id, target_id)

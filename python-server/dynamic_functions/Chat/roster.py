@@ -363,7 +363,10 @@ def _set_roster_slot_human(target: Dict[str, Any], display_name: str) -> None:
     display_name = str(display_name or "").strip()
     if not display_name:
         raise ValueError("display_name required")
+    # Rebinding an existing human changes identity, not their world position.
+    position = {key: target.get(key) for key in ("location", "spawned_at")} if target.get("ai") is False else {}
     _reset_roster_slot(target)
+    target.update(position)
     target["session_key"] = session_key
     target["sid"] = atlantis.get_caller() or None
     target["user_game_id"] = atlantis.get_user_game_id()

@@ -31,7 +31,7 @@ def get_default_lobster_tools() -> List[Tool]:
         ),
         Tool(
             name="command",
-            description="Send an Atlantis shell command or tool call (e.g. '/help ls', '@myFunction()'). A leading '/' is added unless the text starts with /, \\, %, @, or ~. Use chat for conversation.",
+            description="Send text to Atlantis as a command. Unlike chat, adds a leading / unless the text starts with /, \\, %, @, or ~.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -45,7 +45,7 @@ def get_default_lobster_tools() -> List[Tool]:
         ),
         Tool(
             name="chat",
-            description="Send a chat message to Atlantis. Use this for conversational messages, not commands. You can put non-verbal cues in parenthesis e.g. 'Nice to meet you (holds out a hand)'",
+            description="Send text to Atlantis as chat. Unlike command, sends the text unchanged without adding a prefix.",
             inputSchema={
                 "type": "object",
                 "properties": {

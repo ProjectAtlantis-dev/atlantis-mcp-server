@@ -346,6 +346,7 @@ def _transcript_for_bot(
             continue
         if speaker_sid in bot_names:
             message["name"] = bot_names[speaker_sid]
+            message["role"] = "assistant" if speaker_sid == bot_sid else "user"
         scrubbed = _scrub_value(message, unknown_names)
         message.clear()
         message.update(scrubbed)

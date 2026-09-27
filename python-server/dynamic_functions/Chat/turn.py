@@ -131,8 +131,10 @@ async def execute_tool(search_term: str, arguments: Dict[str, Any] = {}) -> Any:
 
     t0 = _t.monotonic()
     await atlantis.client_command("/silent on")
-    tool_result = await atlantis.client_command(search_term, data=arguments)
-    await atlantis.client_command("/silent off")
+    try:
+        tool_result = await atlantis.client_command(search_term, data=arguments)
+    finally:
+        await atlantis.client_command("/silent off")
 
     logger.info(f"TOOL {search_term} returned in {_t.monotonic() - t0:.2f}s: {str(tool_result)[:200]}")
     await atlantis.tool_result(search_term, tool_result)
@@ -193,6 +195,9 @@ async def run_turn(
     try:
         for turn_count in range(1, max_turns + 1):
             logger.info(f"=== TURN {turn_count}/{max_turns} === session_key={atlantis.get_session_key()}")
+            # The last round must answer in text: tool results requested here
+            # would never be read back by the model.
+            final_round = turn_count == max_turns
 
             api_messages: List[Dict[str, Any]] = [
                 {'role': 'system', 'content': system_prompt}
@@ -232,7 +237,7 @@ async def run_turn(
                 model=model,
                 messages=cast(Any, api_messages),
                 tools=openai_tools if openai_tools else None,  # type: ignore[arg-type]
-                tool_choice=cast(Any, "auto" if openai_tools else None),
+                tool_choice=cast(Any, ("none" if final_round else "auto") if openai_tools else None),
                 stream=True,
                 max_tokens=16000,
                 extra_body={"reasoning": {"effort": "low"}},
@@ -293,6 +298,11 @@ async def run_turn(
             # Stop when no tools are requested
             if not tool_calls_accumulator:
                 break
+            if final_round:
+                raise RuntimeError(
+                    f"{model} requested tools on the final round despite tool_choice='none': "
+                    f"{[tc['name'] for tc in tool_calls_accumulator.values()]}"
+                )
 
             # Close streams before tools
             await _close_streams(stream_talk_id, stream_think_id)
@@ -314,6 +324,23 @@ async def run_turn(
             for tc in tool_calls_accumulator.values():
                 try:
                     tool_key = tc['name']
+                    if tool_key not in tool_lookup:
+                        # Includes search after discovery closes mid-batch.
+                        logger.error(f"Model requested undeclared tool: {tool_key}")
+                        await atlantis.client_log(f"Tool not executed: undeclared function {tool_key}")
+                        transcript.append({
+                            'role': 'tool',
+                            'tool_call_id': tc['id'],
+                            'content': json.dumps({
+                                "ok": False,
+                                "error": "unknown_tool",
+                                "requested": tool_key,
+                                "availableTools": list(tool_lookup),
+                                "instruction": "Nothing was executed. Call an advertised tool by its exact name.",
+                            }),
+                        })
+                        any_executed = True
+                        continue
                     lookup_info = tool_lookup[tool_key]
                     search_term = lookup_info['searchTerm']
                     arguments = _parse_tool_arguments(tc['arguments'], tool_key)

@@ -11,7 +11,7 @@ import uuid
 from typing import Any, Dict, Optional
 from urllib.parse import urlencode
 
-from .bot import _bot_pick_dialog, bot_image_data, bot_roster_name
+from .bot import _joined_bot_sids, bot_image_data
 from dynamic_functions.Home.modal import (
     MODAL_CONTROL_SIZE,
     MODAL_CONTROL_WEIGHT,
@@ -67,6 +67,8 @@ async def _warn_unfilled_roster() -> None:
 async def _roster_edit_modal() -> Optional[Dict[str, str]]:
 
     roster = await atlantis.client_command("@roster_list")
+    game_key = await game_find_current()
+    joined_bot_sids = set(_joined_bot_sids(game_key))
     heading = "Edit Roster"
 
     uid = uuid.uuid4().hex[:8]
@@ -85,9 +87,9 @@ async def _roster_edit_modal() -> Optional[Dict[str, str]]:
         bot_sid = str(row.get("bot_sid") or "").strip()
         display_name = _roster_row_label(
             row,
-            available_label=(bot_roster_name(bot_sid) if bot_sid else slot_key),
+            available_label=slot_key,
         )
-        bot_image = bot_image_data(bot_sid) if bot_sid else ""
+        bot_image = bot_image_data(game_key, bot_sid) if bot_sid in joined_bot_sids else ""
         bot_img_html = (
             f'<img class="roster-bot-thumb" src="{html_lib.escape(bot_image, quote=True)}" alt="{html_lib.escape(bot_sid, quote=True)}">'
             if bot_image else ""
@@ -662,23 +664,14 @@ async def _roster_edit(
             display_name = str(modal_result.get("display_name") or "").strip()
             if not display_name:
                 continue
-        bot_sid = None
-        if state == "ai":
-            bot_sid = await _bot_pick_dialog(
-                title="Bot",
-                heading="Select bot",
-                current_bot_sid=str(modal_result.get("bot_sid") or ""),
-            )
-            if not bot_sid:
-                return False
-
+        # Choosing *which* bot fills an AI slot is not Chat's call: the bot
+        # arrives with its own config through roster_join_bot.
         await atlantis.client_command(
             "@roster_set_slot",
             {
                 "slot_key": slot_key,
                 "state": state,
                 "display_name": display_name,
-                "bot_sid": bot_sid,
             },
         )
 

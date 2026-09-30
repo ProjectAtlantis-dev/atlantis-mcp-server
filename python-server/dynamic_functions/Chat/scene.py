@@ -2,7 +2,8 @@
 
 A scene is a named roster of slots with a short description. Its identity is
 the filename: Game/Scenes/<name>.json, the same way a bot's identity is its
-folder name.
+folder name. Each slot declares its defaultLocation — where whoever fills the
+slot enters the world.
 """
 
 import atlantis
@@ -11,8 +12,8 @@ import os
 import re
 from typing import Any, Dict, List, Optional, cast
 
-from .common import home_path, _read_json
-from .bot import load_bot
+from .common import home_path, _read_json, _require_str
+from .location import _require_leaf, load_location
 from dynamic_functions.Home.modal import modal_menu
 
 logger = logging.getLogger("dynamic_function")
@@ -57,6 +58,17 @@ def _load_scene_config(scene: str) -> Dict[str, Any]:
 def _load_scene(scene: str) -> List[Dict[str, str]]:
     """Load a scene's slots."""
     return cast(List[Dict[str, str]], _load_scene_config(scene)["slots"])
+
+
+def scene_slot_default_location(scene: str, slot_key: str) -> str:
+    """Return the standable defaultLocation a scene declares for one slot."""
+    slot = next((row for row in _load_scene(scene) if row.get("key") == slot_key), None)
+    if slot is None:
+        raise ValueError(f"Scene {scene!r} has no slot {slot_key!r}")
+    location = _require_str(slot, "defaultLocation", f"Scene {scene!r} slot {slot_key!r}")
+    load_location(location)
+    _require_leaf(location)
+    return location
 
 
 def _scene_names() -> List[str]:
@@ -130,13 +142,7 @@ async def scene_pick() -> Optional[str]:
 
 @public
 async def scene_show(scene: str) -> List[Dict[str, Any]]:
-    """Show a scene's slots exactly as scene-definition rows.
-
-    Resolving the sid doubles as foreign-key validation: an unknown bot_sid
-    raises rather than rendering a dangling row.
-    """
+    """Show a scene's slots exactly as scene-definition rows."""
     rows = _load_scene(scene)
-    for row in rows:
-        load_bot(row["bot_sid"])
     await atlantis.client_data(scene, rows)
     return rows

@@ -4,12 +4,14 @@
     {
       "key": "Kitty",
       "bot_sid": "kitty",
-      "state": "ai"
+      "state": "ai",
+      "defaultLocation": "Lobby"
     },
     {
       "key": "Chad",
       "bot_sid": "chad",
-      "state": "human"
+      "state": "human",
+      "defaultLocation": "Lobby"
     }
   ]
 }

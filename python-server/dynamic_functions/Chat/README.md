@@ -38,7 +38,10 @@ Server log: `python-server/runServer.log`
 
 ## Layout
 
-- `Game/` holds static content: bots, locations, and scenes. Tracked in git.
+- `Game/` holds static content: locations and scenes. Tracked in git.
+- Bots live in the sibling `Bot/` app, possibly on another machine. Chat
+  knows a bot only once it joins via `roster_join_bot`, which caches the full
+  bot config at `Data/games/<game_key>/bots/<sid>.json`.
 - `Data/` holds live per-game state, keyed by `game_key`. Not tracked.
 - `Data/games/<game_key>/tools/<bot_sid>.json` is that bot's authoritative
   per-game tool-name inventory.

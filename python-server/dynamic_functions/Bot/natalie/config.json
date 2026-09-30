@@ -1,6 +1,5 @@
 {
-  "displayName": "Kitty",
-  "defaultLocation": "Lobby",
+  "displayName": "Natalie",
   "provider": "openrouter",
   "model": "z-ai/glm-5",
   "baseUrl": "https://openrouter.ai/api/v1",

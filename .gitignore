@@ -40,7 +40,7 @@ yarn-error.log
 
 *.OLD
 # Dynamic functions are user/scaffolded code by default. The repository's Home,
-# Chat, and Terrain apps are tracked; Demo is scaffolded on first run from
+# Chat, Bot, and Terrain apps are tracked; Demo is scaffolded on first run from
 # python-server/state.py.
 python-server/dynamic_functions/*
 !python-server/dynamic_functions/Home/
@@ -54,13 +54,18 @@ python-server/dynamic_functions/Chat/**/__pycache__/
 python-server/dynamic_functions/Chat/**/*.py[cod]
 python-server/dynamic_functions/Chat/api_payload.json
 python-server/dynamic_functions/Chat/**/*_thumb.jpg
+!python-server/dynamic_functions/Bot/
+!python-server/dynamic_functions/Bot/**
+python-server/dynamic_functions/Bot/**/__pycache__/
+python-server/dynamic_functions/Bot/**/*.py[cod]
+python-server/dynamic_functions/Bot/**/*_thumb.jpg
 !python-server/dynamic_functions/Terrain/
 !python-server/dynamic_functions/Terrain/**
 python-server/dynamic_functions/Terrain/**/__pycache__/
 python-server/dynamic_functions/Terrain/**/*.py[cod]
 python-server/dynamic_functions/Terrain/Coastline/blocks/*.gpkg
 python-server/dynamic_functions/Terrain/Coastline/blocks/*.part
-# Chat/Game holds static content (bots, locations, scenes) and is tracked.
+# Chat/Game holds static content (locations, scenes) and is tracked.
 # Chat/Data holds live per-game state and is not.
 python-server/dynamic_functions/Chat/Data/
 
@@ -84,12 +89,13 @@ log/
 python-server/**/*.json
 !python-server/pyrightconfig.json
 python-server/**/*.log
-# Chat/Game content is config-as-JSON (bot/location config.json, Scenes/*.json).
-# Must come after the blanket json rule above - last matching rule wins.
+# Chat/Game content is config-as-JSON (location config.json, Scenes/*.json);
+# Bot/<sid>/ holds bot config.json. Must come after the blanket json rule
+# above - last matching rule wins.
 !python-server/dynamic_functions/Chat/Game/**/*.json
+!python-server/dynamic_functions/Bot/**/*.json
 
 
 python-server/dynamic_functions copy 2/
 python-server/dynamic_functions copy/
-python-server/dynamic_functions/Chat/Game/Bots/.DS_Store
 python-server/dynamic_functions/Chat/.DS_Store

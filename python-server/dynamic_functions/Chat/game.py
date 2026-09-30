@@ -405,8 +405,8 @@ async def _game_set_state(game_key: str, state: str) -> dict:
     return {"game_key": game_key, "state": state_key}
 
 
-async def _spawn_unspawned_slots(game_key: str, *, ai: bool) -> List[str]:
-    """Put every not-yet-placed slot of one kind at its character's entry location.
+async def _spawn_unspawned_humans(game_key: str) -> List[str]:
+    """Put every not-yet-placed human slot at its scene defaultLocation.
 
     A slot with no location has nowhere to be seen, talked to, or ticked, so a
     running game full of unplaced slots is an empty building. Slots already in
@@ -415,25 +415,32 @@ async def _spawn_unspawned_slots(game_key: str, *, ai: bool) -> List[str]:
     Imported inside the function: roster imports this module, so a top-level
     import would close the cycle.
     """
-    from .bot import bot_entry_location
     from .roster import _load_game_roster, roster_spawn
+    from .scene import scene_slot_default_location
+
+    scene = _game_roster_scene(_game_read(game_key))
+    if not scene:
+        raise RuntimeError(f"Game {game_key!r} has no roster scene")
 
     spawned: List[str] = []
     for row in _load_game_roster(game_key):
-        if row.get("ai") is not ai:
+        if row.get("ai") is not False:
             continue
         if row.get("location") and row.get("spawned_at"):
             continue
         slot_key = str(row.get("key") or "").strip()
-        bot_sid = str(row.get("bot_sid") or "").strip()
-        await roster_spawn(game_key, slot_key, bot_entry_location(bot_sid))
+        await roster_spawn(game_key, slot_key, scene_slot_default_location(scene, slot_key))
         spawned.append(slot_key)
     return spawned
 
 
 @public
 async def game_start(game_key: str) -> dict:
-    """Set a game state to running, spawning anyone not already in the world."""
+    """Set a game state to running, spawning humans not already in the world.
+
+    Bots are not spawned here: a bot enters when whatever adds it calls
+    roster_join_bot with its config.
+    """
     result = await _game_set_state(game_key, GAME_STATE_RUNNING)
 
     # Wipe the setup chatter, then undo the dimmed greyscale backdrop
@@ -443,15 +450,11 @@ async def game_start(game_key: str) -> dict:
     await atlantis.client_command("/terminal brightness 1")
     await atlantis.client_command("/terminal desaturate 0")
 
-    # Humans first: the player is already standing in the room, so each bot
-    # walking in is an arrival they witness rather than scenery that was always
-    # there. Kitty entering the Lobby is the first thing that happens in-game.
-    humans = await _spawn_unspawned_slots(game_key, ai=False)
+    # The player is standing in the room first, so each bot that later joins
+    # walking in is an arrival they witness rather than scenery.
+    humans = await _spawn_unspawned_humans(game_key)
     if humans:
         await atlantis.client_log(f"spawned humans on start: {', '.join(humans)}")
-    bots = await _spawn_unspawned_slots(game_key, ai=True)
-    if bots:
-        await atlantis.client_log(f"spawned bots on start: {', '.join(bots)}")
     # Also covers resuming an already-positioned roster created before sighting
     # tracking existed; movement handles all ordinary first encounters.
     from .roster import _show_kitty_first_sighting

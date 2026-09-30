@@ -5,13 +5,13 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from .bot import bot_image_path, bot_roster_name, load_bot
+from .bot import BotConfigT, bot_image_file, cache_bot, validate_bot_config
 from .bot_tool import _initialize_bot_tool_files
 from .common import _read_json, _write_json
-from .game import require_membership
+from .game import _game_read, _game_roster_scene, require_membership
 from .location import _connects_to, _require_leaf, load_location
 from dynamic_functions.Home.modal import modal_string
-from .scene import _load_scene, _scene_name, _scene_names
+from .scene import _load_scene, _scene_name, _scene_names, scene_slot_default_location
 
 
 # A slot nobody has taken is a role that is open, not a thing that is broken:
@@ -91,7 +91,7 @@ def _scene_roster_rows(scene: str) -> List[Dict[str, Any]]:
         if not bot_sid:
             raise ValueError(f"Scene {scene!r} row {index} is missing bot_sid")
 
-        load_bot(bot_sid)
+        scene_slot_default_location(scene, key)
         rows.append({
             "key": key,
             "bot_sid": bot_sid,
@@ -108,10 +108,10 @@ def _scene_roster_rows(scene: str) -> List[Dict[str, Any]]:
 
 
 def _apply_scene_human_defaults(rows: List[Dict[str, Any]]) -> None:
-    """Name the scene's human slots after their role, and hand over the first.
+    """Name the scene's human slots after their slot, and hand over the first.
 
     The player is stepping into a character, so the slot keeps that character's
-    name — a human playing the `chad` slot is "Chad", not the caller's sid. Only
+    name — a human playing the `Chad` slot is "Chad", not the caller's sid. Only
     the creator is here when the roster is built, so they take the first such
     slot outright; any further human slots stay unclaimed under the same
     role-derived name until someone binds and renames them.
@@ -120,7 +120,7 @@ def _apply_scene_human_defaults(rows: List[Dict[str, Any]]) -> None:
     for row in rows:
         if row.get("ai") is not False:
             continue
-        name = bot_roster_name(str(row.get("bot_sid") or "").strip())
+        name = str(row["key"])
         if claimed:
             row["displayName"] = name
             continue
@@ -225,9 +225,7 @@ async def _show_kitty_first_sighting(
     if human_sid in seen_by:
         return False
 
-    image_path = bot_image_path(KITTY_BOT_SID)
-    if not image_path:
-        raise FileNotFoundError(f"Kitty portrait is not configured or is missing")
+    image_path = bot_image_file(game_key, KITTY_BOT_SID)
 
     location = str(kitty_row.get("location") or "")
     await atlantis.client_image(
@@ -269,9 +267,7 @@ def _roster_row_name(row: Dict[str, Any], state: str) -> str:
     if state == STATE_AVAILABLE:
         return ""
     if state == STATE_AI:
-        bot_sid = str(row.get("bot_sid") or "").strip()
-        if bot_sid:
-            return str(row.get("displayName") or bot_roster_name(bot_sid) or bot_sid)
+        return str(row.get("displayName") or row.get("bot_sid") or "")
     return str(row.get("displayName") or row.get("sid") or row.get("bot_sid") or "")
 
 
@@ -348,8 +344,6 @@ def _set_roster_slot_available(target: Dict[str, Any]) -> None:
 
 def _set_roster_slot_ai(target: Dict[str, Any], bot_sid: Optional[str] = None) -> None:
     bot_sid = str(bot_sid or "").strip()
-    if bot_sid:
-        load_bot(bot_sid)
     _reset_roster_slot(target)
     target["ai"] = True
     if bot_sid:
@@ -438,6 +432,44 @@ async def roster_create(game_key: str, scene: str) -> List[Dict[str, Any]]:
 
 
 @public
+async def roster_join_bot(game_key: str, slot_key: str, bot: BotConfigT) -> Dict[str, Any]:
+    """Add a bot to an AI slot and spawn it at the slot's defaultLocation.
+
+    Chat knows nothing about a bot until this call, so the caller supplies the
+    whole BotConfigT; the game caches it and reads only that from here on.
+    """
+    bot = validate_bot_config(bot)
+    slot_key = str(slot_key or "").strip()
+    if not slot_key:
+        raise ValueError("slot_key required")
+
+    rows = _load_game_roster(game_key)
+    target = next((row for row in rows if row.get("key") == slot_key), None)
+    if target is None:
+        raise ValueError(f"Unknown roster slot: {slot_key!r}")
+    if target.get("ai") is not True:
+        raise ValueError(f"Roster slot {slot_key!r} is not an AI slot")
+    if target.get("location"):
+        raise RuntimeError(f"Roster slot {slot_key!r} is already in the world")
+
+    scene = _game_roster_scene(_game_read(game_key))
+    if not scene:
+        raise RuntimeError(f"Game {game_key!r} has no roster scene")
+    location = scene_slot_default_location(scene, slot_key)
+
+    cache_bot(game_key, bot)
+    target["bot_sid"] = bot["sid"]
+    target["displayName"] = bot["displayName"]
+    _number_duplicate_display_names(rows)
+    _write_game_roster(game_key, rows)
+    _initialize_bot_tool_files(game_key, rows)
+    await atlantis.client_log(
+        f"roster_join_bot game_key: {game_key!r} slot_key: {slot_key!r} bot_sid: {bot['sid']!r}"
+    )
+    return await _roster_move(game_key, slot_key, location, reason="spawn")
+
+
+@public
 async def roster_bind(game_key: str, slot_key: str) -> Dict[str, Any]:
     """Bind the caller's Atlantis session to a slot in this game's roster."""
     session_key = atlantis.get_session_key()
@@ -468,11 +500,7 @@ async def roster_bind(game_key: str, slot_key: str) -> Dict[str, Any]:
         "Enter name for your character",
         title="Roster - Human",
         submit_label="Join",
-        initial_value=(
-            target.get("displayName")
-            or bot_roster_name(str(target.get("bot_sid") or "").strip())
-            or slot_key
-        ),
+        initial_value=target.get("displayName") or slot_key,
     )
     if display_name is None:
         return {"cancelled": True, "key": slot_key}

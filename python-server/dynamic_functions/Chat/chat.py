@@ -1,5 +1,11 @@
 """Chat — transcript fetching, participant analysis, and the chat entry point."""
 
+# TODO(Bot split, in progress): bots are moving out of Chat/Game/Bots into a
+# top-level Bot app that may run on a different machine, so Chat must reach it
+# via tool calls, never imports. Bot holds static bot info and (later) manages
+# bot tool lists. This machine stays game master and runs the LLM turn. The game
+# owns locations: legal locations and entry locations belong to roles, not bots.
+
 import atlantis
 import json
 import logging

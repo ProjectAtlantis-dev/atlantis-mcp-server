@@ -1,6 +1,5 @@
 {
-  "displayName": "Lars",
-  "defaultLocation": "Hallway",
+  "displayName": "Sven",
   "provider": "openrouter",
   "model": "z-ai/glm-5",
   "baseUrl": "https://openrouter.ai/api/v1",

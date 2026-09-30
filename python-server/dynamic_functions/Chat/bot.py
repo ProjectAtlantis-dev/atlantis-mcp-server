@@ -1,109 +1,126 @@
 """Bot tools
 
-A bot is the canonical character/persona/engine unit. Its primary key is the
-folder name `sid` under Game/Bots/<sid>/. Prompt, image, default location, and
-model settings all live on the bot.
+A bot is the canonical character/persona/engine unit, keyed by `sid`. Chat
+knows nothing about a bot until it joins a game: whatever adds the bot hands
+over its full BotConfigT (prompt and image data URI included), and the game
+caches it at Data/games/<game_key>/bots/<sid>.json. Everything in Chat reads
+that cache — never the Bot app's files. Where a bot enters the world belongs
+to the scene slot it fills, not the bot.
 """
 
 import atlantis
-import json
+import base64
 import logging
 import os
 import re
-from datetime import datetime
-from typing import Any, Dict, List, Mapping, Optional, TypedDict
+from typing import Any, Dict, List, Mapping, TypedDict
 
-from .common import _ensure_thumb, _image_data_uri, home_path, _require_str
-from .location import _leaf_location_keys
-from dynamic_functions.Home.modal import modal_menu
+from .common import _read_json, _write_json, _require_str
+from .game import require_membership
 
 logger = logging.getLogger("dynamic_function")
 
 
 class BotConfigT(TypedDict):
-    """A bot's config.json, normalized into a guaranteed-populated record.
+    """A bot as handed to a game when it joins, and as the game caches it.
 
-    Core fields (displayName, defaultLocation, provider, model) are required and
-    validated at load; the rest carry typed empty-string defaults.
+    Core fields (sid, displayName, provider, model, prompt) are required and
+    validated at the boundary; the rest carry typed empty-string defaults.
+    `prompt` is the raw template ({{<sid>}} placeholders unresolved); `image` is
+    an image data URI.
     """
     sid: str
     displayName: str
-    defaultLocation: str
     provider: str
     model: str
     baseUrl: str
     apiKeyEnv: str
+    prompt: str
     image: str
 
 
-def _bots_dir() -> str:
-    return home_path("Game", "Bots")
+_BOT_SID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+_BOTS_DIRNAME = "bots"
 
 
-def _load_bot_json(bot_sid: str) -> dict:
-    """Read a bot config."""
-    config_path = os.path.join(_bots_dir(), bot_sid, "config.json")
-    if os.path.isfile(config_path):
-        with open(config_path) as f:
-            return json.load(f)
-    return {}
+def validate_bot_config(raw: Any) -> BotConfigT:
+    """The single boundary where a loose bot dict becomes a known shape."""
+    if not isinstance(raw, dict):
+        raise TypeError(f"Bot config must be an object, got {type(raw).__name__}")
+    sid = _require_str(raw, "sid", "Bot config")
+    if not _BOT_SID_RE.fullmatch(sid):
+        raise ValueError(f"Invalid bot sid: {sid!r}")
+    label = f"Bot {sid!r} config"
+    return BotConfigT(
+        sid=sid,
+        displayName=_require_str(raw, "displayName", label),
+        provider=_require_str(raw, "provider", label),
+        model=_require_str(raw, "model", label),
+        baseUrl=str(raw.get("baseUrl", "")),
+        apiKeyEnv=str(raw.get("apiKeyEnv", "")),
+        prompt=_require_str(raw, "prompt", label),
+        image=str(raw.get("image", "")),
+    )
 
 
-def _load_bot_prompt(bot_sid: str) -> str:
-    """Read a bot prompt."""
-    prompt_path = os.path.join(_bots_dir(), bot_sid, "prompt.md")
-    if os.path.isfile(prompt_path):
-        with open(prompt_path, "r", encoding="utf-8") as f:
-            return f.read().strip()
-    return ""
+def _bots_dir(game_key: str) -> str:
+    return os.path.join(require_membership(game_key), _BOTS_DIRNAME)
+
+
+def _bot_cache_path(game_key: str, bot_sid: str) -> str:
+    if not _BOT_SID_RE.fullmatch(bot_sid):
+        raise ValueError(f"Invalid bot sid: {bot_sid!r}")
+    return os.path.join(_bots_dir(game_key), f"{bot_sid}.json")
+
+
+def cache_bot(game_key: str, bot: BotConfigT) -> None:
+    """Store a joining bot's config in the game's cache."""
+    _write_json(_bot_cache_path(game_key, bot["sid"]), bot)
+
+
+def load_bot(game_key: str, bot_sid: str) -> BotConfigT:
+    """Load a joined bot from the game's cache; raises if it never joined."""
+    raw = _read_json(_bot_cache_path(game_key, bot_sid))
+    if raw is None:
+        raise ValueError(f"Bot {bot_sid!r} has not joined game {game_key!r}")
+    bot = validate_bot_config(raw)
+    if bot["sid"] != bot_sid:
+        raise ValueError(f"Cached bot {bot_sid!r} has mismatched sid {bot['sid']!r}")
+    return bot
+
+
+def _joined_bot_sids(game_key: str) -> List[str]:
+    bots_dir = _bots_dir(game_key)
+    if not os.path.isdir(bots_dir):
+        return []
+    return sorted(
+        entry[: -len(".json")]
+        for entry in os.listdir(bots_dir)
+        if entry.endswith(".json") and not entry.startswith(".")
+    )
 
 
 _PROMPT_BOT_RE = re.compile(r"\{\{\s*(?P<sid>[A-Za-z0-9_.-]+)\s*\}\}")
 _PROMPT_ANY_PLACEHOLDER_RE = re.compile(r"\{\{[^{}]+\}\}")
 
 
-def _normalize_roster_names(roster_names: Optional[Mapping[str, str]] = None) -> Dict[str, str]:
-    """Normalize a finalized roster mapping of bot sid -> in-game display name."""
-    if not roster_names:
-        return {}
-
-    names: Dict[str, str] = {}
-    for raw_sid, raw_name in roster_names.items():
-        sid = str(raw_sid).strip()
-        name = str(raw_name).strip()
-        if not sid:
-            raise ValueError("Roster contains an empty bot sid")
-        if not name:
-            raise ValueError(f"Roster name for bot {sid!r} is empty")
-        _validate_bot(sid)
-        names[sid] = name
-    return names
-
-
-def bot_roster_name(bot_sid: str, roster_names: Optional[Mapping[str, str]] = None) -> str:
-    """Return the finalized in-game name for a bot sid."""
-    _validate_bot(bot_sid)
-    names = _normalize_roster_names(roster_names)
-    if bot_sid in names:
-        return names[bot_sid]
-    raw = _load_bot_json(bot_sid)
-    default_name = str(raw.get("displayName", bot_sid) or bot_sid).strip()
-    return default_name or bot_sid
-
-
-def render_bot_prompt(bot_sid: str, roster_names: Optional[Mapping[str, str]] = None) -> str:
-    """Render Game/Bots/<sid>/prompt.md with finalized roster names.
+def render_bot_prompt(game_key: str, bot_sid: str, roster_names: Mapping[str, str]) -> str:
+    """Render a joined bot's prompt with this game's roster names.
 
     Supported placeholders:
-    - {{<sid>}} for any bot in the roster, including the current bot
+    - {{<sid>}} for any bot sid named in `roster_names`, including the current bot
     """
-    _validate_bot(bot_sid)
-    names = _normalize_roster_names(roster_names)
-    template = _load_bot_prompt(bot_sid)
+    template = load_bot(game_key, bot_sid)["prompt"]
 
     def replace_bot(match: re.Match[str]) -> str:
         referenced_sid = match.group("sid")
-        return bot_roster_name(referenced_sid, names)
+        name = str(roster_names.get(referenced_sid) or "").strip()
+        if not name:
+            raise ValueError(
+                f"Prompt for bot {bot_sid!r} references {{{{{referenced_sid}}}}}, "
+                f"which has no name in game {game_key!r}"
+            )
+        return name
 
     rendered = _PROMPT_BOT_RE.sub(replace_bot, template)
     unresolved = _PROMPT_ANY_PLACEHOLDER_RE.search(rendered)
@@ -114,194 +131,68 @@ def render_bot_prompt(bot_sid: str, roster_names: Optional[Mapping[str, str]] = 
     return rendered
 
 
-def _validate_default_location(bot_sid: str, location: str) -> None:
-    """Validate a bot defaultLocation against standable location keys."""
-    if not location:
-        return
-    valid_locations = set(_leaf_location_keys())
-    if location not in valid_locations:
-        valid = ", ".join(sorted(valid_locations)) or "none"
-        raise ValueError(
-            f"Bot {bot_sid!r} has invalid defaultLocation {location!r}. "
-            f"Expected one of: {valid}"
-        )
+_IMAGE_SIGNATURES = (
+    (b"\x89PNG\r\n\x1a\n", "png"),
+    (b"\xff\xd8\xff", "jpeg"),
+    (b"GIF8", "gif"),
+    (b"RIFF", "webp"),
+)
 
 
-def bot_thumb(bot_sid: str) -> str:
-    """Return a thumbnail path for a bot portrait, if one exists."""
-    image_path = bot_image_path(bot_sid)
-    return _ensure_thumb(image_path) if image_path else ""
+def _image_kind(data: bytes) -> str:
+    for signature, kind in _IMAGE_SIGNATURES:
+        if data.startswith(signature):
+            return kind
+    raise ValueError("Bot image is not a recognized PNG, JPEG, GIF, or WebP")
 
 
-def bot_image_path(bot_sid: str) -> str:
-    """Return the full-size configured portrait path for a bot, if present."""
-    _validate_bot(bot_sid)
-    bot_data = _load_bot_json(bot_sid)
-    image_file = str(bot_data.get("image") or "").strip()
-    if not image_file:
-        return ""
-    image_path = os.path.join(_bots_dir(), bot_sid, image_file)
-    if not os.path.isfile(image_path):
-        return ""
-    return image_path
+def bot_image_data(game_key: str, bot_sid: str) -> str:
+    """Return a joined bot's portrait as a data URI, or "" if it has none."""
+    return load_bot(game_key, bot_sid)["image"]
 
 
-def bot_image_data(bot_sid: str) -> str:
-    """Return a data URI for a bot portrait thumbnail, if one exists."""
-    return _image_data_uri(bot_thumb(bot_sid))
+def bot_image_file(game_key: str, bot_sid: str) -> str:
+    """Decode a joined bot's portrait next to its cache entry and return the path.
+
+    Raises if the bot has no image — callers that need a file need a picture.
+    """
+    image = load_bot(game_key, bot_sid)["image"]
+    if not image:
+        raise FileNotFoundError(f"Bot {bot_sid!r} has no image in game {game_key!r}")
+    data = base64.b64decode(image.split(",", 1)[1])
+    path = os.path.join(_bots_dir(game_key), f"{bot_sid}.{_image_kind(data)}")
+    if not os.path.isfile(path) or os.path.getmtime(path) < os.path.getmtime(_bot_cache_path(game_key, bot_sid)):
+        with open(path, "wb") as f:
+            f.write(data)
+    return path
 
 
-def _bot_picker_choices(current_bot_sid: str = "") -> List[Dict[str, Any]]:
-    choices: List[Dict[str, Any]] = []
-    current_bot_sid = str(current_bot_sid or "").strip()
-    bots_dir = _bots_dir()
-    if not os.path.isdir(bots_dir):
-        return choices
-    for bot_sid in sorted(os.listdir(bots_dir)):
-        entry_dir = os.path.join(bots_dir, bot_sid)
-        if not os.path.isdir(entry_dir) or bot_sid.startswith(".") or bot_sid == "__pycache__":
-            continue
-        bot_data = _load_bot_json(bot_sid)
-        display_name = str(bot_data.get("displayName") or bot_sid)
-        current_marker = "Current" if bot_sid == current_bot_sid else ""
-        choices.append({
-            "id": bot_sid,
-            "text": f"{display_name}{' (current)' if current_marker else ''}",
-            "bot_sid": bot_sid,
-            "columns": [
-                {"type": "image", "src": bot_image_data(bot_sid), "alt": display_name},
-                display_name,
-                bot_sid,
-                current_marker,
-            ],
-            "column_headers": ["", "Bot", "SID", ""],
+def _bot_rows(game_key: str) -> List[Dict[str, Any]]:
+    """Pure data: this game's joined bots. No client side effects."""
+    rows: List[Dict[str, Any]] = []
+    for bot_sid in _joined_bot_sids(game_key):
+        bot = load_bot(game_key, bot_sid)
+        rows.append({
+            "sid": bot["sid"],
+            "displayName": bot["displayName"],
+            "image": bot_image_data(game_key, bot_sid),
+            "prompt": bot["prompt"],
+            "model": f"{bot['provider']}: {bot['model']}",
         })
-    return choices
-
-
-async def _bot_pick_dialog(
-    *,
-    title: str = "Bot",
-    heading: str = "Select bot",
-    current_bot_sid: str = "",
-) -> Optional[str]:
-    choices = _bot_picker_choices(current_bot_sid)
-    if not choices:
-        raise RuntimeError("No bots found")
-    choice = await modal_menu(
-        choices,
-        title=title,
-        heading=heading,
-    )
-    if choice is None:
-        return None
-    bot_sid = str(choice.get("bot_sid") or choice.get("id") or "").strip()
-    return bot_sid or None
-
-
-def _bot_rows() -> List[Dict[str, Any]]:
-    """Pure data: list available bots. No client side effects."""
-    bots_dir = _bots_dir()
-    bots: List[Dict[str, Any]] = []
-    if not os.path.isdir(bots_dir):
-        return bots
-    for entry in sorted(os.listdir(bots_dir)):
-        entry_dir = os.path.join(bots_dir, entry)
-        if not os.path.isdir(entry_dir) or entry.startswith(".") or entry == "__pycache__":
-            continue
-        bot_data = _load_bot_json(entry)
-        mtimes = []
-        for sub_root, _dirs, sub_files in os.walk(entry_dir):
-            for filename in sub_files:
-                mtimes.append(os.path.getmtime(os.path.join(sub_root, filename)))
-        updated = datetime.fromtimestamp(max(mtimes)).strftime('%Y-%m-%d %H:%M') if mtimes else ''
-
-        provider = bot_data.get("provider", "")
-        model = bot_data.get("model", "")
-        model_label = f"{provider}: {model}" if provider and model else (model or provider)
-        default_location = str(bot_data.get("defaultLocation", "") or "")
-        _validate_default_location(entry, default_location)
-
-        bots.append({
-            "sid": entry,
-            "displayName": bot_data.get("displayName", entry),
-            "image": bot_image_data(entry),
-            "defaultLocation": default_location,
-            "prompt": render_bot_prompt(entry),
-            "model": model_label,
-            "updated": updated,
-        })
-    return bots
-
-# % ls 
+    return rows
 
 
 @public
-async def bot_list() -> List[Dict[str, Any]]:
-    """List bots — config metadata only."""
-    bots = _bot_rows()
+async def bot_list(game_key: str) -> List[Dict[str, Any]]:
+    """List the bots that have joined this game."""
+    bots = _bot_rows(game_key)
     await atlantis.client_data("Bots", bots, column_formatter={
         "prompt": {"type": "markdown", "maxWidth": "80ch"},
     })
     return bots
 
 
-@visible
-async def bot_pick() -> Optional[str]:
-    """Pick a bot using the standard bot picker dialog."""
-    return await _bot_pick_dialog()
-
-
 @public
-async def prompt_assemble(bot_sid: str, roster_names: Optional[Dict[str, str]] = None) -> str:
-    """Render a bot prompt using a finalized roster mapping of bot sid -> desired name."""
-    return render_bot_prompt(bot_sid, roster_names)
-
-
-
-
-def bot_default_location(bot_sid: str) -> Optional[str]:
-    """Return a bot-specific default location from config.json, if set."""
-    location = _load_bot_json(bot_sid).get("defaultLocation", "")
-    default_location = str(location).strip()
-    _validate_default_location(bot_sid, default_location)
-    return default_location or None
-
-
-def bot_entry_location(bot_sid: str) -> str:
-    """Return the entry location for a bot, or raise if not configured."""
-    location = bot_default_location(bot_sid)
-    if not location:
-        raise ValueError(
-            f"No defaultLocation configured for bot {bot_sid!r}. "
-            f"Set defaultLocation in the bot config.json."
-        )
-    return location
-
-
-def _validate_bot(bot_sid: str) -> None:
-    """Validate a bot folder."""
-    if not os.path.isdir(os.path.join(_bots_dir(), bot_sid)):
-        raise ValueError(f"Bot folder not found: {bot_sid}")
-
-
-def load_bot(bot_sid: str) -> BotConfigT:
-    """Load a bot's config as a typed, fully-populated record.
-
-    The single boundary where a loose config.json becomes a known shape. Raises
-    if the sid has no folder (foreign-key check) or if a core field is missing —
-    a malformed bot fails loudly here instead of rendering a half-blank row.
-    """
-    _validate_bot(bot_sid)
-    raw = _load_bot_json(bot_sid)
-    label = f"Bot {bot_sid!r} config.json"
-    return BotConfigT(
-        sid=bot_sid,
-        displayName=_require_str(raw, "displayName", label),
-        defaultLocation=_require_str(raw, "defaultLocation", label),
-        provider=_require_str(raw, "provider", label),
-        model=_require_str(raw, "model", label),
-        baseUrl=str(raw.get("baseUrl", "")),
-        apiKeyEnv=str(raw.get("apiKeyEnv", "")),
-        image=str(raw.get("image", "")),
-    )
+async def prompt_assemble(game_key: str, bot_sid: str, roster_names: Dict[str, str]) -> str:
+    """Render a joined bot's prompt using a roster mapping of bot sid -> desired name."""
+    return render_bot_prompt(game_key, bot_sid, roster_names)

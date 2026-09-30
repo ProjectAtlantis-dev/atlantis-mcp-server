@@ -1,9 +1,8 @@
 {
-  "displayName": "Sven",
-  "defaultLocation": "SecurityOffice",
+  "displayName": "Chad",
   "provider": "openrouter",
   "model": "z-ai/glm-5",
   "baseUrl": "https://openrouter.ai/api/v1",
   "apiKeyEnv": "OPENROUTER_API_KEY",
-  "image": "image.jpg"
+  "image": "image.png"
 }

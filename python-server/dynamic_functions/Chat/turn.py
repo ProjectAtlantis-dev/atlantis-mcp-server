@@ -6,7 +6,7 @@ import time as _t
 from openai import OpenAI
 from typing import List, Dict, Any, Optional, cast
 
-from .bot import bot_roster_name, load_bot, render_bot_prompt
+from .bot import load_bot, render_bot_prompt
 from .common import _read_json, _write_json
 from .tool import (
     logger,
@@ -40,7 +40,7 @@ def _openrouter_payload_path(game_key: str, sid: str) -> str:
     sid = str(sid or "").strip()
     if not sid:
         raise ValueError("sid required")
-    load_bot(sid)
+    load_bot(game_key, sid)
     return os.path.join(
         require_membership(game_key),
         "openrouter_payloads",
@@ -160,22 +160,24 @@ async def run_turn(
     *,
     bot_sid: str,
     transcript: List[Dict[str, Any]],
-    game_key: Optional[str] = None,
+    game_key: str,
+    roster_names: Dict[str, str],
     system_prompt: Optional[str] = None,
-    roster_names: Optional[Dict[str, str]] = None,
     tools: Optional[List[AtlantisSearchToolT]] = None,
     tool_argument_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Optional[str]:
-    """Run a streaming tool-calling turn. Loads bot config from bot_sid."""
-    cfg = load_bot(bot_sid)
+    """Run a streaming tool-calling turn for a bot that has joined this game."""
+    cfg = load_bot(game_key, bot_sid)
     if system_prompt is None:
-        system_prompt = render_bot_prompt(bot_sid, roster_names)
+        system_prompt = render_bot_prompt(game_key, bot_sid, roster_names)
 
     api_key_env = cfg["apiKeyEnv"]
     api_key = os.environ.get(api_key_env, "") if api_key_env else ""
     base_url = cfg["baseUrl"] or None
     model = cfg["model"]
-    bot_display_name = bot_roster_name(bot_sid, roster_names)
+    bot_display_name = str(roster_names.get(bot_sid) or "").strip()
+    if not bot_display_name:
+        raise ValueError(f"Bot {bot_sid!r} has no roster name in game {game_key!r}")
 
     if not api_key or not model:
         raise ValueError(f"Bot {bot_sid} missing model/api key (env={api_key_env})")
@@ -219,11 +221,10 @@ async def run_turn(
                     os.path.join(os.path.dirname(__file__), "api_payload.json"),
                     api_payload,
                 )
-                if game_key:
-                    _write_json(
-                        _openrouter_payload_path(game_key, bot_sid),
-                        api_payload,
-                    )
+                _write_json(
+                    _openrouter_payload_path(game_key, bot_sid),
+                    api_payload,
+                )
             except Exception as e:
                 logger.warning(f"Failed to write API payload: {e}")
 

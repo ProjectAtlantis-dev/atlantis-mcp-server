@@ -18,7 +18,7 @@ async def game_overview(game_key: str) -> None:
 
     meta = _read_json(os.path.join(data_dir, "game.json")) or {}
     roster_scene = _game_roster_scene(meta)
-    bot_rows = _bot_rows()
+    bot_rows = _bot_rows(game_key)
     loc_rows = _location_rows()
     camera_rows = _camera_rows(game_key)
     scene_rows = _scene_rows()
@@ -73,8 +73,8 @@ async def game_overview(game_key: str) -> None:
         ] for r in roster_rows],
         dynamic=True,
         tone="green"))
-    tables.append(_table("ent-bot", "BOT", ["sid", "displayName", "defaultLocation", "model"],
-        [[b["sid"], b["displayName"], b["defaultLocation"], b.get("model", "")] for b in bot_rows]))
+    tables.append(_table("ent-bot", "BOT", ["sid", "displayName", "model"],
+        [[b["sid"], b["displayName"], b.get("model", "")] for b in bot_rows]))
     tables.append(_table("ent-location", "LOCATION", ["name", "displayName", "parent", "connects_to", "description"],
         [[l["name"], l["displayName"], l.get("parent", ""), l["connects_to"], _trunc(l.get("description", ""))] for l in loc_rows],
         row_classes=["" if l["is_leaf"] else f"er-nonleaf-{uid}" for l in loc_rows]))
@@ -89,7 +89,7 @@ async def game_overview(game_key: str) -> None:
         (f"ent-roster-{uid}", f"ent-location-{uid}", "location"),
         (f"ent-location-{uid}", f"ent-location-{uid}", "connects to"),
         (f"ent-location-{uid}", f"ent-location-{uid}", "parent"),
-        (f"ent-bot-{uid}", f"ent-location-{uid}", "defaultLocation"),
+        (f"ent-scene-{uid}", f"ent-location-{uid}", "slot defaultLocation"),
         (f"ent-location-{uid}", f"ent-camera-{uid}", "location"),
     ]
 

@@ -121,7 +121,7 @@ Further docs:
 
 Dynamic functions give users the ability to create and maintain custom functions-as-tools. Functions are loaded on start and automatically reloaded when modified.
 
-The `python-server/dynamic_functions/` directory includes the pre-installed **Terrain**, **Chat**, and **Home** apps. These apps are tracked with the server source. Seeing them on a new server is expected.
+The `python-server/dynamic_functions/` directory includes the pre-installed **Terrain**, **Chat**, **Bot**, and **Home** apps. These apps are tracked with the server source. Seeing them on a new server is expected.
 
 On first run, the server also creates a starter `Demo` app with example functions, once per `.demo_scaffolded` marker. Your own apps and generated runtime data are separate from the bundled code and are ignored by Git by default.
 
@@ -279,7 +279,8 @@ It holds the game/chat tools, bot runtime, static content under `Game/`, and liv
 - **`python-server/dynamic_functions/Home/`** — small platform-owned Home app used for Lobster/Multix readme entry points and the file callback. See the [Home README](python-server/dynamic_functions/Home/README.md).
 - **`python-server/dynamic_functions/Chat/`** — the bot/chat runtime app. See the [Chat README](python-server/dynamic_functions/Chat/README.md).
 - **`python-server/dynamic_functions/Terrain/`** — tracked terrain tooling, including the database lifecycle and schema; the live SQLite database remains untracked. See the [Terrain README](python-server/dynamic_functions/Terrain/README.md).
-- **`python-server/dynamic_functions/Chat/Game/`** — static content: bots, locations, scenes. Tracked.
+- **`python-server/dynamic_functions/Chat/Game/`** — static game content: locations, scenes. Tracked.
+- **`python-server/dynamic_functions/Bot/`** — static bot info under `Bot/<sid>/` (config, prompt, image). Tracked. Kept separate from Chat so bots can live on a different machine than the game.
 - **`python-server/dynamic_functions/Chat/Data/`** — live per-game state, keyed by `game_key`. Not tracked.
 
 ### Troubleshooting

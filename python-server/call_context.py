@@ -10,6 +10,7 @@ class ToolCallPayload(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
     caller_sid: Optional[str] = None
     user_game_id: Optional[int] = None
+    game_uuid: Optional[str] = None
     exec_shell_path: Optional[str] = None
     caller_shell_path: Optional[str] = None
     display_shell_path: Optional[str] = None
@@ -51,6 +52,10 @@ class CallContext(BaseModel):
         return self.payload.user_game_id
 
     @property
+    def game_uuid(self) -> Optional[str]:
+        return self.payload.game_uuid
+
+    @property
     def exec_shell_path(self) -> Optional[str]:
         return self.payload.exec_shell_path
 
@@ -70,15 +75,15 @@ class CallContext(BaseModel):
     def session_key(self) -> str:
         """Stable, locally-derived session identifier.
 
-        Composed from (caller sid, user_game_id). Shell path is intentionally NOT included —
+        Composed from (caller sid, game_uuid). Shell path is intentionally NOT included —
         we want one session per (game, sid) so multiple terminals of the same human share state
         (e.g. the chat busy-lock). Raises if any component is missing.
 
-        Format: "{caller_sid}:{user_game_id}"
-        Example: caller_sid="brickhouse", user_game_id=24 -> "brickhouse:24"
+        Format: "{caller_sid}:{game_uuid}"
+        Example: caller_sid="brickhouse", game_uuid="550e8400-e29b-41d4-a716-446655440000" -> "brickhouse:550e8400-e29b-41d4-a716-446655440000"
         """
         return self.derive_session_key(
-            user_game_id=self.user_game_id,
+            game_uuid=self.game_uuid,
             caller_sid=self.caller_sid,
         )
 
@@ -93,18 +98,18 @@ class CallContext(BaseModel):
     def terminal_key(self) -> str:
         """Stable identifier for one terminal within a session.
 
-        A session (user_game_id, caller_sid) is shared across all of a human's
+        A session (game_uuid, caller_sid) is shared across all of a human's
         terminals; the terminal_key re-adds caller_shell_path - the user's root
         shell - to identify the single originating terminal. Uses caller_shell_path
         (attribution) intentionally, NOT exec_shell_path (where work runs). Raises
         if any component is missing.
 
-        Format: "{caller_sid}:{user_game_id}:{caller_shell_path}"
-        Example: caller_sid="brickhouse", user_game_id=24, caller_shell_path="8"
-                 -> "brickhouse:24:8"
+        Format: "{caller_sid}:{game_uuid}:{caller_shell_path}"
+        Example: caller_sid="brickhouse", game_uuid="550e8400-e29b-41d4-a716-446655440000", caller_shell_path="8"
+                 -> "brickhouse:550e8400-e29b-41d4-a716-446655440000:8"
         """
         return self.derive_terminal_key(
-            user_game_id=self.user_game_id,
+            game_uuid=self.game_uuid,
             caller_sid=self.caller_sid,
             caller_shell_path=self.caller_shell_path,
         )
@@ -119,37 +124,37 @@ class CallContext(BaseModel):
     @staticmethod
     def derive_session_key(
         *,
-        user_game_id: Optional[int],
+        game_uuid: Optional[str],
         caller_sid: Optional[str],
     ) -> str:
         """Canonical session key factory for cloud tool-call context.
 
-        Returns "{caller_sid}:{user_game_id}", e.g. "brickhouse:24".
+        Returns "{caller_sid}:{game_uuid}", e.g. "brickhouse:550e8400-e29b-41d4-a716-446655440000".
         """
         missing = [
             n for n, v in (
-                ("user_game_id", user_game_id),
+                ("game_uuid", game_uuid),
                 ("caller_sid", caller_sid),
             ) if not v
         ]
         if missing:
             raise ValueError(f"Cannot derive session_key: missing {missing}")
-        return f"{caller_sid}:{user_game_id}"
+        return f"{caller_sid}:{game_uuid}"
 
     @staticmethod
     def derive_terminal_key(
         *,
-        user_game_id: Optional[int],
+        game_uuid: Optional[str],
         caller_sid: Optional[str],
         caller_shell_path: Optional[str],
     ) -> str:
         """Canonical terminal key factory: session key narrowed to one terminal.
 
-        Returns "{caller_sid}:{user_game_id}:{caller_shell_path}", e.g.
-        "brickhouse:24:8".
+        Returns "{caller_sid}:{game_uuid}:{caller_shell_path}", e.g.
+        "brickhouse:550e8400-e29b-41d4-a716-446655440000:8".
         """
         session_key = CallContext.derive_session_key(
-            user_game_id=user_game_id,
+            game_uuid=game_uuid,
             caller_sid=caller_sid,
         )
         if not caller_shell_path:

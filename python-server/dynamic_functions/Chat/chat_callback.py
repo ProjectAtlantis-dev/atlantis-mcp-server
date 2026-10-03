@@ -13,7 +13,10 @@ from .chat import (
 )
 from .bot_tool import get_bot_tool_argument_overrides, get_bot_tools
 from .common import _read_json, _write_json
-from .game import _game_is_running, _game_roster_scene, game_find_current, require_membership
+from .game import (
+    GAME_STATE_RUNNING, _game_is_running, _game_read, _game_roster_scene,
+    _game_set_state, game_find_current, require_membership,
+)
 from .roster import _load_game_roster
 from .turn import bot_turn
 
@@ -39,8 +42,7 @@ def _require_roster_assigned(game_key: str) -> None:
 @public
 @preflight
 async def preflight_callback():
-    #await atlantis.client_log("doing preflight")
-    pass
+    await game_find_current()
 
 
 
@@ -51,15 +53,15 @@ async def preflight_callback():
 async def chat_callback():
     """Game tick: attach this chat session to a game, then respond to transcript changes."""
     if not atlantis.get_session_key():
-        logger.warning("chat_callback fired without session context, skipping")
-        return
+        raise RuntimeError("chat_callback requires caller_sid and game_uuid")
 
     request_id = atlantis.get_request_id() or "unknown"
     logger.info(
-        "chat_callback start: request_id=%s session=%s caller=%s user_game_id=%s",
+        "chat_callback start: request_id=%s session=%s caller=%s game_uuid=%s user_game_id=%s",
         request_id,
         atlantis.get_session_key(),
         atlantis.get_caller(),
+        atlantis.get_game_uuid(),
         atlantis.get_user_game_id(),
     )
     if atlantis.session_shared.get(_BUSY_KEY):
@@ -70,19 +72,26 @@ async def chat_callback():
     try:
         game_key = await game_find_current()
         logger.info("chat_callback game resolved: %s", game_key)
-        if not _game_is_running(game_key):
-            logger.info("chat_callback game %r is stopped, skipping", game_key)
-            await atlantis.client_log(f"chat_callback skipped: game {game_key!r} is stopped")
-            return
+        raw_transcript, transcript = await fetch_transcript(game_key)
+        running = _game_is_running(game_key)
+        if not running:
+            speaker = analyze_participants(raw_transcript).get("last_speaker")
+            owner = _game_read(game_key).get("owner")
+            if not owner or speaker != owner:
+                raise PermissionError(
+                    f"Game {game_key!r} is stopped; only its owner may restart it by chatting"
+                )
         _require_roster_assigned(game_key)
-        await _handle_chat(game_key)
+        if not running:
+            # Resume without game_start's /clear, preserving the owner's message.
+            await _game_set_state(game_key, GAME_STATE_RUNNING)
+        await _handle_chat(game_key, raw_transcript, transcript)
     finally:
         atlantis.session_shared.remove(_BUSY_KEY)
 
 
-async def _handle_chat(game_key: str):
+async def _handle_chat(game_key: str, raw_transcript: list, transcript: list):
     logger.info("chat_callback handle_chat: game=%s", game_key)
-    raw_transcript, transcript = await fetch_transcript(game_key)
     participants = analyze_participants(raw_transcript)
     speaker_sid = participants.get("last_speaker")
     logger.info(

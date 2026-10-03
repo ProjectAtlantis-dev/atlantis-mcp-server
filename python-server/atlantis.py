@@ -422,6 +422,11 @@ def get_user_shell_path() -> Optional[str]:
     ctx = get_context()
     return ctx.user_shell_path if ctx else None
 
+def get_game_uuid() -> Optional[str]:
+    """Return the authoritative Node game UUID for this call."""
+    ctx = get_context()
+    return ctx.game_uuid if ctx else None
+
 def get_user_game_id() -> Optional[int]:
     """Returns the user_game_id for this function call."""
     ctx = get_context()

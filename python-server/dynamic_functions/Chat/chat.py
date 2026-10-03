@@ -79,8 +79,8 @@ async def fetch_transcript(game_key: str) -> Tuple[List[Dict[str, Any]], List[Di
         with open(transcript_dump_file, 'w') as f:
             json.dump(raw_transcript, f, indent=2, default=str)
         logger.info(f"Raw transcript written to {transcript_dump_file}")
-    except Exception as e:
-        logger.warning(f"Failed to write raw transcript to file: {e}")
+    except Exception:
+        logger.exception(f"Failed to write raw transcript to {transcript_dump_file}")
 
     logger.info("=== FILTERING TRANSCRIPT ===")
     transcript: List[Dict[str, Any]] = []

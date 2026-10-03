@@ -3229,6 +3229,7 @@ class DynamicAdditionServer(Server):
                     lobster_ctx = ctx.with_payload_updates(
                         caller_sid=atlantis.get_default_owner(),
                         user_game_id=lobster_routing_key or ctx.user_game_id,
+                        game_uuid=self.cloud_client.lobster_game_uuid,
                         caller_shell_path=lobster_shell or ctx.caller_shell_path,
                     ).model_copy(update={
                         "client_log_func": lambda message, level="INFO", message_type="text": None,
@@ -3655,6 +3656,7 @@ class ServiceClient:
         self.lobster_shell_path = None
         # Store the lobster routing key received from lobsterShell event
         self.lobster_routing_key = None
+        self.lobster_game_uuid = None
         # Throttle repeated identical connect_error logs while the cloud is down.
         self._connect_error_signature = None
         self._connect_error_last_logged_at = None
@@ -4189,10 +4191,11 @@ class ServiceClient:
         @self.sio.event(namespace=self.namespace)
         async def lobsterShell(data):
             shell_path = data.get("shellPath") if isinstance(data, dict) else None
-            routing_key = data.get("gameKey") if isinstance(data, dict) else None
+            routing_key = data.get("gameId") if isinstance(data, dict) else None
             if shell_path:
                 self.lobster_shell_path = shell_path
                 self.lobster_routing_key = routing_key
+                self.lobster_game_uuid = data.get("game_uuid")
                 logger.info(f"\033[1;91m🦞 Lobster shell path: {shell_path}" + (f" (routing {routing_key})" if routing_key else "") + "\033[0m")
             else:
                 logger.warning(f"🦞 Received lobsterShell event with no shellPath: {data}")

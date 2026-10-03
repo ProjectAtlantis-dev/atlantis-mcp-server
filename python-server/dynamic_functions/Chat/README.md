@@ -12,6 +12,26 @@ and should match 1:1 with the game.
 - **Camera**: A terminal/browser viewport bound to a location. Cameras can also
   follow roster slots.
 
+## Game identity
+
+Node sends `game_uuid` on remote tool calls. It is the sole lookup key for
+`Data/games/<game_uuid>/game.json`; Python does not allocate another game UUID.
+Preflight and chat resolve this record directly. If it is absent, only a caller
+recognized by `atlantis.is_owner()` may create it. New games start stopped,
+with the caller as their initial member. Once a roster is assigned, a chat
+message from the game owner resumes a stopped game and is processed normally.
+The speaker comes from the transcript: the callback caller alone does not prove
+who spoke. Visitor messages in stopped games raise a permission error back to
+Node. Resuming this way
+preserves the transcript. Membership checks for game operations remain separate
+from lookup.
+
+Session keys are `<caller_sid>:<game_uuid>`. The numeric `user_game_id` remains
+available as diagnostic data and for the existing Node browser-window URLs;
+it does not select a local game. Missing UUIDs are errors, with no numeric-ID
+fallback. Older directories named with Python-generated keys are not migrated
+automatically. Node and Python need this protocol update together.
+
 ## Bot Responses
 
 Bot responses can be triggered by chat or by tick.

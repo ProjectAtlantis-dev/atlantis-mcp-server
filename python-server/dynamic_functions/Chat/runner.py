@@ -29,15 +29,14 @@ from dynamic_functions.Home.modal import (
 from .game import (
     GAME_STATE_STOPPED,
     _caller_is_member,
-    _game_create,
     _game_pick_dialog,
     _game_read,
     _game_read_from_dir,
     _game_rows,
     _game_update,
     add_caller_membership,
-    game_dir,
     game_find_current,
+    game_new,
     game_start,
     require_membership,
 )
@@ -877,39 +876,6 @@ async def camera_edit() -> bool:
 
 
 @public
-async def game_new() -> Dict[str, Any]:
-    """Main entry point for creating a new game"""
-    for _ in range(10):
-        game_key = uuid.uuid4().hex
-        data_dir = game_dir(game_key)
-        if not os.path.exists(data_dir):
-            break
-    else:
-        raise RuntimeError("Unable to allocate a unique game_key")
-
-    await atlantis.client_log("Creating new game")
-
-    join_password = uuid.uuid4().hex
-    _game_create(game_key, {
-        'join_password': join_password,
-        'owner': atlantis.get_caller() or None,
-        'user_game_id': atlantis.get_user_game_id(),
-        'state': GAME_STATE_STOPPED,
-        'roster_scene': None,
-        'roster_created_at': None,
-        'members': add_caller_membership({}),
-    })
-
-    await atlantis.client_log(f"Game created: {game_key}")
-    await app_bg_default()
-
-    return {
-        "game_key": game_key,
-        "join_password": join_password,
-    }
-
-
-@public
 async def game_join(require_other_owner: bool = False) -> Dict[str, Any]:
     """Join existing game"""
     entered_game_key = await modal_string(
@@ -1039,6 +1005,8 @@ async def first_menu() -> str:
         game_key = str(keys.get("game_key") or "").strip()
         if not game_key:
             raise RuntimeError("Game create did not return a game_key")
+        await atlantis.client_log(f"Game ready: {game_key}")
+        await app_bg_default()
         await atlantis.client_command("/cursor join", keys)
         await game_init(game_key)
         return game_key
@@ -1085,18 +1053,12 @@ async def game_init(game_key: str):
         raise RuntimeError("No session key in this call context")
     roster_path = os.path.join(data_dir, "roster.json")
 
-    # make sure chat callback is set
+    # Cursor join has selected the remote; configure both callbacks on entry.
+    await atlantis.client_command("/callback set preflight auto")
+    await atlantis.client_command("/callback set chat auto")
+
     callbacks = await atlantis.client_command("/callback list")
     chat_row = next(row for row in callbacks if row["mode"] == "chat")
-
-    if not chat_row["toolPath"]:
-        await atlantis.client_command("callback set preflight auto")
-        await atlantis.client_command("callback set chat auto")
-
-        callbacks = await atlantis.client_command("/callback list")
-        chat_row = next(row for row in callbacks if row["mode"] == "chat")
-
-
 
     await atlantis.client_log(f"chat callback: toolPath={chat_row['toolPath']!r} filename={chat_row['filename']!r}")
 

@@ -120,8 +120,10 @@ async def homepage() -> dict:
 
     return {
         "commands": [
-            #"/terminal blur 12",
+            "/terminal blur 12",
             f"/cd {script_folder}",
+            "/callback set preflight auto",
+            "/callback set chat auto",
             f"/path push {script_folder}",
             "/env save",
             "/terminal on",

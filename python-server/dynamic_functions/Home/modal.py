@@ -136,7 +136,7 @@ async def _close_modal_if_open(shared_prefix: str) -> None:
     modal_id key before the future resolves, so this is a no-op. If the key is
     still present here, the modal is still up and must not be left behind.
     (Backdrop blur is script-owned, not modal-owned — callers manage it with
-    their own try/finally, e.g. first_menu.)
+    their own cleanup, e.g. homepage's `/finally terminal blur 0`.)
     """
     modal_key = f"{shared_prefix}:modal_id"
     modal_id = atlantis.session_shared.get(modal_key)

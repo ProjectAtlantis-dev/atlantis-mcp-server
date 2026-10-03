@@ -4,6 +4,7 @@ import atlantis
 import humanize
 import os
 import re
+import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -203,42 +204,56 @@ def game_find_latest_owned() -> Optional[str]:
     return matches[0][1]
 
 
+def _current_game_key() -> str:
+    game_uuid = atlantis.get_game_uuid()
+    if not game_uuid:
+        raise RuntimeError("No game_uuid in this call context")
+    # Reject malformed keys instead of sanitizing them into another game's path.
+    if str(uuid.UUID(game_uuid)) != game_uuid:
+        raise ValueError("game_uuid must be a canonical UUID")
+    return game_uuid
+
+
+@public
+async def game_new() -> Dict[str, Any]:
+    """Create the current Node game for an MCP owner, or return its existing keys."""
+    game_key = _current_game_key()
+    caller = atlantis.get_caller()
+    if not caller or not atlantis.is_owner(caller):
+        raise PermissionError(
+            f"Only an MCP owner can create game {game_key!r}; caller={caller!r}"
+        )
+    if not os.path.exists(game_dir(game_key)):
+        _game_create(game_key, {
+            "game_uuid": game_key,
+            "join_password": uuid.uuid4().hex,
+            "owner": caller,
+            "user_game_id": atlantis.get_user_game_id(),
+            "state": GAME_STATE_STOPPED,
+            "roster_scene": None,
+            "roster_created_at": None,
+            "members": add_caller_membership({}),
+        })
+    meta = _game_read(game_key)
+    if not meta or meta.get("game_uuid") != game_key:
+        raise RuntimeError(f"Invalid game record for UUID {game_key!r}")
+    return {
+        "game_key": game_key,
+        "join_password": meta["join_password"],
+    }
+
+
 @public
 async def game_find_current() -> str:
-    """Return the existing game for the current Atlantis game window/session."""
-    user_game_id = atlantis.get_user_game_id()
-    if user_game_id is None:
-        raise RuntimeError("No user_game_id in this call context")
-
-    session_key = atlantis.get_session_key()
-    if not session_key:
-        raise RuntimeError("No session key in this call context")
-
-    matches = []
-    for game in _game_rows():
-        if str(game.get("user_game_id")) != str(user_game_id):
-            continue
-
-        game_key = str(game.get("game_key") or "").strip()
-        if not game_key:
-            continue
-
-        meta = _game_read(game_key)
-        members = meta.get("members") or {}
-        if isinstance(members, dict) and session_key in members:
-            matches.append(game_key)
-
-    if not matches:
-        raise RuntimeError(
-            f"No existing game found for user_game_id={user_game_id!r} "
-            f"session_key={session_key!r}"
-        )
-    if len(matches) > 1:
-        raise RuntimeError(
-            f"Multiple existing games found for user_game_id={user_game_id!r} "
-            f"session_key={session_key!r}: {', '.join(matches)}"
-        )
-    return matches[0]
+    """Resolve by Node UUID; create a missing game only for an MCP owner."""
+    game_key = _current_game_key()
+    if not os.path.exists(game_dir(game_key)):
+        return (await game_new())["game_key"]
+    # A partial or corrupt record is an error, not a missing game to overwrite.
+    meta = _game_read(game_key)
+    if not meta or meta.get("game_uuid") != game_key:
+        raise RuntimeError(f"Invalid game record for UUID {game_key!r}")
+    return game_key
 
 
 @visible

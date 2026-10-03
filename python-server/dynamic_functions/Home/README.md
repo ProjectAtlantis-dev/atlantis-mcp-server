@@ -3,7 +3,7 @@
 A small app that comes with the platform. It sets up the default homepage and terminal, gives Lobster and Multix their readme entry points, and holds the file callback.
 
 - **`main.py`**: the `README` and `README_LOBSTER` tools. Both return [MULTIX.md](MULTIX.md), the Lobster MCP tool and Multix shell guide.
-- **`homepage.py`**: the `@homepage` startup script. It sets the working folder and path, turns on the file callback, and starts the terminal.
+- **`homepage.py`**: the system tries to run `homepage` first at startup.
 - **`file.py`**: the file callback (see below).
 
 ## Default Path

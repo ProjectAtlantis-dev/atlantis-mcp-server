@@ -21,7 +21,11 @@ to `atlantis.py` that do the same thing.
 ## Areas
 
 - **Call context:** the `get_*` readers (caller, request, session, terminal,
-  shell paths, game id) return `None` outside an active call.
+  shell paths, game identity) return `None` outside an active call.
+  `get_game_uuid()` is the authoritative Node game key; `get_user_game_id()`
+  exposes the numeric Node database ID for diagnostics and browser URLs.
+  Session keys are `<caller_sid>:<game_uuid>`; terminal keys append the caller
+  shell path.
   `get_owner_usernames`, `get_default_owner` and `is_owner` answer permission
   questions.
 - **Output:** `client_log` and its variants, `client_markdown`, `client_html`,

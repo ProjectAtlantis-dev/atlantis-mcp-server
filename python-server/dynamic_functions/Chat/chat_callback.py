@@ -143,7 +143,7 @@ async def _handle_chat(game_key: str, raw_transcript: list, transcript: list):
         f"Room [{location}]: {', '.join(_display_name(row) for row in all_listeners)}"
     )
     if len(all_listeners) == 1:
-        await atlantis.client_log(f"{_display_name(speaker)} is alone in {location}")
+        await atlantis.client_description(f"{_display_name(speaker)} is alone in {location}", shell="chat")
         return
 
     loop_count = _next_loop_count(game_key, speaker)

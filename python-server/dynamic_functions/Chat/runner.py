@@ -1005,10 +1005,6 @@ async def first_menu() -> str:
         game_key = str(keys.get("game_key") or "").strip()
         if not game_key:
             raise RuntimeError("Game create did not return a game_key")
-        await atlantis.client_log(f"Game ready: {game_key}")
-        await app_bg_default()
-        await atlantis.client_command("/cursor join", keys)
-        await game_init(game_key)
         return game_key
 
     if choice.get("id") == "join":

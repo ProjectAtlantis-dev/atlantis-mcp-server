@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from .common import home_path, _read_json, _write_json
+from .common import app_bg_default, home_path, _read_json, _write_json
 from dynamic_functions.Home.modal import modal_menu
 
 
@@ -216,7 +216,7 @@ def _current_game_key() -> str:
 
 @public
 async def game_new() -> Dict[str, Any]:
-    """Create the current Node game for an MCP owner, or return its existing keys."""
+    """Create and set up the current Node game for an MCP owner."""
     game_key = _current_game_key()
     caller = atlantis.get_caller()
     if not caller or not atlantis.is_owner(caller):
@@ -237,10 +237,15 @@ async def game_new() -> Dict[str, Any]:
     meta = _game_read(game_key)
     if not meta or meta.get("game_uuid") != game_key:
         raise RuntimeError(f"Invalid game record for UUID {game_key!r}")
-    return {
-        "game_key": game_key,
-        "join_password": meta["join_password"],
-    }
+    keys = {"game_key": game_key, "join_password": meta["join_password"]}
+    if not _game_roster_scene(meta) or not os.path.isfile(os.path.join(game_dir(game_key), "roster.json")):
+        # runner imports game; import the interactive setup only when needed.
+        from .runner import game_init
+
+        await app_bg_default()
+        await atlantis.client_command("/cursor join", keys)
+        await game_init(game_key)
+    return keys
 
 
 @public
@@ -351,9 +356,12 @@ async def game_list() -> list:
 
 
 @public
-async def game_show(game_key: str) -> dict:
-    """Show a game's status. The owner sees full detail (join password + members);
+async def game_show(game_key: Optional[str] = None) -> dict:
+    """Show a game's status, using the current UUID when game_key is omitted.
+    The owner sees full detail (join password + members);
     everyone else sees only owner, member count, and created time."""
+    if game_key is None:
+        game_key = _current_game_key()
     path = require_game_dir(game_key)
     meta = _game_read(game_key)
     owner = meta.get("owner", "")

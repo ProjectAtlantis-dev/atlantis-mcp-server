@@ -17,8 +17,11 @@ and should match 1:1 with the game.
 Node sends `game_uuid` on remote tool calls. It is the sole lookup key for
 `Data/games/<game_uuid>/game.json`; Python does not allocate another game UUID.
 Preflight and chat resolve this record directly. If it is absent, only a caller
-recognized by `atlantis.is_owner()` may create it. New games start stopped,
-with the caller as their initial member. Once a roster is assigned, a chat
+recognized by `atlantis.is_owner()` may create it. `game_new()` writes the
+record with the caller as its initial member, joins the cursor, and runs the
+existing `game_init()` scene, roster, and camera dialogs. Completing setup
+starts the game. Calling `game_new()` for an existing record without a roster
+also runs setup; configured records are reused. Once a roster is assigned, a chat
 message from the game owner resumes a stopped game and is processed normally.
 The speaker comes from the transcript: the callback caller alone does not prove
 who spoke. Visitor messages in stopped games raise a permission error back to

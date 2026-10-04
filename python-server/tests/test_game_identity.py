@@ -6,6 +6,7 @@ import importlib
 import sys
 import tempfile
 import unittest
+import types
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -33,6 +34,22 @@ class GameIdentityTests(unittest.IsolatedAsyncioTestCase):
         owner_patch = patch.object(atlantis, '_owner_usernames', ['owner'])
         owner_patch.start()
         self.addCleanup(owner_patch.stop)
+        async def initialize(game_key):
+            meta = game._game_read(game_key)
+            meta['roster_scene'] = 'test_scene'
+            game._game_update(game_key, meta)
+            (Path(game.game_dir(game_key)) / 'roster.json').write_text('[]')
+
+        self.game_init = AsyncMock(side_effect=initialize)
+        runner = types.ModuleType('dynamic_functions.Chat.runner')
+        runner.game_init = self.game_init
+        for mocked in [
+            patch.dict(sys.modules, {'dynamic_functions.Chat.runner': runner}),
+            patch.object(game, 'app_bg_default', new_callable=AsyncMock),
+            patch.object(atlantis, 'client_command', new_callable=AsyncMock),
+        ]:
+            mocked.start()
+            self.addCleanup(mocked.stop)
         self.context = CallContext.from_params({
             'game_uuid': GAME_UUID, 'caller_sid': 'owner',
             'user_game_id': 6, 'caller_shell_path': '1',
@@ -51,6 +68,38 @@ class GameIdentityTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('owner:' + GAME_UUID, meta['members'])
         self.assertEqual(await game.game_find_current(), GAME_UUID)
         self.assertEqual(game._game_read(GAME_UUID), meta)
+
+    async def test_creation_initializes_once_after_record_and_cursor_exist(self):
+        async def initialize(game_key):
+            self.assertEqual(game._game_read(game_key)['owner'], 'owner')
+            atlantis.client_command.assert_awaited_once_with(
+                '/cursor join', {'game_key': game_key,
+                                 'join_password': game._game_read(game_key)['join_password']})
+            meta = game._game_read(game_key)
+            meta['roster_scene'] = 'test_scene'
+            game._game_update(game_key, meta)
+            (Path(game.game_dir(game_key)) / 'roster.json').write_text('[]')
+        self.game_init.side_effect = initialize
+        await game.game_find_current()
+        await game.game_find_current()
+        await game.game_new()
+        self.game_init.assert_awaited_once_with(GAME_UUID)
+
+    async def test_explicit_game_new_finishes_existing_empty_game(self):
+        await game.game_new()
+        meta = game._game_read(GAME_UUID)
+        meta['roster_scene'] = None
+        game._game_update(GAME_UUID, meta)
+        (Path(game.game_dir(GAME_UUID)) / 'roster.json').unlink()
+        self.game_init.reset_mock()
+        await game.game_new()
+        self.game_init.assert_awaited_once_with(GAME_UUID)
+
+    async def test_setup_cancellation_propagates(self):
+        self.game_init.side_effect = RuntimeError('Scene selection cancelled')
+        with self.assertRaisesRegex(RuntimeError, 'Scene selection cancelled'):
+            await game.game_new()
+        self.assertEqual(game._game_read(GAME_UUID)['state'], 'stopped')
 
     async def test_existing_game_ignores_numeric_id_and_membership_for_lookup(self):
         await game.game_find_current()

@@ -68,7 +68,7 @@ To add Atlantis Open Weather for testing:
 
 7. Your remote(s) should autoconnect using email and default api key = 'foobar' (see 'api' command to generate a new key later). The first server to connect will be assigned your 'default' unless you manually change it later
 
-8. **Terrain and Chat come pre-installed**, along with the Home app, in `python-server/dynamic_functions/`. On first run, the server also creates a starter `Demo` app with example functions. No separate installation is needed for these bundled apps. The `dynamic_servers/` folder includes an example weather config.
+8. **Chat comes pre-installed**, along with the Home and Bot apps, in `python-server/dynamic_functions/`. On first run, the server also creates a starter `Demo` app with example functions. No separate installation is needed for these bundled apps. The `dynamic_servers/` folder includes an example weather config.
 
 9. You can run this standalone MCP or accessed from the cloud or both
 
@@ -121,19 +121,18 @@ Further docs:
 
 Dynamic functions give users the ability to create and maintain custom functions-as-tools. Functions are loaded on start and automatically reloaded when modified.
 
-The `python-server/dynamic_functions/` directory includes the pre-installed **Terrain**, **Chat**, **Bot**, and **Home** apps. These apps are tracked with the server source. Seeing them on a new server is expected.
+The `python-server/dynamic_functions/` directory includes the pre-installed **Chat**, **Bot**, and **Home** apps. These apps are tracked with the server source. Seeing them on a new server is expected.
 
-On first run, the server also creates a starter `Demo` app with example functions, once per `.demo_scaffolded` marker. Your own apps and generated runtime data are separate from the bundled code and are ignored by Git by default.
+On first run, the server also creates a starter `Demo` app with example functions, once per `.demo_scaffolded` marker. Everything else under `dynamic_functions/` is ignored by this repository.
 
-Add your own app in a new subfolder. If you keep its source in a separate repository, symlink just that app into `dynamic_functions/`:
+Add your own app in a new subfolder. To keep an app in its own repository, clone that repository directly into `dynamic_functions/`:
 
 ```bash
-# After creating your app repository at ~/my-atlantis-app:
-cd python-server
-ln -s ~/my-atlantis-app dynamic_functions/MyApp
+cd python-server/dynamic_functions
+git clone git@gitlab.com:you/my-atlantis-app.git MyApp
 ```
 
-Keep the bundled folders in place. Replacing or moving the entire `dynamic_functions/` directory would also remove the pre-installed apps from this checkout.
+The app folder is its own Git repository, and the server repository ignores it. Keep the bundled folders in place; do not replace the entire `dynamic_functions/` directory.
 
 For detailed information about creating and using dynamic functions, see the [Dynamic Functions Documentation](python-server/README.dynamic_functions.md).
 
@@ -278,7 +277,7 @@ It holds the game/chat tools, bot runtime, static content under `Game/`, and liv
 
 - **`python-server/dynamic_functions/Home/`** — small platform-owned Home app used for Lobster/Multix readme entry points and the file callback. See the [Home README](python-server/dynamic_functions/Home/README.md).
 - **`python-server/dynamic_functions/Chat/`** — the bot/chat runtime app. See the [Chat README](python-server/dynamic_functions/Chat/README.md).
-- **`python-server/dynamic_functions/Terrain/`** — tracked terrain tooling, including the database lifecycle and schema; the live SQLite database remains untracked. See the [Terrain README](python-server/dynamic_functions/Terrain/README.md).
+- **`python-server/dynamic_functions/Terrain/`** — terrain tooling, kept in its own private repository (`git@gitlab.com:project_atlantis/terrain.git`) and cloned into this folder. Not tracked here.
 - **`python-server/dynamic_functions/Chat/Game/`** — static game content: locations, scenes. Tracked.
 - **`python-server/dynamic_functions/Bot/`** — static bot info under `Bot/<sid>/` (config, prompt, image). Tracked. Kept separate from Chat so bots can live on a different machine than the game.
 - **`python-server/dynamic_functions/Chat/Data/`** — live per-game state, keyed by `game_key`. Not tracked.

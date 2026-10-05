@@ -26,6 +26,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 from dataclasses import dataclass
 import datetime
 import humanize
+import shutil
 import subprocess
 import traceback
 from collections import defaultdict
@@ -208,6 +209,17 @@ class ToolResult:
 
 
 BUILTIN_NOT_HANDLED = object()
+
+TOOL_ERROR_SOUND = "/System/Library/Sounds/Sosumi.aiff"
+
+
+def play_tool_error_sound() -> None:
+    """Play the macOS Sosumi alert without waiting; skip quietly where it doesn't exist."""
+    afplay = shutil.which("afplay")
+    if afplay is None or not os.path.exists(TOOL_ERROR_SOUND):
+        logger.debug(f"Tool error sound unavailable (afplay={afplay!r}, sound={TOOL_ERROR_SOUND})")
+        return
+    subprocess.Popen([afplay, TOOL_ERROR_SOUND], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 # Monkey patch websockets to support larger message sizes globally
@@ -3305,6 +3317,7 @@ class DynamicAdditionServer(Server):
         except Exception as e:
             logger.error(f"❌ Error executing tool '{tool_name}' (request {request_id}): {type(e).__name__}: {str(e)}")
             logger.error(f"Traceback:\n{traceback.format_exc()}")
+            play_tool_error_sound()
             error_response = {
                 "jsonrpc": "2.0",
                 "id": request_id,

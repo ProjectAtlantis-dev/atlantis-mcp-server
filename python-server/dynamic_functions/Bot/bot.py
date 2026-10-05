@@ -57,7 +57,7 @@ def _load_config(bot_sid: str) -> Dict[str, Any]:
 
 
 def _ensure_thumb(image_path: str) -> str:
-    """Create or reuse a thumbnail"""
+    """Create or reuse a thumbnail; "" if it can't be made (bot ships with no image)."""
     logger.info(f"[thumb] _ensure_thumb called: {image_path}")
     base, _ = os.path.splitext(image_path)
     thumb = base + THUMB_SUFFIX
@@ -77,9 +77,9 @@ def _ensure_thumb(image_path: str) -> str:
         img.save(thumb, "JPEG", quality=THUMB_QUALITY)
         logger.info(f"[thumb] generated: {thumb} ({os.path.getsize(thumb)} bytes)")
         return thumb
-    except Exception as exc:
-        logger.warning(f"[thumb] FAILED for {image_path}: {exc}")
-        return image_path
+    except Exception:
+        logger.exception(f"[thumb] FAILED for {image_path}; serving no image")
+        return ""
 
 
 def _image_data_uri(path: str) -> str:

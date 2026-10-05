@@ -1111,11 +1111,6 @@ async def _client_command(
         f"📡 client_command '{command}' (entry={entry_point_name}, currentFunction={current_function_name}, caller_sid={caller_sid}, shell={shell}:{target_shell_path})",
         extra={"atlantis_event": "dynamic_function_call"},
     )
-    if isinstance(data, (dict, list)):
-        logger.debug(f"   📦 data: {format_json_log(data, colored=True)}")
-    elif data is not None:
-        log_data = "[base64 image]" if isinstance(data, str) and data.startswith("data:image/") else data
-        logger.debug(f"   📦 data: {log_data}")
 
     if not client_id or not request_id:
         # This should ideally not happen if called within a proper request context

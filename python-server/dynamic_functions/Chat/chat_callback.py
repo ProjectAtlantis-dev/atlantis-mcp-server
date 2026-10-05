@@ -13,11 +13,13 @@ from .chat import (
 )
 from .bot_tool import get_bot_tool_argument_overrides, get_bot_tools
 from .common import _read_json, _write_json
+from .location import load_location
 from .game import (
     GAME_STATE_RUNNING, _game_is_running, _game_read, _game_roster_scene,
     _game_set_state, game_find_current, require_membership,
 )
-from .roster import _load_game_roster
+from .roster import _load_game_roster, roster_join_bot
+from .scene import scene_slot_default_location
 from .turn import bot_turn
 
 logger = logging.getLogger("dynamic_function")
@@ -143,8 +145,11 @@ async def _handle_chat(game_key: str, raw_transcript: list, transcript: list):
         f"Room [{location}]: {', '.join(_display_name(row) for row in all_listeners)}"
     )
     if len(all_listeners) == 1:
-        await atlantis.client_description(f"{_display_name(speaker)} is alone in {location}", shell="chat")
-        return
+        if _is_ai(speaker) or not await _spawn_companion(game_key, location, roster):
+            await atlantis.client_description(f"{_display_name(speaker)} is alone in {location}", shell="chat")
+            return
+        roster = _load_game_roster(game_key)
+        bot_listeners = _bot_listeners(roster, speaker)
 
     loop_count = _next_loop_count(game_key, speaker)
     if loop_count > _MAX_BOT_CHAIN:
@@ -155,7 +160,7 @@ async def _handle_chat(game_key: str, raw_transcript: list, transcript: list):
         await atlantis.client_log(f"No AI roster member in {location} available to respond")
         return
 
-    bot_record = bot_listeners[0]
+    bot_record = _next_round_robin_bot(raw_transcript, location, roster, speaker)
     await atlantis.client_log(
         f"Next roster speaker: {bot_record.get('displayName', bot_record.get('bot_sid', 'bot'))}"
     )
@@ -167,6 +172,26 @@ async def _handle_chat(game_key: str, raw_transcript: list, transcript: list):
     )
 
 
+async def _spawn_companion(game_key: str, location: str, roster: List[Dict[str, Any]]) -> bool:
+    """Join the first AI slot not yet in the world whose defaultLocation is `location`. False if none."""
+    scene = _game_roster_scene(_game_read(game_key))
+    if not scene:
+        raise RuntimeError(f"Game {game_key!r} has no roster scene")
+    slot = next(
+        (
+            row for row in roster
+            if _is_ai(row) and row.get("bot_sid") and not row.get("location")
+            and scene_slot_default_location(scene, row["key"]) == location
+        ),
+        None,
+    )
+    if not slot:
+        return False
+    bot = await atlantis.client_command("$Bot/bot_get", {"bot_sid": slot["bot_sid"]})
+    await roster_join_bot(game_key, slot["key"], bot)
+    return True
+
+
 def _next_loop_count(game_key: str, speaker: Optional[Dict[str, Any]]) -> int:
     key = f"{_CHAT_LOOP_COUNT_PREFIX}{game_key}"
     if not speaker or not _is_ai(speaker):
@@ -175,6 +200,39 @@ def _next_loop_count(game_key: str, speaker: Optional[Dict[str, Any]]) -> int:
     count = int(atlantis.session_shared.get(key) or 0) + 1
     atlantis.session_shared.set(key, count)
     return count
+
+
+def _next_round_robin_bot(
+    raw_transcript: List[Dict[str, Any]],
+    location: str,
+    roster: List[Dict[str, Any]],
+    speaker: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Pick the bot after the room's most recent bot speaker, in roster order, skipping the speaker."""
+    room_bots = [
+        row for row in _all_listeners(roster, location)
+        if _is_ai(row) and row.get("bot_sid")
+    ]
+    room_sids = [row["bot_sid"] for row in room_bots]
+    last_sid = _last_bot_speaker(raw_transcript, room_sids)
+    start = room_sids.index(last_sid) + 1 if last_sid else 0
+    for offset in range(len(room_bots)):
+        candidate = room_bots[(start + offset) % len(room_bots)]
+        if candidate.get("key") != speaker.get("key"):
+            return candidate
+    raise RuntimeError(f"No bot in {location!r} other than the speaker to respond")
+
+
+def _last_bot_speaker(raw_transcript: List[Dict[str, Any]], bot_sids: List[str]) -> Optional[str]:
+    for msg in reversed(raw_transcript):
+        if msg.get("type") != "chat":
+            continue
+        if "thinking" in str(msg.get("who") or "").lower():
+            continue
+        sid = str(msg.get("sid") or "")
+        if sid in bot_sids:
+            return sid
+    return None
 
 
 def _last_chat_signature(raw_transcript: List[Dict[str, Any]]) -> str:
@@ -377,8 +435,8 @@ def _roster_names_for_bot(
 
         display_name = str(row.get("displayName") or "").strip()
         if _is_ai(row):
-            if display_name:
-                names[roster_bot_sid] = display_name
+            # A bot that has not joined (off shift) is still named by its slot key.
+            names[roster_bot_sid] = display_name or str(row["key"])
             continue
 
         human_sid = str(row.get("sid") or "").strip()
@@ -433,6 +491,48 @@ async def remember_visitor(name: str, game_key: str, bot_sid: str) -> Dict[str, 
         display_name=name,
     )
     return {"visitor": name, "status": "remembered"}
+
+
+@public
+async def bot_locate(name: str, game_key: str, bot_sid: str) -> Dict[str, str]:
+    """Find where someone you know by name is right now: here with you, elsewhere, or off shift."""
+    # game_key and bot_sid are trusted turn context bound by the bot turn; search
+    # discovery strips them from the schema the model sees.
+    name = str(name or "").strip()
+    bot_sid = str(bot_sid or "").strip()
+    if not name:
+        raise ValueError("Name is required")
+    if not bot_sid:
+        raise RuntimeError("No asking bot was supplied by the bot turn")
+
+    roster = _load_game_roster(game_key)
+    asker = next(
+        (row for row in roster if _is_ai(row) and str(row.get("bot_sid") or "") == bot_sid),
+        None,
+    )
+    if not asker:
+        raise ValueError(f"Bot {bot_sid!r} is not in game {game_key!r}")
+
+    names = _roster_names_for_bot(game_key=game_key, bot_sid=bot_sid, roster=roster)
+    matches = [
+        row for row in roster
+        if row is not asker
+        and names.get(str(row.get("bot_sid") or "")) != _UNKNOWN_VISITOR_NAME
+        and names.get(str(row.get("bot_sid") or ""), "").lower() == name.lower()
+    ]
+    if not matches:
+        return {"name": name, "status": "unknown", "detail": f"Nobody you know as {name} works or stays here"}
+    if len(matches) > 1:
+        raise RuntimeError(f"Name {name!r} matches {len(matches)} roster slots in game {game_key!r}")
+
+    target = matches[0]
+    location = target.get("location")
+    if not location:
+        return {"name": name, "status": "off shift"}
+    if location == asker.get("location"):
+        return {"name": name, "status": "here"}
+    place = load_location(location).get("displayName") or location
+    return {"name": name, "status": "elsewhere", "location": place}
 
 
 async def greet_entrant(game_key: str, entrant_sid: str, location: str):

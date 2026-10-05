@@ -8,6 +8,12 @@
       "defaultLocation": "Lobby"
     },
     {
+      "key": "Natalie",
+      "bot_sid": "natalie",
+      "state": "ai",
+      "defaultLocation": "Kitchen"
+    },
+    {
       "key": "Chad",
       "bot_sid": "chad",
       "state": "human",

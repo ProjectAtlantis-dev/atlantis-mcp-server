@@ -81,8 +81,13 @@ async def _execute_discovery_tool(
     arguments: Dict[str, Any],
     openai_tools: List[OpenAITool],
     tool_lookup: Dict[str, ToolLookupInfo],
+    tool_argument_overrides: Dict[str, Dict[str, Any]],
 ) -> str:
-    """Run search and add newly discovered tools to this model turn."""
+    """Run search and add newly discovered tools to this model turn.
+
+    Parameters the turn binds itself (tool_argument_overrides) are removed from
+    the discovered schemas so the model never sees or fills them.
+    """
     if tool_key != "search":
         raise ValueError(f"Unsupported discovery tool: {tool_key!r}")
 
@@ -107,6 +112,12 @@ async def _execute_discovery_tool(
         name = tool["function"]["name"]
         if name in tool_lookup:
             continue
+        bound = tool_argument_overrides.get(discovered_lookup[name]["functionName"], {})
+        parameters = tool["function"]["parameters"]
+        for param in bound:
+            parameters["properties"].pop(param, None)
+        if "required" in parameters:
+            parameters["required"] = [p for p in parameters["required"] if p not in bound]
         openai_tools.append(tool)
         added.append(
             f"{name}: {tool['function'].get('description', '')}".rstrip()
@@ -366,6 +377,7 @@ async def run_turn(
                             arguments,
                             openai_tools,
                             tool_lookup,
+                            tool_argument_overrides or {},
                         )
                         if discovery_calls >= _MAX_DISCOVERY_CALLS:
                             _close_discovery(openai_tools, tool_lookup)

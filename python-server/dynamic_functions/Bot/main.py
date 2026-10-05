@@ -3,8 +3,8 @@ import logging
 
 logger = logging.getLogger("dynamic_function")
 
-
+@index
 @visible
 async def index():
-    """Atlantis bots — static bot info (config, prompt, image)."""
+    """Bot static defs"""
     pass

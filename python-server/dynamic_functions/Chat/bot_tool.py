@@ -159,6 +159,8 @@ def get_bot_tool_argument_overrides(
     for name in bot_tool_names(game_key, bot_sid):
         if name == "remember_visitor":
             overrides[name] = {"bot_sid": bot_sid}
+    # Discovered via search only, so it is bound whether or not it is in the inventory.
+    overrides["bot_locate"] = {"game_key": game_key, "bot_sid": bot_sid}
     return overrides
 
 

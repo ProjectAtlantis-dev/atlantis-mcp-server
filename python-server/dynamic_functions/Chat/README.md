@@ -49,6 +49,25 @@ The chat callback must:
 6. If a bot should respond, send the package to OpenRouter or the configured
    model provider.
 
+## Presence
+
+A scene is the cast: everyone who exists in that world. The roster `location`
+says who is around. Relative to a speaker, a character is:
+
+| State | Roster | `{{sid}}` in prompts | Hears chat | Alone-spawn |
+|---|---|---|---|---|
+| Here | `location` is the speaker's | name | yes, round robin | — |
+| Elsewhere | `location` is another room | name | no | no |
+| Off shift | slot, `location: null` | slot key until joined | no | if `defaultLocation` is the speaker's |
+| Not in this game | no slot | error | no | no |
+| Invalid bot | no such bot | error | no | no |
+
+When a human speaks alone, the first off-shift AI slot whose `defaultLocation`
+is that room joins via `$Bot/bot_get` and answers. Bots never reach for each
+other's whereabouts through their prompts; `bot_locate` answers that, and is
+found only through `search`. Search discovery strips the arguments the turn
+binds itself (`game_key`, `bot_sid`) from the schema the model sees.
+
 ## Runtime
 
 These files are dynamically loaded by the Atlantis MCP server that hosts them.

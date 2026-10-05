@@ -22,21 +22,17 @@ from dynamic_functions.Home.modal import (
     ModalGoBack,
     _modal_panel_css,
     modal_confirm,
-    modal_menu,
     modal_radio,
     modal_string,
 )
 from .game import (
     GAME_STATE_STOPPED,
     _caller_is_member,
-    _game_pick_dialog,
     _game_read,
     _game_read_from_dir,
-    _game_rows,
     _game_update,
     add_caller_membership,
     game_find_current,
-    game_new,
     game_start,
     require_membership,
 )
@@ -579,22 +575,6 @@ async def roster_edit_modal_cancel(roster_modal_id: str) -> None:
 
 
 @visible
-async def _game_resume(game_key: str) -> str:
-    meta = _game_read(game_key)
-    members = meta.setdefault("members", {})
-    session_key = atlantis.get_session_key()
-    if not session_key:
-        raise RuntimeError("No session key in this call context")
-    if not _caller_is_member(meta, session_key):
-        raise PermissionError(f"Session is not a member of game '{game_key}'")
-    if session_key not in members:
-        add_caller_membership(members)
-        _game_update(game_key, meta)
-    await atlantis.client_log(f"Existing game found: {game_key}")
-    return await _game_enter(game_key)
-
-
-@visible
 async def _game_enter(game_key: str) -> str:
     redirect_url = _game_window_redirect_url(game_key)
     if redirect_url:
@@ -933,29 +913,6 @@ async def _game_password_error(game_key: str) -> None:
     )
 
 
-def _game_candidates(games: list, action: str) -> list:
-    if action not in {"join", "resume"}:
-        raise ValueError(f"Unknown game candidate action: {action!r}")
-
-    session_key = atlantis.get_session_key()
-    if not session_key:
-        raise RuntimeError("No session key in this call context")
-    caller = atlantis.get_caller()
-    candidates = []
-    for game in games:
-        game_key = str(game.get("game_key") or "").strip()
-        if not game_key:
-            continue
-        meta = _game_read(game_key)
-        is_member = _caller_is_member(meta, session_key)
-        is_owner = bool(caller and meta.get("owner") == caller)
-        if action == "join" and not is_member and not is_owner:
-            candidates.append(game)
-        elif action == "resume" and is_member:
-            candidates.append(game)
-    return candidates
-
-
 async def _game_join_authorized(game_key: str, meta: Dict[str, Any]) -> Dict[str, Any]:
     members = meta.setdefault('members', {})
     session_key = atlantis.get_session_key()
@@ -973,63 +930,6 @@ async def _game_join_authorized(game_key: str, meta: Dict[str, Any]) -> Dict[str
         )
     await _game_enter(game_key)
     return {"game_key": game_key}
-
-
-@public
-async def first_menu() -> str:
-    """To the bots"""
-    games = _game_rows()
-    joinable_games = _game_candidates(games, "join")
-    resumable_games = _game_candidates(games, "resume")
-    choices: list[Dict[str, Any]] = [{"id": "create", "text": "Create new game"}]
-    if resumable_games:
-        choices.append({"id": "resume", "text": "Resume existing game"})
-    choices.append({
-        "id": "join",
-        "text": "Join game",
-        "disabled": not joinable_games,
-    })
-
-    choice = await modal_menu(
-        choices,
-        title="Game Action",
-        heading="What do you want to do?",
-    )
-    if choice is None:
-        raise RuntimeError("Game selection cancelled")
-
-    await atlantis.client_log(f"choice selected: {choice.get('id')!r}")
-
-    if choice.get("id") == "create":
-        keys = await game_new()
-        game_key = str(keys.get("game_key") or "").strip()
-        if not game_key:
-            raise RuntimeError("Game create did not return a game_key")
-        return game_key
-
-    if choice.get("id") == "join":
-        game_key = await _game_pick_dialog(
-            games=joinable_games,
-            heading="Choose a game to join",
-        )
-        if not game_key:
-            raise RuntimeError("Game selection cancelled")
-        meta = _game_read(game_key)
-        result = await _game_join_or_prompt(game_key, meta)
-        if result.get("cancelled"):
-            raise RuntimeError("Game selection cancelled")
-        game_key = str(result.get("game_key") or "").strip()
-        if not game_key:
-            raise RuntimeError("Game join did not return a game_key")
-        return game_key
-
-    if choice.get("id") == "resume":
-        game_key = await _game_pick_dialog(games=resumable_games, heading="Choose a game to resume")
-        if not game_key:
-            raise RuntimeError("Game selection cancelled")
-        return await _game_resume(game_key)
-
-    raise ValueError(f"Unknown game choice: {choice.get('id')!r}")
 
 
 @public

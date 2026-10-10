@@ -142,7 +142,7 @@ def _scaffold_starter_functions():
             "import atlantis\n"
             "import logging\n\n"
             'logger = logging.getLogger("dynamic_function")\n\n\n'
-            "@public\n"
+            "@visible\n"
             "async def bar() -> dict[str, object]:\n"
             '    """Return caller context info"""\n'
             "    return {\n"
@@ -162,12 +162,27 @@ def _scaffold_starter_functions():
 
     if _write_starter_file_if_missing(
         demo_dir,
-        "myTable.py",
+        "blah.py",
         (
             "import atlantis\n"
             "import logging\n\n"
             'logger = logging.getLogger("dynamic_function")\n\n\n'
             "@public\n"
+            "async def blah() -> None:\n"
+            '    """Always raise, to demo how a tool error looks"""\n'
+            '    raise ValueError("you suck bawlz")\n'
+        ),
+    ):
+        created.append("Demo/blah.py")
+
+    if _write_starter_file_if_missing(
+        demo_dir,
+        "myTable.py",
+        (
+            "import atlantis\n"
+            "import logging\n\n"
+            'logger = logging.getLogger("dynamic_function")\n\n\n'
+            "@visible\n"
             "async def myTable() -> list[dict[str, object]]:\n"
             '    """Return a table of Disney characters"""\n'
             "    # this does not call client_data to display a nicely formatted table, it simply returns an array and lets Atlantis render w default formatting\n"
@@ -190,7 +205,7 @@ def _scaffold_starter_functions():
             "import atlantis\n"
             "import logging\n\n"
             'logger = logging.getLogger("dynamic_function")\n\n\n'
-            "@public\n"
+            "@visible\n"
             "async def myImage():\n"
             '    """Display the happy.png image"""\n'
             "    img_path = os.path.join(os.path.dirname(__file__), \"..\", \"..\", \"..\", \"happy.png\")\n"
@@ -207,7 +222,7 @@ def _scaffold_starter_functions():
             "import atlantis\n"
             "import logging\n\n"
             'logger = logging.getLogger("dynamic_function")\n\n\n'
-            "@public\n"
+            "@visible\n"
             "async def myVideo():\n"
             '    """Display the TaffyWide.mp4 video"""\n'
             "    video_path = os.path.join(os.path.dirname(__file__), \"..\", \"..\", \"..\", \"TaffyWide.mp4\")\n"
@@ -232,7 +247,7 @@ def _scaffold_starter_functions():
             "    with open(audio_path, \"rb\") as audio:\n"
             "        encoded = base64.b64encode(audio.read()).decode(\"ascii\")\n"
             "    return f\"data:{mime_type};base64,{encoded}\"\n\n\n"
-            "@public\n"
+            "@visible\n"
             "async def win_background() -> None:\n"
             "    \"\"\"Test the Windows 95 forest tile as a repeated terminal background.\"\"\"\n"
             "    await atlantis.client_command(\"/terminal desaturate 0\")\n"
@@ -287,7 +302,10 @@ def _scaffold_starter_functions():
             "import atlantis\n"
             "import logging\n\n"
             'logger = logging.getLogger("dynamic_function")\n\n\n'
-            "@public\n"
+            "# this is a python comment\n\n"
+            "# this is a command\n"
+            "# % pwd\n\n"
+            "@visible\n"
             "async def hello() -> None:\n"
             '    """Say hello to the caller"""\n'
             "    caller = atlantis.get_caller() or \"stranger\"\n"

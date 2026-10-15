@@ -3,7 +3,9 @@ import json
 import os
 import time as _t
 
+from dotenv import dotenv_values
 from openai import OpenAI
+from pathlib import Path
 from typing import List, Dict, Any, Optional, cast
 
 from .bot import load_bot, render_bot_prompt
@@ -24,6 +26,16 @@ async def _close_streams(talk_id, think_id):
                 await atlantis.stream_end(sid)
             except Exception as e:
                 logger.warning(f"Failed to close stream {sid}: {e}")
+
+
+# Read on every turn so a key added during setup works without a restart.
+_CHAT_ENV = Path(__file__).resolve().parent / ".env"
+
+
+def _chat_env(name: str) -> str:
+    """Return a setting from Chat/.env, falling back to the process environment."""
+    value = dotenv_values(_CHAT_ENV).get(name) if _CHAT_ENV.is_file() else None
+    return value or os.environ.get(name, "")
 
 
 _DISCOVERY_TOOLS = ("search",)
@@ -183,7 +195,7 @@ async def run_turn(
         system_prompt = render_bot_prompt(game_key, bot_sid, roster_names)
 
     api_key_env = cfg["apiKeyEnv"]
-    api_key = os.environ.get(api_key_env, "") if api_key_env else ""
+    api_key = _chat_env(api_key_env) if api_key_env else ""
     base_url = cfg["baseUrl"] or None
     model = cfg["model"]
     bot_display_name = str(roster_names.get(bot_sid) or "").strip()
@@ -191,7 +203,7 @@ async def run_turn(
         raise ValueError(f"Bot {bot_sid!r} has no roster name in game {game_key!r}")
 
     if not api_key or not model:
-        raise ValueError(f"Bot {bot_sid} missing model/api key (env={api_key_env})")
+        raise ValueError(f"Bot {bot_sid} missing model/api key: set {api_key_env} in Chat/.env")
 
     await atlantis.client_log(
         f"run_turn start: bot_sid={bot_sid!r} display={bot_display_name!r} "

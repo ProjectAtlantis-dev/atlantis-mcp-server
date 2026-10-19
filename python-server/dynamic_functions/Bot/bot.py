@@ -3,8 +3,8 @@
 Each bot lives in <sid>/ next to this file: config.json, prompt.md, and the
 image file the config names. bot_get packs them into the one JSON a game takes
 when the bot joins (Chat's BotConfigT): config fields plus the raw prompt and
-the image thumbnail as a data URI. This app may run on a different machine
-than Chat, so it never imports from Chat.
+the full image as a data URI (clients make their own thumbnails). This app may
+run on a different machine than Chat, so it never imports from Chat.
 """
 
 import atlantis
@@ -20,10 +20,6 @@ logger = logging.getLogger("dynamic_function")
 
 _BOT_SID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 _REQUIRED_FIELDS = ("displayName", "provider", "model")
-
-THUMB_WIDTH = 360
-THUMB_QUALITY = 80
-THUMB_SUFFIX = "_thumb.jpg"
 
 
 def _bots_dir() -> str:
@@ -56,53 +52,29 @@ def _load_config(bot_sid: str) -> Dict[str, Any]:
     return config
 
 
-def _ensure_thumb(image_path: str) -> str:
-    """Create or reuse a thumbnail; "" if it can't be made (bot ships with no image)."""
-    logger.info(f"[thumb] _ensure_thumb called: {image_path}")
-    base, _ = os.path.splitext(image_path)
-    thumb = base + THUMB_SUFFIX
-    try:
-        # Reuse current thumbnails
-        if os.path.isfile(thumb) and os.path.getmtime(thumb) >= os.path.getmtime(image_path):
-            logger.info(f"[thumb] cache hit: {thumb}")
-            return thumb
-
-        from PIL import Image as _PILImage
-
-        img = _PILImage.open(image_path)
-        ratio = THUMB_WIDTH / img.width
-        new_h = int(img.height * ratio)
-        img = img.resize((THUMB_WIDTH, new_h), _PILImage.Resampling.LANCZOS)
-        img = img.convert("RGB")  # JPEG-compatible
-        img.save(thumb, "JPEG", quality=THUMB_QUALITY)
-        logger.info(f"[thumb] generated: {thumb} ({os.path.getsize(thumb)} bytes)")
-        return thumb
-    except Exception:
-        logger.exception(f"[thumb] FAILED for {image_path}; serving no image")
-        return ""
+_IMAGE_MIMES = {"jpg": "jpeg", "jpeg": "jpeg", "png": "png", "gif": "gif", "webp": "webp"}
 
 
 def _image_data_uri(path: str) -> str:
-    if not path or not os.path.isfile(path):
-        return ""
     ext = os.path.splitext(path)[1].lower().lstrip(".")
-    mime = {"jpg": "jpeg", "jpeg": "jpeg", "png": "png", "gif": "gif", "webp": "webp"}.get(ext, "jpeg")
+    if ext not in _IMAGE_MIMES:
+        raise ValueError(f"Unsupported bot image type: {path!r}")
     with open(path, "rb") as image_file:
         data = base64.b64encode(image_file.read()).decode("ascii")
-    return f"data:image/{mime};base64,{data}"
+    return f"data:image/{_IMAGE_MIMES[ext]};base64,{data}"
 
 
 def bot_image_data(bot_sid: str) -> str:
-    """Return a data URI for a bot portrait thumbnail, if one exists."""
+    """Return a data URI for a bot's full portrait, or "" if its config names none."""
     image_file = str(_load_config(bot_sid).get("image", "")).strip()
     if not image_file:
         return ""
-    return _image_data_uri(_ensure_thumb(os.path.join(_bot_dir(bot_sid), image_file)))
+    return _image_data_uri(os.path.join(_bot_dir(bot_sid), image_file))
 
 
 @public
 async def bot_get(bot_sid: str) -> Dict[str, str]:
-    """Return a bot's full config, raw prompt, and image thumbnail data URI for joining a game."""
+    """Return a bot's full config, raw prompt, and full image data URI for joining a game."""
     bot_dir = _bot_dir(bot_sid)
     config = _load_config(bot_sid)
     with open(os.path.join(bot_dir, "prompt.md"), "r", encoding="utf-8") as f:

@@ -3,7 +3,7 @@
 A bot is the canonical character/persona/engine unit, keyed by `sid`. Chat
 knows nothing about a bot until it joins a game: whatever adds the bot hands
 over its full BotConfigT (prompt and image data URI included), and the game
-caches it at Data/games/<game_key>/bots/<sid>.json. Everything in Chat reads
+caches it at <game_name>/Data/games/<game_key>/bots/<sid>.json. Everything in Chat reads
 that cache — never the Bot app's files. Where a bot enters the world belongs
 to the scene slot it fills, not the bot.
 """
@@ -15,7 +15,7 @@ import os
 import re
 from typing import Any, Dict, List, Mapping, TypedDict
 
-from .common import _read_json, _write_json, _require_str
+from .common import MISSING_IMAGE_URI, _read_json, _write_json, _require_str
 from .game import require_membership
 
 logger = logging.getLogger("dynamic_function")
@@ -63,24 +63,24 @@ def validate_bot_config(raw: Any) -> BotConfigT:
     )
 
 
-def _bots_dir(game_key: str) -> str:
-    return os.path.join(require_membership(game_key), _BOTS_DIRNAME)
+def _bots_dir(game_name: str, game_key: str) -> str:
+    return os.path.join(require_membership(game_name, game_key), _BOTS_DIRNAME)
 
 
-def _bot_cache_path(game_key: str, bot_sid: str) -> str:
+def _bot_cache_path(game_name: str, game_key: str, bot_sid: str) -> str:
     if not _BOT_SID_RE.fullmatch(bot_sid):
         raise ValueError(f"Invalid bot sid: {bot_sid!r}")
-    return os.path.join(_bots_dir(game_key), f"{bot_sid}.json")
+    return os.path.join(_bots_dir(game_name, game_key), f"{bot_sid}.json")
 
 
-def cache_bot(game_key: str, bot: BotConfigT) -> None:
+def cache_bot(game_name: str, game_key: str, bot: BotConfigT) -> None:
     """Store a joining bot's config in the game's cache."""
-    _write_json(_bot_cache_path(game_key, bot["sid"]), bot)
+    _write_json(_bot_cache_path(game_name, game_key, bot["sid"]), bot)
 
 
-def load_bot(game_key: str, bot_sid: str) -> BotConfigT:
+def load_bot(game_name: str, game_key: str, bot_sid: str) -> BotConfigT:
     """Load a joined bot from the game's cache; raises if it never joined."""
-    raw = _read_json(_bot_cache_path(game_key, bot_sid))
+    raw = _read_json(_bot_cache_path(game_name, game_key, bot_sid))
     if raw is None:
         raise ValueError(f"Bot {bot_sid!r} has not joined game {game_key!r}")
     bot = validate_bot_config(raw)
@@ -89,8 +89,8 @@ def load_bot(game_key: str, bot_sid: str) -> BotConfigT:
     return bot
 
 
-def _joined_bot_sids(game_key: str) -> List[str]:
-    bots_dir = _bots_dir(game_key)
+def _joined_bot_sids(game_name: str, game_key: str) -> List[str]:
+    bots_dir = _bots_dir(game_name, game_key)
     if not os.path.isdir(bots_dir):
         return []
     return sorted(
@@ -104,13 +104,13 @@ _PROMPT_BOT_RE = re.compile(r"\{\{\s*(?P<sid>[A-Za-z0-9_.-]+)\s*\}\}")
 _PROMPT_ANY_PLACEHOLDER_RE = re.compile(r"\{\{[^{}]+\}\}")
 
 
-def render_bot_prompt(game_key: str, bot_sid: str, roster_names: Mapping[str, str]) -> str:
+def render_bot_prompt(game_name: str, game_key: str, bot_sid: str, roster_names: Mapping[str, str]) -> str:
     """Render a joined bot's prompt with this game's roster names.
 
     Supported placeholders:
     - {{<sid>}} for any bot sid named in `roster_names`, including the current bot
     """
-    template = load_bot(game_key, bot_sid)["prompt"]
+    template = load_bot(game_name, game_key, bot_sid)["prompt"]
 
     def replace_bot(match: re.Match[str]) -> str:
         referenced_sid = match.group("sid")
@@ -146,36 +146,36 @@ def _image_kind(data: bytes) -> str:
     raise ValueError("Bot image is not a recognized PNG, JPEG, GIF, or WebP")
 
 
-def bot_image_data(game_key: str, bot_sid: str) -> str:
-    """Return a joined bot's portrait as a data URI, or "" if it has none."""
-    return load_bot(game_key, bot_sid)["image"]
+def bot_image_data(game_name: str, game_key: str, bot_sid: str) -> str:
+    """Return a joined bot's portrait as a data URI, or MISSING_IMAGE_URI if it has none."""
+    return load_bot(game_name, game_key, bot_sid)["image"] or MISSING_IMAGE_URI
 
 
-def bot_image_file(game_key: str, bot_sid: str) -> str:
+def bot_image_file(game_name: str, game_key: str, bot_sid: str) -> str:
     """Decode a joined bot's portrait next to its cache entry and return the path.
 
     Raises if the bot has no image — callers that need a file need a picture.
     """
-    image = load_bot(game_key, bot_sid)["image"]
+    image = load_bot(game_name, game_key, bot_sid)["image"]
     if not image:
         raise FileNotFoundError(f"Bot {bot_sid!r} has no image in game {game_key!r}")
     data = base64.b64decode(image.split(",", 1)[1])
-    path = os.path.join(_bots_dir(game_key), f"{bot_sid}.{_image_kind(data)}")
-    if not os.path.isfile(path) or os.path.getmtime(path) < os.path.getmtime(_bot_cache_path(game_key, bot_sid)):
+    path = os.path.join(_bots_dir(game_name, game_key), f"{bot_sid}.{_image_kind(data)}")
+    if not os.path.isfile(path) or os.path.getmtime(path) < os.path.getmtime(_bot_cache_path(game_name, game_key, bot_sid)):
         with open(path, "wb") as f:
             f.write(data)
     return path
 
 
-def _bot_rows(game_key: str) -> List[Dict[str, Any]]:
+def _bot_rows(game_name: str, game_key: str) -> List[Dict[str, Any]]:
     """Pure data: this game's joined bots. No client side effects."""
     rows: List[Dict[str, Any]] = []
-    for bot_sid in _joined_bot_sids(game_key):
-        bot = load_bot(game_key, bot_sid)
+    for bot_sid in _joined_bot_sids(game_name, game_key):
+        bot = load_bot(game_name, game_key, bot_sid)
         rows.append({
             "sid": bot["sid"],
             "displayName": bot["displayName"],
-            "image": bot_image_data(game_key, bot_sid),
+            "image": bot_image_data(game_name, game_key, bot_sid),
             "prompt": bot["prompt"],
             "model": f"{bot['provider']}: {bot['model']}",
         })
@@ -183,9 +183,9 @@ def _bot_rows(game_key: str) -> List[Dict[str, Any]]:
 
 
 @public
-async def bot_list(game_key: str) -> List[Dict[str, Any]]:
+async def bot_list(game_name: str, game_key: str) -> List[Dict[str, Any]]:
     """List the bots that have joined this game."""
-    bots = _bot_rows(game_key)
+    bots = _bot_rows(game_name, game_key)
     await atlantis.client_data("Bots", bots, column_formatter={
         "prompt": {"type": "markdown", "maxWidth": "80ch"},
     })
@@ -193,6 +193,6 @@ async def bot_list(game_key: str) -> List[Dict[str, Any]]:
 
 
 @public
-async def prompt_assemble(game_key: str, bot_sid: str, roster_names: Dict[str, str]) -> str:
+async def prompt_assemble(game_name: str, game_key: str, bot_sid: str, roster_names: Dict[str, str]) -> str:
     """Render a joined bot's prompt using a roster mapping of bot sid -> desired name."""
-    return render_bot_prompt(game_key, bot_sid, roster_names)
+    return render_bot_prompt(game_name, game_key, bot_sid, roster_names)

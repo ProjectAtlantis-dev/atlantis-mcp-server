@@ -53,7 +53,7 @@ def analyze_participants(raw_transcript: List[Dict[str, Any]]) -> Dict[str, Any]
     }
 
 
-async def fetch_transcript(game_key: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+async def fetch_transcript(game_name: str, game_key: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Fetch and format the chat transcript"""
     logger.info("fetch_transcript: /silent on")
     await atlantis.client_command("/silent on")
@@ -74,7 +74,7 @@ async def fetch_transcript(game_key: str) -> Tuple[List[Dict[str, Any]], List[Di
     if raw_transcript[0].get('role') == 'system':
         logger.info("Found system message in transcript - will use our own system prompt instead")
 
-    transcript_dump_file = os.path.join(require_membership(game_key), 'raw_transcript.json')
+    transcript_dump_file = os.path.join(require_membership(game_name, game_key), 'raw_transcript.json')
     try:
         with open(transcript_dump_file, 'w') as f:
             json.dump(raw_transcript, f, indent=2, default=str)
@@ -133,17 +133,25 @@ async def fetch_transcript(game_key: str) -> Tuple[List[Dict[str, Any]], List[Di
             logger.info(f"       -> SKIPPED (type != 'chat'|'description')")
     logger.info(f"=== END FILTERING: {len(transcript)} messages included ===")
 
+    filtered_dump_file = os.path.join(require_membership(game_name, game_key), 'filtered_transcript.json')
+    try:
+        with open(filtered_dump_file, 'w') as f:
+            json.dump(transcript, f, indent=2, default=str)
+        logger.info(f"Filtered transcript written to {filtered_dump_file}")
+    except Exception:
+        logger.exception(f"Failed to write filtered transcript to {filtered_dump_file}")
+
     return raw_transcript, transcript
 
 
-async def chat(game_key: str):
+async def chat(game_name: str, game_key: str):
     """Chat"""
     caller = atlantis.get_caller()
     if not caller:
         logger.warning("Chat fired without a caller identity")
         return
 
-    raw_transcript, transcript = await fetch_transcript(game_key)
+    raw_transcript, transcript = await fetch_transcript(game_name, game_key)
     logger.info(
         "Chat transcript fetched: %s raw entries, %s filtered entries",
         len(raw_transcript),

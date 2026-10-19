@@ -5,9 +5,11 @@ the camera/roster views, so it may import all of them without a cycle."""
 import atlantis
 import asyncio
 import html as html_lib
+import importlib
 import json
 import os
 import uuid
+from types import ModuleType
 from typing import Any, Dict, Optional
 from urllib.parse import urlencode
 
@@ -29,7 +31,6 @@ from .game import (
     GAME_STATE_STOPPED,
     _caller_is_member,
     _game_read,
-    _game_read_from_dir,
     _game_update,
     add_caller_membership,
     game_find_current,
@@ -47,8 +48,7 @@ from .roster import (
     _roster_row_label,
     _roster_row_state,
 )
-from .scene import _scene_pick_dialog
-from .common import app_bg_default
+from .common import MISSING_IMAGE_URI, app_bg_default, game_path
 
 
 async def _warn_unfilled_roster() -> None:
@@ -59,11 +59,11 @@ async def _warn_unfilled_roster() -> None:
     )
 
 
-async def _roster_edit_modal() -> Optional[Dict[str, str]]:
+async def _roster_edit_modal(game_name: str) -> Optional[Dict[str, str]]:
 
     roster = await atlantis.client_command("@roster_list")
-    game_key = await game_find_current()
-    joined_bot_sids = set(_joined_bot_sids(game_key))
+    game_key = await game_find_current(game_name)
+    joined_bot_sids = set(_joined_bot_sids(game_name, game_key))
     heading = "Edit Roster"
 
     uid = uuid.uuid4().hex[:8]
@@ -84,11 +84,13 @@ async def _roster_edit_modal() -> Optional[Dict[str, str]]:
             row,
             available_label=slot_key,
         )
-        bot_image = bot_image_data(game_key, bot_sid) if bot_sid in joined_bot_sids else ""
-        bot_img_html = (
-            f'<img class="roster-bot-thumb" src="{html_lib.escape(bot_image, quote=True)}" alt="{html_lib.escape(bot_sid, quote=True)}">'
-            if bot_image else ""
-        )
+        # Bots join lazily, on spawn; until then the Bot app is the only source of a portrait.
+        if bot_sid in joined_bot_sids:
+            bot_image = bot_image_data(game_name, game_key, bot_sid)
+        else:
+            bot = await atlantis.client_command("$Bot/bot_get", {"bot_sid": bot_sid})
+            bot_image = bot["image"] or MISSING_IMAGE_URI
+        bot_img_html = f'<img class="roster-bot-thumb" src="{html_lib.escape(bot_image, quote=True)}" alt="{html_lib.escape(bot_sid, quote=True)}">'
         select_options = "".join(
             f'<option value="{value}"{" selected" if label == state else ""}>{label}</option>'
             for value, label in state_options
@@ -575,20 +577,20 @@ async def roster_edit_modal_cancel(roster_modal_id: str) -> None:
 
 
 @visible
-async def _game_enter(game_key: str) -> str:
-    redirect_url = _game_window_redirect_url(game_key)
+async def _game_enter(game_name: str, game_key: str) -> str:
+    redirect_url = _game_window_redirect_url(game_name, game_key)
     if redirect_url:
         await atlantis.client_log(f"Redirecting to game window: {redirect_url}")
         await atlantis.client_script(f"window.location.assign({redirect_url!r});")
         return game_key
-    await atlantis.client_command("/cursor join", {"game_key": game_key})
-    await game_init(game_key)
+    await atlantis.client_command("/cursor join", {"game_name": game_name, "game_key": game_key})
+    await game_init(game_name, game_key)
     return game_key
 
 
 @visible
-def _game_window_redirect_url(game_key: str) -> Optional[str]:
-    meta = _game_read(game_key)
+def _game_window_redirect_url(game_name: str, game_key: str) -> Optional[str]:
+    meta = _game_read(game_name, game_key)
     target_user_game_id = meta.get("user_game_id")
     if target_user_game_id is None:
         return None
@@ -605,6 +607,7 @@ def _game_window_redirect_url(game_key: str) -> Optional[str]:
 
 
 async def _roster_edit(
+    game_name: str,
     heading: str = "Edit Roster",
 ) -> bool:
     roster = await atlantis.client_command("@roster_list")
@@ -623,7 +626,7 @@ async def _roster_edit(
 
     while True:
 
-        modal_result = await _roster_edit_modal()
+        modal_result = await _roster_edit_modal(game_name)
         if modal_result is None:
             return False
 
@@ -656,15 +659,15 @@ async def _roster_edit(
 
 
 @visible
-async def roster_edit() -> bool:
-    return await _roster_edit()
+async def roster_edit(game_name: str) -> bool:
+    return await _roster_edit(game_name)
 
 
-def _camera_current_target(game_key: str) -> Dict[str, str]:
+def _camera_current_target(game_name: str, game_key: str) -> Dict[str, str]:
     terminal_key = atlantis.get_terminal_key()
     if not terminal_key:
         return {}
-    entry = _load_cameras(game_key).get(terminal_key)
+    entry = _load_cameras(game_name, game_key).get(terminal_key)
     if not isinstance(entry, dict):
         return {}
     target_type = str(entry.get("target_type") or "").strip()
@@ -681,9 +684,9 @@ def _camera_current_target(game_key: str) -> Dict[str, str]:
     return {}
 
 
-def _camera_location_label(location: str) -> str:
+def _camera_location_label(game_name: str, location: str) -> str:
     try:
-        return load_location(location).get("displayName") or location
+        return load_location(game_name, location).get("displayName") or location
     except ValueError:
         return location
 
@@ -721,7 +724,7 @@ async def _camera_mode_dialog(
     return str(choice.get("id") or "")
 
 
-def _camera_slot_choices(roster: list, current: Dict[str, str]) -> list[Dict[str, str]]:
+def _camera_slot_choices(game_name: str, roster: list, current: Dict[str, str]) -> list[Dict[str, str]]:
     choices = []
     current_slot = current.get("slot_key") if current.get("target_type") == "slot" else ""
     for row in roster:
@@ -739,7 +742,7 @@ def _camera_slot_choices(roster: list, current: Dict[str, str]) -> list[Dict[str
             details.append(bot_sid)
         location = str(row.get("location") or "").strip()
         if location:
-            details.append(f"at {_camera_location_label(location)}")
+            details.append(f"at {_camera_location_label(game_name, location)}")
         choices.append({
             "id": slot_key,
             "text": label,
@@ -764,12 +767,12 @@ def _first_human_slot_key(roster: list) -> str:
     return ""
 
 
-async def _camera_edit(roster: Optional[list] = None, game_key: Optional[str] = None) -> bool:
-    game_key = str(game_key or await game_find_current()).strip()
+async def _camera_edit(game_name: str, roster: Optional[list] = None, game_key: Optional[str] = None) -> bool:
+    game_key = str(game_key or await game_find_current(game_name)).strip()
     roster_rows = roster if roster is not None else await atlantis.client_command("@roster_list")
-    current = _camera_current_target(game_key)
-    has_locations = bool(_leaf_location_keys())
-    slot_choices = _camera_slot_choices(roster_rows, current)
+    current = _camera_current_target(game_name, game_key)
+    has_locations = bool(_leaf_location_keys(game_name))
+    slot_choices = _camera_slot_choices(game_name, roster_rows, current)
     if not has_locations and not slot_choices:
         raise RuntimeError("No camera targets found")
 
@@ -777,16 +780,16 @@ async def _camera_edit(roster: Optional[list] = None, game_key: Optional[str] = 
     # picker is terminal: the camera is bound and we return, rather than
     # bouncing the user back to the mode dialog they just came from.
     while True:
-        current = _camera_current_target(game_key)
+        current = _camera_current_target(game_name, game_key)
         terminal_key = atlantis.get_terminal_key() or ""
-        cameras = _load_cameras(game_key)
+        cameras = _load_cameras(game_name, game_key)
         await atlantis.client_log(
             "camera_edit redraw "
             f"game_key={game_key!r} session_key={atlantis.get_session_key()!r} "
             f"terminal_key={terminal_key!r} camera_keys={sorted(cameras.keys())!r} "
             f"current={current!r}"
         )
-        slot_choices = _camera_slot_choices(roster_rows, current)
+        slot_choices = _camera_slot_choices(game_name, roster_rows, current)
         if CAMERA_PINNED_MODE:
             # Degrade to location only if the pinned mode is impossible; the
             # "neither exists" case already raised above.
@@ -806,14 +809,14 @@ async def _camera_edit(roster: Optional[list] = None, game_key: Optional[str] = 
             current_location = ""
             if current.get("target_type") == "location":
                 current_location = str(current.get("location") or "")
-            location = await _location_pick_dialog(
+            location = await _location_pick_dialog(game_name,
                 title="Location",
                 heading="Select location",
                 current_location=current_location,
             )
             if not location:
                 continue
-            await camera_bind(game_key, location)
+            await camera_bind(game_name, game_key, location)
             return True
 
         if mode == "slot":
@@ -827,7 +830,7 @@ async def _camera_edit(roster: Optional[list] = None, game_key: Optional[str] = 
                     await atlantis.client_log(
                         f"camera_edit: binding to first human slot {human_slot!r} without prompting"
                     )
-                    await camera_follow(game_key, human_slot)
+                    await camera_follow(game_name, game_key, human_slot)
                     return True
 
             try:
@@ -845,18 +848,18 @@ async def _camera_edit(roster: Optional[list] = None, game_key: Optional[str] = 
             slot_key = str(choice.get("slot_key") or choice.get("id") or "").strip()
             if not slot_key:
                 continue
-            await camera_follow(game_key, slot_key)
+            await camera_follow(game_name, game_key, slot_key)
             return True
         raise ValueError(f"Unknown camera target mode: {mode!r}")
 
 
 @visible
-async def camera_edit() -> bool:
-    return await _camera_edit()
+async def camera_edit(game_name: str) -> bool:
+    return await _camera_edit(game_name)
 
 
 @public
-async def game_join(require_other_owner: bool = False) -> Dict[str, Any]:
+async def game_join(game_name: str, require_other_owner: bool = False) -> Dict[str, Any]:
     """Join existing game"""
     entered_game_key = await modal_string(
         "Enter game key:",
@@ -872,18 +875,18 @@ async def game_join(require_other_owner: bool = False) -> Dict[str, Any]:
     if not game_key:
         raise ValueError("game_key required")
 
-    meta = _game_read(game_key)
+    meta = _game_read(game_name, game_key)
     if require_other_owner and atlantis.get_caller() == meta.get("owner", ""):
         raise PermissionError("Join game requires a game owned by someone else")
-    return await _game_join_or_prompt(game_key, meta)
+    return await _game_join_or_prompt(game_name, game_key, meta)
 
 
-async def _game_join_or_prompt(game_key: str, meta: Dict[str, Any]) -> Dict[str, Any]:
+async def _game_join_or_prompt(game_name: str, game_key: str, meta: Dict[str, Any]) -> Dict[str, Any]:
     session_key = atlantis.get_session_key()
     if not session_key:
         raise RuntimeError("No session key in this call context")
     if _caller_is_member(meta, session_key) or atlantis.get_caller() == meta.get("owner", ""):
-        return await _game_join_authorized(game_key, meta)
+        return await _game_join_authorized(game_name, game_key, meta)
 
     while True:
         password = await modal_string(
@@ -899,7 +902,7 @@ async def _game_join_or_prompt(game_key: str, meta: Dict[str, Any]) -> Dict[str,
             return {"cancelled": True}
 
         if meta.get('join_password') == password:
-            return await _game_join_authorized(game_key, meta)
+            return await _game_join_authorized(game_name, game_key, meta)
 
         await _game_password_error(game_key)
 
@@ -913,7 +916,7 @@ async def _game_password_error(game_key: str) -> None:
     )
 
 
-async def _game_join_authorized(game_key: str, meta: Dict[str, Any]) -> Dict[str, Any]:
+async def _game_join_authorized(game_name: str, game_key: str, meta: Dict[str, Any]) -> Dict[str, Any]:
     members = meta.setdefault('members', {})
     session_key = atlantis.get_session_key()
     if not session_key:
@@ -921,33 +924,54 @@ async def _game_join_authorized(game_key: str, meta: Dict[str, Any]) -> Dict[str
     already_member = session_key in members
     if not already_member:
         add_caller_membership(members)
-    _game_update(game_key, meta)
+    _game_update(game_name, game_key, meta)
     if already_member:
         await atlantis.client_log(f"user already in game: {game_key}")
     else:
         await atlantis.client_log(
             f"✅ {atlantis.get_caller() or atlantis.get_session_key()} joined game {game_key}"
         )
-    await _game_enter(game_key)
+    await _game_enter(game_name, game_key)
     return {"game_key": game_key}
 
 
+def roster_exists(game_name: str, game_key: str) -> bool:
+    """Whether this game has a roster yet; a game init script creates it if not."""
+    return os.path.isfile(os.path.join(require_membership(game_name, game_key), "roster.json"))
+
+
+async def start_owned_stopped_game(game_name: str, game_key: str) -> None:
+    """Start the game if the caller owns it and it is stopped.
+
+    Setting a game up is already the decision to play it, so the owner does
+    not get asked again — game_stop is there for anyone who wants it stopped.
+    """
+    meta = _game_read(game_name, game_key)
+    if (
+        atlantis.get_caller() == meta.get("owner")
+        and str(meta.get("state") or GAME_STATE_STOPPED).strip().lower() == GAME_STATE_STOPPED
+    ):
+        await game_start(game_name, game_key)
+
+
+def _game_init_script(game_name: str) -> ModuleType:
+    """Import <game_name>/init.py, the game's own setup flow."""
+    script = game_path(game_name, "init.py")
+    if not os.path.isfile(script):
+        raise FileNotFoundError(f"Game {game_name!r} has no init script: {script}")
+    return importlib.import_module(f"{__package__}.{game_name}.init")
+
+
 @public
-async def game_init(game_key: str):
+async def game_init(game_name: str, game_key: str):
+    """Idempotent game setup: shared wiring here, then the game's own init script."""
 
     await atlantis.client_log("*** GAME INIT ***")
 
-    """Idempotent game setup"""
-
-    # % atlantis "get_session_key"
-
-
     # make sure game exists
-    data_dir = require_membership(game_key)
-    session_key = atlantis.get_session_key()
-    if not session_key:
+    require_membership(game_name, game_key)
+    if not atlantis.get_session_key():
         raise RuntimeError("No session key in this call context")
-    roster_path = os.path.join(data_dir, "roster.json")
 
     # Cursor join has selected the remote; configure both callbacks on entry.
     await atlantis.client_command("/callback set preflight auto")
@@ -958,30 +982,4 @@ async def game_init(game_key: str):
 
     await atlantis.client_log(f"chat callback: toolPath={chat_row['toolPath']!r} filename={chat_row['filename']!r}")
 
-    if os.path.isfile(roster_path):
-        roster = await atlantis.client_command("@roster_list")
-    else:
-        scene = await _scene_pick_dialog()
-        if not scene:
-            raise RuntimeError("Scene selection cancelled")
-        roster = await atlantis.client_command(f"@roster_create {scene}")
-        await atlantis.client_log(f"game scene: {scene!r}")
-
-    if not await roster_edit():
-        raise RuntimeError("Roster selection cancelled")
-    roster = await atlantis.client_command("@roster_list")
-    if roster and all(row.get("state") == STATE_AVAILABLE for row in roster):
-        await _warn_unfilled_roster()
-
-    if not await _camera_edit(roster=roster, game_key=game_key):
-        raise RuntimeError("Camera selection cancelled")
-
-    # Setting a game up is already the decision to play it, so the owner does
-    # not get asked again — game_stop is there for anyone who wants it stopped.
-    meta = _game_read_from_dir(data_dir)
-    if (
-        atlantis.get_caller() == meta.get("owner")
-        and str(meta.get("state") or GAME_STATE_STOPPED).strip().lower() == GAME_STATE_STOPPED
-    ):
-        await game_start(game_key)
-        meta = _game_read_from_dir(data_dir)
+    await _game_init_script(game_name).game_init(game_name, game_key)

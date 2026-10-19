@@ -1,7 +1,7 @@
 """Scene tools
 
 A scene is a named roster of slots with a short description. Its identity is
-the filename: Game/Scenes/<name>.json, the same way a bot's identity is its
+the filename: <game_name>/Game/Scenes/<name>.json, the same way a bot's identity is its
 folder name. Each slot declares its defaultLocation — where whoever fills the
 slot enters the world.
 """
@@ -12,15 +12,15 @@ import os
 import re
 from typing import Any, Dict, List, Optional, cast
 
-from .common import home_path, _read_json, _require_str
+from .common import game_path, _read_json, _require_str
 from .location import _require_leaf, load_location
 from dynamic_functions.Home.modal import modal_menu
 
 logger = logging.getLogger("dynamic_function")
 
 
-def _scenes_dir() -> str:
-    return home_path("Game", "Scenes")
+def _scenes_dir(game_name: str) -> str:
+    return game_path(game_name, "Game", "Scenes")
 
 
 def _scene_name(scene: str) -> str:
@@ -33,13 +33,13 @@ def _scene_name(scene: str) -> str:
     return name
 
 
-def _scene_path(scene: str) -> str:
-    return os.path.join(_scenes_dir(), f"{_scene_name(scene)}.json")
+def _scene_path(game_name: str, scene: str) -> str:
+    return os.path.join(_scenes_dir(game_name), f"{_scene_name(scene)}.json")
 
 
-def _load_scene_config(scene: str) -> Dict[str, Any]:
+def _load_scene_config(game_name: str, scene: str) -> Dict[str, Any]:
     """Load a scene config, accepting old bare-slot arrays for compatibility."""
-    raw = _read_json(_scene_path(scene))
+    raw = _read_json(_scene_path(game_name, scene))
     if raw is None:
         raise ValueError(f"Unknown scene: {scene!r}")
     if isinstance(raw, list):
@@ -55,25 +55,25 @@ def _load_scene_config(scene: str) -> Dict[str, Any]:
     }
 
 
-def _load_scene(scene: str) -> List[Dict[str, str]]:
+def _load_scene(game_name: str, scene: str) -> List[Dict[str, str]]:
     """Load a scene's slots."""
-    return cast(List[Dict[str, str]], _load_scene_config(scene)["slots"])
+    return cast(List[Dict[str, str]], _load_scene_config(game_name, scene)["slots"])
 
 
-def scene_slot_default_location(scene: str, slot_key: str) -> str:
+def scene_slot_default_location(game_name: str, scene: str, slot_key: str) -> str:
     """Return the standable defaultLocation a scene declares for one slot."""
-    slot = next((row for row in _load_scene(scene) if row.get("key") == slot_key), None)
+    slot = next((row for row in _load_scene(game_name, scene) if row.get("key") == slot_key), None)
     if slot is None:
         raise ValueError(f"Scene {scene!r} has no slot {slot_key!r}")
     location = _require_str(slot, "defaultLocation", f"Scene {scene!r} slot {slot_key!r}")
-    load_location(location)
-    _require_leaf(location)
+    load_location(game_name, location)
+    _require_leaf(game_name, location)
     return location
 
 
-def _scene_names() -> List[str]:
+def _scene_names(game_name: str) -> List[str]:
     """List scene names — the filenames under Game/Scenes/, minus .json."""
-    scenes_dir = _scenes_dir()
+    scenes_dir = _scenes_dir(game_name)
     names = []
     for entry in os.listdir(scenes_dir):
         if entry.startswith(".") or not entry.endswith(".json"):
@@ -82,11 +82,11 @@ def _scene_names() -> List[str]:
     return sorted(names)
 
 
-def _scene_rows() -> List[Dict[str, Any]]:
+def _scene_rows(game_name: str) -> List[Dict[str, Any]]:
     """Pure data for scene_list: one row per scene definition."""
     rows = []
-    for name in _scene_names():
-        config = _load_scene_config(name)
+    for name in _scene_names(game_name):
+        config = _load_scene_config(game_name, name)
         rows.append({
             "name": name,
             "slots": len(config["slots"]),
@@ -95,7 +95,7 @@ def _scene_rows() -> List[Dict[str, Any]]:
     return rows
 
 
-def _scene_picker_choices() -> List[Dict[str, Any]]:
+def _scene_picker_choices(game_name: str) -> List[Dict[str, Any]]:
     return [
         {
             "id": row["name"],
@@ -103,16 +103,16 @@ def _scene_picker_choices() -> List[Dict[str, Any]]:
             "description": row["description"],
             "scene": row["name"],
         }
-        for row in _scene_rows()
+        for row in _scene_rows(game_name)
     ]
 
 
-async def _scene_pick_dialog(
+async def _scene_pick_dialog(game_name: str,
     *,
     title: str = "Scene",
     heading: str = "Select scene",
 ) -> Optional[str]:
-    choices = _scene_picker_choices()
+    choices = _scene_picker_choices(game_name)
     if not choices:
         raise RuntimeError("No scenes found")
     # A scene pick is a single act, not a selection to be confirmed, so this
@@ -127,22 +127,22 @@ async def _scene_pick_dialog(
 
 
 @public
-async def scene_list() -> List[str]:
+async def scene_list(game_name: str) -> List[str]:
     """List available scenes by name."""
-    rows = _scene_rows()
+    rows = _scene_rows(game_name)
     await atlantis.client_data("Scenes", rows)
     return [row["name"] for row in rows]
 
 
 @visible
-async def scene_pick() -> Optional[str]:
+async def scene_pick(game_name: str) -> Optional[str]:
     """Pick a scene using the standard scene picker dialog."""
-    return await _scene_pick_dialog()
+    return await _scene_pick_dialog(game_name)
 
 
 @public
-async def scene_show(scene: str) -> List[Dict[str, Any]]:
+async def scene_show(game_name: str, scene: str) -> List[Dict[str, Any]]:
     """Show a scene's slots exactly as scene-definition rows."""
-    rows = _load_scene(scene)
+    rows = _load_scene(game_name, scene)
     await atlantis.client_data(scene, rows)
     return rows

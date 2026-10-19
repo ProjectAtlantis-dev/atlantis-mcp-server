@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from .common import app_bg_default, home_path, _read_json, _write_json
+from .common import app_bg_default, game_path, _read_json, _write_json
 from dynamic_functions.Home.modal import modal_menu
 
 
@@ -28,43 +28,47 @@ def _safe_id(value: str, label: str = "id") -> str:
     return safe
 
 
-def game_dir(game_key: str) -> str:
+def _games_root(game_name: str) -> str:
+    return game_path(game_name, "Data", "games")
+
+
+def game_dir(game_name: str, game_key: str) -> str:
     """Get a game data directory path"""
-    return home_path("Data", "games", _safe_id(game_key, "game_key"))
+    return os.path.join(_games_root(game_name), _safe_id(game_key, "game_key"))
 
 
-def require_game_dir(game_key: str) -> str:
+def require_game_dir(game_name: str, game_key: str) -> str:
     """Get an existing game data directory"""
-    path = game_dir(game_key)
+    path = game_dir(game_name, game_key)
     if not os.path.isdir(path):
-        raise RuntimeError(f"Invalid game '{game_key}'")
+        raise RuntimeError(f"Invalid game '{game_name}/{game_key}'")
     return path
 
 
-def _game_json_path(game_key: str) -> str:
-    return os.path.join(require_game_dir(game_key), "game.json")
+def _game_json_path(game_name: str, game_key: str) -> str:
+    return os.path.join(require_game_dir(game_name, game_key), "game.json")
 
 
 def _game_json_path_in_dir(data_dir: str) -> str:
     return os.path.join(data_dir, "game.json")
 
 
-def _game_read(game_key: str) -> Dict[str, Any]:
-    return _read_json(_game_json_path(game_key)) or {}
+def _game_read(game_name: str, game_key: str) -> Dict[str, Any]:
+    return _read_json(_game_json_path(game_name, game_key)) or {}
 
 
 def _game_read_from_dir(data_dir: str) -> Dict[str, Any]:
     return _read_json(_game_json_path_in_dir(data_dir)) or {}
 
 
-def _game_create(game_key: str, meta: Dict[str, Any]) -> None:
-    data_dir = game_dir(game_key)
+def _game_create(game_name: str, game_key: str, meta: Dict[str, Any]) -> None:
+    data_dir = game_dir(game_name, game_key)
     os.makedirs(data_dir, exist_ok=False)
     _write_json(_game_json_path_in_dir(data_dir), meta)
 
 
-def _game_update(game_key: str, meta: Dict[str, Any]) -> None:
-    _write_json(_game_json_path(game_key), meta)
+def _game_update(game_name: str, game_key: str, meta: Dict[str, Any]) -> None:
+    _write_json(_game_json_path(game_name, game_key), meta)
 
 
 def _normalize_game_state(state: Any) -> str:
@@ -78,8 +82,8 @@ def _game_state(meta: Dict[str, Any]) -> str:
     return _normalize_game_state(meta.get("state") or GAME_STATE_STOPPED)
 
 
-def _game_is_running(game_key: str) -> bool:
-    return _game_state(_game_read(game_key)) == GAME_STATE_RUNNING
+def _game_is_running(game_name: str, game_key: str) -> bool:
+    return _game_state(_game_read(game_name, game_key)) == GAME_STATE_RUNNING
 
 
 def _game_summary(game_key: str, meta: Dict[str, Any], created_ts: float) -> Dict[str, Any]:
@@ -167,8 +171,8 @@ def add_caller_membership(members: Dict[str, Any]) -> Dict[str, Any]:
     return members
 
 
-def require_membership(game_key: str) -> str:
-    path = require_game_dir(game_key)
+def require_membership(game_name: str, game_key: str) -> str:
+    path = require_game_dir(game_name, game_key)
     session_key = atlantis.get_session_key() or ""
     if not session_key and not atlantis.get_caller():
         raise RuntimeError("No session key or caller identity in this call context")
@@ -178,13 +182,13 @@ def require_membership(game_key: str) -> str:
     return path
 
 @public
-def game_find_latest_owned() -> Optional[str]:
+def game_find_latest_owned(game_name: str) -> Optional[str]:
     """Return the newest game owned by the current caller, if one exists."""
     owner = atlantis.get_caller()
     if not owner:
         raise RuntimeError("No caller identity in this call context")
 
-    games_root = home_path("Data", "games")
+    games_root = _games_root(game_name)
     if not os.path.isdir(games_root):
         return None
 
@@ -215,16 +219,16 @@ def _current_game_key() -> str:
 
 
 @public
-async def game_new() -> Dict[str, Any]:
+async def game_new(game_name: str) -> Dict[str, Any]:
     """Create and set up the current Node game for an MCP owner."""
     game_key = _current_game_key()
     caller = atlantis.get_caller()
     if not caller or not atlantis.is_owner(caller):
         raise PermissionError(
-            f"Only an MCP owner can create game {game_key!r}; caller={caller!r}"
+            f"Only an MCP owner can create game {game_name}/{game_key!r}; caller={caller!r}"
         )
-    if not os.path.exists(game_dir(game_key)):
-        _game_create(game_key, {
+    if not os.path.exists(game_dir(game_name, game_key)):
+        _game_create(game_name, game_key, {
             "game_uuid": game_key,
             "join_password": uuid.uuid4().hex,
             "owner": caller,
@@ -234,37 +238,37 @@ async def game_new() -> Dict[str, Any]:
             "roster_created_at": None,
             "members": add_caller_membership({}),
         })
-    meta = _game_read(game_key)
+    meta = _game_read(game_name, game_key)
     if not meta or meta.get("game_uuid") != game_key:
         raise RuntimeError(f"Invalid game record for UUID {game_key!r}")
-    keys = {"game_key": game_key, "join_password": meta["join_password"]}
-    if not _game_roster_scene(meta) or not os.path.isfile(os.path.join(game_dir(game_key), "roster.json")):
+    keys = {"game_name": game_name, "game_key": game_key, "join_password": meta["join_password"]}
+    if not _game_roster_scene(meta) or not os.path.isfile(os.path.join(game_dir(game_name, game_key), "roster.json")):
         # runner imports game; import the interactive setup only when needed.
         from .runner import game_init
 
         await app_bg_default()
         await atlantis.client_command("/cursor join", keys)
-        await game_init(game_key)
+        await game_init(game_name, game_key)
     return keys
 
 
 @public
-async def game_find_current() -> str:
+async def game_find_current(game_name: str) -> str:
     """Resolve by Node UUID; create a missing game only for an MCP owner."""
     game_key = _current_game_key()
-    if not os.path.exists(game_dir(game_key)):
-        return (await game_new())["game_key"]
+    if not os.path.exists(game_dir(game_name, game_key)):
+        return (await game_new(game_name))["game_key"]
     # A partial or corrupt record is an error, not a missing game to overwrite.
-    meta = _game_read(game_key)
+    meta = _game_read(game_name, game_key)
     if not meta or meta.get("game_uuid") != game_key:
         raise RuntimeError(f"Invalid game record for UUID {game_key!r}")
     return game_key
 
 
 @visible
-def _game_rows() -> list:
+def _game_rows(game_name: str) -> list:
     """List existing games, newest first"""
-    games_root = home_path("Data", "games")
+    games_root = _games_root(game_name)
     if not os.path.isdir(games_root):
         return []
     entries = []
@@ -320,12 +324,13 @@ def _game_picker_choices(games: list) -> list[Dict[str, Any]]:
 
 
 async def _game_pick_dialog(
+    game_name: str,
     games: Optional[list] = None,
     *,
     title: str = "Game",
     heading: str = "Select game",
 ) -> Optional[str]:
-    choices = _game_picker_choices(_game_rows() if games is None else games)
+    choices = _game_picker_choices(_game_rows(game_name) if games is None else games)
     if not choices:
         raise RuntimeError("No existing games found")
     choice = await modal_menu(
@@ -340,15 +345,15 @@ async def _game_pick_dialog(
 
 
 @visible
-async def game_pick() -> Optional[str]:
+async def game_pick(game_name: str) -> Optional[str]:
     """Pick an existing game using the standard game picker dialog."""
-    return await _game_pick_dialog()
+    return await _game_pick_dialog(game_name)
 
 
 @public
-async def game_list() -> list:
+async def game_list(game_name: str) -> list:
     """List existing games, newest first"""
-    rows = _game_rows()
+    rows = _game_rows(game_name)
     await atlantis.client_data("Games", rows, column_formatter={
         "created": {"type": "when"},
     })
@@ -356,14 +361,14 @@ async def game_list() -> list:
 
 
 @public
-async def game_show(game_key: Optional[str] = None) -> dict:
+async def game_show(game_name: str, game_key: Optional[str] = None) -> dict:
     """Show a game's status, using the current UUID when game_key is omitted.
     The owner sees full detail (join password + members);
     everyone else sees only owner, member count, and created time."""
     if game_key is None:
         game_key = _current_game_key()
-    path = require_game_dir(game_key)
-    meta = _game_read(game_key)
+    path = require_game_dir(game_name, game_key)
+    meta = _game_read(game_name, game_key)
     owner = meta.get("owner", "")
     members = meta.get("members") or {}
     created = datetime.fromtimestamp(os.path.getctime(path)).isoformat(timespec="seconds")
@@ -402,33 +407,33 @@ async def game_show(game_key: Optional[str] = None) -> dict:
 
 
 @public
-async def game_password(game_key: str, new_password: str) -> None:
+async def game_password(game_name: str, game_key: str, new_password: str) -> None:
     """Change a game's join password. Only the owner may do this."""
     if not new_password:
         raise ValueError("new_password required")
 
-    meta = _game_read(game_key)
+    meta = _game_read(game_name, game_key)
     if atlantis.get_caller() != meta.get("owner", ""):
         raise PermissionError("Only the owner may change the password")
 
     meta['join_password'] = new_password
-    _game_update(game_key, meta)
+    _game_update(game_name, game_key, meta)
     await atlantis.client_log(f"Password to game {game_key} was changed")
 
 
-async def _game_set_state(game_key: str, state: str) -> dict:
-    meta = _game_read(game_key)
+async def _game_set_state(game_name: str, game_key: str, state: str) -> dict:
+    meta = _game_read(game_name, game_key)
     if atlantis.get_caller() != meta.get("owner", ""):
         raise PermissionError("Only the owner may change the game state")
 
     state_key = _normalize_game_state(state)
     meta["state"] = state_key
-    _game_update(game_key, meta)
+    _game_update(game_name, game_key, meta)
     await atlantis.client_log(f"Game {game_key} is now {state_key}")
     return {"game_key": game_key, "state": state_key}
 
 
-async def _spawn_unspawned_humans(game_key: str) -> List[str]:
+async def _spawn_unspawned_humans(game_name: str, game_key: str) -> List[str]:
     """Put every not-yet-placed human slot at its scene defaultLocation.
 
     A slot with no location has nowhere to be seen, talked to, or ticked, so a
@@ -441,30 +446,47 @@ async def _spawn_unspawned_humans(game_key: str) -> List[str]:
     from .roster import _load_game_roster, roster_spawn
     from .scene import scene_slot_default_location
 
-    scene = _game_roster_scene(_game_read(game_key))
+    scene = _game_roster_scene(_game_read(game_name, game_key))
     if not scene:
         raise RuntimeError(f"Game {game_key!r} has no roster scene")
 
     spawned: List[str] = []
-    for row in _load_game_roster(game_key):
+    for row in _load_game_roster(game_name, game_key):
         if row.get("ai") is not False:
             continue
         if row.get("location") and row.get("spawned_at"):
             continue
         slot_key = str(row.get("key") or "").strip()
-        await roster_spawn(game_key, slot_key, scene_slot_default_location(scene, slot_key))
+        await roster_spawn(game_name, game_key, slot_key, scene_slot_default_location(game_name, scene, slot_key))
         spawned.append(slot_key)
     return spawned
 
 
+async def _join_ai_slots(game_name: str, game_key: str) -> List[str]:
+    """Join every AI slot not yet in the world, fetching each bot from the Bot app.
+
+    Imported inside the function for the same cycle as _spawn_unspawned_humans.
+    """
+    from .roster import _load_game_roster, roster_join_bot
+
+    joined: List[str] = []
+    for row in _load_game_roster(game_name, game_key):
+        if row.get("ai") is not True or row.get("location"):
+            continue
+        slot_key = str(row.get("key") or "").strip()
+        bot = await atlantis.client_command("$Bot/bot_get", {"bot_sid": row["bot_sid"]})
+        await roster_join_bot(game_name, game_key, slot_key, bot)
+        joined.append(slot_key)
+    return joined
+
+
 @public
-async def game_start(game_key: str) -> dict:
+async def game_start(game_name: str, game_key: str) -> dict:
     """Set a game state to running, spawning humans not already in the world.
 
-    Bots are not spawned here: a bot enters when whatever adds it calls
-    roster_join_bot with its config.
+    Every AI slot not already in the world joins right after the humans.
     """
-    result = await _game_set_state(game_key, GAME_STATE_RUNNING)
+    result = await _game_set_state(game_name, game_key, GAME_STATE_RUNNING)
 
     # Wipe the setup chatter, then undo the dimmed greyscale backdrop
     # Home/user.py sets for its menu. Both before spawning, so the arrivals
@@ -475,20 +497,23 @@ async def game_start(game_key: str) -> dict:
 
     # The player is standing in the room first, so each bot that later joins
     # walking in is an arrival they witness rather than scenery.
-    humans = await _spawn_unspawned_humans(game_key)
+    humans = await _spawn_unspawned_humans(game_name, game_key)
     if humans:
         await atlantis.client_log(f"spawned humans on start: {', '.join(humans)}")
+    bots = await _join_ai_slots(game_name, game_key)
+    if bots:
+        await atlantis.client_log(f"joined bots on start: {', '.join(bots)}")
     # Also covers resuming an already-positioned roster created before sighting
     # tracking existed; movement handles all ordinary first encounters.
-    from .roster import _show_kitty_first_sighting
-    await _show_kitty_first_sighting(game_key)
+    from .roster import _show_first_sightings
+    await _show_first_sightings(game_name, game_key)
     return result
 
 
 @public
-async def game_stop(game_key: str) -> dict:
+async def game_stop(game_name: str, game_key: str) -> dict:
     """Set a game state to stopped."""
-    return await _game_set_state(game_key, GAME_STATE_STOPPED)
+    return await _game_set_state(game_name, game_key, GAME_STATE_STOPPED)
 
 # % _game_rows()
 

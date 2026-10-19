@@ -1,19 +1,19 @@
 """Location map visualization — ELK-based hierarchical facility map."""
 
 import atlantis
-import base64
 import json
 import os
 import uuid
 from typing import Any, Dict, List
 
+from .common import _image_data_uri
 from .location import (
     _child_locations,
     _is_leaf,
     _load_location,
     _location_dir,
     _locations_dir,
-    location_thumb,
+    location_image_file,
 )
 
 
@@ -21,20 +21,10 @@ from .location import (
 # Helpers
 # =========================================================================
 
-def _location_image_b64(loc_name: str) -> str:
-    """Get a location thumbnail data URI"""
-    thumb = location_thumb(loc_name)
-    if not thumb:
-        return ""
-    ext = os.path.splitext(thumb)[1].lower().lstrip(".")
-    mime = {"jpg": "jpeg", "jpeg": "jpeg", "png": "png", "gif": "gif", "webp": "webp"}.get(ext, "jpeg")
-    with open(thumb, "rb") as f:
-        b64 = base64.b64encode(f.read()).decode("ascii")
-    return f"data:image/{mime};base64,{b64}"
 
 
-def _all_location_names() -> List[str]:
-    loc_dir = _locations_dir()
+def _all_location_names(game_name: str) -> List[str]:
+    loc_dir = _locations_dir(game_name)
     if not os.path.isdir(loc_dir):
         return []
     return sorted([
@@ -48,9 +38,9 @@ def _all_location_names() -> List[str]:
 # =========================================================================
 
 @visible
-async def location_map() -> None:
+async def location_map(game_name: str) -> None:
     """Show the full facility map: containers wrap their child rooms; edges are adjacency (connects_to)."""
-    all_names = _all_location_names()
+    all_names = _all_location_names(game_name)
     if not all_names:
         await atlantis.client_log("No locations defined.")
         return
@@ -60,9 +50,9 @@ async def location_map() -> None:
     containers: List[str] = []
     parent_of: Dict[str, str] = {}
     for name in all_names:
-        loc = _load_location(name) or {}
+        loc = _load_location(game_name, name) or {}
         parent_of[name] = (loc.get("parent") or "")
-        if _is_leaf(name):
+        if _is_leaf(game_name, name):
             leaves.append(name)
         else:
             containers.append(name)
@@ -70,18 +60,18 @@ async def location_map() -> None:
     # Build leaf node data for HTML rendering.
     leaf_nodes: List[Dict[str, Any]] = []
     for name in leaves:
-        loc = _load_location(name) or {}
+        loc = _load_location(game_name, name) or {}
         leaf_nodes.append({
             "name": name,
             "displayName": loc.get("displayName", name),
-            "image": _location_image_b64(name),
+            "image": _image_data_uri(location_image_file(game_name, name)),
         })
 
     # Adjacency edges between leaves (skip dangling targets).
     edges: List[tuple] = []
     leaf_set = set(leaves)
     for name in leaves:
-        loc = _load_location(name) or {}
+        loc = _load_location(game_name, name) or {}
         for neighbor in loc.get("connects_to", []):
             if neighbor in leaf_set and (neighbor, name) not in edges:
                 edges.append((name, neighbor))
@@ -123,11 +113,7 @@ async def location_map() -> None:
     def _node_html(node: dict) -> str:
         name = node["name"]
         node_id = f"map-node-{name}-{uid}"
-        img_html = (
-            f'<img src="{node["image"]}" class="map-img-{uid}" />'
-            if node["image"]
-            else f'<div class="map-img-placeholder-{uid}">🗺️</div>'
-        )
+        img_html = f'<img src="{node["image"]}" class="map-img-{uid}" />'
         label = _esc(node["displayName"])
         return (
             f'<div class="map-node-{uid}" id="{node_id}">'
@@ -144,10 +130,10 @@ async def location_map() -> None:
             {
                 "id": f"map-group-{c}-{uid}",
                 "name": c,
-                "displayName": (_load_location(c) or {}).get("displayName", c),
+                "displayName": (_load_location(game_name, c) or {}).get("displayName", c),
                 "parent": (f"map-group-{parent_of[c]}-{uid}" if parent_of.get(c) else ""),
-                "children": [f"map-node-{n}-{uid}" for n in _child_locations(c) if n in leaf_set]
-                            + [f"map-group-{n}-{uid}" for n in _child_locations(c) if n not in leaf_set],
+                "children": [f"map-node-{n}-{uid}" for n in _child_locations(game_name, c) if n in leaf_set]
+                            + [f"map-group-{n}-{uid}" for n in _child_locations(game_name, c) if n not in leaf_set],
             }
             for c in containers
         ],
@@ -203,15 +189,6 @@ async def location_map() -> None:
     height: 120px;
     object-fit: cover;
     display: block;
-  }}
-  .map-img-placeholder-{uid} {{
-    width: 100%;
-    height: 120px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 36px;
-    background: #2a2a40;
   }}
   .map-label-{uid} {{
     padding: 8px 10px 10px;

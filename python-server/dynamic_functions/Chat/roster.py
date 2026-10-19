@@ -5,7 +5,7 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from .bot import BotConfigT, bot_image_file, cache_bot, validate_bot_config
+from .bot import BotConfigT, bot_image_file, cache_bot, load_bot, validate_bot_config
 from .bot_tool import _initialize_bot_tool_files
 from .common import _read_json, _write_json
 from .game import _game_read, _game_roster_scene, require_membership
@@ -33,7 +33,6 @@ STATE_KEY_BY_LABEL = {label: key for key, label in STATE_LABELS.items()}
 # A row's state is stored as `ai`: None = nobody, True = bot, False = person.
 AI_BY_STATE_KEY = {KEY_AVAILABLE: None, KEY_AI: True, KEY_HUMAN: False}
 
-KITTY_BOT_SID = "kitty"
 SIGHTINGS_FILENAME = "sightings.json"
 
 
@@ -77,10 +76,10 @@ def _scene_slot_state_key(scene: str, index: int, slot: Dict[str, Any]) -> str:
     return raw
 
 
-def _scene_roster_rows(scene: str) -> List[Dict[str, Any]]:
+def _scene_roster_rows(game_name: str, scene: str) -> List[Dict[str, Any]]:
     """Convert a static scene into initial per-game roster rows."""
     rows: List[Dict[str, Any]] = []
-    for index, slot in enumerate(_load_scene(scene)):
+    for index, slot in enumerate(_load_scene(game_name, scene)):
         if not isinstance(slot, dict):
             raise ValueError(f"Scene {scene!r} row {index} must be an object")
 
@@ -91,7 +90,7 @@ def _scene_roster_rows(scene: str) -> List[Dict[str, Any]]:
         if not bot_sid:
             raise ValueError(f"Scene {scene!r} row {index} is missing bot_sid")
 
-        scene_slot_default_location(scene, key)
+        scene_slot_default_location(game_name, scene, key)
         rows.append({
             "key": key,
             "bot_sid": bot_sid,
@@ -128,9 +127,9 @@ def _apply_scene_human_defaults(rows: List[Dict[str, Any]]) -> None:
         claimed = True
 
 
-def _load_game_roster(game_key: str) -> List[Dict[str, Any]]:
+def _load_game_roster(game_name: str, game_key: str) -> List[Dict[str, Any]]:
     """Load a game's finalized roster.json, requiring it to already exist."""
-    data_dir = require_membership(game_key)
+    data_dir = require_membership(game_name, game_key)
     roster_path = os.path.join(data_dir, "roster.json")
     if not os.path.isfile(roster_path):
         raise RuntimeError("must create scene roster for this game first")
@@ -165,17 +164,17 @@ def _find_roster_row(rows: List[Dict[str, Any]], sid_or_key: str) -> Dict[str, A
     return matches[0]
 
 
-def _write_game_roster(game_key: str, rows: List[Dict[str, Any]]) -> None:
-    data_dir = require_membership(game_key)
+def _write_game_roster(game_name: str, game_key: str, rows: List[Dict[str, Any]]) -> None:
+    data_dir = require_membership(game_name, game_key)
     _write_json(os.path.join(data_dir, "roster.json"), rows)
 
 
-def _sightings_path(game_key: str) -> str:
-    return os.path.join(require_membership(game_key), SIGHTINGS_FILENAME)
+def _sightings_path(game_name: str, game_key: str) -> str:
+    return os.path.join(require_membership(game_name, game_key), SIGHTINGS_FILENAME)
 
 
-def _load_sightings(game_key: str) -> Dict[str, List[str]]:
-    path = _sightings_path(game_key)
+def _load_sightings(game_name: str, game_key: str) -> Dict[str, List[str]]:
+    path = _sightings_path(game_name, game_key)
     raw = _read_json(path, {}) or {}
     if not isinstance(raw, dict):
         raise ValueError(f"Game {game_key!r} {SIGHTINGS_FILENAME} must be a JSON object")
@@ -190,16 +189,20 @@ def _load_sightings(game_key: str) -> Dict[str, List[str]]:
     return sightings
 
 
-async def _show_kitty_first_sighting(
+async def _show_first_sightings(
+    game_name: str,
     game_key: str,
     rows: Optional[List[Dict[str, Any]]] = None,
 ) -> bool:
-    """Show Kitty's portrait once when the calling human first shares her location."""
+    """Show each bot's portrait once when the calling human first shares its location.
+
+    Bots that joined without a portrait have nothing to show and are skipped.
+    """
     human_sid = str(atlantis.get_caller() or "").strip()
     if not human_sid:
         return False
 
-    roster = rows if rows is not None else _load_game_roster(game_key)
+    roster = rows if rows is not None else _load_game_roster(game_name, game_key)
     human_locations = {
         str(row.get("location") or "").strip()
         for row in roster
@@ -208,48 +211,28 @@ async def _show_kitty_first_sighting(
     if not human_locations:
         return False
 
-    kitty_row = next(
-        (
-            row for row in roster
-            if row.get("ai") is True
-            and row.get("bot_sid") == KITTY_BOT_SID
-            and row.get("location") in human_locations
-        ),
-        None,
-    )
-    if kitty_row is None:
-        return False
+    sightings = _load_sightings(game_name, game_key)
+    shown = False
+    for bot_row in roster:
+        if bot_row.get("ai") is not True or bot_row.get("location") not in human_locations:
+            continue
+        bot_sid = str(bot_row["bot_sid"])
+        seen_by = sightings.setdefault(bot_sid, [])
+        if human_sid in seen_by or not load_bot(game_name, game_key, bot_sid)["image"]:
+            continue
 
-    sightings = _load_sightings(game_key)
-    seen_by = sightings.setdefault(KITTY_BOT_SID, [])
-    if human_sid in seen_by:
-        return False
+        await atlantis.client_image(
+            bot_image_file(game_name, game_key, bot_sid),
+            sid=bot_sid,
+            location=str(bot_row["location"]),
+            shell="user",
+        )
+        seen_by.append(human_sid)
+        shown = True
 
-    image_path = bot_image_file(game_key, KITTY_BOT_SID)
-
-    location = str(kitty_row.get("location") or "")
-    await atlantis.client_image(
-        image_path,
-        sid=KITTY_BOT_SID,
-        location=location,
-        shell="user",
-    )
-
-    seen_by.append(human_sid)
-    _write_json(_sightings_path(game_key), sightings)
-    return True
-
-
-def _roster_rows() -> List[Dict[str, Any]]:
-    """Pure data: scene roster definitions. No client side effects."""
-    rows: List[Dict[str, Any]] = []
-
-    for scene_name in _scene_names():
-        for row in _scene_roster_rows(scene_name):
-            out = dict(row)
-            out["scene_name"] = scene_name
-            rows.append(out)
-    return rows
+    if shown:
+        _write_json(_sightings_path(game_name, game_key), sightings)
+    return shown
 
 
 def _roster_row_state(row: Dict[str, Any]) -> str:
@@ -319,9 +302,9 @@ def _display_roster_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 @public
-async def roster_list(game_key: str) -> List[Dict[str, Any]]:
+async def roster_list(game_name: str, game_key: str) -> List[Dict[str, Any]]:
     """Show this game's live roster.json, including any roster_bind changes."""
-    rows = _load_game_roster(game_key)
+    rows = _load_game_roster(game_name, game_key)
     display_rows = _display_roster_rows(rows)
     await atlantis.client_data(f"{game_key} roster", display_rows)
     return display_rows
@@ -371,6 +354,7 @@ def _set_roster_slot_human(target: Dict[str, Any], display_name: str) -> None:
 
 @public
 async def roster_set_slot(
+    game_name: str,
     game_key: str,
     slot_key: str,
     state: str,
@@ -386,7 +370,7 @@ async def roster_set_slot(
     if state_key not in STATE_KEYS:
         raise ValueError("state must be one of: available, ai, human")
 
-    rows = _load_game_roster(game_key)
+    rows = _load_game_roster(game_name, game_key)
     target = next((row for row in rows if row.get("key") == slot_key), None)
     if target is None:
         raise ValueError(f"Unknown roster slot: {slot_key!r}")
@@ -399,28 +383,28 @@ async def roster_set_slot(
     else:
         _set_roster_slot_human(target, str(display_name or ""))
 
-    _write_game_roster(game_key, rows)
-    _initialize_bot_tool_files(game_key, rows)
+    _write_game_roster(game_name, game_key, rows)
+    _initialize_bot_tool_files(game_name, game_key, rows)
     await atlantis.client_log(f"roster_set_slot game_key: {game_key!r} slot_key: {slot_key!r} state: {state_key!r}")
     await atlantis.client_data(f"{game_key} roster slot", _display_roster_rows([target])[0])
     await atlantis.client_data(f"{game_key} roster", _display_roster_rows(rows))
     for moved_slot, previous_location in moved_slots:
         if previous_location:
-            await _notify_roster_slot_moved(game_key, moved_slot, moved_slot.get("location") or None)
+            await _notify_roster_slot_moved(game_name, game_key, moved_slot, moved_slot.get("location") or None)
     return target
 
 
 @public
-async def roster_create(game_key: str, scene: str) -> List[Dict[str, Any]]:
-    """Create Data/games/<game_key>/roster.json from a static scene file."""
+async def roster_create(game_name: str, game_key: str, scene: str) -> List[Dict[str, Any]]:
+    """Create <game_name>/Data/games/<game_key>/roster.json from a static scene file."""
     await atlantis.client_log(f"roster_create game_key: {game_key!r} scene: {scene!r}")
-    data_dir = require_membership(game_key)
+    data_dir = require_membership(game_name, game_key)
     scene_name = _scene_name(scene)
-    rows = _scene_roster_rows(scene)
+    rows = _scene_roster_rows(game_name, scene)
     _apply_scene_human_defaults(rows)
     _number_duplicate_display_names(rows)
     _write_json(os.path.join(data_dir, "roster.json"), rows)
-    _initialize_bot_tool_files(game_key, rows)
+    _initialize_bot_tool_files(game_name, game_key, rows)
     meta = _read_json(os.path.join(data_dir, "game.json")) or {}
     meta["roster_scene"] = scene_name
     meta["roster_created_at"] = datetime.now().isoformat(timespec="seconds")
@@ -432,7 +416,7 @@ async def roster_create(game_key: str, scene: str) -> List[Dict[str, Any]]:
 
 
 @public
-async def roster_join_bot(game_key: str, slot_key: str, bot: BotConfigT) -> Dict[str, Any]:
+async def roster_join_bot(game_name: str, game_key: str, slot_key: str, bot: BotConfigT) -> Dict[str, Any]:
     """Add a bot to an AI slot and spawn it at the slot's defaultLocation.
 
     Chat knows nothing about a bot until this call, so the caller supplies the
@@ -443,7 +427,7 @@ async def roster_join_bot(game_key: str, slot_key: str, bot: BotConfigT) -> Dict
     if not slot_key:
         raise ValueError("slot_key required")
 
-    rows = _load_game_roster(game_key)
+    rows = _load_game_roster(game_name, game_key)
     target = next((row for row in rows if row.get("key") == slot_key), None)
     if target is None:
         raise ValueError(f"Unknown roster slot: {slot_key!r}")
@@ -452,26 +436,40 @@ async def roster_join_bot(game_key: str, slot_key: str, bot: BotConfigT) -> Dict
     if target.get("location"):
         raise RuntimeError(f"Roster slot {slot_key!r} is already in the world")
 
-    scene = _game_roster_scene(_game_read(game_key))
+    scene = _game_roster_scene(_game_read(game_name, game_key))
     if not scene:
         raise RuntimeError(f"Game {game_key!r} has no roster scene")
-    location = scene_slot_default_location(scene, slot_key)
+    location = scene_slot_default_location(game_name, scene, slot_key)
 
-    cache_bot(game_key, bot)
+    cache_bot(game_name, game_key, bot)
     target["bot_sid"] = bot["sid"]
     target["displayName"] = bot["displayName"]
     _number_duplicate_display_names(rows)
-    _write_game_roster(game_key, rows)
-    _initialize_bot_tool_files(game_key, rows)
+    _write_game_roster(game_name, game_key, rows)
+    _initialize_bot_tool_files(game_name, game_key, rows)
     await atlantis.client_log(
         f"roster_join_bot game_key: {game_key!r} slot_key: {slot_key!r} bot_sid: {bot['sid']!r}"
     )
-    return await _roster_move(game_key, slot_key, location, reason="spawn")
+    return await _roster_move(game_name, game_key, slot_key, location, reason="spawn")
 
 
 @public
-async def roster_bind(game_key: str, slot_key: str) -> Dict[str, Any]:
-    """Bind the caller's Atlantis session to a slot in this game's roster."""
+async def roster_bind(game_name: str, game_key: str, slot_key: str) -> Dict[str, Any]:
+    """Bind the caller's Atlantis session to a slot, asking for their character's name."""
+    return await bind_caller_to_slot(game_name, game_key, slot_key, display_name=None)
+
+
+async def bind_caller_to_slot(
+    game_name: str,
+    game_key: str,
+    slot_key: str,
+    display_name: Optional[str],
+) -> Dict[str, Any]:
+    """Bind the caller's Atlantis session to a roster slot.
+
+    `display_name=None` asks the caller for a character name; a game that
+    already knows what to call them passes it and nothing is asked.
+    """
     session_key = atlantis.get_session_key()
     if not session_key:
         raise RuntimeError("No session key in this call context")
@@ -483,7 +481,7 @@ async def roster_bind(game_key: str, slot_key: str) -> Dict[str, Any]:
     if not slot_key:
         raise ValueError("slot_key required")
 
-    rows = _load_game_roster(game_key)
+    rows = _load_game_roster(game_name, game_key)
     target = None
     for row in rows:
         if row.get("key") == slot_key:
@@ -496,20 +494,21 @@ async def roster_bind(game_key: str, slot_key: str) -> Dict[str, Any]:
     if existing_session and existing_session != session_key:
         raise RuntimeError(f"Slot {slot_key!r} is already bound")
 
-    display_name = await modal_string(
-        "Enter name for your character",
-        title="Roster - Human",
-        submit_label="Join",
-        initial_value=target.get("displayName") or slot_key,
-    )
     if display_name is None:
-        return {"cancelled": True, "key": slot_key}
-    display_name = str(display_name or "").strip()
+        display_name = await modal_string(
+            "Enter name for your character",
+            title="Roster - Human",
+            submit_label="Join",
+            initial_value=target.get("displayName") or slot_key,
+        )
+        if display_name is None:
+            return {"cancelled": True, "key": slot_key}
+    display_name = str(display_name).strip()
     if not display_name:
         raise ValueError("display_name required")
 
     _set_roster_slot_human(target, display_name)
-    _write_game_roster(game_key, rows)
+    _write_game_roster(game_name, game_key, rows)
     await atlantis.client_log(f"Saved roster binding for {game_key!r} slot {slot_key!r}")
     await atlantis.client_data(f"{game_key} roster slot", _display_roster_rows([target])[0])
     await atlantis.client_data(f"{game_key} roster", _display_roster_rows(rows))
@@ -526,10 +525,10 @@ def _movement_log_label(reason: str) -> str:
     return labels.get(reason, reason or "move")
 
 
-async def _notify_roster_slot_moved(game_key: str, target: Dict[str, Any], location: Optional[str]) -> None:
+async def _notify_roster_slot_moved(game_name: str, game_key: str, target: Dict[str, Any], location: Optional[str]) -> None:
     from .camera import camera_slot_moved
 
-    await camera_slot_moved(game_key, target["key"], location)
+    await camera_slot_moved(game_name, game_key, target["key"], location)
 
 
 async def _describe_roster_slot_entered(target: Dict[str, Any], location: str) -> None:
@@ -550,14 +549,14 @@ async def _describe_roster_slot_exited(target: Dict[str, Any], location: str) ->
     )
 
 
-def _require_adjacent_move(previous: str, location: str) -> None:
+def _require_adjacent_move(game_name: str, previous: str, location: str) -> None:
     if not previous:
         raise RuntimeError("Roster slot has no current location; use roster_spawn or roster_teleport first")
     if previous == location:
         return
 
-    from_previous = {str(name or "").strip() for name in _connects_to(previous)}
-    from_location = {str(name or "").strip() for name in _connects_to(location)}
+    from_previous = {str(name or "").strip() for name in _connects_to(game_name, previous)}
+    from_location = {str(name or "").strip() for name in _connects_to(game_name, location)}
     if location in from_previous or previous in from_location:
         return
 
@@ -566,26 +565,26 @@ def _require_adjacent_move(previous: str, location: str) -> None:
     raise ValueError(f"Cannot move from {previous!r} to non-adjacent location {location!r}.{suffix}")
 
 
-async def _roster_move(game_key: str, sid_or_slot: str, location: str, reason: str = "move") -> Dict[str, Any]:
+async def _roster_move(game_name: str, game_key: str, sid_or_slot: str, location: str, reason: str = "move") -> Dict[str, Any]:
     """Move a roster slot to a Location.
 
     `sid_or_slot` may be a roster slot key, a bound human sid, or an AI bot sid.
     If a bot sid appears more than once in the roster, use the slot key.
     """
-    load_location(location)
-    _require_leaf(location)
+    load_location(game_name, location)
+    _require_leaf(game_name, location)
 
-    rows = _load_game_roster(game_key)
+    rows = _load_game_roster(game_name, game_key)
     target = _find_roster_row(rows, sid_or_slot)
     previous = target.get("location") or ""
     movement_reason = str(reason or "move").strip() or "move"
     if movement_reason == "move":
-        _require_adjacent_move(previous, location)
+        _require_adjacent_move(game_name, previous, location)
     target["location"] = location
     if not target.get("spawned_at") or movement_reason == "spawn":
         target["spawned_at"] = datetime.now().isoformat(timespec="seconds")
 
-    _write_game_roster(game_key, rows)
+    _write_game_roster(game_name, game_key, rows)
     log_label = _movement_log_label(movement_reason)
     await atlantis.client_log(
         f"{log_label}: {target.get('displayName', sid_or_slot)} -> {location}"
@@ -597,39 +596,39 @@ async def _roster_move(game_key: str, sid_or_slot: str, location: str, reason: s
         await _describe_roster_slot_exited(target, previous)
     if previous != location:
         await _describe_roster_slot_entered(target, location)
-    await _show_kitty_first_sighting(game_key, rows)
-    await _notify_roster_slot_moved(game_key, target, location)
+    await _show_first_sightings(game_name, game_key, rows)
+    await _notify_roster_slot_moved(game_name, game_key, target, location)
     return target
 
 
 @public
-async def roster_move(game_key: str, sid_or_slot: str, location: str) -> Dict[str, Any]:
+async def roster_move(game_name: str, game_key: str, sid_or_slot: str, location: str) -> Dict[str, Any]:
     """Move a roster slot to an adjacent Location."""
-    return await _roster_move(game_key, sid_or_slot, location, reason="move")
+    return await _roster_move(game_name, game_key, sid_or_slot, location, reason="move")
 
 
 @public
-async def roster_spawn(game_key: str, sid_or_slot: str, location: str) -> Dict[str, Any]:
+async def roster_spawn(game_name: str, game_key: str, sid_or_slot: str, location: str) -> Dict[str, Any]:
     """Spawn a roster slot by moving it to a Location."""
-    return await _roster_move(game_key, sid_or_slot, location, reason="spawn")
+    return await _roster_move(game_name, game_key, sid_or_slot, location, reason="spawn")
 
 
 @public
-async def roster_teleport(game_key: str, sid_or_slot: str, location: str) -> Dict[str, Any]:
+async def roster_teleport(game_name: str, game_key: str, sid_or_slot: str, location: str) -> Dict[str, Any]:
     """Teleport a roster slot to a Location."""
-    return await _roster_move(game_key, sid_or_slot, location, reason="teleport")
+    return await _roster_move(game_name, game_key, sid_or_slot, location, reason="teleport")
 
 
 @public
-async def roster_despawn(game_key: str, sid: str) -> Dict[str, Any]:
+async def roster_despawn(game_name: str, game_key: str, sid: str) -> Dict[str, Any]:
     """Remove a roster entry from its current Location."""
-    rows = _load_game_roster(game_key)
+    rows = _load_game_roster(game_name, game_key)
     target = _find_roster_row(rows, sid)
     previous = target.get("location") or ""
     target["location"] = None
     target["spawned_at"] = None
 
-    _write_game_roster(game_key, rows)
+    _write_game_roster(game_name, game_key, rows)
     await atlantis.client_log(
         f"despawn: {target.get('displayName', sid)}"
         + (f" from {previous}" if previous else "")
@@ -638,5 +637,5 @@ async def roster_despawn(game_key: str, sid: str) -> Dict[str, Any]:
     await atlantis.client_data(f"{game_key} roster", _display_roster_rows(rows))
     if previous:
         await _describe_roster_slot_exited(target, previous)
-    await _notify_roster_slot_moved(game_key, target, None)
+    await _notify_roster_slot_moved(game_name, game_key, target, None)
     return target

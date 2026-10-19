@@ -13,17 +13,17 @@ from .scene import _scene_rows
 
 
 @visible
-async def game_overview(game_key: str) -> None:
-    data_dir = require_membership(game_key)
+async def game_overview(game_name: str, game_key: str) -> None:
+    data_dir = require_membership(game_name, game_key)
 
     meta = _read_json(os.path.join(data_dir, "game.json")) or {}
     roster_scene = _game_roster_scene(meta)
-    bot_rows = _bot_rows(game_key)
-    loc_rows = _location_rows()
-    camera_rows = _camera_rows(game_key)
-    scene_rows = _scene_rows()
+    bot_rows = _bot_rows(game_name, game_key)
+    loc_rows = _location_rows(game_name)
+    camera_rows = _camera_rows(game_name, game_key)
+    scene_rows = _scene_rows(game_name)
     roster_path = os.path.join(data_dir, "roster.json")
-    roster_rows = _display_roster_rows(_load_game_roster(game_key)) if os.path.isfile(roster_path) else []
+    roster_rows = _display_roster_rows(_load_game_roster(game_name, game_key)) if os.path.isfile(roster_path) else []
 
     def _trunc(s, n=40):
         s = str(s or "")

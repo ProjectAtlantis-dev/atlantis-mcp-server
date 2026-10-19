@@ -32,9 +32,9 @@ _UNKNOWN_VISITOR_NAME = "a visitor"
 _MAX_BOT_CHAIN = 4
 
 
-def _require_roster_assigned(game_key: str) -> None:
+def _require_roster_assigned(game_name: str, game_key: str) -> None:
     """Fail early if chat starts before this game has a created roster."""
-    data_dir = require_membership(game_key)
+    data_dir = require_membership(game_name, game_key)
     meta = _read_json(os.path.join(data_dir, "game.json")) or {}
     if not _game_roster_scene(meta):
         raise RuntimeError(f"Game {game_key!r} has no roster assigned yet")
@@ -43,8 +43,8 @@ def _require_roster_assigned(game_key: str) -> None:
 
 @public
 @preflight
-async def preflight_callback():
-    await game_find_current()
+async def preflight_callback(game_name: str):
+    await game_find_current(game_name)
 
 
 
@@ -52,7 +52,7 @@ async def preflight_callback():
 
 @public
 @chat
-async def chat_callback():
+async def chat_callback(game_name: str):
     """Game tick: attach this chat session to a game, then respond to transcript changes."""
     if not atlantis.get_session_key():
         raise RuntimeError("chat_callback requires caller_sid and game_uuid")
@@ -72,32 +72,33 @@ async def chat_callback():
 
     atlantis.session_shared.set(_BUSY_KEY, request_id)
     try:
-        game_key = await game_find_current()
-        logger.info("chat_callback game resolved: %s", game_key)
-        raw_transcript, transcript = await fetch_transcript(game_key)
-        running = _game_is_running(game_key)
+        game_key = await game_find_current(game_name)
+        logger.info("chat_callback game resolved: %s/%s", game_name, game_key)
+        raw_transcript, transcript = await fetch_transcript(game_name, game_key)
+        running = _game_is_running(game_name, game_key)
         if not running:
             speaker = analyze_participants(raw_transcript).get("last_speaker")
-            owner = _game_read(game_key).get("owner")
+            owner = _game_read(game_name, game_key).get("owner")
             if not owner or speaker != owner:
                 raise PermissionError(
                     f"Game {game_key!r} is stopped; only its owner may restart it by chatting"
                 )
-        _require_roster_assigned(game_key)
+        _require_roster_assigned(game_name, game_key)
         if not running:
             # Resume without game_start's /clear, preserving the owner's message.
-            await _game_set_state(game_key, GAME_STATE_RUNNING)
-        await _handle_chat(game_key, raw_transcript, transcript)
+            await _game_set_state(game_name, game_key, GAME_STATE_RUNNING)
+        await _handle_chat(game_name, game_key, raw_transcript, transcript)
     finally:
         atlantis.session_shared.remove(_BUSY_KEY)
 
 
-async def _handle_chat(game_key: str, raw_transcript: list, transcript: list):
+async def _handle_chat(game_name: str, game_key: str, raw_transcript: list, transcript: list):
     logger.info("chat_callback handle_chat: game=%s", game_key)
     participants = analyze_participants(raw_transcript)
     speaker_sid = participants.get("last_speaker")
     logger.info(
-        "chat_callback transcript: game=%s raw=%s filtered=%s last_speaker=%r participants=%s",
+        "chat_callback transcript: game=%s/%s raw=%s filtered=%s last_speaker=%r participants=%s",
+        game_name,
         game_key,
         len(raw_transcript),
         len(transcript),
@@ -105,8 +106,7 @@ async def _handle_chat(game_key: str, raw_transcript: list, transcript: list):
         sorted((participants.get("participants") or {}).keys()),
     )
     if not speaker_sid:
-        await atlantis.client_log("No chat speaker found in transcript")
-        return
+        raise RuntimeError("No chat speaker found in transcript")
 
     signature = _last_chat_signature(raw_transcript)
     if signature:
@@ -116,13 +116,12 @@ async def _handle_chat(game_key: str, raw_transcript: list, transcript: list):
             return
         atlantis.session_shared.set(last_key, signature)
 
-    roster = _load_game_roster(game_key)
+    roster = _load_game_roster(game_name, game_key)
     speaker = _find_roster_speaker(roster, speaker_sid)
     if not speaker:
-        await atlantis.client_log(
-            f"Chat speaker {speaker_sid!r} is not in this game's roster. Check the roster before chatting."
+        raise RuntimeError(
+            f"Chat speaker {speaker_sid!r} is not in game {game_name}/{game_key} roster"
         )
-        return
 
     location = speaker.get("location")
     if not location:
@@ -131,7 +130,8 @@ async def _handle_chat(game_key: str, raw_transcript: list, transcript: list):
     all_listeners = _all_listeners(roster, location)
     bot_listeners = _bot_listeners(roster, speaker)
     logger.info(
-        "chat_callback listeners: game=%s speaker=%s location=%s all_listeners=%s bot_listeners=%s",
+        "chat_callback listeners: game=%s/%s speaker=%s location=%s all_listeners=%s bot_listeners=%s",
+        game_name,
         game_key,
         _display_name(speaker),
         location,
@@ -145,10 +145,10 @@ async def _handle_chat(game_key: str, raw_transcript: list, transcript: list):
         f"Room [{location}]: {', '.join(_display_name(row) for row in all_listeners)}"
     )
     if len(all_listeners) == 1:
-        if _is_ai(speaker) or not await _spawn_companion(game_key, location, roster):
+        if _is_ai(speaker) or not await _spawn_companion(game_name, game_key, location, roster):
             await atlantis.client_description(f"{_display_name(speaker)} is alone in {location}", shell="chat")
             return
-        roster = _load_game_roster(game_key)
+        roster = _load_game_roster(game_name, game_key)
         bot_listeners = _bot_listeners(roster, speaker)
 
     loop_count = _next_loop_count(game_key, speaker)
@@ -165,30 +165,30 @@ async def _handle_chat(game_key: str, raw_transcript: list, transcript: list):
         f"Next roster speaker: {bot_record.get('displayName', bot_record.get('bot_sid', 'bot'))}"
     )
     await _respond_as_bot(
-        game_key=game_key,
+        game_name=game_name, game_key=game_key,
         bot_record=bot_record,
         transcript=transcript,
         roster=roster,
     )
 
 
-async def _spawn_companion(game_key: str, location: str, roster: List[Dict[str, Any]]) -> bool:
+async def _spawn_companion(game_name: str, game_key: str, location: str, roster: List[Dict[str, Any]]) -> bool:
     """Join the first AI slot not yet in the world whose defaultLocation is `location`. False if none."""
-    scene = _game_roster_scene(_game_read(game_key))
+    scene = _game_roster_scene(_game_read(game_name, game_key))
     if not scene:
         raise RuntimeError(f"Game {game_key!r} has no roster scene")
     slot = next(
         (
             row for row in roster
             if _is_ai(row) and row.get("bot_sid") and not row.get("location")
-            and scene_slot_default_location(scene, row["key"]) == location
+            and scene_slot_default_location(game_name, scene, row["key"]) == location
         ),
         None,
     )
     if not slot:
         return False
     bot = await atlantis.client_command("$Bot/bot_get", {"bot_sid": slot["bot_sid"]})
-    await roster_join_bot(game_key, slot["key"], bot)
+    await roster_join_bot(game_name, game_key, slot["key"], bot)
     return True
 
 
@@ -288,12 +288,12 @@ def _find_roster_speaker(roster: List[Dict[str, Any]], speaker_sid: str) -> Opti
     return None
 
 
-def _identity_knowledge_path(game_key: str) -> str:
-    return os.path.join(require_membership(game_key), _IDENTITY_KNOWLEDGE_FILENAME)
+def _identity_knowledge_path(game_name: str, game_key: str) -> str:
+    return os.path.join(require_membership(game_name, game_key), _IDENTITY_KNOWLEDGE_FILENAME)
 
 
-def _load_identity_knowledge(game_key: str) -> Dict[str, Dict[str, str]]:
-    raw = _read_json(_identity_knowledge_path(game_key), {}) or {}
+def _load_identity_knowledge(game_name: str, game_key: str) -> Dict[str, Dict[str, str]]:
+    raw = _read_json(_identity_knowledge_path(game_name, game_key), {}) or {}
     if not isinstance(raw, dict):
         raise ValueError(
             f"Game {game_key!r} {_IDENTITY_KNOWLEDGE_FILENAME} must be a JSON object"
@@ -315,11 +315,12 @@ def _load_identity_knowledge(game_key: str) -> Dict[str, Dict[str, str]]:
     return knowledge
 
 
-def _known_human_names(game_key: str, bot_sid: str) -> Dict[str, str]:
-    return dict(_load_identity_knowledge(game_key).get(bot_sid, {}))
+def _known_human_names(game_name: str, game_key: str, bot_sid: str) -> Dict[str, str]:
+    return dict(_load_identity_knowledge(game_name, game_key).get(bot_sid, {}))
 
 
 def _mark_identity_known(
+    game_name: str,
     game_key: str,
     *,
     bot_sid: str,
@@ -332,14 +333,15 @@ def _mark_identity_known(
     if not bot_sid or not human_sid or not display_name:
         return False
 
-    knowledge = _load_identity_knowledge(game_key)
+    knowledge = _load_identity_knowledge(game_name, game_key)
     known_by_bot = knowledge.setdefault(bot_sid, {})
     if known_by_bot.get(human_sid) == display_name:
         return False
     known_by_bot[human_sid] = display_name
-    _write_json(_identity_knowledge_path(game_key), knowledge)
+    _write_json(_identity_knowledge_path(game_name, game_key), knowledge)
     logger.info(
-        "Identity learned: game=%s bot=%s human=%s name=%r",
+        "Identity learned: game=%s/%s bot=%s human=%s name=%r",
+        game_name,
         game_key,
         bot_sid,
         human_sid,
@@ -375,12 +377,13 @@ def _scrub_value(value: Any, unknown_names: List[str]) -> Any:
 
 def _transcript_for_bot(
     *,
+    game_name: str,
     game_key: str,
     bot_sid: str,
     transcript: List[Dict[str, Any]],
     roster: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    known_names = _known_human_names(game_key, bot_sid)
+    known_names = _known_human_names(game_name, game_key, bot_sid)
     prepared = copy.deepcopy(transcript)
     unknown_names = [
         str(row.get("displayName") or "").strip()
@@ -422,11 +425,12 @@ def _transcript_for_bot(
 
 def _roster_names_for_bot(
     *,
+    game_name: str,
     game_key: str,
     bot_sid: str,
     roster: List[Dict[str, Any]],
 ) -> Dict[str, str]:
-    known_names = _known_human_names(game_key, bot_sid)
+    known_names = _known_human_names(game_name, game_key, bot_sid)
     names: Dict[str, str] = {}
     for row in roster:
         roster_bot_sid = str(row.get("bot_sid") or "").strip()
@@ -446,11 +450,11 @@ def _roster_names_for_bot(
 
 
 @public
-async def remember_visitor(name: str, game_key: str, bot_sid: str) -> Dict[str, str]:
+async def remember_visitor(name: str, game_name: str, game_key: str, bot_sid: str) -> Dict[str, str]:
     """Remember the name a visitor directly told the listening bot.
 
-    `game_key` is supplied by the Atlantis cursor. `bot_sid` is trusted turn
-    context and is never exposed to the model.
+    `game_key` is supplied by the Atlantis cursor. `game_name` and `bot_sid`
+    are trusted turn context and are never exposed to the model.
     """
     name = str(name or "").strip()
     bot_sid = str(bot_sid or "").strip()
@@ -459,7 +463,7 @@ async def remember_visitor(name: str, game_key: str, bot_sid: str) -> Dict[str, 
     if not bot_sid:
         raise RuntimeError("No listening bot was supplied by the bot turn")
 
-    roster = _load_game_roster(game_key)
+    roster = _load_game_roster(game_name, game_key)
     bot_record = next(
         (
             row for row in roster
@@ -470,7 +474,7 @@ async def remember_visitor(name: str, game_key: str, bot_sid: str) -> Dict[str, 
     if not bot_record:
         raise ValueError(f"Bot {bot_sid!r} is not in game {game_key!r}")
 
-    known_names = _known_human_names(game_key, bot_sid)
+    known_names = _known_human_names(game_name, game_key, bot_sid)
     visitors = [
         row for row in roster
         if not _is_ai(row)
@@ -485,6 +489,7 @@ async def remember_visitor(name: str, game_key: str, bot_sid: str) -> Dict[str, 
 
     human_sid = str(visitors[0].get("sid") or "").strip()
     _mark_identity_known(
+        game_name,
         game_key,
         bot_sid=bot_sid,
         human_sid=human_sid,
@@ -494,9 +499,9 @@ async def remember_visitor(name: str, game_key: str, bot_sid: str) -> Dict[str, 
 
 
 @public
-async def bot_locate(name: str, game_key: str, bot_sid: str) -> Dict[str, str]:
+async def bot_locate(name: str, game_name: str, game_key: str, bot_sid: str) -> Dict[str, str]:
     """Find where someone you know by name is right now: here with you, elsewhere, or off shift."""
-    # game_key and bot_sid are trusted turn context bound by the bot turn; search
+    # game_name, game_key and bot_sid are trusted turn context bound by the bot turn; search
     # discovery strips them from the schema the model sees.
     name = str(name or "").strip()
     bot_sid = str(bot_sid or "").strip()
@@ -505,7 +510,7 @@ async def bot_locate(name: str, game_key: str, bot_sid: str) -> Dict[str, str]:
     if not bot_sid:
         raise RuntimeError("No asking bot was supplied by the bot turn")
 
-    roster = _load_game_roster(game_key)
+    roster = _load_game_roster(game_name, game_key)
     asker = next(
         (row for row in roster if _is_ai(row) and str(row.get("bot_sid") or "") == bot_sid),
         None,
@@ -513,7 +518,7 @@ async def bot_locate(name: str, game_key: str, bot_sid: str) -> Dict[str, str]:
     if not asker:
         raise ValueError(f"Bot {bot_sid!r} is not in game {game_key!r}")
 
-    names = _roster_names_for_bot(game_key=game_key, bot_sid=bot_sid, roster=roster)
+    names = _roster_names_for_bot(game_name=game_name, game_key=game_key, bot_sid=bot_sid, roster=roster)
     matches = [
         row for row in roster
         if row is not asker
@@ -531,7 +536,7 @@ async def bot_locate(name: str, game_key: str, bot_sid: str) -> Dict[str, str]:
         return {"name": name, "status": "off shift"}
     if location == asker.get("location"):
         return {"name": name, "status": "here"}
-    place = load_location(location).get("displayName") or location
+    place = load_location(game_name, location).get("displayName") or location
     return {"name": name, "status": "elsewhere", "location": place}
 
 
@@ -542,6 +547,7 @@ async def greet_entrant(game_key: str, entrant_sid: str, location: str):
 
 async def _respond_as_bot(
     *,
+    game_name: str,
     game_key: str,
     bot_record: dict,
     transcript: list,
@@ -552,13 +558,13 @@ async def _respond_as_bot(
         raise ValueError(f"Roster row {bot_record.get('key')!r} has no bot_sid")
 
     bot_transcript = _transcript_for_bot(
-        game_key=game_key,
+        game_name=game_name, game_key=game_key,
         bot_sid=bot_sid,
         transcript=transcript,
         roster=roster,
     )
     roster_names = _roster_names_for_bot(
-        game_key=game_key,
+        game_name=game_name, game_key=game_key,
         bot_sid=bot_sid,
         roster=roster,
     )
@@ -569,7 +575,8 @@ async def _respond_as_bot(
         f"transcript={len(bot_transcript)}"
     )
     logger.info(
-        "Dispatching bot turn: game=%s slot=%s bot_sid=%s display=%s transcript=%s roster_names=%s",
+        "Dispatching bot turn: game=%s/%s slot=%s bot_sid=%s display=%s transcript=%s roster_names=%s",
+        game_name,
         game_key,
         bot_record.get("key"),
         bot_sid,
@@ -580,11 +587,11 @@ async def _respond_as_bot(
     try:
         result = await bot_turn(
             bot_sid=bot_sid,
-            game_key=game_key,
+            game_name=game_name, game_key=game_key,
             transcript=bot_transcript,
             roster_names=roster_names,
-            tools=get_bot_tools(game_key, bot_sid),
-            tool_argument_overrides=get_bot_tool_argument_overrides(game_key, bot_sid),
+            tools=get_bot_tools(game_name, game_key, bot_sid),
+            tool_argument_overrides=get_bot_tool_argument_overrides(game_name, game_key, bot_sid),
         )
     except Exception as e:
         logger.exception("respond_as_bot failed")

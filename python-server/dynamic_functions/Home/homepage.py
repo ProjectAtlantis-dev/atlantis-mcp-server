@@ -124,6 +124,8 @@ async def homepage() -> dict:
             f"/cd {script_folder}",
             "/callback set preflight auto",
             "/callback set chat auto",
+            # Chat callbacks resolve their game from the cursor; new owners start in Setup
+            '/cursor join {game_name: "Setup"}',
             f"/path push {script_folder}",
             "/env save",
             "/terminal on",

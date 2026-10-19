@@ -12,14 +12,32 @@ and should match 1:1 with the game.
 - **Camera**: A terminal/browser viewport bound to a location. Cameras can also
   follow roster slots.
 
+## Games
+
+Each game is a folder under `Chat/`, named by its game name: `Greenland/`,
+`Setup/`. A game folder holds its own static `Game/` content and live `Data/`.
+Locations and scenes belong to one game; nothing is shared between them. Every
+helper that touches locations, scenes or game records takes the game name
+explicitly, with no default. `/cursor join` carries `game_name` alongside
+`game_key`, and Node passes it to `preflight_callback(game_name)` and
+`chat_callback(game_name)`. The MCP installer starts a player in `Setup` and
+later switches them to `Greenland`.
+
+`game_init()` does the shared wiring (membership, callbacks), then runs the
+game's own `<game_name>/init.py` `game_init(game_name, game_key)`. Greenland's
+asks for a scene, the roster and a camera; Setup's asks nothing — fixed scene,
+the caller takes the `Owner` slot, the camera follows it. Both start the game
+for its owner through `runner.start_owned_stopped_game`.
+
 ## Game identity
 
-Node sends `game_uuid` on remote tool calls. It is the sole lookup key for
-`Data/games/<game_uuid>/game.json`; Python does not allocate another game UUID.
-Preflight and chat resolve this record directly. If it is absent, only a caller
+Node sends `game_uuid` on remote tool calls. Within a game it is the sole lookup
+key for `<game_name>/Data/games/<game_uuid>/game.json`; Python does not allocate
+another game UUID. The same UUID has an independent record under each game it
+has entered. Preflight and chat resolve this record directly. If it is absent, only a caller
 recognized by `atlantis.is_owner()` may create it. `game_new()` writes the
 record with the caller as its initial member, joins the cursor, and runs the
-existing `game_init()` scene, roster, and camera dialogs. Completing setup
+game's init script (see Games). Completing setup
 starts the game. Calling `game_new()` for an existing record without a roster
 also runs setup; configured records are reused. Once a roster is assigned, a chat
 message from the game owner resumes a stopped game and is processed normally.
@@ -63,7 +81,9 @@ says who is around. Relative to a speaker, a character is:
 | Invalid bot | no such bot | error | no | no |
 
 When a human speaks alone, the first off-shift AI slot whose `defaultLocation`
-is that room joins via `$Bot/bot_get` and answers. Bots never reach for each
+is that room joins via `$Bot/bot_get` and answers. In practice that
+only catches bots that left the world: `game_start` joins every AI slot right
+after the humans spawn. Bots never reach for each
 other's whereabouts through their prompts; `bot_locate` answers that, and is
 found only through `search`. Search discovery strips the arguments the turn
 binds itself (`game_key`, `bot_sid`) from the schema the model sees.
@@ -80,12 +100,20 @@ Server log: `python-server/runServer.log`
 
 ## Layout
 
-- `Game/` holds static content: locations and scenes. Tracked in git.
+- `<game_name>/main.py` is the game folder's index; the loader skips a folder
+  without one.
+- `<game_name>/init.py` is the game's setup flow, imported by `game_init()`. It
+  defines no tools.
+- `<game_name>/Game/` holds static content: `Locations/` and `Scenes/`. Tracked
+  in git.
+- `<game_name>/Data/` holds live per-game state, keyed by `game_key`. Not
+  tracked, and must never contain a `main.py`.
 - Bots live in the sibling `Bot/` app, possibly on another machine. Chat
   knows a bot only once it joins via `roster_join_bot`, which caches the full
-  bot config at `Data/games/<game_key>/bots/<sid>.json`.
-- `Data/` holds live per-game state, keyed by `game_key`. Not tracked.
-- `Data/games/<game_key>/tools/<bot_sid>.json` is that bot's authoritative
-  per-game tool-name inventory.
+  bot config at `<game_name>/Data/games/<game_key>/bots/<sid>.json`.
+- `<game_name>/Data/games/<game_key>/tools/<bot_sid>.json` is that bot's
+  per-game inventory: a JSON array of tool entries as supplied by the server.
+  It starts empty.
 
-Both resolve through `common.home_path()`, rooted at this folder.
+All of these resolve through `common.game_path(game_name, ...)`, which rejects
+a name with no `Chat/<game_name>/Game/` folder.

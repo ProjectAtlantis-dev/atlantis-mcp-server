@@ -1,0 +1,17 @@
+{
+  "description": "Astrid walks a new owner through installing a remote",
+  "slots": [
+    {
+      "key": "Owner",
+      "bot_sid": "chad",
+      "state": "human",
+      "defaultLocation": "Setup"
+    },
+    {
+      "key": "Astrid",
+      "bot_sid": "astrid",
+      "state": "ai",
+      "defaultLocation": "Setup"
+    }
+  ]
+}

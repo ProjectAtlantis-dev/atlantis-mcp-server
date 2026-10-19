@@ -45,28 +45,65 @@ _DISCOVERY_TOOLS = ("search",)
 _MAX_DISCOVERY_CALLS = 3
 
 
-def _openrouter_payload_path(game_key: str, sid: str) -> str:
+async def _search_rows(query: str) -> Any:
+    """Run /search silently; a request no tool fits comes back as an empty list."""
+    await atlantis.client_command("/silent on")
+    try:
+        return await atlantis.client_command(f"/search {query}")
+    except Exception as e:
+        if "no tool in path fits" not in str(e):
+            raise
+        return []
+    finally:
+        await atlantis.client_command("/silent off")
+
+
+def _message_text(message: Dict[str, Any]) -> str:
+    """Text of a message whose content is a string or a list of parts."""
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(
+            part.get("text", "") for part in content
+            if isinstance(part, dict) and part.get("type") == "text"
+        )
+    return ""
+
+
+def _latest_user_text(transcript: List[Dict[str, Any]]) -> str:
+    """Newest spoken user message (not a scene line), flattened to one line for /search."""
+    for message in reversed(transcript):
+        if message.get("role") != "user":
+            continue
+        text = " ".join(_message_text(message).split())
+        if text and not text.startswith("[scene:"):
+            return text
+    return ""
+
+
+def _openrouter_payload_path(game_name: str, game_key: str, sid: str) -> str:
     """Return the per-game snapshot path for one bot's latest payload."""
     from .game import require_membership
 
     sid = str(sid or "").strip()
     if not sid:
         raise ValueError("sid required")
-    load_bot(game_key, sid)
+    load_bot(game_name, game_key, sid)
     return os.path.join(
-        require_membership(game_key),
+        require_membership(game_name, game_key),
         "openrouter_payloads",
         f"{sid}.json",
     )
 
 
 @public
-async def openrouter_payload(sid: str) -> Dict[str, Any]:
+async def openrouter_payload(game_name: str, sid: str) -> Dict[str, Any]:
     """Return this game's latest exact OpenRouter payload for a bot SID."""
     from .game import game_find_current
 
-    game_key = await game_find_current()
-    path = _openrouter_payload_path(game_key, sid)
+    game_key = await game_find_current(game_name)
+    path = _openrouter_payload_path(game_name, game_key, sid)
     payload = _read_json(path)
     if not isinstance(payload, dict):
         raise FileNotFoundError(
@@ -109,7 +146,7 @@ async def _execute_discovery_tool(
     if not value:
         raise ValueError(f"{tool_key} requires {argument_name!r}")
 
-    results = await atlantis.client_command(f"{command} {value}")
+    results = await _search_rows(value)
     if not results:
         return (
             f"Nothing in the system provides {value!r}. This is the complete "
@@ -183,6 +220,7 @@ async def run_turn(
     *,
     bot_sid: str,
     transcript: List[Dict[str, Any]],
+    game_name: str,
     game_key: str,
     roster_names: Dict[str, str],
     system_prompt: Optional[str] = None,
@@ -190,9 +228,11 @@ async def run_turn(
     tool_argument_overrides: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Optional[str]:
     """Run a streaming tool-calling turn for a bot that has joined this game."""
-    cfg = load_bot(game_key, bot_sid)
+    from .game import require_membership
+
+    cfg = load_bot(game_name, game_key, bot_sid)
     if system_prompt is None:
-        system_prompt = render_bot_prompt(game_key, bot_sid, roster_names)
+        system_prompt = render_bot_prompt(game_name, game_key, bot_sid, roster_names)
 
     api_key_env = cfg["apiKeyEnv"]
     api_key = _chat_env(api_key_env) if api_key_env else ""
@@ -211,6 +251,16 @@ async def run_turn(
     )
     client = OpenAI(api_key=api_key, base_url=base_url)
     openai_tools, tool_lookup = convert_search_tools(tools or [])
+
+    # Pre-load the tools the newest message asks for, so the bot can call
+    # them this round instead of searching first
+    latest = _latest_user_text(transcript)
+    if latest:
+        preloaded = await _execute_discovery_tool(
+            "search", {"query": latest}, openai_tools, tool_lookup, tool_argument_overrides or {},
+        )
+        logger.info(f"Pre-load for {latest[:80]!r}: {preloaded}")
+
     stream_talk_id = None
     stream_think_id = None
     max_turns = 10
@@ -245,11 +295,23 @@ async def run_turn(
                     api_payload,
                 )
                 _write_json(
-                    _openrouter_payload_path(game_key, bot_sid),
+                    _openrouter_payload_path(game_name, game_key, bot_sid),
                     api_payload,
                 )
             except Exception as e:
                 logger.warning(f"Failed to write API payload: {e}")
+
+            # Tools this round offers the model, next to the transcript dumps
+            tools_dump_file = os.path.join(require_membership(game_name, game_key), "tools.json")
+            try:
+                _write_json(tools_dump_file, {
+                    "bot_sid": bot_sid,
+                    "turn": turn_count,
+                    "tools": openai_tools,
+                    "tool_lookup": tool_lookup,
+                })
+            except Exception:
+                logger.exception(f"Failed to write tool list to {tools_dump_file}")
 
             # Call LLM
             tool_calls_accumulator: Dict[int, Dict[str, Any]] = {}

@@ -1,9 +1,10 @@
-"""Shared helpers — path resolution, JSON I/O, and thumbnails."""
+"""Shared helpers — path resolution, JSON I/O, and image data URIs."""
 
 import base64
 import json
 import logging
 import os
+import re
 from typing import Any, Dict
 
 import atlantis
@@ -16,13 +17,26 @@ APP_DEFAULT_BG_ALIGN = "75%"
 # Paths & JSON I/O
 # ---------------------------------------------------------------------------
 
-# Data/ and Game/ live inside this app, beside these scripts.
-GAME_HOME = os.path.abspath(os.path.dirname(__file__))
+# Each game is a folder beside these scripts: Chat/<game_name>/ holds that
+# game's static Game/ content and its live Data/.
+CHAT_HOME = os.path.abspath(os.path.dirname(__file__))
+
+_GAME_NAME_RE = re.compile(r"[A-Za-z0-9_-]+")
 
 
 def home_path(*parts: str) -> str:
-    """Resolve a path under the game data root."""
-    return os.path.join(GAME_HOME, *parts)
+    """Resolve a path under the Chat app folder."""
+    return os.path.join(CHAT_HOME, *parts)
+
+
+def game_path(game_name: str, *parts: str) -> str:
+    """Resolve a path under one game's folder, Chat/<game_name>/."""
+    if not isinstance(game_name, str) or not _GAME_NAME_RE.fullmatch(game_name):
+        raise ValueError(f"Invalid game name: {game_name!r}")
+    root = home_path(game_name)
+    if not os.path.isdir(os.path.join(root, "Game")):
+        raise ValueError(f"Unknown game: {game_name!r}")
+    return os.path.join(root, *parts)
 
 
 @visible
@@ -70,54 +84,29 @@ def _require_str(data: Dict[str, Any], key: str, label: str) -> str:
     return value
 
 
-# ---------------------------------------------------------------------------
-# Thumbnail generation
-# ---------------------------------------------------------------------------
-
-THUMB_WIDTH = 360
-THUMB_QUALITY = 80
-THUMB_SUFFIX = "_thumb.jpg"
-
-
-def _ensure_thumb(image_path: str) -> str:
-    """Create or reuse a thumbnail"""
-    logger.info(f"[thumb] _ensure_thumb called: {image_path}")
-    base, _ = os.path.splitext(image_path)
-    thumb = base + THUMB_SUFFIX
-    try:
-        # Reuse current thumbnails
-        if os.path.isfile(thumb) and os.path.getmtime(thumb) >= os.path.getmtime(image_path):
-            logger.info(f"[thumb] cache hit: {thumb}")
-            return thumb
-
-        from PIL import Image as _PILImage
-
-        img = _PILImage.open(image_path)
-        ratio = THUMB_WIDTH / img.width
-        new_h = int(img.height * ratio)
-        img = img.resize((THUMB_WIDTH, new_h), _PILImage.Resampling.LANCZOS)
-        img = img.convert("RGB")  # JPEG-compatible
-        img.save(thumb, "JPEG", quality=THUMB_QUALITY)
-        logger.info(f"[thumb] generated: {thumb} ({os.path.getsize(thumb)} bytes)")
-        return thumb
-    except Exception as exc:
-        logger.warning(f"[thumb] FAILED for {image_path}: {exc}")
-        return image_path
+# What every image getter hands out when the picture is missing: a broken-image
+# icon, so the gap is visible instead of an empty cell. The viewBox margin keeps
+# the icon whole under `object-fit: cover`.
+_MISSING_IMAGE_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-6 -6 36 36">'
+    '<path d="M4 4h16v9l-4-3-3 3-2-2-3 3 2 2H4z M20 15v5H9l3-3 2 2 3-3z" fill="none" '
+    'stroke="#fffaf0" stroke-opacity="0.45" stroke-width="1.5" stroke-linejoin="round"/>'
+    '<circle cx="8.5" cy="8.5" r="1.5" fill="#fffaf0" fill-opacity="0.45"/>'
+    '</svg>'
+)
+MISSING_IMAGE_URI = "data:image/svg+xml;base64," + base64.b64encode(_MISSING_IMAGE_SVG.encode("ascii")).decode("ascii")
 
 
-@visible
-def thumbify(image_path: str) -> str:
-    """Create a thumbnail for an image"""
-    if not os.path.isfile(image_path):
-        raise ValueError(f"Image not found: {image_path}")
-    return _ensure_thumb(image_path)
+_IMAGE_MIMES = {"jpg": "jpeg", "jpeg": "jpeg", "png": "png", "gif": "gif", "webp": "webp"}
 
 
 def _image_data_uri(path: str) -> str:
+    """Data URI for an image file, or MISSING_IMAGE_URI when there is none."""
     if not path or not os.path.isfile(path):
-        return ""
+        return MISSING_IMAGE_URI
     ext = os.path.splitext(path)[1].lower().lstrip(".")
-    mime = {"jpg": "jpeg", "jpeg": "jpeg", "png": "png", "gif": "gif", "webp": "webp"}.get(ext, "jpeg")
+    if ext not in _IMAGE_MIMES:
+        raise ValueError(f"Unsupported image type: {path!r}")
     with open(path, "rb") as image_file:
         data = base64.b64encode(image_file.read()).decode("ascii")
-    return f"data:image/{mime};base64,{data}"
+    return f"data:image/{_IMAGE_MIMES[ext]};base64,{data}"

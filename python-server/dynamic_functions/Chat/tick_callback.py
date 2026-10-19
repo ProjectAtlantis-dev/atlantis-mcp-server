@@ -16,13 +16,13 @@ _BUSY_KEY = "chat_busy"
 
 
 @tick
-async def tick_callback(game_key: str):
+async def tick_callback(game_name: str, game_key: str):
     """Game tick: let an AI bot initiate action if any are in-world."""
     if not atlantis.get_session_key():
         logger.warning("tick_callback fired without session context, skipping")
         return
 
-    if not _game_is_running(game_key):
+    if not _game_is_running(game_name, game_key):
         logger.debug(f"tick_callback game {game_key!r} is stopped, skipping")
         return
 

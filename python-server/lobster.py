@@ -31,13 +31,13 @@ def get_default_lobster_tools() -> List[Tool]:
         ),
         Tool(
             name="command",
-            description="Send text to Atlantis as a command. Unlike chat, adds a leading / unless the text starts with /, \\, %, @, or ~.",
+            description="Send text to Atlantis as a command. Unlike chat, adds a leading / unless the text starts with /, \\, %, @, or ~. Shell commands use / (e.g. /ls); tool calls must use @ (e.g. @foo or @foo(3,100)), since /foo is parsed as a shell command and will not find the tool. The user sees all output in their Atlantis terminal; images, video and HTML reach you only as empty transcript entries, which means success, not failure.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "commandText": {
                         "type": "string",
-                        "description": "The exact command text to send, including any prefixes like / or @",
+                        "description": "The exact command text to send, including its prefix: / for shell commands, @ for tool calls",
                     }
                 },
                 "required": ["commandText"],

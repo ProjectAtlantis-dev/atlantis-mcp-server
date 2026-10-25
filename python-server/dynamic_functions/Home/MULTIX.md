@@ -6,7 +6,9 @@ Each Atlantis MCP acts as a filesystem node for Multix, our nix-like 'operating 
 
 Lobster connects your MCP client to the local Python server. Its command and chat tools route through the connected Atlantis cloud session.
 
-🦞 **Avoid Lobster commands that return images.** Image responses do not work reliably through Lobster. Use commands that return text or structured data instead.
+🦞 **The human sees more than you do.** Everything Lobster sends is rendered in the user's Atlantis terminal, including images, video and HTML. You only get the text: media and HTML entries reach you as `image`/`video`/`html` transcript entries with empty `content` (or `[non-text content was sent]`) and an empty `returnValue`. That means the command ran and the user can see the output; it is not a failure. Ask the user what they see instead of debugging it, and prefer commands that return text or structured data when you need the result yourself.
+
+Lobster wraps each call in `/silent on`, `/transcript get` and `/silent off` to keep the user's terminal uncluttered. Expect these in the transcript and ignore them.
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
@@ -14,7 +16,7 @@ Lobster connects your MCP client to the local Python server. Its command and cha
 | `command` | `{"commandText": "/help ls"}` | Run an Atlantis shell command or tool call. |
 | `chat` | `{"message": "Hello"}` | Send a conversational message to the chat. |
 
-`command` preserves text starting with `/`, `\`, `%`, `@`, or `~`. Otherwise, it prepends `/`: `help ls` becomes `/help ls`. Use `chat` for plain conversation. To use a `$` remote-root path through `command`, prefix the tool call with `@`, for example `@$Tools/coffee`.
+`command` preserves text starting with `/`, `\`, `%`, `@`, or `~`. Otherwise, it prepends `/`: `help ls` becomes `/help ls`. **Tool calls must start with `@`** (`@myImage`, `@foo(3,100)`): a bare `myImage` becomes `/myImage`, which is parsed as a shell command and fails with `Command or tool not recognized`. Use `chat` for plain conversation. To use a `$` remote-root path through `command`, prefix the tool call with `@`, for example `@$Tools/coffee`.
 
 Results contain `returnValue` and `transcript`, exposed as MCP structured content and JSON text. Command and chat results include up to five recent raw transcript entries; these can include earlier messages. The readme returns an empty transcript.
 
@@ -22,7 +24,7 @@ Start with `/pwd` and `/ls` to inspect the current shell location, then `/help <
 
 ## Commands
 
-`command` lets humans or bots send commands to Multix. Shell commands use `/`; tool calls can use `@` or routed paths as described below. Each remote exposes folders of functions loaded from Python modules, and more than one function can be in the same file.
+`command` lets humans or bots send commands to Multix. Shell commands use `/`; tool calls must use `@`, optionally with a routed path as described below. Each remote exposes folders of functions loaded from Python modules, and more than one function can be in the same file.
 
 Some interesting commands to get you started:
 
@@ -48,7 +50,7 @@ Some interesting commands to get you started:
 
 The Atlantis virtual filesystem is arranged as `/user/remote/App/function`, with nested app folders supported. The connected cloud session supplies the shell location; use `/pwd` to inspect it rather than assuming you start at root. You cannot go into disconnected servers.
 
-To run a tool in the current folder, you can simply use `@name` plus any params, much like a JavaScript function e.g. `@foo` or `@foo(3,100)`
+To run a tool in the current folder, use `@name` plus any params (the `@` is required; `/name` will not find the tool), much like a JavaScript function e.g. `@foo` or `@foo(3,100)`
 
 - `cat` - retrieves the text of a function
 - `codeset` - sets the content of a function

@@ -1274,13 +1274,15 @@ class DynamicFunctionManager:
 
         # Add location decorator if provided
         location_decorator = f"@location('{location}')\n" if location else ""
+        # An index() stub is a folder's index (mkdir), so it needs @index too
+        index_decorator = "@index\n" if name == "index" else ""
 
         # Use provided description or default placeholder
         docstring = description if description else f"This is a placeholder function for '{name}'"
 
         stub = f"""\
 {location_decorator}@visible
-async def {name}():
+{index_decorator}async def {name}():
     \"\"\"
     {docstring}
     \"\"\"
@@ -1708,6 +1710,21 @@ async def {name}():
                     return skipped
         return None
 
+    def _find_undecorated_function(self, name: str, app: Optional[str] = None) -> Optional[str]:
+        '''
+        Path of the app's main.py if it defines a top-level function `name`
+        with no decorators (e.g. stripped by function_remove), else None.
+        '''
+        file_path = os.path.join(self._get_app_target_dir(app), "main.py")
+        if not os.path.exists(file_path):
+            return None
+        with open(file_path, 'r', encoding='utf-8') as f:
+            tree = ast.parse(f.read())
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name and not node.decorator_list:
+                return file_path
+        return None
+
     def _get_function_ast_info(self, name: str, file_path: str) -> tuple:
         '''
         Read a file, parse AST, and find a function by name.
@@ -1744,6 +1761,7 @@ async def {name}():
     async def _add_visible_decorator(self, name: str, file_path: str) -> bool:
         '''
         Add @visible decorator to an existing function that has no decorators.
+        A stripped index() (rmdir, then mkdir) gets @index back as well.
         Returns True on success.
         '''
         source, lines, func_node = self._get_function_ast_info(name, file_path)
@@ -1757,8 +1775,10 @@ async def {name}():
         indent_str = func_line[:indent]
 
         # Insert @visible decorator with same indentation
-        decorator_line = f"{indent_str}@visible\n"
-        lines.insert(insert_index, decorator_line)
+        decorator_lines = f"{indent_str}@visible\n"
+        if name == "index":
+            decorator_lines += f"{indent_str}@index\n"
+        lines.insert(insert_index, decorator_lines)
 
         new_source = ''.join(lines)
 
@@ -1766,7 +1786,7 @@ async def {name}():
         try:
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(new_source)
-            logger.info(f"Added @visible decorator to function '{name}' in {file_path}")
+            logger.info(f"Added {decorator_lines.strip()} decorator(s) to function '{name}' in {file_path}")
             return True
         except Exception as e:
             raise IOError(f"Failed to write file {file_path}: {e}")
@@ -1823,6 +1843,14 @@ async def {name}():
             file_path = os.path.join(self.functions_dir, skipped['file'])
             logger.info(f"Function '{secure_name}' exists but is hidden, re-enabling with @visible")
             return await self._add_visible_decorator(secure_name, file_path)
+
+        # Stripped functions (function_remove, e.g. rmdir's index) never reach the
+        # skipped list, so look in the target main.py; appending a second def
+        # would shadow it and break its decorators.
+        undecorated_path = self._find_undecorated_function(secure_name, app)
+        if undecorated_path:
+            logger.info(f"Function '{secure_name}' exists undecorated in {undecorated_path}, re-enabling")
+            return await self._add_visible_decorator(secure_name, undecorated_path)
 
         if text_filename:
             self._validate_text_asset_filename(text_filename)

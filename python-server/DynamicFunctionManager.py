@@ -50,7 +50,7 @@ FUNCTION_TIMESTAMP_CACHE_PATH = os.path.join(
 )
 
 # Visibility decorators that allow remote function calls
-VISIBILITY_DECORATORS = ['visible', 'public', 'protected', 'tick', 'chat', 'text', 'button', 'preflight', 'session', 'game', 'file', 'index', 'homepage', 'price', 'location', 'app', 'copy']
+VISIBILITY_DECORATORS = ['visible', 'public', 'protected', 'tick', 'chat', 'text', 'button', 'preflight', 'session', 'game', 'file', 'index', 'homepage', 'enter', 'exit', 'price', 'location', 'app', 'copy']
 
 # Module-level statements shared by every generated main.py. They belong to the
 # FILE, not to each function. Checked for presence INDIVIDUALLY (not as one
@@ -163,6 +163,28 @@ def homepage(func):
     """Mark a function as the remote's dashboard homepage renderer."""
     setattr(func, '_is_visible', True)
     setattr(func, '_is_homepage', True)
+    return func
+
+# --- Folder Enter/Exit Decorator Definitions ---
+def enter(func):
+    """Mark a function as its folder's enter hook. The cloud runs it when a
+    terminal cd enters the folder's subtree (the folder needs an @index)."""
+    setattr(func, '_is_visible', True)
+    setattr(func, '_is_enter', True)
+    return func
+
+# Decorators are installed into builtins, where 'exit' already lives; keep
+# exit() / exit(code) working by handing non-decorator calls to the original.
+import builtins as _builtins
+_builtin_exit = _builtins.exit
+
+def exit(func=None):
+    """Mark a function as its folder's exit hook. The cloud runs it when a
+    terminal cd leaves the folder's subtree (the folder needs an @index)."""
+    if not callable(func):
+        return _builtin_exit(func)
+    setattr(func, '_is_visible', True)
+    setattr(func, '_is_exit', True)
     return func
 
 # --- Tick Decorator Definition ---
@@ -301,6 +323,8 @@ class DynamicFunctionManager:
         for _name, _val in (
             ("visible", visible),
             ("homepage", homepage),
+            ("enter", enter),
+            ("exit", exit),
             ("chat", _mcp_identity_decorator),
             ("text", text),
             ("public", _mcp_identity_decorator),
@@ -2327,6 +2351,8 @@ async def {name}():
                         # Add visible decorator
                         module.__dict__['visible'] = visible
                         module.__dict__['homepage'] = homepage
+                        module.__dict__['enter'] = enter
+                        module.__dict__['exit'] = exit
                         # Add tick decorator
                         module.__dict__['tick'] = tick
                         # Add protected decorator

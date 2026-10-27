@@ -51,6 +51,9 @@ Untyped parameters are strings, and parameters with defaults are optional.
   - `@chat` handles chat.
   - `@tick` triggers a tick manually.
   - `@file` handles file storage.
+  - `@enter` / `@exit` run when a terminal `cd` enters or leaves the folder's
+    subtree (the folder needs an `@index`). Nested folders enter outermost
+    first and exit innermost first.
 - **Structure:** `@index`, `@text("md")`, `@location(...)`, `@price(...)`,
   `@copy`, `@dynamic`.
 - **Modifiers:** `@exclude` (hidden from fuzzy search), `@button`.

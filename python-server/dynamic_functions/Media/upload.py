@@ -13,14 +13,14 @@ logger = logging.getLogger("dynamic_function")
 
 
 @public
-async def media_upload():
+async def upload():
     """Open an uploader for images and videos."""
     upload_id = f"media_upload_{uuid.uuid4().hex[:10]}"
     accept = ",".join(MEDIA_TYPES)
     await atlantis.client_html(
         f"""
         <div id="{upload_id}" style="border:2px solid #1a8a78;border-radius:10px;margin:15px 0;
-                    background:rgba(7,15,22,0.58);padding:15px;width:100%;box-sizing:border-box">
+                    background:rgba(7,15,22,0.58);padding:15px;width:100%;max-width:400px;box-sizing:border-box">
           <style>
             #{upload_id} .media-upload-button{{display:flex;align-items:center;justify-content:center;
               width:min(100%,360px);min-height:240px;margin:0 auto;padding:28px;
@@ -122,7 +122,7 @@ async def media_upload():
                 reader.onerror = () => reject(new Error('Could not read file'));
                 reader.readAsDataURL(file);
               });
-              await sendChatter(window._accessToken, '$Media/media_upload_save', {
+              await sendChatter(window._accessToken, '$Media/upload_save', {
                 base64Content: content,
                 filename: file.name,
                 filetype: file.type
@@ -151,11 +151,11 @@ async def media_upload():
 
 
 @public
-async def media_upload_save(base64Content: str, filename: str, filetype: str) -> str:
+async def upload_save(base64Content: str, filename: str, filetype: str) -> str:
     """Store one browser upload in the caller's image or video folder."""
     username = atlantis.get_caller()
     if not username:
-        raise PermissionError("media_upload_save needs a caller")
+        raise PermissionError("upload_save needs a caller")
     saved_path, created = save_upload(username, base64Content, filename, filetype)
-    logger.info(f"media_upload_save {'saved' if created else 'reused'} {saved_path} for {username}")
+    logger.info(f"upload_save {'saved' if created else 'reused'} {saved_path} for {username}")
     return str(saved_path)

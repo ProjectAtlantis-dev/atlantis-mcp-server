@@ -230,7 +230,7 @@ _GALLERY_SCRIPT = '''
     missing.push({collection: item.dataset.collection, name: item.dataset.name});
   });
   if (missing.length) {
-    request('$Media/media_gallery_thumbs', {items: missing}).catch(error => {
+    request('$Media/gallery_thumbs', {items: missing}).catch(error => {
       thread.console.softError('[media gallery thumbnails] ' + error);
     });
   }
@@ -271,7 +271,7 @@ _GALLERY_SCRIPT = '''
       return;
     }
     try {
-      await request('$Media/media_gallery_open', {collection, name});
+      await request('$Media/gallery_open', {collection, name});
     } catch (error) {
       loading.textContent = isVideo ? 'Could not load video' : 'Could not load image';
       thread.console.softError('[media gallery open] ' + error);
@@ -347,22 +347,26 @@ def _lightbox_html(gallery_id: str, noun: str, viewer: str) -> str:
     """
 
 
-async def _render_gallery(gallery_id: str, container_style: str, heading: str, cards: list[str], lightbox: str) -> None:
-    await atlantis.client_html(
-        f"""
+def _gallery_html(gallery_id: str, heading: str, cards: list[str], lightbox: str) -> str:
+    # The chat bubble shrink-wraps its content, so percentage widths collapse the
+    # grid to its minimum. A pixel width (full-size cards: 384 + 16 padding, 8 gap,
+    # 15 padding + 2 border per side) lets the bubble grow; max-width:100% still
+    # clamps it on narrow screens.
+    panel_width = len(cards) * (THUMBNAIL_SIZE[0] + 16) + (len(cards) - 1) * 8 + 34
+    return f"""
         <div id="{gallery_id}" style="border:2px solid #6c2b97;border-radius:10px;margin:15px 0;
                     background:linear-gradient(135deg,#0c0c1e,#1a0833);
-                    width:min(calc(75vw - 16px),calc(100vw - 48px));
-                    max-width:min(calc(75vw - 16px),calc(100vw - 48px));
-                    min-width:0;box-sizing:border-box;{container_style}">
+                    padding:15px;width:{panel_width}px;max-width:100%;min-width:0;overflow:hidden;
+                    box-sizing:border-box">
           <style>
             #{gallery_id} .media-gallery-grid{{
               display:grid;
-              grid-template-columns:repeat(auto-fill,minmax(min(128px,100%),1fr));
+              grid-template-columns:repeat(auto-fit,minmax(min(128px,100%),1fr));
               gap:8px;
               width:100%;
             }}
-            #{gallery_id} .media-gallery-card{{min-width:0}}
+            #{gallery_id} .media-gallery-card{{min-width:0;max-width:{THUMBNAIL_SIZE[0]}px}}
+            #{gallery_id} img[data-media-thumb]{{max-width:100%;height:auto}}
             #{gallery_id} img[data-media-thumb]:not([src]){{visibility:hidden}}
           </style>
           <h3 style="color:#9b4dca;margin:0 0 12px">{heading}</h3>
@@ -370,8 +374,10 @@ async def _render_gallery(gallery_id: str, container_style: str, heading: str, c
           {lightbox}
         </div>
         """
-    )
-    await atlantis.client_script(
+
+
+def _gallery_script(gallery_id: str) -> str:
+    return (
         _GALLERY_SCRIPT.replace("{GALLERY_ID}", gallery_id)
         .replace("{CACHE_JS}", _CACHE_JS)
         .replace("{EXEC_SHELL}", json.dumps(atlantis.get_exec_shell_path()))
@@ -385,7 +391,7 @@ def _live_keys(username: str, collection: str) -> list[tuple[Path, str]]:
 
 
 @public
-async def media_gallery_images():
+async def gallery_images():
     """Show the caller's uploaded images in a grid."""
     username = _caller()
     items = _live_keys(username, "images")
@@ -418,17 +424,18 @@ async def media_gallery_images():
                           border-radius:8px;box-shadow:0 0 30px rgba(0,0,0,.8);cursor:zoom-out">
             </figure>
     """
-    await _render_gallery(
+    # Call atlantis directly from the tool: the client labels output with the caller's name.
+    await atlantis.client_html(_gallery_html(
         gallery_id,
-        "padding:15px 24px 96px 15px;overflow:visible",
         f"🖼️ Image Gallery · {len(cards)} images",
         cards,
         _lightbox_html(gallery_id, "image", viewer),
-    )
+    ))
+    await atlantis.client_script(_gallery_script(gallery_id))
 
 
 @public
-async def media_gallery_videos():
+async def gallery_videos():
     """Show the caller's uploaded videos in a grid."""
     username = _caller()
     items = _live_keys(username, "videos")
@@ -471,17 +478,18 @@ async def media_gallery_videos():
                           object-fit:contain;background:#000;border-radius:8px;
                           box-shadow:0 0 30px rgba(0,0,0,.8);cursor:default"></video>
     """
-    await _render_gallery(
+    # Call atlantis directly from the tool: the client labels output with the caller's name.
+    await atlantis.client_html(_gallery_html(
         gallery_id,
-        "padding:15px 24px 15px 15px;overflow:hidden",
         f"🎬 Video Gallery · {len(cards)} videos",
         cards,
         _lightbox_html(gallery_id, "video", viewer),
-    )
+    ))
+    await atlantis.client_script(_gallery_script(gallery_id))
 
 
 @public
-async def media_gallery_thumbs(items: list[dict]) -> None:
+async def gallery_thumbs(items: list[dict]) -> None:
     """Send thumbnails the page has not cached yet, building any that are missing."""
     username = _caller()
     for start in range(0, len(items), THUMBNAIL_BATCH):
@@ -496,11 +504,11 @@ async def media_gallery_thumbs(items: list[dict]) -> None:
 
 
 @public
-async def media_gallery_open(collection: str, name: str) -> None:
+async def gallery_open(collection: str, name: str) -> None:
     """Send one untouched original to the page cache and any lightbox waiting on it."""
     username = _caller()
     path = _media_path(username, collection, name)
     encoded = base64.b64encode(path.read_bytes()).decode("ascii")
     source = f"data:{COLLECTION_MIMES[collection][path.suffix.lower()]};base64,{encoded}"
-    logger.info(f"media_gallery_open sent {path.stat().st_size} bytes of {collection}/{name!r} to {username}")
+    logger.info(f"gallery_open sent {path.stat().st_size} bytes of {collection}/{name!r} to {username}")
     await atlantis.client_script(_cache_put_script("full", [(_cache_key(path), source)]))

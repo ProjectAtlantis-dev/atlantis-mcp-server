@@ -1424,6 +1424,22 @@ async def set_background(
     )
     return result
 
+async def clear_background(shell: str = "exec"):
+    """Clears the background image, restoring the client's default background.
+
+    Args:
+        shell: Shell name, type, numeric path, or "exec" (default) / "caller".
+               Unavailable targets use the caller's terminal.
+    """
+    # An empty image is the client's cue to fall back to its default gradient
+    return await _client_command(
+        "background",
+        "",
+        message_type="background",
+        notification_params={"visibilityScope": "game"},
+        shell=shell,
+    )
+
 async def set_background_video(
     video_source: str,
     video_format: Optional[str] = None,

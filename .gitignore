@@ -40,7 +40,7 @@ yarn-error.log
 
 *.OLD
 # Dynamic functions are user/scaffolded code by default. The repository's Home,
-# Chat, Bot, and Setup apps are tracked; Demo is scaffolded on first run from
+# Chat, Bot, Setup, and Media apps are tracked; Demo is scaffolded on first run from
 # python-server/state.py. Other apps (e.g. Terrain) are their own repositories
 # cloned into dynamic_functions/.
 python-server/dynamic_functions/*
@@ -63,6 +63,12 @@ python-server/dynamic_functions/Bot/**/*.py[cod]
 !python-server/dynamic_functions/Setup/**
 python-server/dynamic_functions/Setup/**/__pycache__/
 python-server/dynamic_functions/Setup/**/*.py[cod]
+!python-server/dynamic_functions/Media/
+!python-server/dynamic_functions/Media/**
+python-server/dynamic_functions/Media/**/__pycache__/
+python-server/dynamic_functions/Media/**/*.py[cod]
+# Media/users/<caller>/ holds uploaded files and is not tracked.
+python-server/dynamic_functions/Media/users/
 # Chat/<game name>/Game holds static content (locations, scenes) and is tracked.
 # Chat/<game name>/Data holds live per-game state and is not.
 python-server/dynamic_functions/Chat/*/Data/

@@ -48,7 +48,7 @@ from .roster import (
     _roster_row_label,
     _roster_row_state,
 )
-from .common import MISSING_IMAGE_URI, app_bg_default, game_path
+from .common import MISSING_IMAGE_URI, game_path
 
 
 async def _warn_unfilled_roster() -> None:

@@ -49,7 +49,6 @@ class GameIdentityTests(unittest.IsolatedAsyncioTestCase):
         runner.game_init = self.game_init
         for mocked in [
             patch.dict(sys.modules, {'dynamic_functions.Chat.runner': runner}),
-            patch.object(game, 'app_bg_default', new_callable=AsyncMock),
             patch.object(atlantis, 'client_command', new_callable=AsyncMock),
         ]:
             mocked.start()

@@ -1,7 +1,12 @@
-import atlantis
 import logging
+from pathlib import Path
+
+import atlantis
 
 logger = logging.getLogger("dynamic_function")
+
+# Placeholder background: builder.jpg in the project root
+SETUP_BG_PATH = Path(__file__).absolute().parents[3] / "builder.jpg"
 
 
 @visible
@@ -27,6 +32,7 @@ async def on_enter():
     logger.info(f"Executing Setup on_enter...")
 
     await atlantis.client_log("enter running")
+    await atlantis.set_background(str(SETUP_BG_PATH))
 
     return "Setup entered"
 
@@ -40,6 +46,7 @@ async def on_exit():
     logger.info(f"Executing Setup on_exit...")
 
     await atlantis.client_log("exit running")
+    await atlantis.clear_background()
 
     return "Setup exited"
 

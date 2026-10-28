@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from .common import app_bg_default, game_path, _read_json, _write_json
+from .common import game_path, _read_json, _write_json
 from dynamic_functions.Home.modal import modal_menu
 
 
@@ -246,7 +246,6 @@ async def game_new(game_name: str) -> Dict[str, Any]:
         # runner imports game; import the interactive setup only when needed.
         from .runner import game_init
 
-        await app_bg_default()
         await atlantis.client_command("/cursor join", keys)
         await game_init(game_name, game_key)
     return keys

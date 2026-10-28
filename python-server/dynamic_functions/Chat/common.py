@@ -7,11 +7,9 @@ import os
 import re
 from typing import Any, Dict
 
-import atlantis
 
 logger = logging.getLogger("dynamic_function")
 
-APP_DEFAULT_BG_ALIGN = "75%"
 
 # ---------------------------------------------------------------------------
 # Paths & JSON I/O
@@ -37,20 +35,6 @@ def game_path(game_name: str, *parts: str) -> str:
     if not os.path.isdir(os.path.join(root, "Game")):
         raise ValueError(f"Unknown game: {game_name!r}")
     return os.path.join(root, *parts)
-
-
-@visible
-def app_default_bg_path() -> str:
-    return os.path.join(os.path.dirname(__file__), "builder.jpg")
-
-
-@public
-async def app_bg_default() -> None:
-    """Set the chat default background image."""
-    await atlantis.set_background(
-        app_default_bg_path(),
-        vertical_align=APP_DEFAULT_BG_ALIGN,
-    )
 
 
 def _read_json(path: str, default=None):

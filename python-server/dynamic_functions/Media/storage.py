@@ -1,4 +1,4 @@
-"""Per-caller media storage: Media/users/<caller>/<images|videos>/."""
+"""Per-caller media storage: Media/users/<caller>/<images|videos|audio>/."""
 
 import base64
 import binascii
@@ -21,6 +21,15 @@ MEDIA_TYPES = {
     "video/webm": ("videos", ".webm"),
     "video/ogg": ("videos", ".ogv"),
     "video/quicktime": ("videos", ".mov"),
+    "audio/mpeg": ("audio", ".mp3"),
+    "audio/mp3": ("audio", ".mp3"),
+    "audio/wav": ("audio", ".wav"),
+    "audio/x-wav": ("audio", ".wav"),
+    "audio/flac": ("audio", ".flac"),
+    "audio/x-flac": ("audio", ".flac"),
+    "audio/ogg": ("audio", ".ogg"),
+    "audio/mp4": ("audio", ".m4a"),
+    "audio/x-m4a": ("audio", ".m4a"),
 }
 
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -40,17 +49,24 @@ def _content_matches(filetype: str, payload: bytes) -> bool:
         return payload.startswith(b"\xff\xd8\xff")
     if filetype == "image/webp":
         return len(payload) >= 12 and payload.startswith(b"RIFF") and payload[8:12] == b"WEBP"
-    if filetype in {"video/mp4", "video/quicktime"}:
+    if filetype in {"video/mp4", "video/quicktime", "audio/mp4", "audio/x-m4a"}:
         return len(payload) >= 12 and payload[4:8] == b"ftyp"
     if filetype == "video/webm":
         return payload.startswith(b"\x1a\x45\xdf\xa3")
-    if filetype == "video/ogg":
+    if filetype in {"audio/mpeg", "audio/mp3"}:
+        # An ID3 tag, or straight into an MPEG audio frame sync.
+        return payload.startswith(b"ID3") or (len(payload) >= 2 and payload[0] == 0xFF and payload[1] & 0xE0 == 0xE0)
+    if filetype in {"audio/wav", "audio/x-wav"}:
+        return len(payload) >= 12 and payload.startswith(b"RIFF") and payload[8:12] == b"WAVE"
+    if filetype in {"audio/flac", "audio/x-flac"}:
+        return payload.startswith(b"fLaC")
+    if filetype in {"video/ogg", "audio/ogg"}:
         return payload.startswith(b"OggS")
     raise ValueError(f"No content check for {filetype!r}")
 
 
 def media_folder(username: str, collection: str) -> Path:
-    """Return one caller's folder for a collection (images or videos)."""
+    """Return one caller's folder for a collection (images, videos or audio)."""
     return USERS_ROOT / _safe_component(username) / _safe_component(collection)
 
 

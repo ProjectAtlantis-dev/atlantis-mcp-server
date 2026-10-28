@@ -1,4 +1,4 @@
-"""Drag-and-drop uploader that stores images and videos under Media/users/."""
+"""Drag-and-drop uploader that stores images, videos and audio under Media/users/."""
 
 import json
 import logging
@@ -14,7 +14,7 @@ logger = logging.getLogger("dynamic_function")
 
 @public
 async def upload():
-    """Open an uploader for images and videos."""
+    """Open an uploader for images, videos and audio."""
     upload_id = f"media_upload_{uuid.uuid4().hex[:10]}"
     accept = ",".join(MEDIA_TYPES)
     await atlantis.client_html(
@@ -45,12 +45,14 @@ async def upload():
           <h3 style="color:#14ffd0;margin:0 0 12px">⬆️ Upload</h3>
           <input class="media-upload-input" type="file" accept="{accept}" style="display:none">
           <button type="button" class="media-upload-button">
-            <span class="media-upload-label">Drop an image or video here, or click to choose</span>
+            <span class="media-upload-label">Drop an image, video or audio file here, or click to choose</span>
             <img class="media-upload-preview media-upload-image-preview"
                  alt="Uploaded image preview" draggable="false">
             <video class="media-upload-preview media-upload-video-preview"
                    aria-label="Uploaded video preview" muted playsinline preload="metadata"
                    draggable="false"></video>
+            <audio class="media-upload-preview media-upload-audio-preview" controls preload="metadata"
+                   aria-label="Uploaded audio preview"></audio>
           </button>
           <p class="media-upload-status" style="color:#aaa;font-size:12px;margin:10px 0 0"></p>
         </div>
@@ -71,10 +73,11 @@ async def upload():
           const label = root.querySelector('.media-upload-label');
           const imagePreview = root.querySelector('.media-upload-image-preview');
           const videoPreview = root.querySelector('.media-upload-video-preview');
+          const audioPreview = root.querySelector('.media-upload-audio-preview');
           const status = root.querySelector('.media-upload-status');
           const accepted = new Set({ACCEPTED});
           const maxBytes = {MAX_BYTES};
-          let videoPreviewUrl = '';
+          let previewUrl = '';
           function clearPreview() {
             imagePreview.classList.remove('active');
             imagePreview.removeAttribute('src');
@@ -82,8 +85,12 @@ async def upload():
             videoPreview.pause();
             videoPreview.removeAttribute('src');
             videoPreview.load();
-            if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
-            videoPreviewUrl = '';
+            audioPreview.classList.remove('active');
+            audioPreview.pause();
+            audioPreview.removeAttribute('src');
+            audioPreview.load();
+            if (previewUrl) URL.revokeObjectURL(previewUrl);
+            previewUrl = '';
           }
           function showPreview(file, content) {
             clearPreview();
@@ -91,9 +98,14 @@ async def upload():
               imagePreview.src = content;
               imagePreview.alt = file.name;
               imagePreview.classList.add('active');
+            } else if (file.type.startsWith('audio/')) {
+              previewUrl = URL.createObjectURL(file);
+              audioPreview.src = previewUrl;
+              audioPreview.setAttribute('aria-label', file.name);
+              audioPreview.classList.add('active');
             } else {
-              videoPreviewUrl = URL.createObjectURL(file);
-              videoPreview.src = videoPreviewUrl;
+              previewUrl = URL.createObjectURL(file);
+              videoPreview.src = previewUrl;
               videoPreview.setAttribute('aria-label', file.name);
               videoPreview.classList.add('active');
               videoPreview.addEventListener('loadeddata', () => videoPreview.pause(), {once: true});
@@ -104,7 +116,7 @@ async def upload():
           }
           async function sendFile(file) {
             if (!file || !accepted.has(file.type)) {
-              status.textContent = 'Choose a PNG, JPEG, WebP, MP4, WebM, Ogg, or MOV file.';
+              status.textContent = 'Choose a PNG, JPEG, WebP, MP4, WebM, Ogg, MOV, MP3, WAV, FLAC, or M4A file.';
               return;
             }
             if (file.size > maxBytes) {
@@ -152,7 +164,7 @@ async def upload():
 
 @public
 async def upload_save(base64Content: str, filename: str, filetype: str) -> str:
-    """Store one browser upload in the caller's image or video folder."""
+    """Store one browser upload in the caller's image, video or audio folder."""
     username = atlantis.get_caller()
     if not username:
         raise PermissionError("upload_save needs a caller")

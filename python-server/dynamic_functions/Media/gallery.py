@@ -1,4 +1,4 @@
-"""Image and video galleries for the caller's uploads, ported from Waifu.
+"""Image, video and audio galleries for the caller's uploads, ported from Waifu.
 
 Two cache layers:
 - Disk: one JPEG thumbnail per media version in <collection>/.thumbnails/,
@@ -8,6 +8,7 @@ Two cache layers:
   gallery only asks the server for what this page has never seen.
 
 The lightbox is for zooming, so it always gets the untouched original.
+Audio has no thumbnails; Play loads the original into the same page cache.
 """
 
 import asyncio
@@ -41,6 +42,13 @@ COLLECTION_MIMES = {
         ".ogv": "video/ogg",
         ".ogg": "video/ogg",
         ".mov": "video/quicktime",
+    },
+    "audio": {
+        ".mp3": "audio/mpeg",
+        ".wav": "audio/wav",
+        ".flac": "audio/flac",
+        ".ogg": "audio/ogg",
+        ".m4a": "audio/mp4",
     },
 }
 THUMBNAIL_SIZE = (384, 384)
@@ -162,8 +170,10 @@ async def _ensure_thumbnail(path: Path, collection: str, key: str) -> Path:
     thumbnail_path.parent.mkdir(exist_ok=True)
     if collection == "images":
         await asyncio.to_thread(_image_thumbnail, path, thumbnail_path)
-    else:
+    elif collection == "videos":
         await _video_thumbnail(path, thumbnail_path)
+    else:
+        raise ValueError(f"{collection} has no thumbnails")
     return thumbnail_path
 
 
@@ -215,6 +225,36 @@ _GALLERY_SCRIPT = '''
   const loadingText = isVideo ? 'Loading video…' : 'Loading image…';
   // Escape the chat message's stacking and clipping contexts.
   document.body.appendChild(lightbox);
+
+  // Zoom by columns: 1 per row up to as many as keep each image MIN_IMAGE wide.
+  // minmax(0,1fr) columns always fit the panel, so zoom only ever adds rows.
+  const MIN_IMAGE = 96, CARD_TARGET = 392, GAP = 8;
+  const grid = root.querySelector('.media-gallery-grid');
+  const smaller = root.querySelector('.media-gallery-smaller');
+  const bigger = root.querySelector('.media-gallery-bigger');
+  const colsKey = 'media-gallery-cols-' + (root.querySelector('[data-collection]')?.dataset.collection || '');
+  const maxCols = () => Math.max(1, Math.floor((grid.clientWidth + GAP) / (MIN_IMAGE + GAP)));
+  // wanted is the user's choice; cols is what fits right now. Keeping them apart
+  // means a narrow moment (or a 0-width layout) never overwrites the choice.
+  let wanted = 0, cols = 2;
+  try { wanted = parseInt(localStorage.getItem(colsKey), 10) || 0; } catch (error) {}
+  const layout = () => {
+    if (!grid.clientWidth) return;
+    if (!wanted) wanted = Math.max(1, Math.floor((grid.clientWidth + GAP) / (CARD_TARGET + GAP)));
+    cols = Math.min(wanted, maxCols());
+    grid.style.setProperty('--cols', cols);
+    smaller.disabled = cols >= maxCols();
+    bigger.disabled = cols <= 1;
+  };
+  const zoom = delta => {
+    wanted = Math.min(Math.max(1, cols + delta), maxCols());
+    try { localStorage.setItem(colsKey, String(wanted)); } catch (error) {}
+    layout();
+  };
+  smaller.addEventListener('click', () => zoom(1));
+  bigger.addEventListener('click', () => zoom(-1));
+  new ResizeObserver(layout).observe(grid);
+  layout();
 
   // Route requests into this tool's exec shell; see the sendChatter note in Home/modal.py.
   const request = (tool, payload) => sendChatter(window._accessToken, tool, payload, {EXEC_SHELL});
@@ -349,27 +389,37 @@ def _lightbox_html(gallery_id: str, noun: str, viewer: str) -> str:
 
 def _gallery_html(gallery_id: str, heading: str, cards: list[str], lightbox: str) -> str:
     # The chat bubble shrink-wraps its content, so percentage widths collapse the
-    # grid to its minimum. A pixel width (full-size cards: 384 + 16 padding, 8 gap,
-    # 15 padding + 2 border per side) lets the bubble grow; max-width:100% still
-    # clamps it on narrow screens.
-    panel_width = len(cards) * (THUMBNAIL_SIZE[0] + 16) + (len(cards) - 1) * 8 + 34
+    # grid to its minimum. 100vw asks the bubble for all the room it has, and
+    # max-width:100% clamps the panel back to the bubble: the zoom controls then
+    # pick how many columns share that width, and the grid grows only downward.
     return f"""
         <div id="{gallery_id}" style="border:2px solid #6c2b97;border-radius:10px;margin:15px 0;
                     background:linear-gradient(135deg,#0c0c1e,#1a0833);
-                    padding:15px;width:{panel_width}px;max-width:100%;min-width:0;overflow:hidden;
+                    padding:15px;width:100vw;max-width:100%;min-width:0;overflow:hidden;
                     box-sizing:border-box">
           <style>
             #{gallery_id} .media-gallery-grid{{
               display:grid;
-              grid-template-columns:repeat(auto-fit,minmax(min(128px,100%),1fr));
+              grid-template-columns:repeat(var(--cols,2),minmax(0,1fr));
               gap:8px;
               width:100%;
             }}
-            #{gallery_id} .media-gallery-card{{min-width:0;max-width:{THUMBNAIL_SIZE[0]}px}}
+            #{gallery_id} .media-gallery-card{{min-width:0}}
+            #{gallery_id} .media-gallery-zoom button{{width:28px;height:28px;padding:0;border:1px solid #6c2b97;
+              border-radius:6px;background:rgba(12,12,30,.72);color:#d9b8f0;font-size:18px;line-height:24px;
+              cursor:pointer}}
+            #{gallery_id} .media-gallery-zoom button:disabled{{opacity:.35;cursor:default}}
             #{gallery_id} img[data-media-thumb]{{max-width:100%;height:auto}}
             #{gallery_id} img[data-media-thumb]:not([src]){{visibility:hidden}}
           </style>
-          <h3 style="color:#9b4dca;margin:0 0 12px">{heading}</h3>
+          <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;
+                      gap:8px;margin:0 0 12px">
+            <h3 style="color:#9b4dca;margin:0">{heading}</h3>
+            <div class="media-gallery-zoom" style="display:flex;align-items:center;gap:6px">
+              <button type="button" class="media-gallery-smaller" aria-label="Smaller images" title="Smaller">−</button>
+              <button type="button" class="media-gallery-bigger" aria-label="Bigger images" title="Bigger">+</button>
+            </div>
+          </div>
           <div class="media-gallery-grid">{"".join(cards)}</div>
           {lightbox}
         </div>
@@ -486,6 +536,157 @@ async def gallery_videos():
         _lightbox_html(gallery_id, "video", viewer),
     ))
     await atlantis.client_script(_gallery_script(gallery_id))
+
+
+_AUDIO_SCRIPT = '''
+//js
+(() => {
+  const root = document.getElementById('{GALLERY_ID}');
+  if (!root) return;
+  {CACHE_JS}
+  // Route requests into this tool's exec shell; see the sendChatter note in Home/modal.py.
+  const request = (tool, payload) => sendChatter(window._accessToken, tool, payload, {EXEC_SHELL});
+  const clock = seconds => {
+    const whole = Math.floor(seconds || 0);
+    return Math.floor(whole / 60) + ':' + String(whole % 60).padStart(2, '0');
+  };
+  const players = () => root.querySelectorAll('.audio-gallery-player');
+  root.querySelectorAll('.audio-gallery-item').forEach(item => {
+    const {key, name, size} = item.dataset;
+    const play = item.querySelector('.audio-gallery-play');
+    const player = item.querySelector('.audio-gallery-player');
+    const seek = item.querySelector('.audio-gallery-seek');
+    const meta = item.querySelector('.audio-gallery-meta');
+    const time = item.querySelector('.audio-gallery-time');
+    // The cache fills player.src (data-media-full) in every gallery showing this
+    // version, so only start playback where Play was actually pressed.
+    let wanted = false;
+    player.addEventListener('loadedmetadata', () => {
+      seek.disabled = false;
+      time.textContent = '0:00 / ' + clock(player.duration);
+    });
+    player.addEventListener('loadeddata', () => {
+      meta.textContent = size;
+      if (wanted) player.play().catch(() => {});
+      wanted = false;
+    });
+    player.addEventListener('timeupdate', () => {
+      if (player.duration) seek.value = player.currentTime / player.duration * 1000;
+      time.textContent = clock(player.currentTime) + ' / ' + clock(player.duration);
+    });
+    player.addEventListener('play', () => {
+      players().forEach(other => { if (other !== player) other.pause(); });
+      play.textContent = '❚❚';
+      play.setAttribute('aria-label', 'Pause ' + name);
+      item.classList.add('playing');
+    });
+    const paused = () => {
+      play.textContent = '▶';
+      play.setAttribute('aria-label', 'Play ' + name);
+      item.classList.remove('playing');
+    };
+    player.addEventListener('pause', paused);
+    player.addEventListener('ended', paused);
+    seek.addEventListener('input', () => {
+      if (player.duration) player.currentTime = seek.value / 1000 * player.duration;
+    });
+    play.addEventListener('click', async () => {
+      if (player.getAttribute('src')) {
+        if (player.paused) player.play().catch(() => {});
+        else player.pause();
+        return;
+      }
+      wanted = true;
+      const src = media.full.get(key);
+      if (src) {
+        player.src = src;
+        return;
+      }
+      play.disabled = true;
+      meta.textContent = 'Loading…';
+      try {
+        await request('$Media/gallery_open', {collection: 'audio', name});
+      } catch (error) {
+        wanted = false;
+        thread.console.softError('[media audio open] ' + error);
+        meta.textContent = 'Could not load audio.';
+      } finally {
+        play.disabled = false;
+      }
+    });
+  });
+})();
+'''
+
+
+@public
+async def gallery_audio():
+    """Show the caller's uploaded audio as a playable track list."""
+    username = _caller()
+    paths = _list_media(username, "audio")
+    if not paths:
+        await atlantis.client_log("🎙️ No audio found")
+        return
+    items = []
+    for path in paths:
+        key = _cache_key(path)
+        safe_name = html.escape(path.name, quote=True)
+        size = f"{path.stat().st_size / (1024 * 1024):.1f} MB"
+        items.append(
+            f"""
+            <article class="audio-gallery-item" data-key="{key}" data-name="{safe_name}" data-size="{size}">
+              <button type="button" class="audio-gallery-play" aria-label="Play {safe_name}">▶</button>
+              <div class="audio-gallery-info">
+                <strong class="audio-gallery-title" title="{safe_name}">{safe_name}</strong>
+                <input type="range" class="audio-gallery-seek" min="0" max="1000" value="0" disabled
+                       aria-label="Seek {safe_name}">
+                <span class="audio-gallery-meta">{size}</span>
+              </div>
+              <span class="audio-gallery-time"></span>
+              <audio class="audio-gallery-player" data-media-full="{key}" preload="none"></audio>
+            </article>
+            """
+        )
+    gallery_id = f"audio_gallery_{uuid.uuid4().hex[:10]}"
+    # Call atlantis directly from the tool: the client labels output with the caller's name.
+    # Pixel width, not a percentage: the chat bubble shrink-wraps (see _gallery_html).
+    await atlantis.client_html(
+        f"""
+        <div id="{gallery_id}" style="border:2px solid #6c2b97;border-radius:10px;margin:15px 0;
+                    background:linear-gradient(135deg,#0c0c1e,#1a0833);padding:15px;
+                    width:760px;max-width:100%;min-width:0;box-sizing:border-box;white-space:normal">
+          <style>
+            #{gallery_id} .audio-gallery-list{{display:flex;flex-direction:column;gap:2px}}
+            #{gallery_id} .audio-gallery-item{{display:flex;align-items:center;gap:12px;
+              padding:8px 12px;border-radius:6px;transition:background .15s}}
+            #{gallery_id} .audio-gallery-item:hover{{background:rgba(108,43,151,.22)}}
+            #{gallery_id} .audio-gallery-item.playing{{background:rgba(108,43,151,.32)}}
+            #{gallery_id} .audio-gallery-play{{flex:none;width:38px;height:38px;padding:0;
+              border:0;border-radius:50%;background:#9b4dca;color:#0c0c1e;font-size:13px;
+              line-height:38px;text-align:center;cursor:pointer;transition:transform .1s,background .15s}}
+            #{gallery_id} .audio-gallery-play:hover{{background:#b86ee6;transform:scale(1.06)}}
+            #{gallery_id} .audio-gallery-play:disabled{{opacity:.45;cursor:wait;transform:none}}
+            #{gallery_id} .audio-gallery-info{{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}}
+            #{gallery_id} .audio-gallery-title{{color:#f2e6fa;font-size:14px;font-weight:600;
+              overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+            #{gallery_id} .audio-gallery-item.playing .audio-gallery-title{{color:#c98cf0}}
+            #{gallery_id} .audio-gallery-seek{{display:none;width:100%;height:4px;margin:2px 0;
+              accent-color:#9b4dca;cursor:pointer}}
+            #{gallery_id} .audio-gallery-seek:not(:disabled){{display:block}}
+            #{gallery_id} .audio-gallery-meta{{color:#8a8aa0;font-size:11px}}
+            #{gallery_id} .audio-gallery-time{{flex:none;color:#8a8aa0;font-size:12px;
+              font-variant-numeric:tabular-nums}}
+          </style>
+          <h3 style="color:#9b4dca;margin:0 0 12px">🎙️ Audio Gallery · {len(items)} files</h3>
+          <div class="audio-gallery-list">{"".join(items)}</div>
+        </div>
+        """
+    )
+    await atlantis.client_script(
+        _AUDIO_SCRIPT.replace("{GALLERY_ID}", gallery_id)
+        .replace("{CACHE_JS}", _CACHE_JS)
+        .replace("{EXEC_SHELL}", json.dumps(atlantis.get_exec_shell_path()))
+    )
 
 
 @public

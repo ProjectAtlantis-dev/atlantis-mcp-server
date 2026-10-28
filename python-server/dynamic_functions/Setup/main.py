@@ -31,8 +31,8 @@ async def on_enter():
     """
     logger.info(f"Executing Setup on_enter...")
 
-    await atlantis.client_log("enter running")
-    await atlantis.set_background(str(SETUP_BG_PATH))
+    #await atlantis.client_log("enter running")
+    await atlantis.set_background(str(SETUP_BG_PATH), vertical_align="center")
 
     return "Setup entered"
 
@@ -45,7 +45,7 @@ async def on_exit():
     """
     logger.info(f"Executing Setup on_exit...")
 
-    await atlantis.client_log("exit running")
+    #await atlantis.client_log("exit running")
     await atlantis.clear_background()
 
     return "Setup exited"

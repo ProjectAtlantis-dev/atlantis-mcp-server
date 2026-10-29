@@ -68,7 +68,7 @@ To add Atlantis Open Weather for testing:
 
 7. Your remote(s) should autoconnect using email and default api key = 'foobar' (see 'api' command to generate a new key later). The first server to connect will be assigned your 'default' unless you manually change it later
 
-8. **Chat comes pre-installed**, along with the Home, Bot and Setup apps, in `python-server/dynamic_functions/`. On first run, the server also creates a starter `Demo` app with example functions. No separate installation is needed for these bundled apps. The `dynamic_servers/` folder includes an example weather config.
+8. **Chat comes pre-installed**, along with the Home, Bot, Setup and Media apps, in `python-server/dynamic_functions/`. On first run, the server also creates a starter `Demo` app with example functions. No separate installation is needed for these bundled apps. The `dynamic_servers/` folder includes an example weather config.
 
 9. You can run this standalone MCP or accessed from the cloud or both
 
@@ -121,18 +121,11 @@ Further docs:
 
 Dynamic functions give users the ability to create and maintain custom functions-as-tools. Functions are loaded on start and automatically reloaded when modified.
 
-The `python-server/dynamic_functions/` directory includes the pre-installed **Chat**, **Bot**, **Home**, and **Setup** apps. These apps are tracked with the server source. Seeing them on a new server is expected.
+The `python-server/dynamic_functions/` directory includes the pre-installed **Chat**, **Bot**, **Home**, **Setup**, and **Media** apps. These apps are tracked with the server source. Seeing them on a new server is expected.
 
 On first run, the server also creates a starter `Demo` app with example functions, once per `.demo_scaffolded` marker. Everything else under `dynamic_functions/` is ignored by this repository.
 
-Add your own app in a new subfolder. To keep an app in its own repository, clone that repository directly into `dynamic_functions/`:
-
-```bash
-cd python-server/dynamic_functions
-git clone git@gitlab.com:you/my-atlantis-app.git MyApp
-```
-
-The app folder is its own Git repository, and the server repository ignores it. Keep the bundled folders in place; do not replace the entire `dynamic_functions/` directory.
+Add your own app as a new subfolder. Because the server repository ignores it, the folder can be its own Git repository. Keep the bundled folders in place; do not replace the entire `dynamic_functions/` directory.
 
 For detailed information about creating and using dynamic functions, see the [Dynamic Functions Documentation](python-server/README.dynamic_functions.md).
 

@@ -21,7 +21,7 @@ The centerpiece of this project is a Python MCP host (referred to as a 'remote')
 1. Prerequisites - need to install Python for the server and Node for Lobster (the MCP client); you should also install uv/uvx and node/npx since it seems that MCP needs both
 
 
-2. Python 3.13 seems to be most stable right now because of async support
+2. Python 3.14 is the supported version
 
 3. Set up your Python virtual environment and install dependencies:
 

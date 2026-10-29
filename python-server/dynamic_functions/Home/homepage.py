@@ -1,6 +1,7 @@
 """Homepage menu for the local Home app."""
 
 import logging
+import posixpath
 from pathlib import Path
 
 import atlantis
@@ -118,22 +119,39 @@ async def homepage() -> dict:
     if not script_folder:
         raise RuntimeError("Cannot determine homepage script folder")
 
+    # Callback `auto` only searches the current folder, and the preflight/chat
+    # callbacks live in the sibling Chat app
+    chat_folder = posixpath.join(posixpath.dirname(script_folder), "Chat")
+    logger.info(f"homepage script folder: {script_folder}, chat folder: {chat_folder}")
+
+    # The commands below run after we return, so this is the folder to come back to.
+    # Ask the caller's terminal: the exec shell runs this call from the Home folder
+    start_folder = await atlantis.client_command("pwd", shell="caller")
+    logger.info(f"homepage pwd returned:\n{format_json_log(start_folder, colored=True)}")
+    if not isinstance(start_folder, str) or not start_folder.startswith("/"):
+        raise TypeError(f"pwd returned {start_folder!r}, expected an absolute folder path")
+
     return {
         "commands": [
-            "/terminal blur 12",
-            f"/cd {script_folder}",
-            "/callback set preflight auto",
-            "/callback set chat auto",
-            # Chat callbacks resolve their game from the cursor; new owners start in Setup
-            '/cursor join {game_name: "Setup"}',
+            #"/terminal blur 12",
             f"/path push {script_folder}",
             "/env save",
-            "/terminal on",
-            "app on",
-            "term_default",
-            "user_bg_default",
+            f"/cd {chat_folder}",
+            "/callback set preflight auto",
+            "/callback set chat auto",
+            # The file callback lives here in Home, so it needs its own visit
+            f"/cd {script_folder}",
             "file_callback_auto",
-            "first_menu",
-            "/finally terminal blur 0",
+            f"/cd {start_folder}",
+            # Chat callbacks resolve their game from the cursor; new owners start in Setup
+            #'/cursor join {game_name: "Setup"}',
+            #f"/path push {script_folder}",
+            #"/env save",
+            #"/terminal on",
+            #"app on",
+            #"term_default",
+            #"user_bg_default",
+            #"first_menu",
+            #"/finally terminal blur 0",
         ],
     }

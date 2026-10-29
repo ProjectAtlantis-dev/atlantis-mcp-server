@@ -37,5 +37,6 @@ async def game_init(game_name: str, game_key: str) -> None:
                 display_name=owner["displayName"],
             )
 
-    await camera_follow(game_name, game_key, OWNER_SLOT)
+    # No camera: Setup's on_enter owns the background, and a follower would repaint it on spawn.
+    #await camera_follow(game_name, game_key, OWNER_SLOT)
     await start_owned_stopped_game(game_name, game_key)

@@ -288,9 +288,17 @@ _GALLERY_SCRIPT = '''
     lightbox.style.display = 'none';
     unload();
   };
+  // The lightbox is the "with sound" view: unmute and start explicitly rather
+  // than leaning on the autoplay attribute, resuming where the inline player was.
+  let resumeAt = 0;
   large.addEventListener(isVideo ? 'loadeddata' : 'load', () => {
     loading.style.display = 'none';
     large.style.display = 'block';
+    if (!isVideo) return;
+    if (resumeAt) large.currentTime = resumeAt;
+    resumeAt = 0;
+    large.muted = false;
+    large.play().catch(error => thread.console.softError('[media gallery play] ' + error));
   });
   const show = async opener => {
     const list = openers();
@@ -324,11 +332,63 @@ _GALLERY_SCRIPT = '''
     if (index >= 0 && target >= 0 && target < list.length) show(list[target]);
   };
 
+  // Videos play in place, like a client_video event: muted autoplay with
+  // controls, inside the card so the grid never widens. ⤢ opens the lightbox.
+  const playInline = async opener => {
+    const card = opener.closest('figure');
+    const {key, collection, name} = opener.dataset;
+    let player = card.querySelector('.media-gallery-inline');
+    if (!player) {
+      player = document.createElement('video');
+      player.className = 'media-gallery-inline';
+      player.controls = true;
+      player.autoplay = true;
+      player.muted = true;
+      player.loop = true;
+      player.playsInline = true;
+      player.style.cssText = 'display:block;width:100%;aspect-ratio:1/1;object-fit:contain;' +
+        'background:#000;border-radius:6px';
+      card.insertBefore(player, opener);
+      const expand = document.createElement('button');
+      expand.type = 'button';
+      expand.textContent = '⤢';
+      expand.title = 'Open large';
+      expand.setAttribute('aria-label', 'Open ' + name + ' large');
+      expand.style.cssText = 'position:absolute;top:12px;right:12px;z-index:2;width:28px;height:28px;' +
+        'padding:0;border:1px solid rgba(255,255,255,.6);border-radius:6px;background:rgba(12,12,30,.75);' +
+        'color:white;font-size:16px;line-height:24px;cursor:pointer';
+      expand.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        player.pause();
+        resumeAt = player.currentTime;
+        show(opener);
+      });
+      card.appendChild(expand);
+    }
+    opener.style.display = 'none';
+    player.dataset.mediaFull = key;
+    const src = media.full.get(key);
+    if (src) {
+      player.src = src;
+      return;
+    }
+    try {
+      await request('$Media/gallery_open', {collection, name});
+    } catch (error) {
+      opener.style.display = '';
+      player.remove();
+      card.querySelector('button[title="Open large"]')?.remove();
+      thread.console.softError('[media gallery inline] ' + error);
+    }
+  };
+
   openers().forEach(opener => {
     opener.addEventListener('click', event => {
       event.preventDefault();
       event.stopPropagation();
-      show(opener);
+      if (isVideo) playInline(opener);
+      else show(opener);
     });
   });
   closeButton.addEventListener('click', close);

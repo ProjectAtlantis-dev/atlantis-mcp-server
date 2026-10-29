@@ -34,6 +34,9 @@ async def on_enter():
     #await atlantis.client_log("enter running")
     await atlantis.set_background(str(SETUP_BG_PATH), vertical_align="center")
 
+    # The app folder name is the Chat game name; preflight and chat read it from the cursor
+    await atlantis.client_command("/cursor join", {"game_name": Path(__file__).parent.name})
+
     return "Setup entered"
 
 

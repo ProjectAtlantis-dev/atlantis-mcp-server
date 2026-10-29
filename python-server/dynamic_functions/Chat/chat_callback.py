@@ -16,7 +16,7 @@ from .common import _read_json, _write_json
 from .location import load_location
 from .game import (
     GAME_STATE_RUNNING, _game_is_running, _game_read, _game_roster_scene,
-    _game_set_state, game_find_current, require_membership,
+    _game_set_state, game_find_current, game_require_current, require_membership,
 )
 from .roster import _load_game_roster, roster_join_bot
 from .scene import scene_slot_default_location
@@ -32,18 +32,10 @@ _UNKNOWN_VISITOR_NAME = "a visitor"
 _MAX_BOT_CHAIN = 4
 
 
-def _require_roster_assigned(game_name: str, game_key: str) -> None:
-    """Fail early if chat starts before this game has a created roster."""
-    data_dir = require_membership(game_name, game_key)
-    meta = _read_json(os.path.join(data_dir, "game.json")) or {}
-    if not _game_roster_scene(meta):
-        raise RuntimeError(f"Game {game_key!r} has no roster assigned yet")
-    if not os.path.isfile(os.path.join(data_dir, "roster.json")):
-        raise RuntimeError(f"Game {game_key!r} has no roster.json yet")
-
 @public
 @preflight
 async def preflight_callback(game_name: str):
+    """Create the game, or finish a setup that stopped partway; chat never does."""
     await game_find_current(game_name)
 
 
@@ -72,7 +64,7 @@ async def chat_callback(game_name: str):
 
     atlantis.session_shared.set(_BUSY_KEY, request_id)
     try:
-        game_key = await game_find_current(game_name)
+        game_key = game_require_current(game_name)
         logger.info("chat_callback game resolved: %s/%s", game_name, game_key)
         raw_transcript, transcript = await fetch_transcript(game_name, game_key)
         running = _game_is_running(game_name, game_key)
@@ -83,7 +75,7 @@ async def chat_callback(game_name: str):
                 raise PermissionError(
                     f"Game {game_key!r} is stopped; only its owner may restart it by chatting"
                 )
-        _require_roster_assigned(game_name, game_key)
+        require_membership(game_name, game_key)
         if not running:
             # Resume without game_start's /clear, preserving the owner's message.
             await _game_set_state(game_name, game_key, GAME_STATE_RUNNING)

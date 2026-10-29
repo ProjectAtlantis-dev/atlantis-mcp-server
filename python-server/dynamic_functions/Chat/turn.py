@@ -100,9 +100,9 @@ def _openrouter_payload_path(game_name: str, game_key: str, sid: str) -> str:
 @public
 async def openrouter_payload(game_name: str, sid: str) -> Dict[str, Any]:
     """Return this game's latest exact OpenRouter payload for a bot SID."""
-    from .game import game_find_current
+    from .game import game_require_current
 
-    game_key = await game_find_current(game_name)
+    game_key = game_require_current(game_name)
     path = _openrouter_payload_path(game_name, game_key, sid)
     payload = _read_json(path)
     if not isinstance(payload, dict):

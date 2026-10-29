@@ -8,7 +8,7 @@ import tempfile
 import unittest
 import types
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import atlantis
@@ -161,7 +161,7 @@ class GameIdentityTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             await game.game_find_current(GAME)
 
-    def callback(self, name, speaker="visitor", roster_error=None):
+    def callback(self, name, speaker="visitor"):
         source = Path(game.__file__).with_name('chat_callback.py')
         tree = ast.parse(source.read_text())
         node = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == name)
@@ -169,13 +169,14 @@ class GameIdentityTests(unittest.IsolatedAsyncioTestCase):
         scope = {
             'atlantis': atlantis,
             'game_find_current': game.game_find_current,
+            'game_require_current': game.game_require_current,
+            'require_membership': game.require_membership,
             '_game_is_running': game._game_is_running,
             '_game_read': game._game_read,
             '_game_set_state': game._game_set_state,
             'GAME_STATE_RUNNING': game.GAME_STATE_RUNNING,
             'fetch_transcript': AsyncMock(return_value=([{'sid': speaker}], ['message'])),
             'analyze_participants': lambda rows: {'last_speaker': rows[-1]['sid']},
-            '_require_roster_assigned': Mock(side_effect=roster_error),
             '_handle_chat': AsyncMock(),
             '_BUSY_KEY': 'test_game_identity_busy',
             'logger': logging.getLogger(__name__),
@@ -190,10 +191,11 @@ class GameIdentityTests(unittest.IsolatedAsyncioTestCase):
             await self.callback('chat_callback')(GAME)
         self.assertEqual(game._game_read(GAME, GAME_UUID), meta)
 
-    async def test_chat_alone_creates_missing_game_for_owner(self):
-        with self.assertRaisesRegex(PermissionError, 'is stopped'):
-            await self.callback('chat_callback')(GAME)
-        self.assertEqual(game._game_read(GAME, GAME_UUID)['state'], 'stopped')
+    async def test_chat_alone_never_creates_a_game(self):
+        with self.assertRaisesRegex(RuntimeError, 'preflight has not set it up'):
+            await self.callback('chat_callback', speaker='owner')(GAME)
+        self.assertFalse(Path(game.game_dir(GAME, GAME_UUID)).exists())
+        self.game_init.assert_not_awaited()
 
     async def test_owner_speech_resumes_and_processes_same_transcript(self):
         await game.game_new(GAME)
@@ -216,14 +218,39 @@ class GameIdentityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(game._game_read(GAME, GAME_UUID)['state'], 'stopped')
         callback.__globals__['_handle_chat'].assert_not_awaited()
 
-    async def test_unconfigured_game_stays_stopped_and_reports_roster_error(self):
+    def strip_roster(self):
+        meta = game._game_read(GAME, GAME_UUID)
+        meta['roster_scene'] = None
+        game._game_update(GAME, GAME_UUID, meta)
+        (Path(game.game_dir(GAME, GAME_UUID)) / 'roster.json').unlink()
+
+    async def test_half_set_up_game_stays_stopped_and_chat_does_not_finish_it(self):
         await game.game_new(GAME)
-        callback = self.callback('chat_callback', speaker='owner',
-                                 roster_error=RuntimeError('No roster assigned'))
-        with self.assertRaisesRegex(RuntimeError, 'No roster assigned'):
+        self.strip_roster()
+        self.game_init.reset_mock()
+        callback = self.callback('chat_callback', speaker='owner')
+        with self.assertRaisesRegex(RuntimeError, 'preflight has not finished'):
             await callback(GAME)
+        self.game_init.assert_not_awaited()
         self.assertEqual(game._game_read(GAME, GAME_UUID)['state'], 'stopped')
         self.assertIsNone(atlantis.session_shared.get('test_game_identity_busy'))
+
+    async def test_preflight_finishes_half_set_up_game(self):
+        await game.game_new(GAME)
+        self.strip_roster()
+        self.game_init.reset_mock()
+        await self.callback('preflight_callback')(GAME)
+        self.game_init.assert_awaited_once_with(GAME, GAME_UUID)
+        self.assertEqual(game.game_require_current(GAME), GAME_UUID)
+
+    async def test_non_owner_preflight_cannot_finish_half_set_up_game(self):
+        await game.game_new(GAME)
+        self.strip_roster()
+        self.game_init.reset_mock()
+        self.set_context(caller_sid='visitor')
+        with self.assertRaises(PermissionError):
+            await self.callback('preflight_callback')(GAME)
+        self.game_init.assert_not_awaited()
 
     async def test_running_game_processes_visitor_speech(self):
         await game.game_new(GAME)
@@ -235,13 +262,15 @@ class GameIdentityTests(unittest.IsolatedAsyncioTestCase):
         callback.__globals__['_handle_chat'].assert_awaited_once()
 
     async def test_callbacks_reject_missing_uuid_and_unauthorized_creation(self):
-        for name in ['preflight_callback', 'chat_callback']:
+        # Chat refuses a missing game before ownership matters; preflight checks the owner.
+        for name, missing_game_error in [('preflight_callback', PermissionError),
+                                         ('chat_callback', RuntimeError)]:
             with self.subTest(callback=name):
                 self.set_context(game_uuid=None)
                 with self.assertRaises(RuntimeError):
                     await self.callback(name)(GAME)
                 self.set_context(caller_sid='visitor')
-                with self.assertRaises(PermissionError):
+                with self.assertRaises(missing_game_error):
                     await self.callback(name)(GAME)
         self.assertFalse(Path(game.game_dir(GAME, GAME_UUID)).exists())
 

@@ -34,8 +34,12 @@ for its owner through `runner.start_owned_stopped_game`.
 Node sends `game_uuid` on remote tool calls. Within a game it is the sole lookup
 key for `<game_name>/Data/games/<game_uuid>/game.json`; Python does not allocate
 another game UUID. The same UUID has an independent record under each game it
-has entered. Preflight and chat resolve this record directly. If it is absent, only a caller
-recognized by `atlantis.is_owner()` may create it. `game_new()` writes the
+has entered. Only preflight sets a game up, through `game_find_current()`: if
+the record is absent, or exists without a roster because an earlier setup was
+cancelled or failed, only a caller recognized by `atlantis.is_owner()` may
+create or finish it. Chat and every other caller use `game_require_current()`,
+which never creates anything and raises if preflight has not finished, so chat
+cannot start a second setup alongside preflight's. `game_new()` writes the
 record with the caller as its initial member, joins the cursor, and runs the
 game's init script (see Games). Completing setup
 starts the game. Calling `game_new()` for an existing record without a roster

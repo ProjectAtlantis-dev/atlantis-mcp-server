@@ -33,7 +33,7 @@ from .game import (
     _game_read,
     _game_update,
     add_caller_membership,
-    game_find_current,
+    game_require_current,
     game_start,
     require_membership,
 )
@@ -62,7 +62,7 @@ async def _warn_unfilled_roster() -> None:
 async def _roster_edit_modal(game_name: str) -> Optional[Dict[str, str]]:
 
     roster = await atlantis.client_command("@roster_list")
-    game_key = await game_find_current(game_name)
+    game_key = game_require_current(game_name)
     joined_bot_sids = set(_joined_bot_sids(game_name, game_key))
     heading = "Edit Roster"
 
@@ -768,7 +768,7 @@ def _first_human_slot_key(roster: list) -> str:
 
 
 async def _camera_edit(game_name: str, roster: Optional[list] = None, game_key: Optional[str] = None) -> bool:
-    game_key = str(game_key or await game_find_current(game_name)).strip()
+    game_key = str(game_key or game_require_current(game_name)).strip()
     roster_rows = roster if roster is not None else await atlantis.client_command("@roster_list")
     current = _camera_current_target(game_name, game_key)
     has_locations = bool(_leaf_location_keys(game_name))

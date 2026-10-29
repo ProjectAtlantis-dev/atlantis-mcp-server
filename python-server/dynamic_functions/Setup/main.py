@@ -51,5 +51,8 @@ async def on_exit():
     #await atlantis.client_log("exit running")
     await atlantis.clear_background()
 
+    # Drop the game cursor joined in on_enter
+    await atlantis.client_command("/cursor clear")
+
     return "Setup exited"
 

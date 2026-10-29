@@ -113,6 +113,13 @@ def _game_roster_scene(meta: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _game_has_roster(game_name: str, game_key: str, meta: Dict[str, Any]) -> bool:
+    """True once setup has assigned a roster scene and written roster.json."""
+    return bool(_game_roster_scene(meta)) and os.path.isfile(
+        os.path.join(game_dir(game_name, game_key), "roster.json")
+    )
+
+
 def _participant_sids(meta: Dict[str, Any]) -> list:
     members = meta.get("members") or {}
     sids: set[str] = set()
@@ -242,7 +249,7 @@ async def game_new(game_name: str) -> Dict[str, Any]:
     if not meta or meta.get("game_uuid") != game_key:
         raise RuntimeError(f"Invalid game record for UUID {game_key!r}")
     keys = {"game_name": game_name, "game_key": game_key, "join_password": meta["join_password"]}
-    if not _game_roster_scene(meta) or not os.path.isfile(os.path.join(game_dir(game_name, game_key), "roster.json")):
+    if not _game_has_roster(game_name, game_key, meta):
         # runner imports game; import the interactive setup only when needed.
         from .runner import game_init
 
@@ -251,16 +258,40 @@ async def game_new(game_name: str) -> Dict[str, Any]:
     return keys
 
 
-@public
-async def game_find_current(game_name: str) -> str:
-    """Resolve by Node UUID; create a missing game only for an MCP owner."""
-    game_key = _current_game_key()
-    if not os.path.exists(game_dir(game_name, game_key)):
-        return (await game_new(game_name))["game_key"]
+def _game_read_current(game_name: str, game_key: str) -> Dict[str, Any]:
     # A partial or corrupt record is an error, not a missing game to overwrite.
     meta = _game_read(game_name, game_key)
     if not meta or meta.get("game_uuid") != game_key:
         raise RuntimeError(f"Invalid game record for UUID {game_key!r}")
+    return meta
+
+
+@public
+async def game_find_current(game_name: str) -> str:
+    """Resolve by Node UUID; only an MCP owner creates or finishes setting up a game.
+
+    Preflight is the only caller that may set a game up; everything after it
+    uses game_require_current.
+    """
+    game_key = _current_game_key()
+    if not os.path.exists(game_dir(game_name, game_key)):
+        return (await game_new(game_name))["game_key"]
+    meta = _game_read_current(game_name, game_key)
+    # A setup that was cancelled or failed after the record was written left no
+    # roster; rerun it instead of leaving every chat stuck on the roster check.
+    if not _game_has_roster(game_name, game_key, meta):
+        return (await game_new(game_name))["game_key"]
+    return game_key
+
+
+def game_require_current(game_name: str) -> str:
+    """Resolve by Node UUID a game that preflight already set up; never creates one."""
+    game_key = _current_game_key()
+    if not os.path.exists(game_dir(game_name, game_key)):
+        raise RuntimeError(f"Game {game_name}/{game_key!r} does not exist; preflight has not set it up")
+    meta = _game_read_current(game_name, game_key)
+    if not _game_has_roster(game_name, game_key, meta):
+        raise RuntimeError(f"Game {game_name}/{game_key!r} has no roster; preflight has not finished setting it up")
     return game_key
 
 
@@ -490,7 +521,7 @@ async def game_start(game_name: str, game_key: str) -> dict:
     # Wipe the setup chatter, then undo the dimmed greyscale backdrop
     # Home/user.py sets for its menu. Both before spawning, so the arrivals
     # below survive the clear and land at full brightness and colour.
-    await atlantis.client_command("/clear")
+
     await atlantis.client_command("/terminal brightness 1")
     await atlantis.client_command("/terminal desaturate 0")
 

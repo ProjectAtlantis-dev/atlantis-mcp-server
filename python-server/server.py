@@ -4063,18 +4063,21 @@ class ServiceClient:
                 logger.info("☁️ Socket.IO connection closed (wait() returned)") # DEBUG ADDED
 
             except Exception as e:
+                # engineio doesn't close its aiohttp session when the websocket handshake fails;
+                # disconnect() always resets the client, which closes it
+                if self.sio is not None:
+                    await self.sio.disconnect()
+                    self.sio = None
+
                 if is_shutting_down:
                     logger.info("☁️ Shutting down, stopping cloud connection attempts")
                     break
 
                 self.is_connected = False
-                self.sio = None
                 self.retry_count += 1
 
-                # Show exactly what we're sending and suggest checking account
-                logger.error(f"❌ Authentication failed with credentials: email={self.email}, api_key={'*' * len(self.api_key) if self.api_key else 'None'}, serviceName={self.serviceName}, appName={self.appName}")
-                logger.error(f"❌ Does this account exist on the cloud server? Check your credentials.")
-                # logger.debug(f"Traceback: {traceback.format_exc()}")  # Too verbose
+                logger.error(f"❌ Cloud connection failed ({type(e).__name__}: {e}) for email={self.email}, api_key={'*' * len(self.api_key) if self.api_key else 'None'}, serviceName={self.serviceName}, appName={self.appName}")
+                logger.debug(f"Traceback: {traceback.format_exc()}")
 
                 # Calculate exponential backoff delay with jitter
                 backoff_delay = 5

@@ -103,3 +103,4 @@ python-server/**/*.log
 python-server/dynamic_functions copy 2/
 python-server/dynamic_functions copy/
 python-server/dynamic_functions/Chat/.DS_Store
+python-server/dynamic_functions/Chat/Setup/.DS_Store

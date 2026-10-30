@@ -207,8 +207,10 @@ def convert_discovery_rows(
 
     for row in rows:
         if row.get('category', 'function') != 'function':
+            logger.info(f"convert_discovery_rows: drop {row.get('searchTerm')!r}: category={row.get('category')!r}")
             continue
         if not row.get('is_connected'):
+            logger.info(f"convert_discovery_rows: drop {row.get('searchTerm')!r}: is_connected={row.get('is_connected')!r}")
             continue
 
         search_term = row.get('searchTerm', '')
@@ -224,6 +226,11 @@ def convert_discovery_rows(
         # model-facing name so same-named tools in different apps stay distinct
         segments = search_term.strip('/').split('/')
         sanitized = re.sub(r'[^a-zA-Z0-9_-]', '_', '__'.join(segments[2:]))
+        if sanitized in tool_lookup:
+            logger.warning(
+                f"convert_discovery_rows: name collision {sanitized!r}: "
+                f"{tool_lookup[sanitized]['searchTerm']!r} replaced by {'%' + search_term.lstrip('/')!r}"
+            )
 
         openai_tools.append({
             'type': 'function',

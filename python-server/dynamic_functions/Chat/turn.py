@@ -1,4 +1,5 @@
 import atlantis
+import copy
 import json
 import os
 import time as _t
@@ -71,15 +72,25 @@ def _message_text(message: Dict[str, Any]) -> str:
     return ""
 
 
-def _latest_user_text(transcript: List[Dict[str, Any]]) -> str:
-    """Newest spoken user message (not a scene line), flattened to one line for /search."""
+# Spoken lines the pre-load search sees, so a bare "yes" or "it failed" still
+# carries what it answers.
+_PRELOAD_SEARCH_LINES = 4
+
+
+def _recent_spoken_text(transcript: List[Dict[str, Any]], count: int) -> str:
+    """Last `count` spoken user/assistant lines (no scene lines or tool calls),
+    oldest first, flattened to one line for /search."""
+    lines: List[str] = []
     for message in reversed(transcript):
-        if message.get("role") != "user":
+        if message.get("role") not in ("user", "assistant"):
             continue
         text = " ".join(_message_text(message).split())
-        if text and not text.startswith("[scene:"):
-            return text
-    return ""
+        if not text or text.startswith("[scene:"):
+            continue
+        lines.append(text)
+        if len(lines) == count:
+            break
+    return " ".join(reversed(lines))
 
 
 def _openrouter_payload_path(game_name: str, game_key: str, sid: str) -> str:
@@ -110,6 +121,38 @@ async def openrouter_payload(game_name: str, sid: str) -> Dict[str, Any]:
             f"No OpenRouter payload has been submitted for {sid!r} in game {game_key!r}"
         )
     return payload
+
+
+_SEARCH_TOOL: OpenAITool = {
+    "type": "function",
+    "function": {
+        "name": "search",
+        "description": (
+            "Find tools in the system by keyword and add the matches to this "
+            "reply. Use one or two words."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "One or two keywords"},
+            },
+            "required": ["query"],
+        },
+    },
+}
+
+
+def _open_discovery(
+    openai_tools: List[OpenAITool],
+    tool_lookup: Dict[str, ToolLookupInfo],
+) -> None:
+    """Offer search for this reply; nothing in a bot's inventory supplies it."""
+    name = _SEARCH_TOOL["function"]["name"]
+    if name in tool_lookup:
+        raise ValueError(f"Bot inventory already declares the discovery tool {name!r}")
+    openai_tools.append(copy.deepcopy(_SEARCH_TOOL))
+    # Dispatch requires a lookup row; search itself is handled by _execute_discovery_tool.
+    tool_lookup[name] = {"searchTerm": "/search", "filename": "", "functionName": name}
 
 
 def _close_discovery(
@@ -147,6 +190,11 @@ async def _execute_discovery_tool(
         raise ValueError(f"{tool_key} requires {argument_name!r}")
 
     results = await _search_rows(value)
+    logger.info(
+        f"{command} {value[:200]!r} returned "
+        f"{len(results) if isinstance(results, list) else type(results).__name__} rows:\n"
+        f"{format_json_log(results)}"
+    )
     if not results:
         return (
             f"Nothing in the system provides {value!r}. This is the complete "
@@ -160,6 +208,7 @@ async def _execute_discovery_tool(
     for tool in discovered_tools:
         name = tool["function"]["name"]
         if name in tool_lookup:
+            logger.info(f"{command}: skip {name!r}: already loaded this reply")
             continue
         bound = tool_argument_overrides.get(discovered_lookup[name]["functionName"], {})
         parameters = tool["function"]["parameters"]
@@ -251,15 +300,16 @@ async def run_turn(
     )
     client = OpenAI(api_key=api_key, base_url=base_url)
     openai_tools, tool_lookup = convert_search_tools(tools or [])
+    _open_discovery(openai_tools, tool_lookup)
 
-    # Pre-load the tools the newest message asks for, so the bot can call
+    # Pre-load the tools the recent conversation asks for, so the bot can call
     # them this round instead of searching first
-    latest = _latest_user_text(transcript)
-    if latest:
+    recent = _recent_spoken_text(transcript, _PRELOAD_SEARCH_LINES)
+    if recent:
         preloaded = await _execute_discovery_tool(
-            "search", {"query": latest}, openai_tools, tool_lookup, tool_argument_overrides or {},
+            "search", {"query": recent}, openai_tools, tool_lookup, tool_argument_overrides or {},
         )
-        logger.info(f"Pre-load for {latest[:80]!r}: {preloaded}")
+        logger.info(f"Pre-load for {recent[:200]!r}: {preloaded}")
 
     stream_talk_id = None
     stream_think_id = None

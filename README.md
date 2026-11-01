@@ -270,7 +270,7 @@ It holds the game/chat tools, bot runtime, static content under `Game/`, and liv
 
 - **`python-server/dynamic_functions/Home/`** — small platform-owned Home app used for Lobster/Multix readme entry points and the file callback. See the [Home README](python-server/dynamic_functions/Home/README.md).
 - **`python-server/dynamic_functions/Chat/`** — the bot/chat runtime app. See the [Chat README](python-server/dynamic_functions/Chat/README.md).
-- **`python-server/dynamic_functions/Terrain/`** — terrain tooling, kept in its own private repository (`git@gitlab.com:project_atlantis/terrain.git`) and cloned into this folder. Not tracked here.
+- **`python-server/dynamic_functions/Terrain/`** — terrain tooling, kept in its own repository ([ProjectAtlantis-dev/mcp-pkg-terrain](https://github.com/ProjectAtlantis-dev/mcp-pkg-terrain)) and cloned into this folder. Not tracked here.
 - **`python-server/dynamic_functions/Chat/Game/`** — static game content: locations, scenes. Tracked.
 - **`python-server/dynamic_functions/Bot/`** — static bot info under `Bot/<sid>/` (config, prompt, image). Tracked. Kept separate from Chat so bots can live on a different machine than the game.
 - **`python-server/dynamic_functions/Chat/Data/`** — live per-game state, keyed by `game_key`. Not tracked.

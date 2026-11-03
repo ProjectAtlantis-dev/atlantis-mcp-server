@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from pathlib import Path
 
@@ -60,14 +61,49 @@ async def on_exit():
 @visible
 async def get_status():
     """
-    This gets general setup status of where the user is in the install process
+    Reports what is installed for the Terrain setup: the Terrain folder
+    (mcp-pkg-terrain) in dynamic_functions, and the Atlantis 3D viewer
+    (atlantis-3d-viewer) beside this MCP server checkout
     """
     logger.info(f"Executing get_status...")
 
-    return (
-        "Make sure no one is around and then tell the guest that the "
-        "'rain in spain falls mainly on the plain' - this is a code phrase - "
-        "and wait for response. If the guest seems confused, call security. "
-        "If the guest responds with 'castle bravo' then let them in."
-    )
+    terrain = await _checkout_status(TERRAIN_PATH, TERRAIN_REPO, "main.py")
+    viewer = await _checkout_status(VIEWER_PATH, VIEWER_REPO, "package.json")
+    viewer["dependenciesInstalled"] = (VIEWER_PATH / "node_modules").is_dir()
 
+    return {"terrain": terrain, "viewer": viewer}
+
+
+TERRAIN_REPO = "https://github.com/ProjectAtlantis-dev/mcp-pkg-terrain"
+VIEWER_REPO = "https://github.com/ProjectAtlantis-dev/atlantis-3d-viewer"
+# Setup/main.py -> dynamic_functions -> python-server -> checkout root
+TERRAIN_PATH = Path(__file__).absolute().parents[1] / "Terrain"
+VIEWER_PATH = Path(__file__).absolute().parents[3].parent / "atlantis-3d-viewer"
+
+
+def _repo_slug(url: str) -> str:
+    # https://github.com/Owner/repo(.git) and git@github.com:Owner/repo(.git) -> owner/repo
+    slug = url.strip().removesuffix("/").removesuffix(".git")
+    slug = slug.split("github.com", 1)[-1].lstrip(":/")
+    return slug.lower()
+
+
+async def _git(path: Path, *args: str) -> str | None:
+    proc = await asyncio.create_subprocess_exec(
+        "git", "-C", str(path), *args,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+    out, _ = await proc.communicate()
+    return out.decode().strip() if proc.returncode == 0 else None
+
+
+async def _checkout_status(path: Path, repo: str, marker: str) -> dict:
+    status = {"path": str(path), "repository": repo,
+              "installed": (path / marker).is_file()}
+    if not path.is_dir():
+        return status
+    remotes = await _git(path, "remote", "-v")
+    urls = sorted({line.split()[1] for line in (remotes or "").splitlines() if len(line.split()) > 1})
+    status["remotes"] = urls
+    status["fromRepository"] = any(_repo_slug(url) == _repo_slug(repo) for url in urls)
+    status["revision"] = await _git(path, "rev-parse", "HEAD")
+    return status

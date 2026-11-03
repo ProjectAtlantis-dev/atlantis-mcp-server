@@ -83,7 +83,7 @@ async def first_menu():
         commands = [
             f"/cd {app_path}",
             "pwd",
-            "first_menu",
+            "@first_menu",
         ]
         logger.info(f"launching app script for '{app_path}':\n{format_json_log(commands, colored=True)}")
         await atlantis.client_command("/script", {"commands": commands})
@@ -141,7 +141,7 @@ async def homepage() -> dict:
             "/callback set chat auto",
             # The file callback lives here in Home, so it needs its own visit
             f"/cd {script_folder}",
-            "file_callback_auto",
+            "@file_callback_auto",
             f"/cd {start_folder}",
             # Chat callbacks resolve their game from the cursor; new owners start in Setup
             #'/cursor join {game_name: "Setup"}',

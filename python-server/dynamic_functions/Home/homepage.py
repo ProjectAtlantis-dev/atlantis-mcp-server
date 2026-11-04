@@ -133,6 +133,7 @@ async def homepage() -> dict:
 
     return {
         "commands": [
+            '/cursor join {game_name: "Default"}',
             #"/terminal blur 12",
             f"/path push {script_folder}",
             "/env save",

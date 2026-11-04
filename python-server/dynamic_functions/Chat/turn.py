@@ -51,10 +51,6 @@ async def _search_rows(query: str) -> Any:
     await atlantis.client_command("/silent on")
     try:
         return await atlantis.client_command(f"/search {query}")
-    except Exception as e:
-        if "no tool in path fits" not in str(e):
-            raise
-        return []
     finally:
         await atlantis.client_command("/silent off")
 

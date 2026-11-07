@@ -465,7 +465,8 @@ class DynamicFunctionManager:
     def _directory_has_visible_index(dir_path: str) -> bool:
         """
         A directory is visible only when its main.py defines an index() function
-        decorated with one of the visibility decorators.
+        decorated with one of the visibility decorators. @index only marks the
+        entry point, so it does not count: removing @visible hides the folder.
         """
         main_py = os.path.join(dir_path, 'main.py')
         if not os.path.isfile(main_py):
@@ -487,7 +488,7 @@ class DynamicFunctionManager:
                      d.func.id if isinstance(d, ast.Call) and isinstance(d.func, ast.Name) else None)
                     for d in node.decorator_list
                 ]
-                return any(dec in VISIBILITY_DECORATORS for dec in decorators if dec)
+                return any(dec in VISIBILITY_DECORATORS and dec != 'index' for dec in decorators if dec)
 
         return False
 
@@ -1410,6 +1411,12 @@ async def {name}():
                 for dir_name in dirs:
                     if dir_name in ignore_dirs or dir_name.startswith('.'):
                         dirs_to_remove.append(dir_name)
+                    # A dot is the app-path separator ("App.Sub" means App/Sub) and a Python
+                    # package boundary, so a folder named "Terrain.OLD" cannot be addressed or loaded
+                    elif '.' in dir_name:
+                        dirs_to_remove.append(dir_name)
+                        dir_rel_path = os.path.relpath(os.path.join(root, dir_name), self.functions_dir)
+                        logger.warning(f"🚫 Ignored folder (dot in name): {dir_rel_path}")
                     # Hidden folder check applies at every level. Pruning here also hides all descendants.
                     elif not self._directory_has_visible_index(os.path.join(root, dir_name)):
                         dirs_to_remove.append(dir_name)

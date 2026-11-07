@@ -184,13 +184,38 @@ def convert_search_tools(
 
 
 class DiscoveryRowT(TypedDict, total=False):
-    """Row shape returned by the cloud '/search' command."""
+    """Row shape returned by the cloud '/search' command.
+
+    Tool rows (type 'tool') are addressed by owner/remote/app plus the name in
+    the tool signature; other rows carry a root-anchored searchTerm.
+    """
+    type: str
+    owner: str
+    remote: str
+    app: str
     searchTerm: str
     tool: str
     description: str
     filename: str
     category: str
     is_connected: bool
+
+
+def _discovery_row_path(row: DiscoveryRowT, name: str) -> str:
+    """Root-anchored '/owner/remote/App/Sub/name' path for one discovery row."""
+    if row.get('type') == 'tool':
+        parts = {key: str(row.get(key) or '').strip() for key in ('owner', 'remote', 'app')}
+        missing = [key for key, value in parts.items() if not value]
+        if missing:
+            raise ValueError(f"Discovery tool row {name!r} is missing {', '.join(missing)}")
+        # The cloud writes app paths with '.' for '/' ('Chat.Setup' is Chat/Setup)
+        app_path = parts['app'].replace('.', '/')
+        return f"/{parts['owner']}/{parts['remote']}/{app_path}/{name}"
+
+    search_term = row.get('searchTerm', '')
+    if not search_term.startswith('/'):
+        raise ValueError(f"Discovery row has a non-rooted path: {search_term!r}")
+    return search_term
 
 
 def convert_discovery_rows(
@@ -213,14 +238,11 @@ def convert_discovery_rows(
             logger.info(f"convert_discovery_rows: drop {row.get('searchTerm')!r}: is_connected={row.get('is_connected')!r}")
             continue
 
-        search_term = row.get('searchTerm', '')
-        if not search_term.startswith('/'):
-            raise ValueError(f"Discovery row has a non-rooted path: {search_term!r}")
-
         tool_str = row.get('tool', '')
         name = tool_str.split('(')[0].strip()
         if not name:
-            raise ValueError(f"Discovery row {search_term!r} has no tool signature")
+            raise ValueError(f"Discovery row {row!r} has no tool signature")
+        search_term = _discovery_row_path(row, name)
 
         # Path is /owner/remote/App/.../name — drop owner+remote for the
         # model-facing name so same-named tools in different apps stay distinct

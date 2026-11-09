@@ -47,10 +47,15 @@ _MAX_DISCOVERY_CALLS = 3
 
 
 async def _search_rows(query: str) -> Any:
-    """Run /search silently; a request no tool fits comes back as an empty list."""
+    """Run /search silently; a request no tool fits comes back as an empty list.
+
+    The query travels in the data section, never the command line: chat text
+    carries apostrophes, ';' and '|' that the cloud's shell parser would read
+    as quoting and sequencing.
+    """
     await atlantis.client_command("/silent on")
     try:
-        return await atlantis.client_command(f"/search {query}")
+        return await atlantis.client_command("/search", {"content": query})
     finally:
         await atlantis.client_command("/silent off")
 

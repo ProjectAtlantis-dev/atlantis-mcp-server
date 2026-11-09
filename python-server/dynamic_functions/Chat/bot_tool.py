@@ -53,7 +53,7 @@ def get_bot_tool_argument_overrides(
     """Bind trusted turn context for bot tools without exposing it to the bot."""
     bot_sid = _normalize_bot_sid(bot_sid)
     return {
-        "remember_visitor": {"game_name": game_name, "bot_sid": bot_sid},
+        "remember_visitor": {"game_name": game_name, "game_key": game_key, "bot_sid": bot_sid},
         "bot_locate": {"game_name": game_name, "game_key": game_key, "bot_sid": bot_sid},
     }
 

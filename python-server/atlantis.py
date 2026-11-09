@@ -47,7 +47,7 @@ _upload_callbacks: dict = {}
 # Set to True to enable awaitable streaming (helps fix streaming issues)
 # Set to False for fire-and-forget streaming (original behavior)
 AWAIT_STREAM_START_ACK: bool = True   # Wait for ack on stream_start
-AWAIT_STREAM_MSG_ACK: bool = True     # Wait for ack on each stream message
+AWAIT_STREAM_MSG_ACK: bool = False    # Chunks are fire-and-forget; Node reorders by seqNum
 AWAIT_STREAM_END_ACK: bool = True     # Wait for ack on stream_end
 
 
@@ -417,10 +417,15 @@ def get_display_shell_path() -> Optional[str]:
     ctx = get_context()
     return ctx.display_shell_path if ctx else None
 
-def get_user_shell_path() -> Optional[str]:
-    """Return the session-owned replaying shell for user-facing output."""
+def get_chat_shell_path() -> Optional[str]:
+    """Return the game-level chat shell the caller's terminal is bound to, or None."""
     ctx = get_context()
-    return ctx.user_shell_path if ctx else None
+    return ctx.chat_shell_path if ctx else None
+
+def get_chat_key() -> Optional[str]:
+    """Return the chat key (e.g. folder path) of the caller's bound chat shell, or None."""
+    ctx = get_context()
+    return ctx.chat_key if ctx else None
 
 def get_game_uuid() -> Optional[str]:
     """Return the authoritative Node game UUID for this call."""

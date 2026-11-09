@@ -83,7 +83,7 @@ async def _paint_location(game_name: str, location: str) -> None:
     background = location_image_path(game_name, location)
     align = _location_default_camera_align(game_name, location)
     await atlantis.client_log(f"camera paint location={location!r} background={background!r} align={align!r}")
-    await atlantis.set_background(background, vertical_align=align, shell="user")
+    await atlantis.set_background(background, vertical_align=align, shell="chat")
 
 
 

@@ -16,6 +16,9 @@ Each MCP server is part of a collaborative network of AI agents and developers. 
 
 The centerpiece of this project is a Python MCP host (referred to as a 'remote') that lets you install functions and 3rd party MCP tools on the fly
 
+MCP spec is here
+https://modelcontextprotocol.io/specification/
+
 ## Quick Start
 
 1. Prerequisites - need to install Python for the server and Node for Lobster (the MCP client); you should also install uv/uvx and node/npx since it seems that MCP needs both

@@ -15,7 +15,7 @@ class ShellRoutingTests(unittest.IsolatedAsyncioTestCase):
             client_id="client", request_id="request", client_log_func=AsyncMock(),
             payload=ToolCallPayload(
                 caller_sid="alice", user_game_id=1, exec_shell_path="20",
-                caller_shell_path="1", display_shell_path="3", user_shell_path="4",
+                caller_shell_path="1", display_shell_path="3",
             ),
         ))
         atlantis._request_seq_counters.clear()
@@ -28,7 +28,7 @@ class ShellRoutingTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(atlantis, "execute_client_command_awaitable", new_callable=AsyncMock) as send:
             for target, expected in [
                 ("d_map", "d_map"), ("t_main", "t_main"), ("u_roster", "u_roster"),
-                ("display", "display"), ("user", "user"), ("terminal", "terminal"),
+                ("display", "display"), ("chat", "chat"), ("terminal", "terminal"),
                 ("7.2", "7.2"), ("unknown", "unknown"), ("", "caller"),
                 ("exec", "20"), ("caller", "1"), (" d_map ", "d_map"),
             ]:

@@ -40,6 +40,9 @@ async def on_enter():
     # The app folder name is the Chat game name; preflight and chat read it from the cursor
     await atlantis.client_command("/cursor join", {"game_name": Path(__file__).parent.name})
 
+    # Point the calling terminal at this folder's chat shell (upserted by Node, keyed by folder)
+    await atlantis.client_command("/chat bind " + json.dumps(atlantis.get_script_folder()), shell="caller")
+
     return "Setup entered"
 
 
@@ -56,6 +59,9 @@ async def on_exit():
 
     # Drop the game cursor joined in on_enter
     await atlantis.client_command("/cursor clear")
+
+    # Detach the calling terminal from this folder's chat shell; the chat shell stays
+    await atlantis.client_command("/chat unbind", shell="caller")
 
     return "Setup exited"
 

@@ -445,8 +445,8 @@ def _roster_names_for_bot(
 async def remember_visitor(name: str, game_name: str, game_key: str, bot_sid: str) -> Dict[str, str]:
     """Remember the name a visitor directly told the listening bot.
 
-    `game_key` is supplied by the Atlantis cursor. `game_name` and `bot_sid`
-    are trusted turn context and are never exposed to the model.
+    `game_name`, `game_key` and `bot_sid` are trusted turn context bound by
+    the bot turn; search discovery strips them from the schema the model sees.
     """
     name = str(name or "").strip()
     bot_sid = str(bot_sid or "").strip()

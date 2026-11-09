@@ -43,12 +43,11 @@ to `atlantis.py` that do the same thing.
 Helpers that take `shell` accept:
 
 - a tab name such as `"d_map"` or `"t_main"`
-- a shell type (`"display"`, `"terminal"`, `"user"`), which picks the first open tab of that type
+- a shell type (`"display"`, `"terminal"`, `"chat"`), which picks the first open tab of that type
 - `"exec"`, the isolated tool-execution shell
 - `"caller"`, the originating terminal
 
-`"display"` output is live-only, while `"user"` output replays after a
-reconnect. If the target has no open tab, output falls back to the caller's
+`"display"` output is live-only. If the target has no open tab, output falls back to the caller's
 terminal. No shell is ever created.
 
 ## Shared state

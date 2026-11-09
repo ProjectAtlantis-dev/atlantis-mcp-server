@@ -225,7 +225,7 @@ async def _show_first_sightings(
             bot_image_file(game_name, game_key, bot_sid),
             sid=bot_sid,
             location=str(bot_row["location"]),
-            shell="user",
+            shell="chat",
         )
         seen_by.append(human_sid)
         shown = True
@@ -536,7 +536,7 @@ async def _describe_roster_slot_entered(target: Dict[str, Any], location: str) -
     await atlantis.client_description(
         f"{display_name} entered.",
         location=location,
-        shell="user",
+        shell="chat",
     )
 
 
@@ -545,7 +545,7 @@ async def _describe_roster_slot_exited(target: Dict[str, Any], location: str) ->
     await atlantis.client_description(
         f"{display_name} exited.",
         location=location,
-        shell="user",
+        shell="chat",
     )
 
 

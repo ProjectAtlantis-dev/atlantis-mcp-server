@@ -14,7 +14,9 @@ class ToolCallPayload(BaseModel):
     exec_shell_path: Optional[str] = None
     caller_shell_path: Optional[str] = None
     display_shell_path: Optional[str] = None
-    user_shell_path: Optional[str] = None
+    # Game-level chat shell the caller's terminal is bound to (/chat bind), and its key
+    chat_shell_path: Optional[str] = None
+    chat_key: Optional[str] = None
 
 
 class CallContext(BaseModel):
@@ -68,8 +70,12 @@ class CallContext(BaseModel):
         return self.payload.display_shell_path
 
     @property
-    def user_shell_path(self) -> Optional[str]:
-        return self.payload.user_shell_path
+    def chat_shell_path(self) -> Optional[str]:
+        return self.payload.chat_shell_path
+
+    @property
+    def chat_key(self) -> Optional[str]:
+        return self.payload.chat_key
 
     @property
     def session_key(self) -> str:

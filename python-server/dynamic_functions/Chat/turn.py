@@ -7,7 +7,7 @@ import time as _t
 from dotenv import dotenv_values
 from openai import OpenAI
 from pathlib import Path
-from typing import List, Dict, Any, Optional, cast
+from typing import Callable, List, Dict, Any, Optional, cast
 
 from .bot import load_bot, render_bot_prompt
 from .common import _read_json, _write_json
@@ -169,17 +169,58 @@ def _close_discovery(
         tool_lookup.pop(name, None)
 
 
+ToolBinder = Callable[[OpenAITool, ToolLookupInfo], None]
+
+
+async def _cursor_values() -> Dict[str, Any]:
+    """Cursor contents at the start of this turn."""
+    await atlantis.client_command("/silent on")
+    try:
+        cursor = await atlantis.client_command("/cursor show")
+    finally:
+        await atlantis.client_command("/silent off")
+    if not isinstance(cursor, dict):
+        raise TypeError(f"/cursor show returned {type(cursor).__name__}, expected an object")
+    return cursor
+
+
+def _make_tool_binder(
+    cursor: Dict[str, Any],
+    tool_argument_overrides: Dict[str, Dict[str, Any]],
+    tool_bindings: Dict[str, Dict[str, Any]],
+) -> ToolBinder:
+    """Close each tool over the values this turn supplies.
+
+    A parameter the cursor holds, or a turn override names, is removed from the
+    model-facing schema and recorded in tool_bindings (keyed by model-facing
+    name) for execution to fill in. Overrides win over the cursor.
+    """
+    def bind(tool: OpenAITool, lookup: ToolLookupInfo) -> None:
+        parameters = tool["function"]["parameters"]
+        # A schema with no parameters may omit properties entirely
+        properties = parameters.get("properties", {})
+        bound = {k: v for k, v in cursor.items() if k in properties}
+        bound.update(tool_argument_overrides.get(lookup["functionName"], {}))
+        for param in bound:
+            properties.pop(param, None)
+        if "required" in parameters:
+            parameters["required"] = [p for p in parameters["required"] if p not in bound]
+        tool_bindings[tool["function"]["name"]] = bound
+
+    return bind
+
+
 async def _execute_discovery_tool(
     tool_key: str,
     arguments: Dict[str, Any],
     openai_tools: List[OpenAITool],
     tool_lookup: Dict[str, ToolLookupInfo],
-    tool_argument_overrides: Dict[str, Dict[str, Any]],
+    bind: ToolBinder,
 ) -> str:
     """Run search and add newly discovered tools to this model turn.
 
-    Parameters the turn binds itself (tool_argument_overrides) are removed from
-    the discovered schemas so the model never sees or fills them.
+    Each added tool is bound first, so the model never sees or fills the
+    parameters this turn supplies.
     """
     if tool_key != "search":
         raise ValueError(f"Unsupported discovery tool: {tool_key!r}")
@@ -211,12 +252,7 @@ async def _execute_discovery_tool(
         if name in tool_lookup:
             logger.info(f"{command}: skip {name!r}: already loaded this reply")
             continue
-        bound = tool_argument_overrides.get(discovered_lookup[name]["functionName"], {})
-        parameters = tool["function"]["parameters"]
-        for param in bound:
-            parameters["properties"].pop(param, None)
-        if "required" in parameters:
-            parameters["required"] = [p for p in parameters["required"] if p not in bound]
+        bind(tool, discovered_lookup[name])
         openai_tools.append(tool)
         added.append(
             f"{name}: {tool['function'].get('description', '')}".rstrip()
@@ -301,6 +337,12 @@ async def run_turn(
     )
     client = OpenAI(api_key=api_key, base_url=base_url)
     openai_tools, tool_lookup = convert_search_tools(tools or [])
+    cursor = await _cursor_values()
+    tool_bindings: Dict[str, Dict[str, Any]] = {}
+    bind = _make_tool_binder(cursor, tool_argument_overrides or {}, tool_bindings)
+    for tool in openai_tools:
+        bind(tool, tool_lookup[tool["function"]["name"]])
+    # Search is the turn's own tool, never bound
     _open_discovery(openai_tools, tool_lookup)
 
     # Pre-load the tools the recent conversation asks for, so the bot can call
@@ -308,7 +350,7 @@ async def run_turn(
     recent = _recent_spoken_text(transcript, _PRELOAD_SEARCH_LINES)
     if recent:
         preloaded = await _execute_discovery_tool(
-            "search", {"query": recent}, openai_tools, tool_lookup, tool_argument_overrides or {},
+            "search", {"query": recent}, openai_tools, tool_lookup, bind,
         )
         logger.info(f"Pre-load for {recent[:200]!r}: {preloaded}")
 
@@ -481,11 +523,8 @@ async def run_turn(
                     lookup_info = tool_lookup[tool_key]
                     search_term = lookup_info['searchTerm']
                     arguments = _parse_tool_arguments(tc['arguments'], tool_key)
-                    # Overrides are keyed by the canonical tool name, not the
-                    # sanitised model-facing name
-                    arguments.update(
-                        (tool_argument_overrides or {}).get(lookup_info['functionName'], {})
-                    )
+                    # Values bound at turn start replace anything the model sent
+                    arguments.update(tool_bindings.get(tool_key, {}))
 
                     # Coerce args to match schema types
                     for ot in openai_tools:
@@ -497,12 +536,18 @@ async def run_turn(
 
                     if tool_key in _DISCOVERY_TOOLS:
                         discovery_calls += 1
+                        await atlantis.client_log(
+                            f"{bot_display_name} is consulting {tool_key} "
+                            f"({discovery_calls}/{_MAX_DISCOVERY_CALLS}): "
+                            f"{format_json_log(arguments)}",
+                            message_type="warning",
+                        )
                         tool_result = await _execute_discovery_tool(
                             tool_key,
                             arguments,
                             openai_tools,
                             tool_lookup,
-                            tool_argument_overrides or {},
+                            bind,
                         )
                         if discovery_calls >= _MAX_DISCOVERY_CALLS:
                             _close_discovery(openai_tools, tool_lookup)

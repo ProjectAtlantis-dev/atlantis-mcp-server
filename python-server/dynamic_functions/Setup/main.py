@@ -30,7 +30,7 @@ async def index():
 @enter
 async def on_enter():
     """
-    Runs when a terminal cd enters Setup
+    Runs when entering chat
     """
     logger.info(f"Executing Setup on_enter...")
 
@@ -50,7 +50,7 @@ async def on_enter():
 @exit
 async def on_exit():
     """
-    Runs when a terminal cd leaves Setup
+    Runs when leaving chat
     """
     logger.info(f"Executing Setup on_exit...")
 

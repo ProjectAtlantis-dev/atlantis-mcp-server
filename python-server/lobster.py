@@ -138,11 +138,11 @@ async def fetch_lobster_transcript(
     )
 
     try:
-        logger.info("🦞 fetch_lobster_transcript: /transcript get")
+        logger.info("🦞 fetch_lobster_transcript: /transcript chat")
         raw_transcript = await server.send_awaitable_client_command(
             client_id_for_routing=cloud_client_id,
             request_id=lobster_request_id,
-            command="/transcript get",
+            command="/transcript chat",
             command_data={},
             seq_num=seq_start + 1,
             entry_point_name="lobster_transcript_get",

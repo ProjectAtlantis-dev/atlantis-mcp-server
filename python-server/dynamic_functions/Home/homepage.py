@@ -13,26 +13,40 @@ logger = logging.getLogger("dynamic_function")
 
 
 
+async def _callback_auto(mode: str) -> None:
+    """Turn on a callback only when a tool for its mode is visible in the current folder."""
+
+    tools = await atlantis.client_command(f"tool find {mode}")
+    logger.info(f"tool find {mode} returned:\n{format_json_log(tools, colored=True)}")
+
+    # `tool find` returns a list of tool rows; an empty list means none are visible.
+    if not isinstance(tools, list):
+        raise TypeError(f"tool find {mode} returned {type(tools).__name__}, expected a list")
+
+    if len(tools) == 0:
+        logger.info(f"No {mode} tool visible; leaving the {mode} callback off")
+        return None
+
+    await atlantis.client_command(f"/callback set {mode} auto")
+    return None
+
+
 # % file_callback_auto
 
 
 @public
 async def file_callback_auto():
     """Turn on the file callback only when a file tool is visible."""
+    await _callback_auto("file")
 
-    file_tools = await atlantis.client_command("tool find file")
-    logger.info(f"tool find file returned:\n{format_json_log(file_tools, colored=True)}")
 
-    # `tool find` returns a list of tool rows; an empty list means none are visible.
-    if not isinstance(file_tools, list):
-        raise TypeError(f"tool find file returned {type(file_tools).__name__}, expected a list")
+# % upload_callback_auto
 
-    if len(file_tools) == 0:
-        logger.info("No file tool visible; leaving the file callback off")
-        return None
 
-    await atlantis.client_command("/callback set file auto")
-    return None
+@public
+async def upload_callback_auto():
+    """Turn on the upload callback (chat input drops) only when an upload tool is visible."""
+    await _callback_auto("upload")
 
 
 # % first_menu
@@ -122,6 +136,7 @@ async def homepage() -> dict:
     # Callback `auto` only searches the current folder, and the preflight/chat
     # callbacks live in the sibling Chat app
     chat_folder = posixpath.join(posixpath.dirname(script_folder), "Chat")
+    media_folder = posixpath.join(posixpath.dirname(script_folder), "Media")
     logger.info(f"homepage script folder: {script_folder}, chat folder: {chat_folder}")
 
     # The commands below run after we return, so this is the folder to come back to.
@@ -143,6 +158,9 @@ async def homepage() -> dict:
             # The file callback lives here in Home, so it needs its own visit
             f"/cd {script_folder}",
             "@file_callback_auto",
+            # The upload callback (chat input drops) lives in the sibling Media app
+            f"/cd {media_folder}",
+            "@upload_callback_auto",
             f"/cd {start_folder}",
             # Chat callbacks resolve their game from the cursor; new owners start in Setup
             #'/cursor join {game_name: "Setup"}',

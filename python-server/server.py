@@ -2949,7 +2949,7 @@ class DynamicAdditionServer(Server):
             logger.warning(f"❌ Function '{name}' has a cached load error: {load_error_info['error']}")
 
         try:
-            logger.info(f"RECEIVED FROM CLOUD: Tool: '{name}', Type: {type(args)}, caller_sid: {caller_sid}")
+            logger.info(f"RECEIVED FROM CLOUD: Tool: '{name}', Type: {type(args)}, caller_sid: {caller_sid}, exec_shell: {ctx.exec_shell_path}, caller_shell: {ctx.caller_shell_path}")
             if isinstance(args, dict):
                 logger.info(f"Args:\n{format_json_log(args, colored=True)}")
             else:

@@ -51,6 +51,7 @@ Untyped parameters are strings, and parameters with defaults are optional.
   - `@chat` handles chat.
   - `@tick` triggers a tick manually.
   - `@file` handles file storage.
+  - `@upload` stores files dropped on the chat input and returns what to insert there.
   - `@enter` / `@exit` run when a terminal `cd` enters or leaves the folder's
     subtree (the folder needs an `@index`). Nested folders enter outermost
     first and exit innermost first.

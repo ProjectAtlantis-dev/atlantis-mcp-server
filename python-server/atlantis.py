@@ -802,6 +802,7 @@ async def client_video(
     video_format: Optional[str] = None,
     content: Optional[str] = None,
     who: Optional[str] = None,
+    shell: str = "exec",
 ):
     """Sends a video back to the requesting client for the current context.
     This is a wrapper around client_log that automatically loads the video,
@@ -813,6 +814,9 @@ async def client_video(
                      If not provided, will be auto-detected from file extension.
         content: Optional text content/caption to display with the video event.
         who: Optional display-name override for the video event.
+        shell: Shell name, type, numeric path, or "exec" (default) / "caller".
+               Names select an open matching tab; types select the first open match.
+               Unavailable targets use the caller's terminal.
 
     Raises:
         FileNotFoundError: If the video file doesn't exist
@@ -845,6 +849,7 @@ async def client_video(
         prefixed_data,
         message_type=video_format,
         notification_params=notification_params or None,
+        shell=shell,
     )
     return result
 

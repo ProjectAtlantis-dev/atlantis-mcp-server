@@ -47,17 +47,13 @@ _MAX_DISCOVERY_CALLS = 3
 
 
 async def _search_rows(query: str) -> Any:
-    """Run /search silently; a request no tool fits comes back as an empty list.
+    """Run /search; a request no tool fits comes back as an empty list.
 
     The query travels in the data section, never the command line: chat text
     carries apostrophes, ';' and '|' that the cloud's shell parser would read
     as quoting and sequencing.
     """
-    await atlantis.client_command("/silent on")
-    try:
-        return await atlantis.client_command("/search", {"content": query})
-    finally:
-        await atlantis.client_command("/silent off")
+    return await atlantis.client_command("/search", {"content": query})
 
 
 def _message_text(message: Dict[str, Any]) -> str:
@@ -536,19 +532,36 @@ async def run_turn(
 
                     if tool_key in _DISCOVERY_TOOLS:
                         discovery_calls += 1
-                        await atlantis.client_log(
-                            f"{bot_display_name} is consulting {tool_key} "
-                            f"({discovery_calls}/{_MAX_DISCOVERY_CALLS}): "
-                            f"{format_json_log(arguments)}",
-                            message_type="warning",
-                        )
-                        tool_result = await _execute_discovery_tool(
-                            tool_key,
-                            arguments,
-                            openai_tools,
-                            tool_lookup,
-                            bind,
-                        )
+                        if "query" not in arguments:
+                            logger.error(f"{tool_key} called without 'query': {arguments!r}")
+                            await atlantis.client_log(
+                                f"{bot_display_name} called {tool_key} "
+                                f"({discovery_calls}/{_MAX_DISCOVERY_CALLS}) with no 'query' "
+                                f"argument, nothing was searched: {format_json_log(arguments)}",
+                                level="ERROR",
+                                message_type="warning",
+                            )
+                            tool_result = json.dumps({
+                                "ok": False,
+                                "error": "missing_argument",
+                                "requested": tool_key,
+                                "missing": "query",
+                                "instruction": "Nothing was searched. Call search with a 'query' string.",
+                            })
+                        else:
+                            await atlantis.client_log(
+                                f"{bot_display_name} is consulting {tool_key} "
+                                f"({discovery_calls}/{_MAX_DISCOVERY_CALLS}): "
+                                f"{format_json_log(arguments)}",
+                                message_type="warning",
+                            )
+                            tool_result = await _execute_discovery_tool(
+                                tool_key,
+                                arguments,
+                                openai_tools,
+                                tool_lookup,
+                                bind,
+                            )
                         if discovery_calls >= _MAX_DISCOVERY_CALLS:
                             _close_discovery(openai_tools, tool_lookup)
                             tool_result = (

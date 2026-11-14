@@ -1,15 +1,12 @@
 """Drag-and-drop uploader that stores images, videos and audio under Media/users/."""
 
 import json
-import logging
 import uuid
 
 import atlantis
 
 from .dropzone import dropzone_wiring
-from .storage import MAX_UPLOAD_BYTES, MEDIA_TYPES, save_upload
-
-logger = logging.getLogger("dynamic_function")
+from .storage import MAX_UPLOAD_BYTES, MEDIA_TYPES
 
 
 @public
@@ -160,14 +157,3 @@ async def upload():
         .replace("{EXEC_SHELL}", exec_shell_js)
         .replace("{DROPZONE_WIRING}", dropzone_wiring("button", "input", "sendFile"))
     )
-
-
-@public
-async def upload_save(base64Content: str, filename: str, filetype: str) -> str:
-    """Store one browser upload in the caller's image, video or audio folder."""
-    username = atlantis.get_caller()
-    if not username:
-        raise PermissionError("upload_save needs a caller")
-    saved_path, created = save_upload(username, base64Content, filename, filetype)
-    logger.info(f"upload_save {'saved' if created else 'reused'} {saved_path} for {username}")
-    return str(saved_path)

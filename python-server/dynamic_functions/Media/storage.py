@@ -1,4 +1,7 @@
-"""Per-caller media storage: Media/users/<caller>/<images|videos|audio>/."""
+"""Per-caller media storage: dynamic_functions/Users/<caller>/<images|videos|audio>/.
+
+Users/ sits beside the apps, not inside Media, so any media-style app can
+share the same per-caller files."""
 
 import base64
 import binascii
@@ -10,7 +13,7 @@ import tempfile
 from pathlib import Path
 
 
-USERS_ROOT = Path(__file__).resolve().parent / "users"
+USERS_ROOT = Path(__file__).resolve().parent.parent / "Users"
 MAX_UPLOAD_BYTES = 250 * 1024 * 1024
 
 # Browser MIME type -> (collection, suffix). Anything else is rejected.

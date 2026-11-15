@@ -67,8 +67,8 @@ python-server/dynamic_functions/Setup/**/*.py[cod]
 !python-server/dynamic_functions/Media/**
 python-server/dynamic_functions/Media/**/__pycache__/
 python-server/dynamic_functions/Media/**/*.py[cod]
-# Media/users/<caller>/ holds uploaded files and is not tracked.
-python-server/dynamic_functions/Media/users/
+# Users/<caller>/ holds uploaded media shared by the media apps and is not tracked.
+python-server/dynamic_functions/Users/
 # Secrets. The global .env* rule is undone by the !<App>/** rules above, so
 # re-ignore it here. Must come after them - last matching rule wins.
 python-server/dynamic_functions/**/.env*

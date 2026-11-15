@@ -1,6 +1,6 @@
 """Upload callback for files dropped on the chat panel.
 
-Stores the file under Media/users/ (same validation as the Media uploader),
+Stores the file under dynamic_functions/Users/ (same validation as the Media uploader),
 then posts it with atlantis.client_image / client_video where it was dropped:
 in chat view (chatView), into the terminal's bound chat shell so everyone in
 the chat sees it; otherwise into the caller's terminal. Returns

@@ -1,4 +1,4 @@
-"""Store one browser upload under Media/users/.
+"""Store one browser upload under dynamic_functions/Users/.
 
 Called by the Media uploader's dropzone (Media/upload.py), which shows its
 own preview, so this only stores and returns the path. Files dropped on the

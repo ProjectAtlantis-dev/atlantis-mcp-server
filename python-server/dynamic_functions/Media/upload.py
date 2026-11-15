@@ -1,4 +1,4 @@
-"""Drag-and-drop uploader that stores images, videos and audio under Media/users/."""
+"""Drag-and-drop uploader that stores images, videos and audio under dynamic_functions/Users/."""
 
 import json
 import uuid

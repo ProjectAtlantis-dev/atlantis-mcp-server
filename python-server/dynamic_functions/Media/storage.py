@@ -3,6 +3,7 @@
 import base64
 import binascii
 import hashlib
+import json
 import os
 import re
 import tempfile
@@ -109,3 +110,33 @@ def save_upload(username: str, base64_content: str, filename: str, filetype: str
     finally:
         temporary_path.unlink(missing_ok=True)
     return destination, True
+
+
+NUMBERS_FILE = ".numbers.json"
+
+
+def number_media(folder: Path, paths: list[Path]) -> list[tuple[int, Path]]:
+    """Give each file a permanent number and return (number, path) in number order.
+
+    Numbers live in <folder>/.numbers.json, keyed by file name. A file seen for
+    the first time gets the next number, in the order given (callers pass oldest
+    first). Numbers are never reused or reordered: a removed file leaves a gap,
+    so "image 14" means the same image for as long as it exists.
+    """
+    numbers_path = folder / NUMBERS_FILE
+    numbers = json.loads(numbers_path.read_text(encoding="utf-8")) if numbers_path.is_file() else {}
+    new = [path for path in paths if path.name not in numbers]
+    if new:
+        next_number = max(numbers.values(), default=0) + 1
+        for offset, path in enumerate(new):
+            numbers[path.name] = next_number + offset
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", dir=folder, prefix=".numbering_", suffix=".json", delete=False
+        ) as temp:
+            json.dump(numbers, temp, indent=2)
+            temporary_path = Path(temp.name)
+        try:
+            os.replace(temporary_path, numbers_path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+    return sorted(((numbers[path.name], path) for path in paths), key=lambda item: item[0])

@@ -12,6 +12,7 @@ import logging
 
 import atlantis
 
+from .caption import start_caption
 from .storage import save_upload
 
 logger = logging.getLogger("dynamic_function")
@@ -25,4 +26,6 @@ async def upload_save(base64Content: str, filename: str, filetype: str) -> str:
         raise PermissionError("upload_save needs a caller")
     saved_path, created = save_upload(username, base64Content, filename, filetype)
     logger.info(f"upload_save {'saved' if created else 'reused'} {saved_path} for {username}")
+    if saved_path.parent.name == "images":
+        start_caption(saved_path)
     return str(saved_path)

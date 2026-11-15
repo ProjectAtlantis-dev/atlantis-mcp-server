@@ -12,6 +12,7 @@ import logging
 
 import atlantis
 
+from .caption import start_caption
 from .storage import save_upload
 
 logger = logging.getLogger("dynamic_function")
@@ -28,6 +29,8 @@ async def chat_upload(base64Content: str, filename: str, filetype: str, chatView
         raise PermissionError("chat_upload needs a caller")
     saved_path, created = save_upload(username, base64Content, filename, filetype)
     logger.info(f"chat_upload {'saved' if created else 'reused'} {saved_path} for {username}")
+    if saved_path.parent.name == "images":
+        start_caption(saved_path)
 
     shell = "chat" if chatView else "caller"
     if filetype.startswith("image/"):

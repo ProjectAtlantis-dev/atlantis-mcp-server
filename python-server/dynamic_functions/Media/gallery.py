@@ -22,10 +22,13 @@ import tempfile
 import uuid
 from pathlib import Path
 
+import aiohttp
 import atlantis
 from PIL import Image, ImageOps
 
-from .storage import media_folder
+from .caption import ensure_caption, read_caption, start_caption
+from .jev import system_one
+from .storage import media_folder, number_media
 
 logger = logging.getLogger("dynamic_function")
 
@@ -500,27 +503,43 @@ def _live_keys(username: str, collection: str) -> list[tuple[Path, str]]:
     return items
 
 
-@public
-async def gallery_images():
-    """Show the caller's uploaded images in a grid."""
-    username = _caller()
-    items = _live_keys(username, "images")
-    if not items:
-        await atlantis.client_log("🖼️ No images found")
-        return
+def _shown(collection: str, paths: list[Path]) -> dict:
+    """Return value for a gallery tool. The grid itself goes only to the browser,
+    so this is what a calling bot learns about what was displayed."""
+    return {"gallery": collection, "count": len(paths), "names": [path.name for path in paths]}
+
+
+async def _show_images(numbered: list[tuple[int, Path]], heading: str) -> list[dict]:
+    """Render these (number, path) images as a gallery grid, in the order given.
+    Returns each shown image's number, file name and description (or None)."""
     cards = []
-    for path, key in items:
+    shown = []
+    for number, path in numbered:
+        key = _cache_key(path)
+        caption = read_caption(path)
+        if caption is None:
+            start_caption(path)
+        shown.append({
+            "number": number,
+            "name": path.name,
+            "description": caption["description"] if caption else None,
+        })
         safe_name = html.escape(path.name, quote=True)
+        safe_alt = html.escape(caption["description"], quote=True) if caption else safe_name
         cards.append(
             f"""
             <figure class="media-gallery-card"
                     style="position:relative;display:flex;flex-direction:column;margin:0;
                            background:rgba(12,12,30,.72);padding:8px;border-radius:8px">
               <img class="media-gallery-thumb" data-media-thumb="{key}" data-key="{key}"
-                   data-collection="images" data-name="{safe_name}" alt="{safe_name}"
+                   data-collection="images" data-name="{safe_name}" alt="{safe_alt}" title="{safe_alt}"
                    width="{THUMBNAIL_SIZE[0]}" height="{THUMBNAIL_SIZE[1]}"
                    style="width:100%;aspect-ratio:1/1;object-fit:contain;border-radius:6px;
                           display:block;cursor:zoom-in">
+              <span title="Image {number}"
+                    style="position:absolute;top:11px;left:11px;padding:0 4px;border-radius:4px;
+                           background:rgba(12,12,30,.65);color:#d9b8f0;
+                           font:600 10px/14px system-ui,sans-serif;pointer-events:none">{number}</span>
             </figure>
             """
         )
@@ -537,21 +556,102 @@ async def gallery_images():
     # Call atlantis directly from the tool: the client labels output with the caller's name.
     await atlantis.client_html(_gallery_html(
         gallery_id,
-        f"🖼️ Image Gallery · {len(cards)} images",
+        heading,
         cards,
         _lightbox_html(gallery_id, "image", viewer),
     ))
     await atlantis.client_script(_gallery_script(gallery_id))
+    return shown
 
 
 @public
-async def gallery_videos():
-    """Show the caller's uploaded videos in a grid."""
+async def gallery_images() -> dict:
+    """Show the caller's uploaded images in a numbered grid. Returns each image's
+    number (as shown on its card and taken by image_description), file name and
+    text description (null while it is still being described)."""
+    username = _caller()
+    items = _live_keys(username, "images")
+    if not items:
+        await atlantis.client_log("🖼️ No images found")
+        return {"gallery": "images", "count": 0, "images": []}
+    numbered = number_media(media_folder(username, "images"), [path for path, _ in items])
+    shown = await _show_images(numbered, f"🖼️ Image Gallery · {len(numbered)} images")
+    return {"gallery": "images", "count": len(shown), "images": shown}
+
+
+# Jev noul at or above this counts as a match.
+SEARCH_MATCH = 0.5
+# Concurrent Jev requests per search.
+SEARCH_WORKERS = 12
+
+_SEARCH_QUESTION = {
+    "type": "noul",
+    "instructions": "Does the image described in `description` show what the user's `query` is looking for, "
+                    "however casually the query is phrased?",
+    "criteria": {
+        "true": "The described image contains the subject, scene, text or style the query asks for.",
+        "false": "The described image is unrelated, or only loosely on a similar topic.",
+    },
+}
+
+
+@public
+async def gallery_search(query: str) -> dict:
+    """Show the caller's images whose text descriptions match the query, best match
+    first, in the same numbered grid as gallery_images. Returns each match's number,
+    file name, description and match probability, plus the numbers of images not yet
+    described (and so not searched)."""
+    username = _caller()
+    items = _live_keys(username, "images")
+    numbered = number_media(media_folder(username, "images"), [path for path, _ in items])
+    described = []
+    undescribed = []
+    for number, path in numbered:
+        caption = read_caption(path)
+        if caption is None:
+            start_caption(path)
+            undescribed.append(number)
+        else:
+            described.append((number, path, caption["description"]))
+
+    limit = asyncio.Semaphore(SEARCH_WORKERS)
+
+    async def judge(session: aiohttp.ClientSession, description: str) -> float:
+        async with limit:
+            answers = await system_one(
+                session, {"query": query, "description": description}, {"match": _SEARCH_QUESTION}
+            )
+        return answers["match"]["noul"]
+
+    async with aiohttp.ClientSession() as session:
+        nouls = await asyncio.gather(*(judge(session, description) for _, _, description in described))
+
+    matches = sorted(
+        ((noul, number, path) for noul, (number, path, _) in zip(nouls, described) if noul >= SEARCH_MATCH),
+        key=lambda match: -match[0],
+    )
+    note = f" · {len(undescribed)} not yet described" if undescribed else ""
+    if not matches:
+        await atlantis.client_log(f"🔍 No images match {query!r}{note}")
+        shown = []
+    else:
+        shown = await _show_images(
+            [(number, path) for _, number, path in matches],
+            f"🔍 {html.escape(query)} · {len(matches)} of {len(described)} images{note}",
+        )
+        for entry, (noul, _, _) in zip(shown, matches):
+            entry["match"] = round(noul, 3)
+    return {"gallery": "images", "query": query, "count": len(shown), "images": shown, "undescribed": undescribed}
+
+
+@public
+async def gallery_videos() -> dict:
+    """Show the caller's uploaded videos in a grid. Returns the count and file names shown."""
     username = _caller()
     items = _live_keys(username, "videos")
     if not items:
         await atlantis.client_log("🎬 No videos found")
-        return
+        return _shown("videos", [])
     cards = []
     for path, key in items:
         safe_name = html.escape(path.name, quote=True)
@@ -596,6 +696,7 @@ async def gallery_videos():
         _lightbox_html(gallery_id, "video", viewer),
     ))
     await atlantis.client_script(_gallery_script(gallery_id))
+    return _shown("videos", [path for path, _ in items])
 
 
 _AUDIO_SCRIPT = '''
@@ -680,13 +781,13 @@ _AUDIO_SCRIPT = '''
 
 
 @public
-async def gallery_audio():
-    """Show the caller's uploaded audio as a playable track list."""
+async def gallery_audio() -> dict:
+    """Show the caller's uploaded audio as a playable track list. Returns the count and file names shown."""
     username = _caller()
     paths = _list_media(username, "audio")
     if not paths:
         await atlantis.client_log("🎙️ No audio found")
-        return
+        return _shown("audio", [])
     items = []
     for path in paths:
         key = _cache_key(path)
@@ -747,6 +848,7 @@ async def gallery_audio():
         .replace("{CACHE_JS}", _CACHE_JS)
         .replace("{EXEC_SHELL}", json.dumps(atlantis.get_exec_shell_path()))
     )
+    return _shown("audio", paths)
 
 
 @public
@@ -773,3 +875,31 @@ async def gallery_open(collection: str, name: str) -> None:
     source = f"data:{COLLECTION_MIMES[collection][path.suffix.lower()]};base64,{encoded}"
     logger.info(f"gallery_open sent {path.stat().st_size} bytes of {collection}/{name!r} to {username}")
     await atlantis.client_script(_cache_put_script("full", [(_cache_key(path), source)]))
+
+
+def _numbered_image(username: str, number: int) -> Path:
+    """Resolve a gallery card number to one of the caller's images."""
+    numbered = dict(number_media(media_folder(username, "images"), _list_media(username, "images")))
+    if number not in numbered:
+        raise ValueError(f"No image {number}; the caller's images are numbered {sorted(numbered)}")
+    return numbered[number]
+
+
+@public
+async def image_description(number: int) -> str:
+    """Return the text description of the caller's image with this number, as shown
+    on its card in the image gallery. Describes the image first if it has no
+    description yet."""
+    return (await ensure_caption(_numbered_image(_caller(), number)))["description"]
+
+
+@public
+async def image_show(number: int) -> dict:
+    """Show the caller's image with this number (as on its gallery card) at full size.
+    Returns its number, file name and text description (null while still being described)."""
+    path = _numbered_image(_caller(), number)
+    await atlantis.client_image(str(path), image_format=COLLECTION_MIMES["images"][path.suffix.lower()])
+    caption = read_caption(path)
+    if caption is None:
+        start_caption(path)
+    return {"number": number, "name": path.name, "description": caption["description"] if caption else None}

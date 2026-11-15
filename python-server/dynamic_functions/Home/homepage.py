@@ -146,6 +146,14 @@ async def homepage() -> dict:
     if not isinstance(start_folder, str) or not start_folder.startswith("/"):
         raise TypeError(f"pwd returned {start_folder!r}, expected an absolute folder path")
 
+    # Media is optional: a server without it simply has no chat-drop uploads.
+    media_commands = []
+    if (Path(__file__).resolve().parent.parent / "Media").is_dir():
+        # The upload callback (chat input drops) lives in the sibling Media app
+        media_commands = [f"/cd {media_folder}", "@upload_callback_auto"]
+    else:
+        logger.info("No Media app next to Home; leaving the upload callback off")
+
     return {
         "commands": [
             '/cursor join {game_name: "Default"}',
@@ -158,9 +166,7 @@ async def homepage() -> dict:
             # The file callback lives here in Home, so it needs its own visit
             f"/cd {script_folder}",
             "@file_callback_auto",
-            # The upload callback (chat input drops) lives in the sibling Media app
-            f"/cd {media_folder}",
-            "@upload_callback_auto",
+            *media_commands,
             f"/cd {start_folder}",
             # Chat callbacks resolve their game from the cursor; new owners start in Setup
             #'/cursor join {game_name: "Setup"}',

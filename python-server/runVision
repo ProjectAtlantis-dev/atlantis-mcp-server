@@ -1,0 +1,11 @@
+#!/bin/bash
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# llama.cpp vision server for Media image descriptions (Media/.env CAPTION_BASE_URL http://127.0.0.1:8093/v1)
+# Qwen3-VL-8B-Instruct from https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-GGUF:
+#   Qwen3VL-8B-Instruct-Q8_0.gguf and mmproj-Qwen3VL-8B-Instruct-F16.gguf (the vision encoder)
+~/work/llama.cpp/build/bin/llama-server \
+    -m ~/work/models/Qwen3-VL-8B-Instruct-GGUF/Qwen3VL-8B-Instruct-Q8_0.gguf \
+    --mmproj ~/work/models/Qwen3-VL-8B-Instruct-GGUF/mmproj-Qwen3VL-8B-Instruct-F16.gguf \
+    --alias qwen3-vl-8b \
+    -c 16384 -np 2 --jinja \
+    -ngl 99 --host 127.0.0.1 --port 8093 2>&1 | tee "$SCRIPT_DIR/runVision.log"

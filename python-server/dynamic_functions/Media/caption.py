@@ -14,6 +14,11 @@ in Media/.env (read on every call, so edits apply without a restart):
     CAPTION_API_KEY_ENV=OPENROUTER_API_KEY        # optional: env var holding the key;
                                                   # omit for a local server that takes none
 
+The local server is python-server/runVision, started by hand next to
+runServer, like the Node server's runLlm. Nothing here launches it.
+@caption_init checks that the endpoint answers, then describes, in the
+background, every image that lacks a sidecar.
+
 Uploads caption in the background (start_caption) so the upload returns at
 once. A failed caption is logged with its traceback and leaves no sidecar,
 so the next gallery view tries it again.
@@ -29,10 +34,13 @@ import tempfile
 from pathlib import Path
 
 from dotenv import dotenv_values
-from openai import AsyncOpenAI
+from openai import APIConnectionError, APIStatusError, AsyncOpenAI
 from PIL import Image, ImageOps
 
+from .storage import USERS_ROOT
+
 logger = logging.getLogger("dynamic_function")
+
 
 _MEDIA_ENV = Path(__file__).resolve().parent / ".env"
 
@@ -64,11 +72,15 @@ def read_caption(image_path: Path) -> dict | None:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _settings() -> tuple[str, str, str]:
-    """Return (base_url, model, api_key) from Media/.env."""
+def _env() -> dict:
     if not _MEDIA_ENV.is_file():
         raise RuntimeError(f"Image captioning needs {_MEDIA_ENV} with CAPTION_BASE_URL and CAPTION_MODEL")
-    env = dotenv_values(_MEDIA_ENV)
+    return dotenv_values(_MEDIA_ENV)
+
+
+def _settings() -> tuple[str, str, str]:
+    """Return (base_url, model, api_key) from Media/.env."""
+    env = _env()
     base_url = env.get("CAPTION_BASE_URL")
     model = env.get("CAPTION_MODEL")
     if not base_url or not model:
@@ -98,17 +110,20 @@ async def describe_image(image_path: Path) -> tuple[str, str]:
     base_url, model, api_key = _settings()
     data_url = await asyncio.to_thread(_jpeg_data_url, image_path)
     client = AsyncOpenAI(base_url=base_url, api_key=api_key)
-    response = await client.chat.completions.create(
-        model=model,
-        max_tokens=CAPTION_MAX_TOKENS,
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "image_url", "image_url": {"url": data_url}},
-                {"type": "text", "text": CAPTION_PROMPT},
-            ],
-        }],
-    )
+    try:
+        response = await client.chat.completions.create(
+            model=model,
+            max_tokens=CAPTION_MAX_TOKENS,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": data_url}},
+                    {"type": "text", "text": CAPTION_PROMPT},
+                ],
+            }],
+        )
+    except APIConnectionError as error:
+        raise RuntimeError(_unreachable(base_url)) from error
     choice = response.choices[0]
     description = (choice.message.content or "").strip()
     if not description:
@@ -167,3 +182,44 @@ def start_caption(image_path: Path) -> None:
     task = asyncio.create_task(caption_image(image_path), name=f"caption {image_path.name}")
     _running[image_path] = task
     task.add_done_callback(lambda done: _finished(image_path, done))
+
+
+def _unreachable(base_url: str) -> str:
+    if base_url.startswith(("http://127.0.0.1", "http://localhost")):
+        return f"Caption server not reachable at {base_url} (start it with python-server/runVision)"
+    return f"Caption server not reachable at {base_url}"
+
+
+async def verify_server() -> tuple[str, str]:
+    """Raise unless the caption endpoint is up with its model loaded; return (base_url, model)."""
+    base_url, model, api_key = _settings()
+    try:
+        await AsyncOpenAI(base_url=base_url, api_key=api_key, max_retries=0, timeout=10).models.list()
+    except APIConnectionError as error:
+        raise RuntimeError(_unreachable(base_url)) from error
+    except APIStatusError as error:
+        # llama.cpp answers 503 until the model has loaded.
+        raise RuntimeError(f"Caption server at {base_url} not ready: HTTP {error.status_code}") from error
+    return base_url, model
+
+
+def _uncaptioned() -> list[Path]:
+    """Every user's images that have no sidecar yet."""
+    suffixes = {".png", ".jpg", ".jpeg", ".webp"}
+    return sorted(
+        path for path in USERS_ROOT.glob("*/images/*")
+        if path.is_file() and not path.is_symlink() and path.suffix.lower() in suffixes
+        and not sidecar_path(path).is_file()
+    )
+
+
+@visible
+async def caption_init() -> dict:
+    """Check that the image caption server is up, then describe in the background
+    every uploaded image that has no description yet."""
+    base_url, model = await verify_server()
+    pending = _uncaptioned()
+    for path in pending:
+        start_caption(path)
+    logger.info(f"caption_init: {model} at {base_url}; captioning {len(pending)} images")
+    return {"server": base_url, "model": model, "captioning": len(pending)}

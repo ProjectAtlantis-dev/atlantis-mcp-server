@@ -1,0 +1,17 @@
+{
+  "description": "Taffy hangs out with the owner in the demo app",
+  "slots": [
+    {
+      "key": "Owner",
+      "bot_sid": "chad",
+      "state": "human",
+      "defaultLocation": "Demo"
+    },
+    {
+      "key": "Taffy",
+      "bot_sid": "taffy",
+      "state": "ai",
+      "defaultLocation": "Demo"
+    }
+  ]
+}

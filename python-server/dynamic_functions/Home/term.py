@@ -92,6 +92,14 @@ async def term_bg_video_file(video_path: str) -> None:
     await term_bg_video(_local_video_path(video_path))
 
 
+@public
+async def term_bg_clear() -> None:
+    """Clear the terminal background, stopping any background video, and reset brightness and desaturation."""
+    await atlantis.client_command("/terminal brightness 1")
+    await atlantis.client_command("/terminal desaturate 0")
+    await atlantis.clear_background()
+
+
 
 @public
 async def term_glass() -> None:

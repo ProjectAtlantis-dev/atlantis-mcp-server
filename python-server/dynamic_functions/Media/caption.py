@@ -6,13 +6,12 @@ images/<digest>_<name>.png  ->  images/<digest>_<name>.png.json
 Images are named by content digest (see storage.save_upload), so a sidecar
 never goes stale: new bytes mean a new file name and a new sidecar.
 
-The describer is any OpenAI-compatible chat endpoint with vision, configured
-in Media/.env (read on every call, so edits apply without a restart):
+The describer is the local llama.cpp vision server (runVision), reached
+through its OpenAI-compatible endpoint and configured in Media/.env (read on
+every call, so edits apply without a restart):
 
-    CAPTION_BASE_URL=http://127.0.0.1:8093/v1     # llama.cpp runVision, or https://openrouter.ai/api/v1
-    CAPTION_MODEL=qwen3-vl-8b                     # or an OpenRouter vision model id
-    CAPTION_API_KEY_ENV=OPENROUTER_API_KEY        # optional: env var holding the key;
-                                                  # omit for a local server that takes none
+    CAPTION_BASE_URL=http://127.0.0.1:8093/v1
+    CAPTION_MODEL=qwen3-vl-8b
 
 The local server is python-server/runVision, started by hand next to
 runServer, like the Node server's runLlm. Nothing here launches it.
@@ -85,15 +84,8 @@ def _settings() -> tuple[str, str, str]:
     model = env.get("CAPTION_MODEL")
     if not base_url or not model:
         raise RuntimeError(f"{_MEDIA_ENV} must set CAPTION_BASE_URL and CAPTION_MODEL")
-    key_env = env.get("CAPTION_API_KEY_ENV")
-    if key_env:
-        api_key = os.environ.get(key_env)
-        if not api_key:
-            raise RuntimeError(f"CAPTION_API_KEY_ENV names {key_env}, which is not set in the environment")
-    else:
-        # The OpenAI client insists on a key; a local llama.cpp server ignores it.
-        api_key = "no-key"
-    return base_url, model, api_key
+    # The OpenAI client insists on a key; the local llama.cpp server ignores it.
+    return base_url, model, "no-key"
 
 
 def _jpeg_data_url(image_path: Path) -> str:

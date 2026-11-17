@@ -156,6 +156,9 @@ async def homepage() -> dict:
 
     return {
         "commands": [
+            # Silent hides this startup chatter in Chat view only; Full still shows it.
+            # The finally clears it even if a startup command throws.
+            "/silent on",
             '/cursor join {game_name: "Default"}',
             #"/terminal blur 12",
             f"/path push {script_folder}",
@@ -178,5 +181,6 @@ async def homepage() -> dict:
             #"user_bg_default",
             #"first_menu",
             #"/finally terminal blur 0",
+            "/finally silent off",
         ],
     }

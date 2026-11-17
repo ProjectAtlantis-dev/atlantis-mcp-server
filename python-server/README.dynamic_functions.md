@@ -1,8 +1,8 @@
 # Dynamic Functions
 
 Dynamic functions are Python files under `dynamic_functions/` that Atlantis
-exposes as MCP tools. Home, Chat and Bot ship with the repo, and Demo is
-created on first run. Your own apps are ignored by Git, so an app can be its
+exposes as MCP tools. Home, Chat, Bot, Setup, Media and Demo ship with the
+repo. Your own apps are ignored by Git, so an app can be its
 own repository cloned straight into `dynamic_functions/` (see the main README).
 
 The loader lives in `DynamicFunctionManager.py`, and decorators are defined

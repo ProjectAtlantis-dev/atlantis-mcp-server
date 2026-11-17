@@ -5,6 +5,7 @@ import os
 import time as _t
 
 from dotenv import dotenv_values
+from mcp.shared.exceptions import McpError
 from openai import OpenAI
 from pathlib import Path
 from typing import Callable, List, Dict, Any, Optional, cast
@@ -26,7 +27,13 @@ async def _close_streams(talk_id, think_id):
             try:
                 await atlantis.stream_end(sid)
             except Exception as e:
-                logger.warning(f"Failed to close stream {sid}: {e}")
+                # Runs in run_turn's finally: report and keep closing, so the
+                # turn's own exception is not replaced by this one.
+                logger.exception(f"Failed to close stream {sid}")
+                await atlantis.client_warning(
+                    f"Failed to close stream {sid}: {type(e).__name__}: {e}",
+                    level="ERROR",
+                )
 
 
 # Read on every turn so a key added during setup works without a restart.
@@ -71,7 +78,7 @@ def _message_text(message: Dict[str, Any]) -> str:
 
 # Spoken lines the pre-load search sees, so a bare "yes" or "it failed" still
 # carries what it answers.
-_PRELOAD_SEARCH_LINES = 4
+_PRELOAD_SEARCH_LINES = 3
 
 
 def _recent_spoken_text(transcript: List[Dict[str, Any]], count: int) -> str:
@@ -388,7 +395,11 @@ async def run_turn(
                     api_payload,
                 )
             except Exception as e:
-                logger.warning(f"Failed to write API payload: {e}")
+                logger.exception("Failed to write API payload")
+                await atlantis.client_warning(
+                    f"Failed to write API payload for {bot_sid!r}: {type(e).__name__}: {e}",
+                    level="ERROR",
+                )
 
             # Tools this round offers the model, next to the transcript dumps
             tools_dump_file = os.path.join(require_membership(game_name, game_key), "tools.json")
@@ -399,8 +410,12 @@ async def run_turn(
                     "tools": openai_tools,
                     "tool_lookup": tool_lookup,
                 })
-            except Exception:
+            except Exception as e:
                 logger.exception(f"Failed to write tool list to {tools_dump_file}")
+                await atlantis.client_warning(
+                    f"Failed to write tool list to {tools_dump_file}: {type(e).__name__}: {e}",
+                    level="ERROR",
+                )
 
             # Call LLM
             tool_calls_accumulator: Dict[int, Dict[str, Any]] = {}
@@ -501,18 +516,20 @@ async def run_turn(
                     tool_key = tc['name']
                     if tool_key not in tool_lookup:
                         # Includes search after discovery closes mid-batch.
+                        tool_result = (
+                            f"No tool named {tool_key!r}, nothing was executed. "
+                            f"Call one of these by its exact name: {', '.join(tool_lookup)}"
+                        )
                         logger.error(f"Model requested undeclared tool: {tool_key}")
-                        await atlantis.client_log(f"Tool not executed: undeclared function {tool_key}")
+                        await atlantis.client_warning(
+                            f"{bot_display_name} called undeclared tool {tool_key}, nothing was executed",
+                            level="ERROR",
+                        )
+                        await atlantis.tool_result(tool_key, tool_result)
                         transcript.append({
                             'role': 'tool',
                             'tool_call_id': tc['id'],
-                            'content': json.dumps({
-                                "ok": False,
-                                "error": "unknown_tool",
-                                "requested": tool_key,
-                                "availableTools": list(tool_lookup),
-                                "instruction": "Nothing was executed. Call an advertised tool by its exact name.",
-                            }),
+                            'content': tool_result,
                         })
                         any_executed = True
                         continue
@@ -534,26 +551,21 @@ async def run_turn(
                         discovery_calls += 1
                         if "query" not in arguments:
                             logger.error(f"{tool_key} called without 'query': {arguments!r}")
-                            await atlantis.client_log(
+                            await atlantis.client_warning(
                                 f"{bot_display_name} called {tool_key} "
                                 f"({discovery_calls}/{_MAX_DISCOVERY_CALLS}) with no 'query' "
                                 f"argument, nothing was searched: {format_json_log(arguments)}",
                                 level="ERROR",
-                                message_type="warning",
                             )
-                            tool_result = json.dumps({
-                                "ok": False,
-                                "error": "missing_argument",
-                                "requested": tool_key,
-                                "missing": "query",
-                                "instruction": "Nothing was searched. Call search with a 'query' string.",
-                            })
+                            tool_result = (
+                                f"{tool_key} needs a 'query' string, nothing was searched."
+                            )
+                            await atlantis.tool_result(search_term, tool_result)
                         else:
-                            await atlantis.client_log(
+                            await atlantis.client_warning(
                                 f"{bot_display_name} is consulting {tool_key} "
                                 f"({discovery_calls}/{_MAX_DISCOVERY_CALLS}): "
                                 f"{format_json_log(arguments)}",
-                                message_type="warning",
                             )
                             tool_result = await _execute_discovery_tool(
                                 tool_key,
@@ -572,10 +584,21 @@ async def run_turn(
                                 f"Discovery closed after {discovery_calls} calls"
                             )
                     else:
-                        tool_result = await execute_tool(
-                            search_term=search_term,
-                            arguments=arguments,
-                        )
+                        try:
+                            tool_result = await execute_tool(
+                                search_term=search_term,
+                                arguments=arguments,
+                            )
+                        except McpError as e:
+                            # The tool ran and reported failure: the bot gets its
+                            # message as the result so it can address it. Our own bugs still raise.
+                            tool_result = e.error.message
+                            logger.error(f"Tool {tool_key} reported failure: {tool_result}")
+                            await atlantis.client_warning(
+                                f"{bot_display_name}'s call to {tool_key} failed: {tool_result}",
+                                level="ERROR",
+                            )
+                            await atlantis.tool_result(search_term, tool_result)
                     transcript.append({
                         'role': 'tool',
                         'tool_call_id': tc['id'],
@@ -584,6 +607,11 @@ async def run_turn(
                     any_executed = True
                 except Exception as e:
                     logger.error(f"Tool {tc['name']} failed: {e}")
+                    await atlantis.client_warning(
+                        f"{bot_display_name}'s turn aborted, tool {tc['name']} failed: "
+                        f"{type(e).__name__}: {e}",
+                        level="ERROR",
+                    )
                     raise RuntimeError(f"Tool call failed: {tc['name']} — {e}") from e
 
             if not any_executed:

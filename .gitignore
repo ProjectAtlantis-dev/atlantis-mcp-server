@@ -39,10 +39,9 @@ yarn-error.log
 *.pid
 
 *.OLD
-# Dynamic functions are user/scaffolded code by default. The repository's Home,
-# Chat, Bot, Setup, and Media apps are tracked; Demo is scaffolded on first run from
-# python-server/state.py. Other apps (e.g. Terrain) are their own repositories
-# cloned into dynamic_functions/.
+# Dynamic functions are user code by default. The repository's Home, Chat, Bot,
+# Setup, Media, and Demo apps are tracked. Other apps (e.g. Terrain) are their own
+# repositories cloned into dynamic_functions/.
 python-server/dynamic_functions/*
 !python-server/dynamic_functions/README.md
 !python-server/dynamic_functions/Home/
@@ -67,6 +66,10 @@ python-server/dynamic_functions/Setup/**/*.py[cod]
 !python-server/dynamic_functions/Media/**
 python-server/dynamic_functions/Media/**/__pycache__/
 python-server/dynamic_functions/Media/**/*.py[cod]
+!python-server/dynamic_functions/Demo/
+!python-server/dynamic_functions/Demo/**
+python-server/dynamic_functions/Demo/**/__pycache__/
+python-server/dynamic_functions/Demo/**/*.py[cod]
 # Users/<caller>/ holds uploaded media shared by the media apps and is not tracked.
 python-server/dynamic_functions/Users/
 # Secrets. The global .env* rule is undone by the !<App>/** rules above, so

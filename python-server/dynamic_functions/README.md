@@ -1,7 +1,7 @@
 # Dynamic Functions
 
-Chat comes pre-installed here, along with Home, Bot, Setup and Media. These bundled
-apps are tracked in the Atlantis MCP server repository. Demo is created on first run.
+Chat comes pre-installed here, along with Home, Bot, Setup, Media and Demo. These
+bundled apps are tracked in the Atlantis MCP server repository.
 
 Add your own tools in a separate app folder. Custom apps and runtime data are
 ignored by Git, so a custom app folder can be its own repository.

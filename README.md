@@ -71,7 +71,7 @@ To add Atlantis Open Weather for testing:
 
 7. Your remote(s) should autoconnect using email and default api key = 'foobar' (see 'api' command to generate a new key later). The first server to connect will be assigned your 'default' unless you manually change it later
 
-8. **Chat comes pre-installed**, along with the Home, Bot, Setup and Media apps, in `python-server/dynamic_functions/`. On first run, the server also creates a starter `Demo` app with example functions. No separate installation is needed for these bundled apps. The `dynamic_servers/` folder includes an example weather config.
+8. **Chat comes pre-installed**, along with the Home, Bot, Setup, Media and Demo apps, in `python-server/dynamic_functions/`. Demo holds example functions and is where Taffy shows new owners around. No separate installation is needed for these bundled apps. The `dynamic_servers/` folder includes an example weather config.
 
 9. You can run this standalone MCP or accessed from the cloud or both
 
@@ -124,9 +124,9 @@ Further docs:
 
 Dynamic functions give users the ability to create and maintain custom functions-as-tools. Functions are loaded on start and automatically reloaded when modified.
 
-The `python-server/dynamic_functions/` directory includes the pre-installed **Chat**, **Bot**, **Home**, **Setup**, and **Media** apps. These apps are tracked with the server source. Seeing them on a new server is expected.
+The `python-server/dynamic_functions/` directory includes the pre-installed **Chat**, **Bot**, **Home**, **Setup**, **Media**, and **Demo** apps. These apps are tracked with the server source. Seeing them on a new server is expected. Everything else under `dynamic_functions/` is ignored by this repository.
 
-On first run, the server also creates a starter `Demo` app with example functions, once per `.demo_scaffolded` marker. Everything else under `dynamic_functions/` is ignored by this repository.
+Demo's example functions are tracked too, so a `git pull` can conflict with local edits to them. Experiment in your own app folder instead.
 
 Add your own app as a new subfolder. Because the server repository ignores it, the folder can be its own Git repository. Keep the bundled folders in place; do not replace the entire `dynamic_functions/` directory.
 

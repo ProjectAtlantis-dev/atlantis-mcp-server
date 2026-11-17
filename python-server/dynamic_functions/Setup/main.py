@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 import atlantis
-from dotenv import dotenv_values, set_key, unset_key
+from dotenv import dotenv_values, set_key
 
 logger = logging.getLogger("dynamic_function")
 
@@ -99,11 +99,7 @@ VISION_MODEL_FILES = {
     "mmproj-Qwen3VL-8B-Instruct-F16.gguf": 1_160_000_000,
 }
 VISION_DOWNLOAD_LOG_PATH = VISION_MODEL_PATH / "download.log"
-CAPTION_BACKENDS = {
-    "local": {"CAPTION_BASE_URL": "http://127.0.0.1:8093/v1", "CAPTION_MODEL": "qwen3-vl-8b"},
-    "openrouter": {"CAPTION_BASE_URL": "https://openrouter.ai/api/v1", "CAPTION_MODEL": "qwen/qwen3-vl-8b-instruct",
-                   "CAPTION_API_KEY_ENV": "OPENROUTER_API_KEY"},
-}
+CAPTION_SETTINGS = {"CAPTION_BASE_URL": "http://127.0.0.1:8093/v1", "CAPTION_MODEL": "qwen3-vl-8b"}
 # Media/jev.py reads TYPESAFE_API_KEY from Media/.env for gallery search
 TYPESAFE_KEYS_URL = "https://console.typesafe.ai/keys"
 # Lists the account's models: proves the key without spending a System One request
@@ -213,26 +209,20 @@ async def confirm_step(step: str):
 
 
 @visible
-async def configure_image_descriptions(backend: str):
+async def configure_image_descriptions():
     """
-    Choose how uploaded images get their text descriptions: "local" (a vision
-    model on this machine, free and private, needs llama.cpp and a 10 GB
-    download) or "openrouter" (no download, needs OPENROUTER_API_KEY in
-    runServer). Writes Media/.env. Call get_status after.
+    Point Media at the local vision model (runVision) that gives uploaded
+    images their text descriptions. Writes Media/.env. Call get_status after.
     """
-    logger.info(f"Executing configure_image_descriptions({backend!r})...")
+    logger.info(f"Executing configure_image_descriptions...")
 
     if not MEDIA_PATH.is_dir():
         raise RuntimeError(f"There is no Media app at {MEDIA_PATH}; image descriptions do not apply")
-    if backend not in CAPTION_BACKENDS:
-        raise ValueError(f"backend must be one of {', '.join(CAPTION_BACKENDS)}, not {backend!r}")
     MEDIA_ENV_PATH.touch()
-    # set_key/unset_key edit only these keys; anything else in Media/.env stays.
-    for key, value in CAPTION_BACKENDS[backend].items():
+    # set_key edits only these keys; anything else in Media/.env stays.
+    for key, value in CAPTION_SETTINGS.items():
         set_key(MEDIA_ENV_PATH, key, value, quote_mode="never")
-    if "CAPTION_API_KEY_ENV" not in CAPTION_BACKENDS[backend] and "CAPTION_API_KEY_ENV" in dotenv_values(MEDIA_ENV_PATH):
-        unset_key(MEDIA_ENV_PATH, "CAPTION_API_KEY_ENV")
-    return f"Image descriptions now use {backend}: wrote {MEDIA_ENV_PATH}."
+    return f"Image descriptions now use the local vision model: wrote {MEDIA_ENV_PATH}."
 
 
 @visible
@@ -798,17 +788,16 @@ async def _check_restart_practice(progress: dict) -> dict:
         "and wait. Only after they confirm, call confirm_step with step \"viewer restart\".")}
 
 
-def _caption_backend() -> str | None:
-    """"local", "openrouter", or None while Media/.env has no caption endpoint"""
+def _caption_configured() -> bool:
+    """True once Media/.env points at the local vision server"""
     if not MEDIA_ENV_PATH.is_file():
-        return None
+        return False
     base_url = dotenv_values(MEDIA_ENV_PATH).get("CAPTION_BASE_URL")
     if not base_url:
-        return None
-    for backend, settings in CAPTION_BACKENDS.items():
-        if settings["CAPTION_BASE_URL"] == base_url:
-            return backend
-    raise RuntimeError(f"{MEDIA_ENV_PATH} sets CAPTION_BASE_URL={base_url}, which Setup does not know")
+        return False
+    if base_url != CAPTION_SETTINGS["CAPTION_BASE_URL"]:
+        raise RuntimeError(f"{MEDIA_ENV_PATH} sets CAPTION_BASE_URL={base_url}, which Setup does not know")
+    return True
 
 
 NO_MEDIA = {"state": "there is no Media app on this server, so image descriptions do not apply.", "fix": None}
@@ -835,22 +824,16 @@ def _vision_download_state() -> dict:
 async def _check_caption_config(progress: dict) -> dict:
     if not MEDIA_PATH.is_dir():
         return NO_MEDIA
-    backend = _caption_backend()
-    if backend is None:
+    if not _caption_configured():
         return {"state": "image descriptions are not configured.", "fix": (
-            "uploaded images get a text description from a vision model, so bots can tell what is in "
-            "them. Ask the user which they want: local (free and private; needs llama.cpp and a "
-            "10 GB download, best with 16 GB of memory or more) or OpenRouter (no download, needs an "
-            "OpenRouter API key). End your turn and wait, then call configure_image_descriptions with "
-            "\"local\" or \"openrouter\".")}
-    return {"state": f"image descriptions use {backend}.", "fix": None}
+            "tell the user only this: we are setting up Media, which means installing a local vision "
+            "model. Then call configure_image_descriptions.")}
+    return {"state": "image descriptions use the local vision model.", "fix": None}
 
 
 async def _check_llama_cpp(progress: dict) -> dict:
     if not MEDIA_PATH.is_dir():
         return NO_MEDIA
-    if _caption_backend() != "local":
-        return {"state": "not needed: image descriptions use OpenRouter.", "fix": None}
     if LLAMA_SERVER_PATH.is_file():
         return {"state": f"llama.cpp is built: {LLAMA_SERVER_PATH}.", "fix": None}
     return {"state": f"llama.cpp is not built ({LLAMA_SERVER_PATH} does not exist).", "fix": (
@@ -861,8 +844,6 @@ async def _check_llama_cpp(progress: dict) -> dict:
 async def _check_vision_model(progress: dict) -> dict:
     if not MEDIA_PATH.is_dir():
         return NO_MEDIA
-    if _caption_backend() != "local":
-        return {"state": "not needed: image descriptions use OpenRouter.", "fix": None}
     state = _vision_download_state()
     if state["done"]:
         return {"state": state["state"], "fix": None}
@@ -877,18 +858,7 @@ async def _check_vision_model(progress: dict) -> dict:
 async def _check_caption_server(progress: dict) -> dict:
     if not MEDIA_PATH.is_dir():
         return NO_MEDIA
-    settings = dotenv_values(MEDIA_ENV_PATH)
-    base_url = settings["CAPTION_BASE_URL"]
-    if _caption_backend() == "openrouter":
-        key_env = settings.get("CAPTION_API_KEY_ENV")
-        if not key_env:
-            raise RuntimeError(f"{MEDIA_ENV_PATH} uses OpenRouter but has no value for CAPTION_API_KEY_ENV")
-        if os.environ.get(key_env):
-            return {"state": f"OpenRouter is configured and {key_env} is set.", "fix": None}
-        return {"state": f"{key_env} is not set in this server's environment.", "fix": (
-            f"the user needs an OpenRouter API key from https://openrouter.ai/keys. Have them add "
-            f"export {key_env}=<their key> near the top of their runServer script and restart it. "
-            f"Tell them never to paste the key into the chat. End your turn and wait.")}
+    base_url = dotenv_values(MEDIA_ENV_PATH)["CAPTION_BASE_URL"]
     try:
         status, _ = await _http_get(base_url.removesuffix("/v1") + "/health")
     except urllib.error.URLError:
@@ -930,7 +900,7 @@ async def _check_typesafe_key_step(progress: dict) -> dict:
 SETUP_STEPS = [
     # (name, steps that must be done first, check)
     ("connect the remote", (), _check_remote),
-    ("choose how images are described", (), _check_caption_config),
+    ("set up Media", (), _check_caption_config),
     ("install llama.cpp", (2,), _check_llama_cpp),
     ("download the vision model", (2,), _check_vision_model),
     ("start image descriptions", (3, 4), _check_caption_server),

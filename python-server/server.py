@@ -4345,8 +4345,9 @@ class ServiceClient:
                                 error_message = client_error_details.get("message", "Unknown cloud error")
                                 error_data = ErrorData(code=error_code, message=error_message)
                                 future.set_exception(McpError(error_data))
-                            else: # Handle string error or other non-Exception types
-                                future.set_exception(Exception(f"{str(client_error_details)}"))
+                            else: # String or other non-Exception error: still an MCP error
+                                error_data = ErrorData(code=INTERNAL_ERROR, message=str(client_error_details))
+                                future.set_exception(McpError(error_data))
                         else:
                             # treat as result
                             future.set_result(None)

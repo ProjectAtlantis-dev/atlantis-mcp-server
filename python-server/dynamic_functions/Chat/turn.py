@@ -554,9 +554,10 @@ async def run_turn(
                             await atlantis.client_warning(
                                 f"{bot_display_name} called {tool_key} "
                                 f"({discovery_calls}/{_MAX_DISCOVERY_CALLS}) with no 'query' "
-                                f"argument, nothing was searched: {format_json_log(arguments)}",
+                                "argument, nothing was searched",
                                 level="ERROR",
                             )
+                            await atlantis.client_data(f"{tool_key} arguments", arguments)
                             tool_result = (
                                 f"{tool_key} needs a 'query' string, nothing was searched."
                             )
@@ -564,9 +565,9 @@ async def run_turn(
                         else:
                             await atlantis.client_warning(
                                 f"{bot_display_name} is consulting {tool_key} "
-                                f"({discovery_calls}/{_MAX_DISCOVERY_CALLS}): "
-                                f"{format_json_log(arguments)}",
+                                f"({discovery_calls}/{_MAX_DISCOVERY_CALLS})",
                             )
+                            await atlantis.client_data(f"{tool_key} arguments", arguments)
                             tool_result = await _execute_discovery_tool(
                                 tool_key,
                                 arguments,

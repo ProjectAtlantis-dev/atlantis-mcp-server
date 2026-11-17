@@ -5,13 +5,13 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from .bot import BotConfigT, bot_image_file, cache_bot, load_bot, validate_bot_config
+from .bot import BotConfigT, bot_image_file, cache_bot, load_bot, require_persona_prompt, validate_bot_config
 from .bot_tool import _initialize_bot_tool_files
 from .common import _read_json, _write_json
 from .game import _game_read, _game_roster_scene, require_membership
 from .location import _connects_to, _require_leaf, load_location
 from dynamic_functions.Home.modal import modal_string
-from .scene import _load_scene, _scene_name, _scene_names, scene_slot_default_location
+from .scene import _load_scene, _scene_name, _scene_names, scene_bot_role, scene_slot_default_location
 
 
 # A slot nobody has taken is a role that is open, not a thing that is broken:
@@ -218,9 +218,12 @@ async def _show_first_sightings(
             continue
         bot_sid = str(bot_row["bot_sid"])
         seen_by = sightings.setdefault(bot_sid, [])
-        if human_sid in seen_by or not load_bot(game_name, game_key, bot_sid)["image"]:
+        bot_image = load_bot(game_name, game_key, bot_sid)["image"]
+        if human_sid in seen_by or not bot_image:
             continue
 
+        # Tie the portrait to the bot's sid first so its chat bubbles show it as an avatar
+        await atlantis.client_command(f"/avatar set {bot_sid}", data={"image": bot_image}, shell="chat")
         await atlantis.client_image(
             bot_image_file(game_name, game_key, bot_sid),
             sid=bot_sid,
@@ -420,9 +423,11 @@ async def roster_join_bot(game_name: str, game_key: str, slot_key: str, bot: Bot
     """Add a bot to an AI slot and spawn it at the slot's defaultLocation.
 
     Chat knows nothing about a bot until this call, so the caller supplies the
-    whole BotConfigT; the game caches it and reads only that from here on.
+    whole BotConfigT; the game caches it and reads only that from here on. The
+    cached prompt is the bot's persona followed by this game's role for it.
     """
     bot = validate_bot_config(bot)
+    require_persona_prompt(bot)
     slot_key = str(slot_key or "").strip()
     if not slot_key:
         raise ValueError("slot_key required")
@@ -440,6 +445,7 @@ async def roster_join_bot(game_name: str, game_key: str, slot_key: str, bot: Bot
     if not scene:
         raise RuntimeError(f"Game {game_key!r} has no roster scene")
     location = scene_slot_default_location(game_name, scene, slot_key)
+    bot["prompt"] = f"{bot['prompt']}\n\n{scene_bot_role(game_name, scene, bot['sid'])}"
 
     cache_bot(game_name, game_key, bot)
     target["bot_sid"] = bot["sid"]

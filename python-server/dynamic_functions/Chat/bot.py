@@ -6,6 +6,10 @@ over its full BotConfigT (prompt and image data URI included), and the game
 caches it at <game_name>/Data/games/<game_key>/bots/<sid>.json. Everything in Chat reads
 that cache — never the Bot app's files. Where a bot enters the world belongs
 to the scene slot it fills, not the bot.
+
+A bot's own prompt is its portable persona and may name only itself. What it
+does in a game, and who it knows there, is that game's role file
+(<game_name>/Game/Roles/<sid>.md); the two are joined into the cached prompt.
 """
 
 import atlantis
@@ -13,7 +17,7 @@ import base64
 import logging
 import os
 import re
-from typing import Any, Dict, List, Mapping, TypedDict
+from typing import Any, Dict, List, Mapping, Set, TypedDict
 
 from .common import MISSING_IMAGE_URI, _read_json, _write_json, _require_str
 from .game import require_membership
@@ -102,6 +106,22 @@ def _joined_bot_sids(game_name: str, game_key: str) -> List[str]:
 
 _PROMPT_BOT_RE = re.compile(r"\{\{\s*(?P<sid>[A-Za-z0-9_.-]+)\s*\}\}")
 _PROMPT_ANY_PLACEHOLDER_RE = re.compile(r"\{\{[^{}]+\}\}")
+
+
+def prompt_bot_refs(text: str) -> Set[str]:
+    """The bot sids a prompt names with {{<sid>}} placeholders."""
+    return {match.group("sid") for match in _PROMPT_BOT_RE.finditer(text)}
+
+
+def require_persona_prompt(bot: BotConfigT) -> None:
+    """A bot's own prompt travels to every game, so it may name only itself."""
+    others = sorted(prompt_bot_refs(bot["prompt"]) - {bot["sid"]})
+    if others:
+        refs = ", ".join(f"{{{{{sid}}}}}" for sid in others)
+        raise ValueError(
+            f"Bot {bot['sid']!r} persona prompt references {refs}; references to other "
+            f"bots belong in a game's Game/Roles/{bot['sid']}.md"
+        )
 
 
 def render_bot_prompt(game_name: str, game_key: str, bot_sid: str, roster_names: Mapping[str, str]) -> str:

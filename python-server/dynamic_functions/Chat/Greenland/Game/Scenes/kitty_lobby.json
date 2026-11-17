@@ -1,5 +1,5 @@
 {
-  "description": "Kitty runs as a bot while a human plays Chad in the lobby",
+  "description": "Kitty runs the desk with Natalie, Taffy and Sven on shift while a human plays Chad in the lobby",
   "slots": [
     {
       "key": "Kitty",
@@ -12,6 +12,18 @@
       "bot_sid": "natalie",
       "state": "ai",
       "defaultLocation": "Kitchen"
+    },
+    {
+      "key": "Taffy",
+      "bot_sid": "taffy",
+      "state": "ai",
+      "defaultLocation": "Kitchen"
+    },
+    {
+      "key": "Sven",
+      "bot_sid": "sven",
+      "state": "ai",
+      "defaultLocation": "SecurityOffice"
     },
     {
       "key": "Chad",

@@ -516,6 +516,14 @@ async def game_start(game_name: str, game_key: str) -> dict:
 
     Every AI slot not already in the world joins right after the humans.
     """
+    # Imported here: scene imports bot, which imports this module
+    from .scene import scene_check_roles
+    scene = _game_roster_scene(_game_read(game_name, game_key))
+    if not scene:
+        raise RuntimeError(f"Game {game_key!r} has no roster scene")
+    # A role naming someone outside the cast would only fail on that bot's first turn
+    scene_check_roles(game_name, scene)
+
     result = await _game_set_state(game_name, game_key, GAME_STATE_RUNNING)
 
     # Wipe the setup chatter, then undo the dimmed greyscale backdrop

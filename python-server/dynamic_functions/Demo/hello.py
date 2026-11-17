@@ -11,6 +11,6 @@ logger = logging.getLogger("dynamic_function")
 
 @visible
 async def hello() -> None:
-    """Say hello to the caller"""
+    """Gives a personalized greeting to the current caller."""
     caller = atlantis.get_caller() or "stranger"
     await atlantis.client_log(f"Hello, {caller}!")

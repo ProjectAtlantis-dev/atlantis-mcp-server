@@ -4,6 +4,10 @@ A scene is a named roster of slots with a short description. Its identity is
 the filename: <game_name>/Game/Scenes/<name>.json, the same way a bot's identity is its
 folder name. Each slot declares its defaultLocation — where whoever fills the
 slot enters the world.
+
+Every AI slot's bot needs a role in <game_name>/Game/Roles/<sid>.md: its job
+in this game and the people it knows here. A role may name any bot in the
+scene's cast, and nobody else.
 """
 
 import atlantis
@@ -12,6 +16,7 @@ import os
 import re
 from typing import Any, Dict, List, Optional, cast
 
+from .bot import prompt_bot_refs
 from .common import game_path, _read_json, _require_str
 from .location import _require_leaf, load_location
 from dynamic_functions.Home.modal import modal_menu
@@ -58,6 +63,36 @@ def _load_scene_config(game_name: str, scene: str) -> Dict[str, Any]:
 def _load_scene(game_name: str, scene: str) -> List[Dict[str, str]]:
     """Load a scene's slots."""
     return cast(List[Dict[str, str]], _load_scene_config(game_name, scene)["slots"])
+
+
+def scene_bot_role(game_name: str, scene: str, bot_sid: str) -> str:
+    """Return the role this game gives a bot, checked against the scene's cast."""
+    slots = _load_scene(game_name, scene)
+    cast_sids = {_require_str(slot, "bot_sid", f"Scene {scene!r} slot") for slot in slots}
+    if bot_sid not in cast_sids:
+        raise ValueError(f"Bot {bot_sid!r} is not in scene {scene!r}")
+    path = game_path(game_name, "Game", "Roles", f"{bot_sid}.md")
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"Game {game_name!r} has no role for bot {bot_sid!r}: {path}")
+    with open(path, "r", encoding="utf-8") as f:
+        role = f.read().strip()
+    if not role:
+        raise ValueError(f"Role for bot {bot_sid!r} in game {game_name!r} is empty: {path}")
+    strangers = sorted(prompt_bot_refs(role) - cast_sids)
+    if strangers:
+        refs = ", ".join(f"{{{{{sid}}}}}" for sid in strangers)
+        raise ValueError(
+            f"Role for bot {bot_sid!r} in game {game_name!r} references {refs}, "
+            f"which scene {scene!r} does not cast"
+        )
+    return role
+
+
+def scene_check_roles(game_name: str, scene: str) -> None:
+    """Raise unless every AI slot in the scene has a role that names only its cast."""
+    for slot in _load_scene(game_name, scene):
+        if slot.get("state") == "ai":
+            scene_bot_role(game_name, scene, _require_str(slot, "bot_sid", f"Scene {scene!r} slot"))
 
 
 def scene_slot_default_location(game_name: str, scene: str, slot_key: str) -> str:

@@ -124,14 +124,8 @@ async def first_menu():
     return None
 
 
-@public
-@homepage
-async def homepage() -> dict:
-    """Return startup commands."""
-
-    script_folder = atlantis.get_script_folder()
-    if not script_folder:
-        raise RuntimeError("Cannot determine homepage script folder")
+async def _game_commands(script_folder: str) -> list[str]:
+    """Commands that configure the game's callbacks, run once per new game."""
 
     # Callback `auto` only searches the current folder, and the preflight/chat
     # callbacks live in the sibling Chat app
@@ -154,33 +148,58 @@ async def homepage() -> dict:
     else:
         logger.info("No Media app next to Home; leaving the upload callback off")
 
+    return [
+        # @upload_callback_auto runs from Media and resolves through this path entry.
+        # Push moves an existing entry to the end, so repeating it adds no duplicate.
+        f"/path push {script_folder}",
+        f"/cd {chat_folder}",
+        "/callback set preflight auto",
+        "/callback set chat auto",
+        # The file callback lives here in Home, so it needs its own visit
+        f"/cd {script_folder}",
+        "@file_callback_auto",
+        *media_commands,
+        # Deferred so a failed run can't strand the terminal, which would make the
+        # next run capture the wrong start folder.
+        f"/finally cd {start_folder}",
+    ]
+
+
+@public
+@homepage
+async def homepage(phase: str) -> dict:
+    """Return startup commands for one phase: game, session, or terminal."""
+
+    script_folder = atlantis.get_script_folder()
+    if not script_folder:
+        raise RuntimeError("Cannot determine homepage script folder")
+
+    if phase == "game":
+        commands = await _game_commands(script_folder)
+    elif phase == "session":
+        # Each join stacks a cursor frame, and a repeat would overwrite a game the
+        # user has since entered, so only join when no game is selected.
+        await atlantis.client_command("/silent on")
+        try:
+            cursor = await atlantis.client_command("/cursor show")
+        finally:
+            await atlantis.client_command("/silent off")
+        if not isinstance(cursor, dict):
+            raise TypeError(f"/cursor show returned {type(cursor).__name__}, expected a dict")
+        if "game_name" in cursor:
+            return {"commands": []}
+        commands = ['/cursor join {game_name: "Default"}']
+    elif phase == "terminal":
+        commands = [f"/path push {script_folder}"]
+    else:
+        raise ValueError(f"Unknown homepage phase: {phase!r}")
+
     return {
         "commands": [
             # Silent hides this startup chatter in Chat view only; Full still shows it.
             # The finally clears it even if a startup command throws.
             "/silent on",
-            '/cursor join {game_name: "Default"}',
-            #"/terminal blur 12",
-            f"/path push {script_folder}",
-            "/env save",
-            f"/cd {chat_folder}",
-            "/callback set preflight auto",
-            "/callback set chat auto",
-            # The file callback lives here in Home, so it needs its own visit
-            f"/cd {script_folder}",
-            "@file_callback_auto",
-            *media_commands,
-            f"/cd {start_folder}",
-            # Chat callbacks resolve their game from the cursor; new owners start in Setup
-            #'/cursor join {game_name: "Setup"}',
-            #f"/path push {script_folder}",
-            #"/env save",
-            #"/terminal on",
-            #"app on",
-            #"term_default",
-            #"user_bg_default",
-            #"first_menu",
-            #"/finally terminal blur 0",
+            *commands,
             "/finally silent off",
         ],
     }

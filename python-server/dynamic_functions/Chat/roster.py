@@ -5,7 +5,7 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from .bot import BotConfigT, bot_image_file, cache_bot, load_bot, require_persona_prompt, validate_bot_config
+from .bot import BotConfigT, bot_avatar_data, bot_image_file, cache_bot, load_bot, require_persona_prompt, validate_bot_config
 from .bot_tool import _initialize_bot_tool_files
 from .common import _read_json, _write_json
 from .game import _game_read, _game_roster_scene, require_membership
@@ -223,7 +223,7 @@ async def _show_first_sightings(
             continue
 
         # Tie the portrait to the bot's sid first so its chat bubbles show it as an avatar
-        await atlantis.client_command(f"/avatar set {bot_sid}", data={"image": bot_image}, shell="chat")
+        await atlantis.client_command(f"/avatar set {bot_sid}", data={"image": bot_avatar_data(game_name, game_key, bot_sid)}, shell="caller")
         await atlantis.client_image(
             bot_image_file(game_name, game_key, bot_sid),
             sid=bot_sid,

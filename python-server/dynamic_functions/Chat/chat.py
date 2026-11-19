@@ -1,4 +1,4 @@
-"""Chat — transcript fetching, participant analysis, and the chat entry point."""
+"""Chat — transcript fetching and participant analysis."""
 
 # TODO(Bot split, in progress): bots are moving out of Chat/Game/Bots into a
 # top-level Bot app that may run on a different machine, so Chat must reach it
@@ -55,11 +55,17 @@ def analyze_participants(raw_transcript: List[Dict[str, Any]]) -> Dict[str, Any]
 
 async def fetch_transcript(game_name: str, game_key: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Fetch and format the chat transcript"""
+    # Scope to this app's chat shell (bound by the folder's @enter), never the
+    # whole Node game — otherwise one app's bot reads another app's conversation
+    chat_key = atlantis.get_chat_key()
+    if not chat_key:
+        raise RuntimeError("fetch_transcript: no chat shell bound to the caller's terminal (missing /chat bind?)")
+
     logger.info("fetch_transcript: /silent on")
     await atlantis.client_command("/silent on")
-    logger.info("fetch_transcript: /transcript chat")
+    logger.info(f"fetch_transcript: /transcript get {chat_key}")
 
-    raw_transcript = await atlantis.client_command("/transcript chat")
+    raw_transcript = await atlantis.client_command(f"/transcript get {json.dumps(chat_key)}")
 
     logger.info(f"fetch_transcript: received {len(raw_transcript)} entries")
     await atlantis.client_command("/silent off")
@@ -143,52 +149,3 @@ async def fetch_transcript(game_name: str, game_key: str) -> Tuple[List[Dict[str
 
     return raw_transcript, transcript
 
-
-async def chat(game_name: str, game_key: str):
-    """Chat"""
-    caller = atlantis.get_caller()
-    if not caller:
-        logger.warning("Chat fired without a caller identity")
-        return
-
-    raw_transcript, transcript = await fetch_transcript(game_name, game_key)
-    logger.info(
-        "Chat transcript fetched: %s raw entries, %s filtered entries",
-        len(raw_transcript),
-        len(transcript),
-    )
-
-    participants = analyze_participants(raw_transcript)
-    speaker_sid = participants.get("last_speaker")
-    if not speaker_sid:
-        await atlantis.client_log("No chat speaker found in transcript")
-        return
-
-    location = None  # TODO: location resolution needs reimplementation
-    if not location:
-        await atlantis.client_log(f"\U0001f4cd {speaker_sid} has no position — nowhere to chat")
-        return
-
-    occupants = []  # TODO: occupant resolution needs reimplementation
-    if not occupants:
-        await atlantis.client_log(f"\U0001f4cd {speaker_sid} is alone in {location}")
-        return
-
-    names = []
-    bots = []
-    for ch in occupants:
-        display = ch.get("displayName", ch["occupant"])
-        names.append(display)
-        # TODO: bot detection needs reimplementation
-
-    await atlantis.client_log(
-        f"\U0001f3e0 Room [{location}]: {', '.join(names)}"
-    )
-
-    if bots:
-        next_up = bots[0]
-        await atlantis.client_log(
-            f"\U0001f3a4 Next to speak: {next_up.get('displayName', next_up['occupant'])}"
-        )
-    else:
-        await atlantis.client_log("\U0001f3a4 No bots present")

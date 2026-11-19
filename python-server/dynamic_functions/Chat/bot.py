@@ -14,10 +14,13 @@ does in a game, and who it knows there, is that game's role file
 
 import atlantis
 import base64
+import io
 import logging
 import os
 import re
 from typing import Any, Dict, List, Mapping, Set, TypedDict
+
+from PIL import Image
 
 from .common import MISSING_IMAGE_URI, _read_json, _write_json, _require_str
 from .game import require_membership
@@ -186,6 +189,29 @@ def bot_image_file(game_name: str, game_key: str, bot_sid: str) -> str:
             f.write(data)
     return path
 
+
+# Longest side of a chat-bubble avatar thumbnail. Bubbles show 50px CSS; a
+# few-x shrink in the browser is clean, a 25x one from a full portrait aliases.
+AVATAR_MAX_SIDE = 256
+
+
+def bot_avatar_data(game_name: str, game_key: str, bot_sid: str) -> str:
+    """Return a joined bot's chat-bubble avatar as a PNG data URI.
+
+    The full portrait, Lanczos-downscaled to fit AVATAR_MAX_SIDE with its
+    aspect kept (the browser's object-fit crops it to the circle). History
+    stores this thumbnail rather than the whole portrait. Cached beside the
+    bot's cache entry and rebuilt whenever the portrait file is.
+    """
+    source = bot_image_file(game_name, game_key, bot_sid)
+    path = os.path.join(_bots_dir(game_name, game_key), f"{bot_sid}.avatar.png")
+    if not os.path.isfile(path) or os.path.getmtime(path) < os.path.getmtime(source):
+        with Image.open(source) as image:
+            thumb = image.convert("RGB")
+            thumb.thumbnail((AVATAR_MAX_SIDE, AVATAR_MAX_SIDE), Image.Resampling.LANCZOS)
+            thumb.save(path, "PNG", optimize=True)
+    with open(path, "rb") as f:
+        return "data:image/png;base64," + base64.b64encode(f.read()).decode("ascii")
 
 def _bot_rows(game_name: str, game_key: str) -> List[Dict[str, Any]]:
     """Pure data: this game's joined bots. No client side effects."""

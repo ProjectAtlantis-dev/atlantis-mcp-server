@@ -8,10 +8,11 @@ from dotenv import dotenv_values
 from mcp.shared.exceptions import McpError
 from openai import OpenAI
 from pathlib import Path
-from typing import Callable, List, Dict, Any, Optional, cast
+from typing import Callable, List, Dict, Any, Optional, Tuple, cast
 
 from .bot import load_bot, render_bot_prompt
-from .common import _read_json, _write_json
+from .common import _read_json, _write_json, silent_command, silently
+from .runner import _game_init_script
 from .tool import (
     logger,
     AtlantisSearchToolT, OpenAITool, ToolLookupInfo,
@@ -60,7 +61,24 @@ async def _search_rows(query: str) -> Any:
     carries apostrophes, ';' and '|' that the cloud's shell parser would read
     as quoting and sequencing.
     """
-    return await atlantis.client_command("/search", {"content": query})
+    return await silent_command("/search", {"content": query})
+
+
+async def _game_status(game_name: str) -> Optional[Dict[str, str]]:
+    """Run the game's status tool so every turn starts from fresh state,
+    instead of trusting the bot to ask for it.
+
+    A game names its tool as STATUS_TOOL in <game_name>/init.py (by convention
+    the get_status beside its app's on_enter). A game without one is skipped.
+    """
+    status_tool = getattr(_game_init_script(game_name), "STATUS_TOOL", None)
+    if not status_tool:
+        logger.warning(f"Game {game_name!r} has no STATUS_TOOL in its init.py; turn runs without status")
+        return None
+    status = await silent_command(status_tool)
+    if not isinstance(status, str):
+        raise TypeError(f"{status_tool} must return a string, got {type(status).__name__}")
+    return {'role': 'system', 'content': f"Current status, fetched for this turn by {status_tool}:\n{status}"}
 
 
 def _message_text(message: Dict[str, Any]) -> str:
@@ -213,6 +231,39 @@ def _make_tool_binder(
     return bind
 
 
+async def _build_round_tools(
+    *,
+    tools: List[AtlantisSearchToolT],
+    tool_argument_overrides: Dict[str, Dict[str, Any]],
+    transcript: List[Dict[str, Any]],
+    searched_queries: List[str],
+    discovery_open: bool,
+) -> Tuple[List[OpenAITool], Dict[str, ToolLookupInfo], Dict[str, Dict[str, Any]], ToolBinder]:
+    """One round's tool list, rebuilt from scratch so a tool run last round
+    cannot leave it stale: the bot's inventory, bound to the current cursor,
+    plus what the recent conversation asks for and every search the bot has
+    made this turn, rerun against the system as it is now."""
+    openai_tools, tool_lookup = convert_search_tools(tools)
+    cursor = await _cursor_values()
+    tool_bindings: Dict[str, Dict[str, Any]] = {}
+    bind = _make_tool_binder(cursor, tool_argument_overrides, tool_bindings)
+    for tool in openai_tools:
+        bind(tool, tool_lookup[tool["function"]["name"]])
+    # Search is the turn's own tool, never bound
+    if discovery_open:
+        _open_discovery(openai_tools, tool_lookup)
+
+    # Pre-load the tools the recent conversation asks for, so the bot can call
+    # them this round instead of searching first
+    recent = _recent_spoken_text(transcript, _PRELOAD_SEARCH_LINES)
+    for query in ([recent] if recent else []) + searched_queries:
+        loaded = await _execute_discovery_tool(
+            "search", {"query": query}, openai_tools, tool_lookup, bind,
+        )
+        logger.info(f"Round search for {query[:200]!r}: {loaded}")
+    return openai_tools, tool_lookup, tool_bindings, bind
+
+
 async def _execute_discovery_tool(
     tool_key: str,
     arguments: Dict[str, Any],
@@ -334,33 +385,18 @@ async def run_turn(
     if not api_key or not model:
         raise ValueError(f"Bot {bot_sid} missing model/api key: set {api_key_env} in Chat/.env")
 
-    await atlantis.client_log(
+    await silently(atlantis.client_log(
         f"run_turn start: bot_sid={bot_sid!r} display={bot_display_name!r} "
         f"model={model!r} transcript={len(transcript)} tools={len(tools or [])}"
-    )
+    ))
     client = OpenAI(api_key=api_key, base_url=base_url)
-    openai_tools, tool_lookup = convert_search_tools(tools or [])
-    cursor = await _cursor_values()
-    tool_bindings: Dict[str, Dict[str, Any]] = {}
-    bind = _make_tool_binder(cursor, tool_argument_overrides or {}, tool_bindings)
-    for tool in openai_tools:
-        bind(tool, tool_lookup[tool["function"]["name"]])
-    # Search is the turn's own tool, never bound
-    _open_discovery(openai_tools, tool_lookup)
-
-    # Pre-load the tools the recent conversation asks for, so the bot can call
-    # them this round instead of searching first
-    recent = _recent_spoken_text(transcript, _PRELOAD_SEARCH_LINES)
-    if recent:
-        preloaded = await _execute_discovery_tool(
-            "search", {"query": recent}, openai_tools, tool_lookup, bind,
-        )
-        logger.info(f"Pre-load for {recent[:200]!r}: {preloaded}")
-
     stream_talk_id = None
     stream_think_id = None
     max_turns = 10
     discovery_calls = 0
+    discovery_open = True
+    # The bot's own searches this turn, rerun every round to rebuild its tools
+    searched_queries: List[str] = []
     accumulated_text = ""
 
     try:
@@ -370,14 +406,26 @@ async def run_turn(
             # would never be read back by the model.
             final_round = turn_count == max_turns
 
+            # Tools and status are rebuilt every round: the last round's tool
+            # calls may have changed what exists and where the game stands
+            openai_tools, tool_lookup, tool_bindings, bind = await _build_round_tools(
+                tools=tools or [],
+                tool_argument_overrides=tool_argument_overrides or {},
+                transcript=transcript,
+                searched_queries=searched_queries,
+                discovery_open=discovery_open,
+            )
+            status_message = await _game_status(game_name)
+            status_messages = [status_message] if status_message else []
+
             api_messages: List[Dict[str, Any]] = [
                 {'role': 'system', 'content': system_prompt}
-            ] + transcript
+            ] + status_messages + transcript
 
             logger.info(f"Sending to {model}: {len(api_messages)} messages, {len(openai_tools)} tools")
-            await atlantis.client_log(
+            await silently(atlantis.client_log(
                 f"run_turn api call: model={model!r} messages={len(api_messages)} tools={len(openai_tools)}"
-            )
+            ))
 
             api_payload = {
                 "model": model,
@@ -433,7 +481,7 @@ async def run_turn(
                 extra_body={"reasoning": {"effort": "low"}},
             )
             logger.info(f"Stream opened in {_t.monotonic() - t_api:.2f}s")
-            await atlantis.client_log(f"run_turn stream opened: model={model!r}")
+            await silently(atlantis.client_log(f"run_turn stream opened: model={model!r}"))
 
             for chunk in stream:
                 if not chunk.choices:
@@ -480,10 +528,10 @@ async def run_turn(
                                 acc['arguments'] += tc.function.arguments
 
             logger.info(f"Stream done: turn={turn_count} chunks={streamed_count} tool_calls={len(tool_calls_accumulator)}")
-            await atlantis.client_log(
+            await silently(atlantis.client_log(
                 f"run_turn stream done: turn={turn_count} chunks={streamed_count} "
                 f"tool_calls={len(tool_calls_accumulator)}"
-            )
+            ))
 
             # Stop when no tools are requested
             if not tool_calls_accumulator:
@@ -536,7 +584,7 @@ async def run_turn(
                     lookup_info = tool_lookup[tool_key]
                     search_term = lookup_info['searchTerm']
                     arguments = _parse_tool_arguments(tc['arguments'], tool_key)
-                    # Values bound at turn start replace anything the model sent
+                    # Values bound this round replace anything the model sent
                     arguments.update(tool_bindings.get(tool_key, {}))
 
                     # Coerce args to match schema types
@@ -557,17 +605,20 @@ async def run_turn(
                                 "argument, nothing was searched",
                                 level="ERROR",
                             )
-                            await atlantis.client_data(f"{tool_key} arguments", arguments)
+                            await silently(atlantis.client_data(f"{tool_key} arguments", arguments))
                             tool_result = (
                                 f"{tool_key} needs a 'query' string, nothing was searched."
                             )
                             await atlantis.tool_result(search_term, tool_result)
                         else:
-                            await atlantis.client_warning(
-                                f"{bot_display_name} is consulting {tool_key} "
-                                f"({discovery_calls}/{_MAX_DISCOVERY_CALLS})",
+                            # Warnings show through silent mode, so this is a plain log.
+                            await silently(
+                                atlantis.client_log(
+                                    f"{bot_display_name} is consulting {tool_key} "
+                                    f"({discovery_calls}/{_MAX_DISCOVERY_CALLS})",
+                                ),
+                                atlantis.client_data(f"{tool_key} arguments", arguments),
                             )
-                            await atlantis.client_data(f"{tool_key} arguments", arguments)
                             tool_result = await _execute_discovery_tool(
                                 tool_key,
                                 arguments,
@@ -575,7 +626,9 @@ async def run_turn(
                                 tool_lookup,
                                 bind,
                             )
+                            searched_queries.append(str(arguments["query"]).strip())
                         if discovery_calls >= _MAX_DISCOVERY_CALLS:
+                            discovery_open = False
                             _close_discovery(openai_tools, tool_lookup)
                             tool_result = (
                                 f"{tool_result}\n\nTool discovery is now closed for "
@@ -621,9 +674,9 @@ async def run_turn(
     finally:
         await _close_streams(stream_talk_id, stream_think_id)
 
-    await atlantis.client_log(
+    await silently(atlantis.client_log(
         f"run_turn done: bot_sid={bot_sid!r} chars={len(accumulated_text or '')}"
-    )
+    ))
     return accumulated_text or None
 
 # Keep bot_turn as an alias for backward compat

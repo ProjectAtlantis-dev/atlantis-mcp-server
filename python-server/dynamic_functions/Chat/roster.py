@@ -3,13 +3,15 @@
 import atlantis
 import os
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .bot import BotConfigT, bot_avatar_data, bot_image_file, cache_bot, load_bot, require_persona_prompt, validate_bot_config
 from .bot_tool import _initialize_bot_tool_files
-from .common import _read_json, _write_json
-from .game import _game_read, _game_roster_scene, require_membership
-from .location import _connects_to, _require_leaf, load_location
+from .common import _read_json, _write_json, silently
+from .game import (
+    _current_game_key, _game_has_roster, _game_read, _game_roster_scene, game_dir, require_membership,
+)
+from .location import _connects_to, _leaf_location_keys, _require_leaf, load_location
 from dynamic_functions.Home.modal import modal_string
 from .scene import _load_scene, _scene_name, _scene_names, scene_bot_role, scene_slot_default_location
 
@@ -316,6 +318,7 @@ async def roster_list(game_name: str, game_key: str) -> List[Dict[str, Any]]:
 def _reset_roster_slot(target: Dict[str, Any]) -> None:
     target["displayName"] = None
     target["location"] = None
+    target.pop("last_location", None)
     target["spawned_at"] = None
     target["session_key"] = None
     target["sid"] = None
@@ -388,9 +391,11 @@ async def roster_set_slot(
 
     _write_game_roster(game_name, game_key, rows)
     _initialize_bot_tool_files(game_name, game_key, rows)
-    await atlantis.client_log(f"roster_set_slot game_key: {game_key!r} slot_key: {slot_key!r} state: {state_key!r}")
-    await atlantis.client_data(f"{game_key} roster slot", _display_roster_rows([target])[0])
-    await atlantis.client_data(f"{game_key} roster", _display_roster_rows(rows))
+    await silently(
+        atlantis.client_log(f"roster_set_slot game_key: {game_key!r} slot_key: {slot_key!r} state: {state_key!r}"),
+        atlantis.client_data(f"{game_key} roster slot", _display_roster_rows([target])[0]),
+        atlantis.client_data(f"{game_key} roster", _display_roster_rows(rows)),
+    )
     for moved_slot, previous_location in moved_slots:
         if previous_location:
             await _notify_roster_slot_moved(game_name, game_key, moved_slot, moved_slot.get("location") or None)
@@ -400,7 +405,7 @@ async def roster_set_slot(
 @public
 async def roster_create(game_name: str, game_key: str, scene: str) -> List[Dict[str, Any]]:
     """Create <game_name>/Data/games/<game_key>/roster.json from a static scene file."""
-    await atlantis.client_log(f"roster_create game_key: {game_key!r} scene: {scene!r}")
+    await silently(atlantis.client_log(f"roster_create game_key: {game_key!r} scene: {scene!r}"))
     data_dir = require_membership(game_name, game_key)
     scene_name = _scene_name(scene)
     rows = _scene_roster_rows(game_name, scene)
@@ -414,7 +419,7 @@ async def roster_create(game_name: str, game_key: str, scene: str) -> List[Dict[
     meta.pop("roster", None)
     _write_json(os.path.join(data_dir, "game.json"), meta)
     display_rows = _display_roster_rows(rows)
-    await atlantis.client_data(f"{game_key} roster", display_rows)
+    await silently(atlantis.client_data(f"{game_key} roster", display_rows))
     return display_rows
 
 
@@ -453,9 +458,9 @@ async def roster_join_bot(game_name: str, game_key: str, slot_key: str, bot: Bot
     _number_duplicate_display_names(rows)
     _write_game_roster(game_name, game_key, rows)
     _initialize_bot_tool_files(game_name, game_key, rows)
-    await atlantis.client_log(
+    await silently(atlantis.client_log(
         f"roster_join_bot game_key: {game_key!r} slot_key: {slot_key!r} bot_sid: {bot['sid']!r}"
-    )
+    ))
     return await _roster_move(game_name, game_key, slot_key, location, reason="spawn")
 
 
@@ -479,9 +484,9 @@ async def bind_caller_to_slot(
     session_key = atlantis.get_session_key()
     if not session_key:
         raise RuntimeError("No session key in this call context")
-    await atlantis.client_log(
+    await silently(atlantis.client_log(
         f"roster_bind game_key: {game_key!r} slot_key: {slot_key!r} session_key: {session_key!r}"
-    )
+    ))
 
     slot_key = str(slot_key or "").strip()
     if not slot_key:
@@ -515,9 +520,11 @@ async def bind_caller_to_slot(
 
     _set_roster_slot_human(target, display_name)
     _write_game_roster(game_name, game_key, rows)
-    await atlantis.client_log(f"Saved roster binding for {game_key!r} slot {slot_key!r}")
-    await atlantis.client_data(f"{game_key} roster slot", _display_roster_rows([target])[0])
-    await atlantis.client_data(f"{game_key} roster", _display_roster_rows(rows))
+    await silently(
+        atlantis.client_log(f"Saved roster binding for {game_key!r} slot {slot_key!r}"),
+        atlantis.client_data(f"{game_key} roster slot", _display_roster_rows([target])[0]),
+        atlantis.client_data(f"{game_key} roster", _display_roster_rows(rows)),
+    )
     return target
 
 
@@ -537,22 +544,102 @@ async def _notify_roster_slot_moved(game_name: str, game_key: str, target: Dict[
     await camera_slot_moved(game_name, game_key, target["key"], location)
 
 
-async def _describe_roster_slot_entered(target: Dict[str, Any], location: str) -> None:
-    display_name = _roster_row_name(target, _roster_row_state(target)) or target.get("key") or "Someone"
+# Movement lines are the transcript's only record of who was where: Node keeps
+# neither sid nor location on description events. They are written here in one
+# fixed form and read back by roster_visible_event_ids, which matches them
+# exactly against the lines this module could have written.
+_MOVE_ENTERED = "entered"
+_MOVE_LEFT = "left"
+
+
+def _location_label(game_name: str, location: str) -> str:
+    return load_location(game_name, location).get("displayName") or location
+
+
+def _movement_text(name: str, verb: str, place: str) -> str:
+    return f"{name} {verb} {place}."
+
+
+def roster_alone_text(game_name: str, row: Dict[str, Any], location: str) -> str:
+    return f"{_roster_row_label(row)} is alone in {_location_label(game_name, location)}."
+
+
+async def _describe_roster_slot_moved(game_name: str, target: Dict[str, Any], verb: str, location: str) -> None:
     await atlantis.client_description(
-        f"{display_name} entered.",
+        _movement_text(_roster_row_label(target), verb, _location_label(game_name, location)),
         location=location,
         shell="chat",
     )
 
 
-async def _describe_roster_slot_exited(target: Dict[str, Any], location: str) -> None:
-    display_name = _roster_row_name(target, _roster_row_state(target)) or target.get("key") or "Someone"
-    await atlantis.client_description(
-        f"{display_name} exited.",
-        location=location,
-        shell="chat",
-    )
+def _presence_lines(game_name: str, roster: List[Dict[str, Any]]) -> Dict[str, Tuple[str, str, str]]:
+    """Every movement/alone line this game could have written -> (slot key, kind, location)."""
+    lines: Dict[str, Tuple[str, str, str]] = {}
+    for row in roster:
+        name = _roster_row_name(row, _roster_row_state(row))
+        if not name:
+            continue
+        for location in _leaf_location_keys(game_name):
+            place = _location_label(game_name, location)
+            for kind, text in (
+                (_MOVE_ENTERED, _movement_text(name, _MOVE_ENTERED, place)),
+                (_MOVE_LEFT, _movement_text(name, _MOVE_LEFT, place)),
+                ("alone", roster_alone_text(game_name, row, location)),
+            ):
+                if text in lines and lines[text] != (row["key"], kind, location):
+                    raise ValueError(f"Presence line {text!r} is ambiguous in game {game_name!r}; roster names or location labels collide")
+                lines[text] = (row["key"], kind, location)
+    return lines
+
+
+def _speaker_slot_keys(roster: List[Dict[str, Any]]) -> Dict[str, str]:
+    keys: Dict[str, str] = {}
+    for row in roster:
+        sid = row.get("bot_sid") if row.get("ai") is True else row.get("sid") if row.get("ai") is False else None
+        if sid:
+            keys[str(sid)] = row["key"]
+    return keys
+
+
+def roster_visible_event_ids(
+    game_name: str,
+    roster: List[Dict[str, Any]],
+    raw_transcript: List[Dict[str, Any]],
+    slot_key: str,
+) -> Set[str]:
+    """Ids of the chat/description events the slot witnessed.
+
+    Replays the transcript in order, tracking every slot's location from its
+    movement lines; an event is witnessed when it happened in the room the
+    slot was standing in at that moment. A leaver still sees their own exit,
+    an arriver their own entrance.
+    """
+    lines = _presence_lines(game_name, roster)
+    speakers = _speaker_slot_keys(roster)
+    where: Dict[str, Optional[str]] = {}
+    visible: Set[str] = set()
+    for msg in raw_transcript:
+        msg_type = msg.get("type")
+        if msg_type == "description":
+            content = str(msg.get("content") or "")
+            if content not in lines:
+                raise ValueError(f"Unrecognized description in transcript (event {msg.get('id')}): {content!r}")
+            mover, kind, location = lines[content]
+            if kind == _MOVE_ENTERED:
+                where[mover] = location
+            if where.get(slot_key) == location:
+                visible.add(str(msg["id"]))
+            if kind == _MOVE_LEFT:
+                where[mover] = None
+        elif msg_type == "chat":
+            sid = str(msg.get("sid") or "")
+            if sid not in speakers:
+                # Not a roster member, so not standing anywhere: nobody witnessed it
+                continue
+            location = where.get(speakers[sid])
+            if location and where.get(slot_key) == location:
+                visible.add(str(msg["id"]))
+    return visible
 
 
 def _require_adjacent_move(game_name: str, previous: str, location: str) -> None:
@@ -587,21 +674,24 @@ async def _roster_move(game_name: str, game_key: str, sid_or_slot: str, location
     if movement_reason == "move":
         _require_adjacent_move(game_name, previous, location)
     target["location"] = location
+    target.pop("last_location", None)
     if not target.get("spawned_at") or movement_reason == "spawn":
         target["spawned_at"] = datetime.now().isoformat(timespec="seconds")
 
     _write_game_roster(game_name, game_key, rows)
     log_label = _movement_log_label(movement_reason)
-    await atlantis.client_log(
-        f"{log_label}: {target.get('displayName', sid_or_slot)} -> {location}"
-        + (f" from {previous}" if previous and previous != location else "")
+    await silently(
+        atlantis.client_log(
+            f"{log_label}: {target.get('displayName', sid_or_slot)} -> {location}"
+            + (f" from {previous}" if previous and previous != location else "")
+        ),
+        atlantis.client_data(f"{game_key} roster slot", _display_roster_rows([target])[0]),
+        atlantis.client_data(f"{game_key} roster", _display_roster_rows(rows)),
     )
-    await atlantis.client_data(f"{game_key} roster slot", _display_roster_rows([target])[0])
-    await atlantis.client_data(f"{game_key} roster", _display_roster_rows(rows))
     if previous and previous != location:
-        await _describe_roster_slot_exited(target, previous)
+        await _describe_roster_slot_moved(game_name, target, _MOVE_LEFT, previous)
     if previous != location:
-        await _describe_roster_slot_entered(target, location)
+        await _describe_roster_slot_moved(game_name, target, _MOVE_ENTERED, location)
     await _show_first_sightings(game_name, game_key, rows)
     await _notify_roster_slot_moved(game_name, game_key, target, location)
     return target
@@ -633,15 +723,51 @@ async def roster_despawn(game_name: str, game_key: str, sid: str) -> Dict[str, A
     previous = target.get("location") or ""
     target["location"] = None
     target["spawned_at"] = None
+    if previous:
+        target["last_location"] = previous
 
     _write_game_roster(game_name, game_key, rows)
-    await atlantis.client_log(
-        f"despawn: {target.get('displayName', sid)}"
-        + (f" from {previous}" if previous else "")
+    await silently(
+        atlantis.client_log(
+            f"despawn: {target.get('displayName', sid)}"
+            + (f" from {previous}" if previous else "")
+        ),
+        atlantis.client_data(f"{game_key} roster slot", _display_roster_rows([target])[0]),
+        atlantis.client_data(f"{game_key} roster", _display_roster_rows(rows)),
     )
-    await atlantis.client_data(f"{game_key} roster slot", _display_roster_rows([target])[0])
-    await atlantis.client_data(f"{game_key} roster", _display_roster_rows(rows))
     if previous:
-        await _describe_roster_slot_exited(target, previous)
+        await _describe_roster_slot_moved(game_name, target, _MOVE_LEFT, previous)
     await _notify_roster_slot_moved(game_name, game_key, target, None)
     return target
+
+
+def _caller_slot(rows: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    session_key = atlantis.get_session_key()
+    if not session_key:
+        raise RuntimeError("No session key in this call context")
+    return _caller_roster_row(rows, session_key, atlantis.get_caller())
+
+
+async def roster_leave(game_name: str) -> None:
+    """Walk the calling player out of this chat's world when their terminal leaves it.
+
+    Runs from an app's @exit while the chat is still bound, so the exit lands in
+    the transcript. Entering a chat doesn't set its game up, so a visit that never
+    sent a message has no game or roster to leave.
+    """
+    game_key = _current_game_key()
+    if not os.path.isdir(game_dir(game_name, game_key)):
+        return
+    if not _game_has_roster(game_name, game_key, _game_read(game_name, game_key)):
+        return
+    slot = _caller_slot(_load_game_roster(game_name, game_key))
+    if slot is not None and slot.get("location"):
+        await roster_despawn(game_name, game_key, slot["key"])
+
+
+async def roster_return(game_name: str, game_key: str) -> None:
+    """Put the calling player back where they left, if they walked out of this chat."""
+    slot = _caller_slot(_load_game_roster(game_name, game_key))
+    if slot is None or slot.get("location") or not slot.get("last_location"):
+        return
+    await _roster_move(game_name, game_key, slot["key"], slot["last_location"], reason="spawn")

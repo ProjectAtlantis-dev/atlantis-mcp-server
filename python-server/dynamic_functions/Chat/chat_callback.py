@@ -5,20 +5,20 @@ import copy
 import logging
 import os
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 
 from .chat import (
     analyze_participants, fetch_transcript,
 )
 from .bot_tool import get_bot_tool_argument_overrides, get_bot_tools
-from .common import _read_json, _write_json
+from .common import _read_json, _write_json, silently
 from .location import load_location
 from .game import (
     GAME_STATE_RUNNING, _game_is_running, _game_read, _game_roster_scene,
     _game_set_state, game_find_current, game_require_current, require_membership,
 )
-from .roster import _load_game_roster, roster_join_bot
+from .roster import _load_game_roster, roster_alone_text, roster_join_bot, roster_return, roster_visible_event_ids
 from .scene import scene_slot_default_location
 from .turn import bot_turn
 
@@ -36,7 +36,9 @@ _MAX_BOT_CHAIN = 4
 @preflight
 async def preflight_callback(game_name: str):
     """Create the game, or finish a setup that stopped partway; chat never does."""
-    await game_find_current(game_name)
+    game_key = await game_find_current(game_name)
+    # Before the message lands, so a returning player is back in the room to say it
+    await roster_return(game_name, game_key)
 
 
 
@@ -131,14 +133,14 @@ async def _handle_chat(game_name: str, game_key: str, raw_transcript: list, tran
         [_display_name(row) for row in bot_listeners],
     )
     if not all_listeners:
-        await atlantis.client_log(f"Room [{location}] is empty")
+        await silently(atlantis.client_log(f"Room [{location}] is empty"))
         return
-    await atlantis.client_log(
+    await silently(atlantis.client_log(
         f"Room [{location}]: {', '.join(_display_name(row) for row in all_listeners)}"
-    )
+    ))
     if len(all_listeners) == 1:
         if _is_ai(speaker) or not await _spawn_companion(game_name, game_key, location, roster):
-            await atlantis.client_description(f"{_display_name(speaker)} is alone in {location}", shell="chat")
+            await atlantis.client_description(roster_alone_text(game_name, speaker, location), location=location, shell="chat")
             return
         roster = _load_game_roster(game_name, game_key)
         bot_listeners = _bot_listeners(roster, speaker)
@@ -149,16 +151,17 @@ async def _handle_chat(game_name: str, game_key: str, raw_transcript: list, tran
         return
 
     if not bot_listeners:
-        await atlantis.client_log(f"No AI roster member in {location} available to respond")
+        await silently(atlantis.client_log(f"No AI roster member in {location} available to respond"))
         return
 
     bot_record = _next_round_robin_bot(raw_transcript, location, roster, speaker)
-    await atlantis.client_log(
+    await silently(atlantis.client_log(
         f"Next roster speaker: {bot_record.get('displayName', bot_record.get('bot_sid', 'bot'))}"
-    )
+    ))
     await _respond_as_bot(
         game_name=game_name, game_key=game_key,
         bot_record=bot_record,
+        raw_transcript=raw_transcript,
         transcript=transcript,
         roster=roster,
     )
@@ -374,9 +377,15 @@ def _transcript_for_bot(
     bot_sid: str,
     transcript: List[Dict[str, Any]],
     roster: List[Dict[str, Any]],
+    visible_event_ids: Set[str],
 ) -> List[Dict[str, Any]]:
+    """The transcript as this bot experienced it: only what happened in its
+    room while it was there, with human names it hasn't learned scrubbed."""
     known_names = _known_human_names(game_name, game_key, bot_sid)
-    prepared = copy.deepcopy(transcript)
+    prepared = [
+        copy.deepcopy(message) for message in transcript
+        if message["_event_id"] in visible_event_ids
+    ]
     unknown_names = [
         str(row.get("displayName") or "").strip()
         for row in roster
@@ -396,6 +405,7 @@ def _transcript_for_bot(
         if _is_ai(row) and row.get("bot_sid")
     }
     for message in prepared:
+        del message["_event_id"]
         speaker_sid = str(message.pop("_speaker_sid", "") or "").strip()
         if speaker_sid in human_sids:
             known_name = known_names.get(speaker_sid)
@@ -542,6 +552,7 @@ async def _respond_as_bot(
     game_name: str,
     game_key: str,
     bot_record: dict,
+    raw_transcript: list,
     transcript: list,
     roster: list,
 ):
@@ -554,18 +565,19 @@ async def _respond_as_bot(
         bot_sid=bot_sid,
         transcript=transcript,
         roster=roster,
+        visible_event_ids=roster_visible_event_ids(game_name, roster, raw_transcript, bot_record["key"]),
     )
     roster_names = _roster_names_for_bot(
         game_name=game_name, game_key=game_key,
         bot_sid=bot_sid,
         roster=roster,
     )
-    await atlantis.client_log(
+    await silently(atlantis.client_log(
         "respond_as_bot start: "
         f"game={game_key!r} slot={bot_record.get('key')!r} "
         f"bot_sid={bot_sid!r} display={bot_record.get('displayName')!r} "
         f"transcript={len(bot_transcript)}"
-    )
+    ))
     logger.info(
         "Dispatching bot turn: game=%s/%s slot=%s bot_sid=%s display=%s transcript=%s roster_names=%s",
         game_name,
@@ -590,7 +602,7 @@ async def _respond_as_bot(
         await atlantis.client_log(f"respond_as_bot failed: {type(e).__name__}: {e}")
         raise
 
-    await atlantis.client_log(
+    await silently(atlantis.client_log(
         f"respond_as_bot done: bot_sid={bot_sid!r} chars={len(result or '')}"
-    )
+    ))
     return result

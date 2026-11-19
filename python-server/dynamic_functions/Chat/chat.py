@@ -126,6 +126,7 @@ async def fetch_transcript(game_name: str, game_key: str) -> Tuple[List[Dict[str
                 'role': 'user',
                 'content': [{'type': 'text', 'text': msg_content_full}],
                 '_speaker_sid': msg_sid,
+                '_event_id': str(msg['id']),
             })
             logger.info(f"       -> INCLUDED as role=user (sid={msg_sid})")
         elif msg_type == 'description':
@@ -133,7 +134,11 @@ async def fetch_transcript(game_name: str, game_key: str) -> Tuple[List[Dict[str
             if not msg_content_full or not str(msg_content_full).strip():
                 logger.info(f"       -> SKIPPED (blank description)")
                 continue
-            transcript.append({'role': 'user', 'content': [{'type': 'text', 'text': f"[scene: {msg_content_full}]"}]})
+            transcript.append({
+                'role': 'user',
+                'content': [{'type': 'text', 'text': f"[scene: {msg_content_full}]"}],
+                '_event_id': str(msg['id']),
+            })
             logger.info(f"       -> INCLUDED as description")
         else:
             logger.info(f"       -> SKIPPED (type != 'chat'|'description')")

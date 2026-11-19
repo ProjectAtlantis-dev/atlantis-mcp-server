@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from .common import game_path, _read_json, _write_json
+from .common import game_path, _read_json, _write_json, silently
 from dynamic_functions.Home.modal import modal_menu
 
 
@@ -537,10 +537,10 @@ async def game_start(game_name: str, game_key: str) -> dict:
     # walking in is an arrival they witness rather than scenery.
     humans = await _spawn_unspawned_humans(game_name, game_key)
     if humans:
-        await atlantis.client_log(f"spawned humans on start: {', '.join(humans)}")
+        await silently(atlantis.client_log(f"spawned humans on start: {', '.join(humans)}"))
     bots = await _join_ai_slots(game_name, game_key)
     if bots:
-        await atlantis.client_log(f"joined bots on start: {', '.join(bots)}")
+        await silently(atlantis.client_log(f"joined bots on start: {', '.join(bots)}"))
     # Also covers resuming an already-positioned roster created before sighting
     # tracking existed; movement handles all ordinary first encounters.
     from .roster import _show_first_sightings

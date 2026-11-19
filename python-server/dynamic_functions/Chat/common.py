@@ -1,14 +1,41 @@
 """Shared helpers — path resolution, JSON I/O, and image data URIs."""
 
+import atlantis
 import base64
 import json
 import logging
 import os
 import re
-from typing import Any, Dict
+from typing import Any, Awaitable, Dict
 
 
 logger = logging.getLogger("dynamic_function")
+
+
+# ---------------------------------------------------------------------------
+# Silent mode
+# ---------------------------------------------------------------------------
+
+# Silent output is hidden in Chat view and still shown in Full view. The flag is
+# a single on/off per shell and does not nest; warnings and errors ignore it.
+
+async def silently(*calls: Awaitable[Any]) -> None:
+    """Await each call in order with its output hidden from Chat view."""
+    await atlantis.client_command("/silent on")
+    try:
+        for call in calls:
+            await call
+    finally:
+        await atlantis.client_command("/silent off")
+
+
+async def silent_command(command: str, data: Any = None) -> Any:
+    """Run a client command with its output hidden from Chat view."""
+    await atlantis.client_command("/silent on")
+    try:
+        return await atlantis.client_command(command, data)
+    finally:
+        await atlantis.client_command("/silent off")
 
 
 # ---------------------------------------------------------------------------

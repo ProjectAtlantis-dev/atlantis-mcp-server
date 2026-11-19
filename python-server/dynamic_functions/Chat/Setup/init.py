@@ -8,6 +8,8 @@ from ..runner import roster_exists, start_owned_stopped_game
 
 SCENE = "setup"
 OWNER_SLOT = "Owner"
+# Run before every bot turn (see turn._game_status)
+STATUS_TOOL = "$Setup/get_status"
 
 
 async def game_init(game_name: str, game_key: str) -> None:

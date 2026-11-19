@@ -2,6 +2,7 @@
 
 import atlantis
 
+from ..common import silent_command, silently
 from ..roster import STATE_AVAILABLE
 from ..runner import _camera_edit, _warn_unfilled_roster, roster_edit, roster_exists, start_owned_stopped_game
 from ..scene import _scene_pick_dialog
@@ -13,11 +14,11 @@ async def game_init(game_name: str, game_key: str) -> None:
         if not scene:
             raise RuntimeError("Scene selection cancelled")
         await atlantis.client_command(f"@roster_create {scene}")
-        await atlantis.client_log(f"game scene: {scene!r}")
+        await silently(atlantis.client_log(f"game scene: {scene!r}"))
 
     if not await roster_edit(game_name):
         raise RuntimeError("Roster selection cancelled")
-    roster = await atlantis.client_command("@roster_list")
+    roster = await silent_command("@roster_list")
     if roster and all(row.get("state") == STATE_AVAILABLE for row in roster):
         await _warn_unfilled_roster()
 

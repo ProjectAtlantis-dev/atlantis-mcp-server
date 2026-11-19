@@ -66,6 +66,10 @@ async def on_exit():
     """
     logger.info(f"Executing Setup on_exit...")
 
+    # Walk out of the room while this folder's chat is still bound
+    from dynamic_functions.Chat.roster import roster_leave
+    await roster_leave(Path(__file__).parent.name)
+
     #await atlantis.client_log("exit running")
     await atlantis.clear_background()
 
@@ -124,8 +128,6 @@ VIEWER_START_TIMEOUT_SECONDS = 60
 
 # Data for the Chat game this app joins
 DATA_PATH = Path(__file__).absolute().parents[1] / "Chat" / Path(__file__).parent.name / "Data"
-# {username: {game_uuid: {lastSeen, done}}}
-VISITORS_PATH = DATA_PATH / "visitors.json"
 # {username: {confirmed: {step: when}, restartPractice: null | "declined" | {stoppedAt}}}
 PROGRESS_PATH = DATA_PATH / "progress.json"
 # Machine facts that are too slow or costly to re-prove on every get_status
@@ -137,8 +139,8 @@ CONFIRMABLE_STEPS = ("terminal tour", "viewer visible", "viewer restart")
 @visible
 async def get_status():
     """
-    Setup status for the current user: who they are, whether you have helped
-    them before, every setup step with whether it is done, and exactly what to
+    Setup status for the current user: who they are, whether you have met
+    them in this game, every setup step with whether it is done, and exactly what to
     do next. Call this first, and again after each step.
     """
     logger.info(f"Executing get_status...")
@@ -151,18 +153,16 @@ async def get_status():
     steps = await _check_steps(username)
     done = [number for number, step in enumerate(steps, 1) if step["done"]]
 
-    visitors = _read_json(VISITORS_PATH)
-    visits = visitors.setdefault(username, {})
+    visitors_path = _game_visitors_path(game_uuid)
+    visitors = _read_json(visitors_path)
     # Read before this call's record is written, so a repeat call in the same game counts
-    if visits:
-        last = max(visits.values(), key=lambda visit: visit["lastSeen"])
-        seen = (f"You have helped {username} before: last seen {last['lastSeen']}, "
-                f"with {len(last['done'])} steps done.")
+    if username in visitors:
+        seen = f"You have already been helping {username} in this game."
     else:
-        seen = f"You have not seen {username} before."
+        seen = f"You have not met {username}."
 
-    visits[game_uuid] = {"lastSeen": _now(), "done": done}
-    _write_json(VISITORS_PATH, visitors)
+    visitors[username] = {"lastSeen": _now(), "done": done}
+    _write_json(visitors_path, visitors)
 
     current = next((number for number, step in enumerate(steps, 1) if not step["done"]), None)
     lines = [f"The user is {username}. {seen}", f"Setup has {len(SETUP_STEPS)} steps:"]
@@ -1105,6 +1105,18 @@ def _fix(status: dict) -> str:
             return "call install_3d_viewer; it clones the viewer for you."
         return f"have the user run: git clone {status['repository']} {status['path']}"
     return "do not change that folder; tell the user what you found and escalate."
+
+
+def _game_visitors_path(game_uuid: str) -> Path:
+    """This game's record of who its bot has met: {username: {lastSeen, done}}.
+
+    Bot memory lives with the game, so a new game starts with a bot that has
+    met nobody. The game folder must already exist (Chat creates it on join).
+    """
+    game_dir = DATA_PATH / "games" / game_uuid
+    if not game_dir.is_dir():
+        raise FileNotFoundError(f"No game folder for game {game_uuid!r} at {game_dir}")
+    return game_dir / "visitors.json"
 
 
 def _read_json(path: Path) -> dict:

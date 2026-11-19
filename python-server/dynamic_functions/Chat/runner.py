@@ -48,7 +48,7 @@ from .roster import (
     _roster_row_label,
     _roster_row_state,
 )
-from .common import MISSING_IMAGE_URI, game_path
+from .common import MISSING_IMAGE_URI, game_path, silent_command, silently
 
 
 async def _warn_unfilled_roster() -> None:
@@ -61,7 +61,7 @@ async def _warn_unfilled_roster() -> None:
 
 async def _roster_edit_modal(game_name: str) -> Optional[Dict[str, str]]:
 
-    roster = await atlantis.client_command("@roster_list")
+    roster = await silent_command("@roster_list")
     game_key = game_require_current(game_name)
     joined_bot_sids = set(_joined_bot_sids(game_name, game_key))
     heading = "Edit Roster"
@@ -580,7 +580,7 @@ async def roster_edit_modal_cancel(roster_modal_id: str) -> None:
 async def _game_enter(game_name: str, game_key: str) -> str:
     redirect_url = _game_window_redirect_url(game_name, game_key)
     if redirect_url:
-        await atlantis.client_log(f"Redirecting to game window: {redirect_url}")
+        await silently(atlantis.client_log(f"Redirecting to game window: {redirect_url}"))
         await atlantis.client_script(f"window.location.assign({redirect_url!r});")
         return game_key
     await atlantis.client_command("/cursor join", {"game_name": game_name, "game_key": game_key})
@@ -610,7 +610,7 @@ async def _roster_edit(
     game_name: str,
     heading: str = "Edit Roster",
 ) -> bool:
-    roster = await atlantis.client_command("@roster_list")
+    roster = await silent_command("@roster_list")
     human_slots = [
         row for row in roster
         if _roster_row_state(row) == STATE_HUMAN
@@ -769,7 +769,7 @@ def _first_human_slot_key(roster: list) -> str:
 
 async def _camera_edit(game_name: str, roster: Optional[list] = None, game_key: Optional[str] = None) -> bool:
     game_key = str(game_key or game_require_current(game_name)).strip()
-    roster_rows = roster if roster is not None else await atlantis.client_command("@roster_list")
+    roster_rows = roster if roster is not None else await silent_command("@roster_list")
     current = _camera_current_target(game_name, game_key)
     has_locations = bool(_leaf_location_keys(game_name))
     slot_choices = _camera_slot_choices(game_name, roster_rows, current)
@@ -783,12 +783,12 @@ async def _camera_edit(game_name: str, roster: Optional[list] = None, game_key: 
         current = _camera_current_target(game_name, game_key)
         terminal_key = atlantis.get_terminal_key() or ""
         cameras = _load_cameras(game_name, game_key)
-        await atlantis.client_log(
+        await silently(atlantis.client_log(
             "camera_edit redraw "
             f"game_key={game_key!r} session_key={atlantis.get_session_key()!r} "
             f"terminal_key={terminal_key!r} camera_keys={sorted(cameras.keys())!r} "
             f"current={current!r}"
-        )
+        ))
         slot_choices = _camera_slot_choices(game_name, roster_rows, current)
         if CAMERA_PINNED_MODE:
             # Degrade to location only if the pinned mode is impossible; the
@@ -827,9 +827,9 @@ async def _camera_edit(game_name: str, roster: Optional[list] = None, game_key: 
             if not current_slot:
                 human_slot = _first_human_slot_key(roster_rows)
                 if human_slot:
-                    await atlantis.client_log(
+                    await silently(atlantis.client_log(
                         f"camera_edit: binding to first human slot {human_slot!r} without prompting"
-                    )
+                    ))
                     await camera_follow(game_name, game_key, human_slot)
                     return True
 
@@ -926,7 +926,7 @@ async def _game_join_authorized(game_name: str, game_key: str, meta: Dict[str, A
         add_caller_membership(members)
     _game_update(game_name, game_key, meta)
     if already_member:
-        await atlantis.client_log(f"user already in game: {game_key}")
+        await silently(atlantis.client_log(f"user already in game: {game_key}"))
     else:
         await atlantis.client_log(
             f"✅ {atlantis.get_caller() or atlantis.get_session_key()} joined game {game_key}"
@@ -966,7 +966,7 @@ def _game_init_script(game_name: str) -> ModuleType:
 async def game_init(game_name: str, game_key: str):
     """Idempotent game setup: shared wiring here, then the game's own init script."""
 
-    await atlantis.client_log("*** GAME INIT ***")
+    await silently(atlantis.client_log("*** GAME INIT ***"))
 
     # make sure game exists
     require_membership(game_name, game_key)
@@ -980,6 +980,6 @@ async def game_init(game_name: str, game_key: str):
     callbacks = await atlantis.client_command("/callback list")
     chat_row = next(row for row in callbacks if row["mode"] == "chat")
 
-    await atlantis.client_log(f"chat callback: toolPath={chat_row['toolPath']!r} filename={chat_row['filename']!r}")
+    await silently(atlantis.client_log(f"chat callback: toolPath={chat_row['toolPath']!r} filename={chat_row['filename']!r}"))
 
     await _game_init_script(game_name).game_init(game_name, game_key)

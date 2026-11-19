@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional
 from .common import (
     _read_json,
     _write_json,
+    silently,
 )
 from .game import require_game_dir, require_membership
 from .location import (
@@ -82,7 +83,7 @@ def _resolve_camera_location(game_name: str, game_key: str, entry: Dict[str, Any
 async def _paint_location(game_name: str, location: str) -> None:
     background = location_image_path(game_name, location)
     align = _location_default_camera_align(game_name, location)
-    await atlantis.client_log(f"camera paint location={location!r} background={background!r} align={align!r}")
+    await silently(atlantis.client_log(f"camera paint location={location!r} background={background!r} align={align!r}"))
     await atlantis.set_background(background, vertical_align=align, shell="chat")
 
 
@@ -148,11 +149,11 @@ async def camera_bind(game_name: str, game_key: str, location: str) -> Dict[str,
     terminal_key = atlantis.get_terminal_key()
     if not terminal_key:
         raise RuntimeError("No terminal key in this call context")
-    await atlantis.client_log(
+    await silently(atlantis.client_log(
         "camera_bind context "
         f"game_key={game_key!r} session_key={atlantis.get_session_key()!r} "
         f"terminal_key={terminal_key!r} location={location!r}"
-    )
+    ))
     loc = _load_location(game_name, location)
     if not loc:
         raise ValueError(f"Unknown location: {location}")
@@ -167,12 +168,12 @@ async def camera_bind(game_name: str, game_key: str, location: str) -> Dict[str,
         "updated_at": _now_iso(),
     }
     _save_cameras(game_name, game_key, cameras)
-    await atlantis.client_log(
+    await silently(atlantis.client_log(
         f"camera_bind saved terminal_key={terminal_key!r} camera_keys={sorted(cameras.keys())!r}"
-    )
+    ))
 
     await _paint_location(game_name, location)
-    await _render_cameras(game_name, game_key)
+    await silently(_render_cameras(game_name, game_key))
     return {"terminal": terminal_key, "target_type": "location", "location": location}
 
 
@@ -187,11 +188,11 @@ async def _camera_follow_slot(
     terminal_key = atlantis.get_terminal_key()
     if not terminal_key:
         raise RuntimeError("No terminal key in this call context")
-    await atlantis.client_log(
+    await silently(atlantis.client_log(
         "camera_follow context "
         f"game_key={game_key!r} session_key={atlantis.get_session_key()!r} "
         f"terminal_key={terminal_key!r} slot_key={slot_key!r}"
-    )
+    ))
 
     slot_key = str(slot_key).strip()
     location = _slot_location(game_name, game_key, slot_key)
@@ -230,21 +231,21 @@ async def _camera_follow_slot(
 
     if changed:
         _save_cameras(game_name, game_key, cameras)
-        await atlantis.client_log(
+        await silently(atlantis.client_log(
             f"camera_follow saved terminal_key={terminal_key!r} camera_keys={sorted(cameras.keys())!r}"
-        )
+        ))
 
-    await atlantis.client_log(
+    await silently(atlantis.client_log(
         f"camera_follow terminal={terminal_key!r} slot={slot_key!r} location={location!r}"
-    )
+    ))
     if location:
         await _paint_location(game_name, location)
-        await atlantis.client_log(f"camera painted terminal={terminal_key!r} location={location!r}")
+        await silently(atlantis.client_log(f"camera painted terminal={terminal_key!r} location={location!r}"))
     else:
-        await atlantis.client_log(
+        await silently(atlantis.client_log(
             f"camera_follow pending terminal={terminal_key!r} slot={slot_key!r}; slot has no location yet"
-        )
-    await _render_cameras(game_name, game_key)
+        ))
+    await silently(_render_cameras(game_name, game_key))
     return {
         "terminal": terminal_key,
         "target_type": "slot",
@@ -287,10 +288,10 @@ async def camera_slot_moved(game_name: str, game_key: str, slot_key: str, locati
         return []
 
     if location:
-        await atlantis.client_log(
+        await silently(atlantis.client_log(
             f"camera_slot_moved slot={slot_key!r} location={location!r} "
             f"followers={sorted(moved)!r}"
-        )
+        ))
         await _paint_location(game_name, location)
-    await _render_cameras(game_name, game_key)
+    await silently(_render_cameras(game_name, game_key))
     return sorted(moved)

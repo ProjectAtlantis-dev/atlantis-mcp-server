@@ -42,12 +42,34 @@ class BotConfigT(TypedDict):
     model: str
     baseUrl: str
     apiKeyEnv: str
+    # OpenRouter provider preferences, sent verbatim as the request's `provider`
+    routing: Dict[str, Any]
     prompt: str
     image: str
 
 
 _BOT_SID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 _BOTS_DIRNAME = "bots"
+
+
+# Quantizations at or above fp8; anything else (fp4, int4, unknown...) is refused
+_ALLOWED_QUANTIZATIONS = {"fp8", "fp16", "bf16", "fp32"}
+
+
+def _require_routing(raw: Dict[str, Any], label: str) -> Dict[str, Any]:
+    """A bot's routing must pin quantizations to fp8 or better."""
+    routing = raw.get("routing")
+    if not isinstance(routing, dict):
+        raise ValueError(f"{label} is missing required object field 'routing'")
+    quants = routing.get("quantizations")
+    if not isinstance(quants, list) or not quants:
+        raise ValueError(f"{label} routing must list 'quantizations'")
+    below = sorted(set(quants) - _ALLOWED_QUANTIZATIONS)
+    if below:
+        raise ValueError(
+            f"{label} routing allows {below}; only {sorted(_ALLOWED_QUANTIZATIONS)} are permitted"
+        )
+    return routing
 
 
 def validate_bot_config(raw: Any) -> BotConfigT:
@@ -65,6 +87,7 @@ def validate_bot_config(raw: Any) -> BotConfigT:
         model=_require_str(raw, "model", label),
         baseUrl=str(raw.get("baseUrl", "")),
         apiKeyEnv=str(raw.get("apiKeyEnv", "")),
+        routing=_require_routing(raw, label),
         prompt=_require_str(raw, "prompt", label),
         image=str(raw.get("image", "")),
     )

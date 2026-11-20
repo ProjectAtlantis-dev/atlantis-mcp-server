@@ -19,7 +19,7 @@ from typing import Any, Dict, List
 logger = logging.getLogger("dynamic_function")
 
 _BOT_SID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
-_REQUIRED_FIELDS = ("displayName", "provider", "model")
+_REQUIRED_FIELDS = ("displayName", "provider", "model", "routing")
 
 
 def _bots_dir() -> str:
@@ -73,7 +73,7 @@ def bot_image_data(bot_sid: str) -> str:
 
 
 @public
-async def bot_get(bot_sid: str) -> Dict[str, str]:
+async def bot_get(bot_sid: str) -> Dict[str, Any]:
     """Return a bot's full config, raw prompt, and full image data URI for joining a game."""
     bot_dir = _bot_dir(bot_sid)
     config = _load_config(bot_sid)
@@ -89,6 +89,7 @@ async def bot_get(bot_sid: str) -> Dict[str, str]:
         "model": str(config["model"]),
         "baseUrl": str(config.get("baseUrl", "")),
         "apiKeyEnv": str(config.get("apiKeyEnv", "")),
+        "routing": config["routing"],
         "prompt": prompt,
         "image": bot_image_data(bot_sid),
     }

@@ -37,6 +37,40 @@ async def _close_streams(talk_id, think_id):
                 )
 
 
+async def _record_telemetry(game_dir: str, record: Dict[str, Any]) -> None:
+    """Log one API round's served model/provider/usage and append it to telemetry.jsonl."""
+    usage = record["usage"] or {}
+    summary = (
+        f"telemetry: bot={record['bot_sid']!r} turn={record['turn']} "
+        f"gen={record['generation_id']} model={record['model']!r} provider={record['provider']!r} "
+        f"tokens={usage.get('prompt_tokens')}/{usage.get('completion_tokens')} "
+        f"cost={usage.get('cost')} latency={record['latency_s']}s"
+    )
+    logger.info(summary)
+    await silently(atlantis.client_log(summary))
+
+    # A round cut off at the chunk limit never reaches the usage chunk
+    expected = ["generation_id", "model", "provider"] + ([] if record["stream_aborted"] else ["usage"])
+    missing = [k for k in expected if record[k] is None]
+    if missing:
+        logger.error(f"Telemetry missing {missing} for {record['bot_sid']!r} turn {record['turn']}")
+        await atlantis.client_warning(
+            f"API response for {record['bot_sid']!r} turn {record['turn']} did not report: {', '.join(missing)}",
+            level="ERROR",
+        )
+
+    path = os.path.join(game_dir, "telemetry.jsonl")
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+    except Exception as e:
+        logger.exception(f"Failed to append telemetry to {path}")
+        await atlantis.client_warning(
+            f"Failed to append telemetry to {path}: {type(e).__name__}: {e}",
+            level="ERROR",
+        )
+
+
 # Read on every turn so a key added during setup works without a restart.
 _CHAT_ENV = Path(__file__).resolve().parent / ".env"
 
@@ -69,7 +103,9 @@ async def _game_status(game_name: str) -> Optional[Dict[str, str]]:
     instead of trusting the bot to ask for it.
 
     A game names its tool as STATUS_TOOL in <game_name>/init.py (by convention
-    the get_status beside its app's on_enter). A game without one is skipped.
+    the get_status in its app's Robot folder). It runs every round, so it must
+    only read state; recording what the bot did belongs in AFTER_TURN_TOOL.
+    A game without one is skipped.
     """
     status_tool = getattr(_game_init_script(game_name), "STATUS_TOOL", None)
     if not status_tool:
@@ -79,6 +115,20 @@ async def _game_status(game_name: str) -> Optional[Dict[str, str]]:
     if not isinstance(status, str):
         raise TypeError(f"{status_tool} must return a string, got {type(status).__name__}")
     return {'role': 'system', 'content': f"Current status, fetched for this turn by {status_tool}:\n{status}"}
+
+
+async def _game_after_turn(game_name: str) -> None:
+    """Run the game's AFTER_TURN_TOOL once a bot's reply has gone out, so the
+    game records that turn (e.g. that the bot has now met the caller).
+
+    Named in <game_name>/init.py like STATUS_TOOL. A game without one is skipped.
+    """
+    after_turn_tool = getattr(_game_init_script(game_name), "AFTER_TURN_TOOL", None)
+    if not after_turn_tool:
+        logger.warning(f"Game {game_name!r} has no AFTER_TURN_TOOL in its init.py; turn is not recorded")
+        return
+    result = await silent_command(after_turn_tool)
+    logger.info(f"{after_turn_tool}: {result}")
 
 
 def _message_text(message: Dict[str, Any]) -> str:
@@ -291,15 +341,16 @@ async def _execute_discovery_tool(
         f"{len(results) if isinstance(results, list) else type(results).__name__} rows:\n"
         f"{format_json_log(results)}"
     )
-    if not results:
+    if not isinstance(results, list):
+        raise TypeError(f"{command} returned {type(results).__name__}, expected a list")
+
+    # Rows the bot may not call (disconnected, Robot folders) count as nothing
+    discovered_tools, discovered_lookup = convert_discovery_rows(results)
+    if not discovered_tools:
         return (
             f"Nothing in the system provides {value!r}. This is the complete "
             f"answer, not a hint to rephrase — do not retry with synonyms."
         )
-    if not isinstance(results, list):
-        raise TypeError(f"{command} returned {type(results).__name__}, expected a list")
-
-    discovered_tools, discovered_lookup = convert_discovery_rows(results)
     added: List[str] = []
     for tool in discovered_tools:
         name = tool["function"]["name"]
@@ -378,6 +429,7 @@ async def run_turn(
     api_key = _chat_env(api_key_env) if api_key_env else ""
     base_url = cfg["baseUrl"] or None
     model = cfg["model"]
+    routing = cfg["routing"]
     bot_display_name = str(roster_names.get(bot_sid) or "").strip()
     if not bot_display_name:
         raise ValueError(f"Bot {bot_sid!r} has no roster name in game {game_key!r}")
@@ -431,6 +483,7 @@ async def run_turn(
                 "model": model,
                 "messages": api_messages,
                 "tools": openai_tools,
+                "provider": routing,
                 "turn": turn_count,
             }
             try:
@@ -478,12 +531,27 @@ async def run_turn(
                 tool_choice=cast(Any, ("none" if final_round else "auto") if openai_tools else None),
                 stream=True,
                 max_tokens=16000,
-                extra_body={"reasoning": {"effort": "low"}},
+                stream_options={"include_usage": True},
+                extra_body={"reasoning": {"effort": "low"}, "provider": routing},
             )
             logger.info(f"Stream opened in {_t.monotonic() - t_api:.2f}s")
             await silently(atlantis.client_log(f"run_turn stream opened: model={model!r}"))
 
+            # What OpenRouter reports back: which generation, model and
+            # provider served this round, and the usage/cost chunk at the end
+            generation_id: Optional[str] = None
+            served_model: Optional[str] = None
+            served_provider: Optional[str] = None
+            usage: Optional[Dict[str, Any]] = None
+            stream_aborted = False
+
             for chunk in stream:
+                generation_id = generation_id or chunk.id
+                served_model = served_model or chunk.model
+                served_provider = served_provider or getattr(chunk, "provider", None)
+                if chunk.usage is not None:
+                    usage = chunk.usage.model_dump()
+
                 if not chunk.choices:
                     continue
 
@@ -513,6 +581,7 @@ async def run_turn(
 
                         if streamed_count >= 512:
                             logger.warning("Aborting stream — chunk limit reached")
+                            stream_aborted = True
                             break
 
                 # Tool call fragments
@@ -532,6 +601,22 @@ async def run_turn(
                 f"run_turn stream done: turn={turn_count} chunks={streamed_count} "
                 f"tool_calls={len(tool_calls_accumulator)}"
             ))
+
+            await _record_telemetry(
+                game_dir=require_membership(game_name, game_key),
+                record={
+                    "ts": _t.time(),
+                    "bot_sid": bot_sid,
+                    "turn": turn_count,
+                    "generation_id": generation_id,
+                    "requested_model": model,
+                    "model": served_model,
+                    "provider": served_provider,
+                    "usage": usage,
+                    "latency_s": round(_t.monotonic() - t_api, 3),
+                    "stream_aborted": stream_aborted,
+                },
+            )
 
             # Stop when no tools are requested
             if not tool_calls_accumulator:
@@ -673,6 +758,10 @@ async def run_turn(
 
     finally:
         await _close_streams(stream_talk_id, stream_think_id)
+
+    # Only a turn that actually said something counts as the bot having been there
+    if accumulated_text:
+        await _game_after_turn(game_name)
 
     await silently(atlantis.client_log(
         f"run_turn done: bot_sid={bot_sid!r} chars={len(accumulated_text or '')}"

@@ -20,9 +20,6 @@ from dotenv import dotenv_values, set_key
 
 logger = logging.getLogger("dynamic_function")
 
-# Placeholder background: builder.jpg in the project root
-SETUP_BG_PATH = Path(__file__).absolute().parents[3] / "builder.jpg"
-
 
 @visible
 @index
@@ -36,50 +33,6 @@ async def index():
 
     # Replace this return statement with your function's result
     return f"Placeholder function 'index' executed successfully."
-
-
-@visible
-@enter
-async def on_enter():
-    """
-    Runs when entering chat
-    """
-    logger.info(f"Executing Setup on_enter...")
-
-    #await atlantis.client_log("enter running")
-    await atlantis.set_background(str(SETUP_BG_PATH), vertical_align="center")
-
-    # The app folder name is the Chat game name; preflight and chat read it from the cursor
-    await atlantis.client_command("/cursor join", {"game_name": Path(__file__).parent.name})
-
-    # Point the calling terminal at this folder's chat shell (upserted by Node, keyed by folder)
-    await atlantis.client_command("/chat bind " + json.dumps(atlantis.get_script_folder()), shell="caller")
-
-    return "Setup entered"
-
-
-@visible
-@exit
-async def on_exit():
-    """
-    Runs when leaving chat
-    """
-    logger.info(f"Executing Setup on_exit...")
-
-    # Walk out of the room while this folder's chat is still bound
-    from dynamic_functions.Chat.roster import roster_leave
-    await roster_leave(Path(__file__).parent.name)
-
-    #await atlantis.client_log("exit running")
-    await atlantis.clear_background()
-
-    # Drop the game cursor joined in on_enter
-    await atlantis.client_command("/cursor clear")
-
-    # Detach the calling terminal from this folder's chat shell; the chat shell stays
-    await atlantis.client_command("/chat unbind", shell="caller")
-
-    return "Setup exited"
 
 
 TERRAIN_REPO = "https://github.com/ProjectAtlantis-dev/mcp-pkg-terrain"
@@ -134,53 +87,6 @@ PROGRESS_PATH = DATA_PATH / "progress.json"
 CHECKS_PATH = DATA_PATH / "checks.json"
 
 CONFIRMABLE_STEPS = ("terminal tour", "viewer visible", "viewer restart")
-
-
-@visible
-async def get_status():
-    """
-    Setup status for the current user: who they are, whether you have met
-    them in this game, every setup step with whether it is done, and exactly what to
-    do next. Call this first, and again after each step.
-    """
-    logger.info(f"Executing get_status...")
-
-    username = _caller()
-    game_uuid = atlantis.get_game_uuid()
-    if not game_uuid:
-        raise RuntimeError("get_status has no game_uuid; it must be called from the Setup chat")
-
-    steps = await _check_steps(username)
-    done = [number for number, step in enumerate(steps, 1) if step["done"]]
-
-    visitors_path = _game_visitors_path(game_uuid)
-    visitors = _read_json(visitors_path)
-    # Read before this call's record is written, so a repeat call in the same game counts
-    if username in visitors:
-        seen = f"You have already been helping {username} in this game."
-    else:
-        seen = f"You have not met {username}."
-
-    visitors[username] = {"lastSeen": _now(), "done": done}
-    _write_json(visitors_path, visitors)
-
-    current = next((number for number, step in enumerate(steps, 1) if not step["done"]), None)
-    lines = [f"The user is {username}. {seen}", f"Setup has {len(SETUP_STEPS)} steps:"]
-    for number, ((name, _, _), step) in enumerate(zip(SETUP_STEPS, steps), 1):
-        if step["done"]:
-            label = "done"
-        elif number == current:
-            label = "NEXT"
-        elif step["waitsOn"]:
-            label = f"waiting on step {step['waitsOn']}"
-        else:
-            label = "to do"
-        lines.append(f"{number}. [{label}] {name}: {step['state']}")
-    if current is None:
-        lines.append("Next: setup is complete; tell the user they are ready to use Terrain.")
-    else:
-        lines.append(f"Next (step {current}): {steps[current - 1]['fix']}")
-    return "\n".join(lines)
 
 
 @visible
@@ -1105,18 +1011,6 @@ def _fix(status: dict) -> str:
             return "call install_3d_viewer; it clones the viewer for you."
         return f"have the user run: git clone {status['repository']} {status['path']}"
     return "do not change that folder; tell the user what you found and escalate."
-
-
-def _game_visitors_path(game_uuid: str) -> Path:
-    """This game's record of who its bot has met: {username: {lastSeen, done}}.
-
-    Bot memory lives with the game, so a new game starts with a bot that has
-    met nobody. The game folder must already exist (Chat creates it on join).
-    """
-    game_dir = DATA_PATH / "games" / game_uuid
-    if not game_dir.is_dir():
-        raise FileNotFoundError(f"No game folder for game {game_uuid!r} at {game_dir}")
-    return game_dir / "visitors.json"
 
 
 def _read_json(path: Path) -> dict:

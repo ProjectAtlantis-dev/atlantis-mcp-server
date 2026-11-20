@@ -6,7 +6,7 @@ Each Atlantis MCP acts as a filesystem node for Multix, our nix-like 'operating 
 
 Lobster connects your MCP client to the local Python server. Its command and chat tools route through the connected Atlantis cloud session.
 
-🦞 **The human sees more than you do.** Everything Lobster sends is rendered in the user's Atlantis terminal, including images, video and HTML. You only get the text: media and HTML entries reach you as `image`/`video`/`html` transcript entries with empty `content` (or `[non-text content was sent]`) and an empty `returnValue`. That means the command ran and the user can see the output; it is not a failure. Ask the user what they see instead of debugging it, and prefer commands that return text or structured data when you need the result yourself.
+🦞 **The human sees more than you do.** Everything Lobster sends is rendered in the user's Atlantis terminal, including images, video and HTML. You only get the text: media and HTML entries reach you as `image`/`video`/`html` transcript entries with empty `content` (or `[non-text content was sent]`) and an empty `returnValue`. That means the command ran and the user can see the output; it is not a failure. Ask the user what they see instead of debugging it, and prefer commands that return text or structured data when you need the result yourself. Never tell a bot or the user that media displayed when you could not see it. Errors from your own test calls show in the user's terminal too, so say when an error they see was deliberate.
 
 Lobster wraps each call in `/silent on`, `/transcript chat` and `/silent off` to keep the user's terminal uncluttered. Expect these in the transcript and ignore them.
 
@@ -93,8 +93,13 @@ While purely positional parameters usually work, it is better to use explicitly 
 
 - `@foo { "x": 3, "name": "chicago" }`
 - `/codeset { "searchTerm": "bar", "contents": "async def bar(): ... rest of code here ..." }`
+- `/ls { "searchTerm": "$Demo/*" }`
 
 The `help` command also provides parameter info.
+
+## Chat
+
+`chat` talks to the chat bound to your terminal, and the bots in it answer there. Changing into a folder that has a chat does not start it: the first `chat` message does, by running the folder's `@enter`.
 
 ## How the Description Field Is Populated
 
@@ -113,3 +118,8 @@ Be aware you can list, start, and stop classic MCP servers as well (which are mo
 In practical programming terms, a cursor does what a call stack what normally do - it's simply a place to hold function parameters so you don't have to constantly type them in.  That is if you have a function `foo(x,y)` and the cursor already hold `x=3` then you only need to supply `y` on the command line.
 
 Why cursors? Well although tools are functions, we don't have an interactive way to compose functions in a categories (think category theory) since there's no functional programming (FP) here and everyone hates FP anyway. So cursors play the role of monads ie the 'glue' btw functions. If you are familiar with Scala ZIO, think ZLayers; if you are familiar with Unison, think ability stack. Setting x=3 and then x=4 pushes two structures onto the Multix cursor stack and you can pop later.
+
+## Troubleshooting
+
+- **`No active game connection`:** there is no game to join yet. Ask the user to start or join one in the browser. Lobster connects on its next call, so it doesn't need reconnecting.
+- **Lobster tools missing, or `Unknown tool`:** the Lobster process has gone away, usually because the local Python server restarted. Ask the user to reconnect Lobster in their MCP client.

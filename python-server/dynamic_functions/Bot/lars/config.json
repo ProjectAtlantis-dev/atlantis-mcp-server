@@ -1,8 +1,18 @@
 {
   "displayName": "Lars",
   "provider": "openrouter",
-  "model": "z-ai/glm-5",
+  "model": "z-ai/glm-5.2",
   "baseUrl": "https://openrouter.ai/api/v1",
   "apiKeyEnv": "OPENROUTER_API_KEY",
+  "routing": {
+    "quantizations": [
+      "fp8",
+      "fp16",
+      "bf16",
+      "fp32"
+    ],
+    "sort": "price",
+    "require_parameters": true
+  },
   "image": "image.jpg"
 }

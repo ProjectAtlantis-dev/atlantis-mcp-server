@@ -53,8 +53,18 @@ Untyped parameters are strings, and parameters with defaults are optional.
   - `@file` handles file storage.
   - `@upload` stores files dropped on the chat input and returns what to insert there.
   - `@enter` / `@exit` run when a terminal `cd` enters or leaves the folder's
-    subtree (the folder needs an `@index`). Nested folders enter outermost
-    first and exit innermost first.
+    subtree (the folder needs an `@index`). Only the nearest folder with a hook
+    runs; the ones above it don't.
+- **Robot folder:** an app keeps the tools its chat drives (`@enter`, `@exit`,
+  `get_status`, `record_visit`) in a `Robot/` subfolder, e.g.
+  `Setup/Robot/main.py`. Hooks there belong to the app folder above it, so
+  `cd Setup` runs `Setup/Robot/on_enter`. `Robot/` needs its own `main.py`
+  with a `@visible` `index()`, like any folder. Bots are never offered Robot
+  tools. `Chat/<game>/init.py` names two of them:
+  - `STATUS_TOOL` (e.g. `$Setup/Robot/get_status`) runs before every bot
+    round, so it must only read state.
+  - `AFTER_TURN_TOOL` (e.g. `$Setup/Robot/record_visit`) runs once after a
+    bot's reply goes out.
 - **Structure:** `@index`, `@text("md")`, `@location(...)`, `@price(...)`,
   `@copy`, `@dynamic`.
 - **Modifiers:** `@exclude` (hidden from fuzzy search), `@button`.

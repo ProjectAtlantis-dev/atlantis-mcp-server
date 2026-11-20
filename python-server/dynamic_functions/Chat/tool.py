@@ -114,6 +114,15 @@ def _tool_path_segments(tool: AtlantisSearchToolT) -> List[str]:
     return segments
 
 
+# An app's Robot folder holds the tools its chat runs (@enter, @exit,
+# get_status), never tools a bot is offered
+ROBOT_FOLDER = "Robot"
+
+
+def _in_robot_folder(segments: List[str]) -> bool:
+    return any(segment.lower() == ROBOT_FOLDER.lower() for segment in segments)
+
+
 def _tool_search_term(tool: AtlantisSearchToolT, name: str) -> str:
     """Build an anchored Atlantis tool path (see src/common/ToolPath.ts).
 
@@ -149,6 +158,9 @@ def convert_search_tools(
         name = tool.get('tool_name', '')
         if not name:
             logger.warning(f"convert_search_tools: skipping tool with no tool_name: {tool}")
+            continue
+        if _in_robot_folder(_tool_path_segments(tool)):
+            logger.info(f"convert_search_tools: drop {name!r}: in a {ROBOT_FOLDER} folder")
             continue
 
         sanitized = re.sub(r'[^a-zA-Z0-9_-]', '_', name)
@@ -247,6 +259,9 @@ def convert_discovery_rows(
         # Path is /owner/remote/App/.../name — drop owner+remote for the
         # model-facing name so same-named tools in different apps stay distinct
         segments = search_term.strip('/').split('/')
+        if _in_robot_folder(segments[2:-1]):
+            logger.info(f"convert_discovery_rows: drop {search_term!r}: in a {ROBOT_FOLDER} folder")
+            continue
         sanitized = re.sub(r'[^a-zA-Z0-9_-]', '_', '__'.join(segments[2:]))
         if sanitized in tool_lookup:
             logger.warning(

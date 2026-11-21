@@ -31,7 +31,7 @@ def get_default_lobster_tools() -> List[Tool]:
         ),
         Tool(
             name="command",
-            description="Send text to Atlantis as a command. Unlike chat, adds a leading / unless the text starts with /, \\, %, @, or ~. Shell commands use / (e.g. /ls); tool calls must use @ (e.g. @foo or @foo(3,100)), since /foo is parsed as a shell command and will not find the tool. The user sees all output in their Atlantis terminal; images, video and HTML reach you only as empty transcript entries, which means success, not failure.",
+            description="Send text to Atlantis as a command. Unlike chat, adds a leading / unless the text starts with /, \\, %, @, or ~. Shell commands use / (e.g. /ls); tool calls must use @ (e.g. @foo or @foo(3,100)), since /foo is parsed as a shell command and will not find the tool. The user sees all output in their Atlantis terminal; images and video reach you as placeholders like [image shown to the user], and HTML as an empty transcript entry; both mean success, not failure.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -116,6 +116,29 @@ def transform_transcript_for_llm(raw_transcript: List[Dict[str, Any]]) -> List[D
         })
 
     return transcript
+
+
+def _media_placeholders(value: Any) -> Any:
+    """Swap media for short text before it reaches the MCP client.
+
+    The user's terminal shows media; the client only needs to know it was
+    there. A data URI (an image column in a table) becomes
+    "[image/png shown to the user]", and an image/video transcript entry with
+    no text gets "[image shown to the user]" as its content.
+    """
+    if isinstance(value, str):
+        if value.startswith("data:"):
+            mime = value[5:].split(";", 1)[0].split(",", 1)[0] or "media"
+            return f"[{mime} shown to the user]"
+        return value
+    if isinstance(value, list):
+        return [_media_placeholders(item) for item in value]
+    if isinstance(value, dict):
+        out = {key: _media_placeholders(item) for key, item in value.items()}
+        if out.get("type") in ("image", "video") and not out.get("content"):
+            out["content"] = f"[{out['type']} shown to the user]"
+        return out
+    return value
 
 
 async def fetch_lobster_transcript(
@@ -257,8 +280,8 @@ async def handle_local_lobster_tool_call(
     )
 
     combined_response = {
-        "transcript": raw_transcript[-5:],
-        "returnValue": response,
+        "transcript": _media_placeholders(raw_transcript[-5:]),
+        "returnValue": _media_placeholders(response),
     }
 
     result = {

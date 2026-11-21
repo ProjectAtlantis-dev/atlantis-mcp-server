@@ -12,13 +12,11 @@ async def list_demo_tools() -> str:
     if not isinstance(rows, list):
         raise TypeError(f"/ls returned {type(rows).__name__}, expected a list")
 
-    # Example tools only: not subfolders (like Robot), the app's own main.py
-    # (index, the walkthrough) or this listing
+    # Example tools only: not subfolders (like Robot) or the app's own main.py (index)
     lines = [
         f"- {row['name']}: {row['description']}"
         for row in rows
-        if row.get("name")
-        and row.get("filename") not in ("main.py", "list_demo_tools.py")
+        if row.get("name") and row.get("filename") != "main.py"
     ]
     if not lines:
         raise RuntimeError("/ls $Demo/* found no Demo tools")

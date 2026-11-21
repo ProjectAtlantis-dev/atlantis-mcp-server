@@ -213,6 +213,26 @@ class DiscoveryRowT(TypedDict, total=False):
     is_connected: bool
 
 
+def _signature_name(tool_str: str) -> str:
+    """The function name in a Multix display signature ('name (a:string): object')."""
+    name = tool_str.split('(')[0].strip()
+    if not name:
+        raise ValueError(f"Tool signature {tool_str!r} has no name")
+    return name
+
+
+def _signature_tool(model_name: str, tool_str: str, description: str) -> OpenAITool:
+    """An OpenAI tool from a Multix display signature, as /search and /ls show it."""
+    return {
+        'type': 'function',
+        'function': {
+            'name': model_name,
+            'description': description,
+            'parameters': parse_tool_params(tool_str),
+        },
+    }
+
+
 def _discovery_row_path(row: DiscoveryRowT, name: str) -> str:
     """Root-anchored '/owner/remote/App/Sub/name' path for one discovery row."""
     if row.get('type') == 'tool':
@@ -251,9 +271,7 @@ def convert_discovery_rows(
             continue
 
         tool_str = row.get('tool', '')
-        name = tool_str.split('(')[0].strip()
-        if not name:
-            raise ValueError(f"Discovery row {row!r} has no tool signature")
+        name = _signature_name(tool_str)
         search_term = _discovery_row_path(row, name)
 
         # Path is /owner/remote/App/.../name — drop owner+remote for the
@@ -269,14 +287,7 @@ def convert_discovery_rows(
                 f"{tool_lookup[sanitized]['searchTerm']!r} replaced by {'%' + search_term.lstrip('/')!r}"
             )
 
-        openai_tools.append({
-            'type': 'function',
-            'function': {
-                'name': sanitized,
-                'description': row.get('description', ''),
-                'parameters': parse_tool_params(tool_str),
-            },
-        })
+        openai_tools.append(_signature_tool(sanitized, tool_str, row.get('description', '')))
         tool_lookup[sanitized] = {
             'searchTerm': '%' + search_term.lstrip('/'),
             'filename': row.get('filename', ''),
@@ -284,6 +295,58 @@ def convert_discovery_rows(
         }
 
     logger.info(f"convert_discovery_rows: {len(rows)} in -> {len(openai_tools)} out")
+    return openai_tools, tool_lookup
+
+
+def convert_folder_rows(
+    rows: List[Dict[str, Any]],
+    folder_term: str,
+) -> Tuple[List[OpenAITool], Dict[str, ToolLookupInfo]]:
+    """Convert '/ls <folder_term>/*' rows to OpenAI function-calling format.
+
+    Every tool row in the folder becomes a tool named by its bare function
+    name and addressed as <folder_term>/<name>. Subfolder rows (no name) are
+    not tools.
+    """
+    if folder_term[:1] not in ('%', '$', '~', '/'):
+        raise ValueError(f"Folder term is not anchored: {folder_term!r}")
+    openai_tools: List[OpenAITool] = []
+    tool_lookup: Dict[str, ToolLookupInfo] = {}
+
+    for row in rows:
+        tool_str = row.get('name')
+        if not tool_str:
+            continue
+        name = _signature_name(tool_str)
+        if not row.get('is_connected'):
+            raise RuntimeError(f"Tool {folder_term}/{name} is not connected")
+        sanitized = re.sub(r'[^a-zA-Z0-9_-]', '_', name)
+        if sanitized in tool_lookup:
+            raise ValueError(f"Duplicate model-facing tool name in {folder_term}: {sanitized!r}")
+        # /ls lists parameters as plain keys; Node maps and checks values against
+        # the real schema when the tool is called
+        params = row.get('params')
+        if not isinstance(params, list):
+            raise TypeError(f"/ls row for {folder_term}/{name} has no params list: {params!r}")
+        openai_tools.append({
+            'type': 'function',
+            'function': {
+                'name': sanitized,
+                'description': row.get('description', ''),
+                'parameters': {
+                    'type': 'object',
+                    'properties': {param: {'type': 'string'} for param in params},
+                    'required': list(params),
+                },
+            },
+        })
+        tool_lookup[sanitized] = {
+            'searchTerm': f"{folder_term}/{name}",
+            'filename': row.get('filename') or '',
+            'functionName': name,
+        }
+
+    logger.info(f"convert_folder_rows {folder_term}: {len(rows)} in -> {len(openai_tools)} out")
     return openai_tools, tool_lookup
 
 

@@ -82,6 +82,8 @@ VIEWER_START_TIMEOUT_SECONDS = 60
 # Data for the Chat game this app joins
 DATA_PATH = Path(__file__).absolute().parents[1] / "Chat" / Path(__file__).parent.name / "Data"
 # {username: {confirmed: {step: when}, restartPractice: null | "declined" | {stoppedAt}}}
+# Unlike other apps (e.g. Demo), Setup progress is global, not per game: setup
+# describes this machine, and a new game does not uninstall anything.
 PROGRESS_PATH = DATA_PATH / "progress.json"
 # Machine facts that are too slow or costly to re-prove on every get_status
 CHECKS_PATH = DATA_PATH / "checks.json"

@@ -27,7 +27,7 @@ SETUP_BG_PATH = Path(__file__).absolute().parents[4] / "builder.jpg"
 @visible
 @index
 async def index():
-    """Setup's robot: the enter/exit hooks and the status Chat reads every bot turn"""
+    """Robot info for Astrid"""
     return "Setup robot"
 
 
@@ -45,7 +45,10 @@ async def on_enter():
     await atlantis.client_command("/cursor join", {"game_name": APP_NAME})
 
     # Point the calling terminal at the app folder's chat shell (upserted by Node, keyed by folder)
-    app_folder = posixpath.dirname(atlantis.get_script_folder())
+    script_folder = atlantis.get_script_folder()
+    if not script_folder:
+        raise RuntimeError("No script folder; on_enter must run as a dynamic function")
+    app_folder = posixpath.dirname(script_folder)
     await atlantis.client_command("/chat bind " + json.dumps(app_folder), shell="caller")
 
     return "Setup entered"

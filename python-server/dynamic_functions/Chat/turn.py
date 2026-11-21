@@ -6,7 +6,8 @@ import time as _t
 
 from dotenv import dotenv_values
 from mcp.shared.exceptions import McpError
-from openai import OpenAI
+from openai import OpenAI, omit
+from openai.types.chat import ChatCompletionFunctionToolParam
 from pathlib import Path
 from typing import Callable, List, Dict, Any, Optional, Tuple, cast
 
@@ -16,7 +17,8 @@ from .runner import _game_init_script
 from .tool import (
     logger,
     AtlantisSearchToolT, OpenAITool, ToolLookupInfo,
-    _repair_json, coerce_args_to_schema, convert_discovery_rows, convert_search_tools,
+    _repair_json, coerce_args_to_schema, convert_discovery_rows, convert_folder_rows,
+    convert_search_tools,
 )
 from utils import format_json_log
 
@@ -96,6 +98,20 @@ async def _search_rows(query: str) -> Any:
     as quoting and sequencing.
     """
     return await silent_command("/search", {"content": query})
+
+
+# A zone's own bot tools live in its app's Robot/Tools folder; the app folder
+# is named for the game. Every tool there is loaded into every bot round.
+_ZONE_TOOLS_FOLDER = "Robot/Tools"
+
+
+async def _zone_tools(game_name: str) -> Tuple[List[OpenAITool], Dict[str, ToolLookupInfo]]:
+    """The zone's bot tools, listed fresh: a game without the folder has none."""
+    folder_term = f"${game_name}/{_ZONE_TOOLS_FOLDER}"
+    rows = await silent_command("/ls", {"searchTerm": f"{folder_term}/*"})
+    if not isinstance(rows, list):
+        raise TypeError(f"/ls {folder_term}/* returned {type(rows).__name__}, expected a list")
+    return convert_folder_rows(rows, folder_term)
 
 
 async def _game_status(game_name: str) -> Optional[Dict[str, str]]:
@@ -283,6 +299,7 @@ def _make_tool_binder(
 
 async def _build_round_tools(
     *,
+    game_name: str,
     tools: List[AtlantisSearchToolT],
     tool_argument_overrides: Dict[str, Dict[str, Any]],
     transcript: List[Dict[str, Any]],
@@ -292,8 +309,16 @@ async def _build_round_tools(
     """One round's tool list, rebuilt from scratch so a tool run last round
     cannot leave it stale: the bot's inventory, bound to the current cursor,
     plus what the recent conversation asks for and every search the bot has
-    made this turn, rerun against the system as it is now."""
+    made this turn, rerun against the system as it is now. The bot's own
+    tools come first, then its zone's, then search."""
     openai_tools, tool_lookup = convert_search_tools(tools)
+    zone_tools, zone_lookup = await _zone_tools(game_name)
+    for tool in zone_tools:
+        name = tool["function"]["name"]
+        if name in tool_lookup:
+            raise ValueError(f"Zone tool {name!r} clashes with a tool in the bot's inventory")
+        openai_tools.append(tool)
+        tool_lookup[name] = zone_lookup[name]
     cursor = await _cursor_values()
     tool_bindings: Dict[str, Dict[str, Any]] = {}
     bind = _make_tool_binder(cursor, tool_argument_overrides, tool_bindings)
@@ -461,6 +486,7 @@ async def run_turn(
             # Tools and status are rebuilt every round: the last round's tool
             # calls may have changed what exists and where the game stands
             openai_tools, tool_lookup, tool_bindings, bind = await _build_round_tools(
+                game_name=game_name,
                 tools=tools or [],
                 tool_argument_overrides=tool_argument_overrides or {},
                 transcript=transcript,
@@ -527,8 +553,9 @@ async def run_turn(
             stream = client.chat.completions.create(
                 model=model,
                 messages=cast(Any, api_messages),
-                tools=openai_tools if openai_tools else None,  # type: ignore[arg-type]
-                tool_choice=cast(Any, ("none" if final_round else "auto") if openai_tools else None),
+                # Chat's OpenAITool is the SDK's function tool with type typed as str
+                tools=cast(List[ChatCompletionFunctionToolParam], openai_tools) if openai_tools else omit,
+                tool_choice=("none" if final_round else "auto") if openai_tools else omit,
                 stream=True,
                 max_tokens=16000,
                 stream_options={"include_usage": True},

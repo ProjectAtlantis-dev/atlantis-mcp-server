@@ -373,8 +373,8 @@ async def _execute_discovery_tool(
     discovered_tools, discovered_lookup = convert_discovery_rows(results)
     if not discovered_tools:
         return (
-            f"Nothing in the system provides {value!r}. This is the complete "
-            f"answer, not a hint to rephrase — do not retry with synonyms."
+            f"Nothing on your search path provides {value!r}; tools outside it "
+            f"may still exist. Do not retry with synonyms."
         )
     added: List[str] = []
     for tool in discovered_tools:

@@ -30,4 +30,7 @@ async def game_init(game_name: str, game_key: str) -> None:
 
     # No camera, same as Setup.
     #await camera_follow(game_name, game_key, OWNER_SLOT)
+    # Home holds the basics (readme, term_glass…); let this chat's search
+    # reach it as well as the Demo folder
+    await atlantis.client_command("/path push $Home")
     await start_owned_stopped_game(game_name, game_key)

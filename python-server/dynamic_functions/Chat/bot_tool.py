@@ -6,7 +6,7 @@ from typing import Any, Dict, List
 
 import atlantis
 
-from .common import _read_json, _write_json
+from .common import _read_json, _write_json, game_path
 from .game import require_membership
 from .tool import AtlantisSearchToolT
 
@@ -63,7 +63,11 @@ def _initialize_bot_tool_files(
     game_key: str,
     roster: List[Dict[str, Any]],
 ) -> None:
-    """Create missing per-game inventory files for AI bots without overwriting."""
+    """Create missing per-game inventory files for AI bots without overwriting.
+
+    A bot starts with the tool entries its role hands it in
+    <game_name>/Game/Roles/<sid>.tools.json, or none.
+    """
     for row in roster:
         if row.get("ai") is not True:
             continue
@@ -71,7 +75,11 @@ def _initialize_bot_tool_files(
         path = _bot_tool_path(game_name, game_key, bot_sid)
         if os.path.exists(path):
             continue
-        _write_json(path, [])
+        role_tools_path = game_path(game_name, "Game", "Roles", f"{bot_sid}.tools.json")
+        role_tools = _read_json(role_tools_path, None) if os.path.isfile(role_tools_path) else []
+        if not isinstance(role_tools, list):
+            raise ValueError(f"{role_tools_path} must be a JSON array of tool entries")
+        _write_json(path, role_tools)
 
 
 @public

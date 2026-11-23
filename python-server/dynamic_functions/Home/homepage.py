@@ -1,5 +1,6 @@
 """Homepage menu for the local Home app."""
 
+import json
 import logging
 import posixpath
 from pathlib import Path
@@ -134,11 +135,13 @@ async def _game_commands(script_folder: str) -> list[str]:
     logger.info(f"homepage script folder: {script_folder}, chat folder: {chat_folder}")
 
     # The commands below run after we return, so this is the folder to come back to.
-    # Ask the caller's terminal: the exec shell runs this call from the Home folder
-    start_folder = await atlantis.client_command("pwd", shell="caller")
-    logger.info(f"homepage pwd returned:\n{format_json_log(start_folder, colored=True)}")
-    if not isinstance(start_folder, str) or not start_folder.startswith("/"):
-        raise TypeError(f"pwd returned {start_folder!r}, expected an absolute folder path")
+    # Peek at the caller's terminal: the exec shell runs this call from the Home folder
+    caller_shell = atlantis.get_caller_shell_path()
+    if not caller_shell:
+        raise RuntimeError("homepage: no caller shell; it must run from the user's terminal")
+    caller_path = await atlantis.client_command(f"/env peek {json.dumps(caller_shell)} path")
+    logger.info(f"homepage caller path:\n{format_json_log(caller_path, colored=True)}")
+    start_folder = "/" + "/".join(caller_path["current"])
 
     # Media is optional: a server without it simply has no chat-drop uploads.
     media_commands = []

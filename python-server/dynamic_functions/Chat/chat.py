@@ -55,17 +55,18 @@ def analyze_participants(raw_transcript: List[Dict[str, Any]]) -> Dict[str, Any]
 
 async def fetch_transcript(game_name: str, game_key: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Fetch and format the chat transcript"""
-    # Scope to this app's chat shell (bound by the folder's @enter), never the
-    # whole Node game — otherwise one app's bot reads another app's conversation
-    chat_key = atlantis.get_chat_key()
-    if not chat_key:
-        raise RuntimeError("fetch_transcript: no chat shell bound to the caller's terminal (missing /chat bind?)")
+    # Pull by the caller's terminal: Node returns the chat shell it is bound to
+    # (by the folder's @enter, never the whole game) plus that terminal's own
+    # commands and errors, which this user saw and nobody else did
+    caller_shell = atlantis.get_caller_shell_path()
+    if not caller_shell:
+        raise RuntimeError("fetch_transcript: no caller shell; it must run from the user's terminal")
 
     logger.info("fetch_transcript: /silent on")
     await atlantis.client_command("/silent on")
-    logger.info(f"fetch_transcript: /transcript get {chat_key}")
+    logger.info(f"fetch_transcript: /transcript get {caller_shell}")
 
-    raw_transcript = await atlantis.client_command(f"/transcript get {json.dumps(chat_key)}")
+    raw_transcript = await atlantis.client_command(f"/transcript get {json.dumps(caller_shell)}")
 
     logger.info(f"fetch_transcript: received {len(raw_transcript)} entries")
     await atlantis.client_command("/silent off")
@@ -90,6 +91,16 @@ async def fetch_transcript(game_name: str, game_key: str) -> Tuple[List[Dict[str
 
     logger.info("=== FILTERING TRANSCRIPT ===")
     transcript: List[Dict[str, Any]] = []
+    # What the user typed in the caller's terminal, by event id: Node gives each
+    # error the typedCommandId of the command it came from, and that command
+    # comes earlier in the transcript
+    typed_commands: Dict[int, str] = {}
+
+    def typed_command_of(msg: Dict[str, Any]) -> str:
+        typed_id = msg['typedCommandId']
+        if typed_id not in typed_commands:
+            raise ValueError(f"Transcript event {msg['id']} ran under typed command {typed_id}, which the transcript does not hold before it")
+        return typed_commands[typed_id]
 
     for i, msg in enumerate(raw_transcript):
         msg_type = msg.get('type')
@@ -98,7 +109,17 @@ async def fetch_transcript(game_name: str, game_key: str) -> Tuple[List[Dict[str
         msg_content = str(msg.get('content', ''))[:50]
         logger.info(f"  [{i}] type={msg_type}, sid={msg_sid}, role={msg_role}, content={repr(msg_content)}...")
 
-        if msg_type == 'chat':
+        if msg_type == 'command':
+            # Typed by the user in the caller's terminal (see Node getTranscriptItems)
+            typed_commands[msg['id']] = str(msg.get('content', ''))
+            transcript.append({
+                'role': 'user',
+                'content': [{'type': 'text', 'text': f"[the user typed in their terminal: {typed_commands[msg['id']]}]"}],
+                '_speaker_sid': msg_sid,
+                '_event_id': str(msg['id']),
+            })
+            logger.info(f"       -> INCLUDED as typed command")
+        elif msg_type == 'chat':
             if msg_sid == 'system':
                 logger.info(f"       -> SKIPPED (sid=system)")
                 continue
@@ -140,8 +161,28 @@ async def fetch_transcript(game_name: str, game_key: str) -> Tuple[List[Dict[str
                 '_event_id': str(msg['id']),
             })
             logger.info(f"       -> INCLUDED as description")
+        elif msg_type == 'error':
+            # A failure in the caller's terminal (see Node getTranscriptItems):
+            # the user saw it, so the bot must too
+            msg_content_full = msg.get('content', '')
+            if not msg_content_full or not str(msg_content_full).strip():
+                logger.info(f"       -> SKIPPED (blank error)")
+                continue
+            # Node names the typed command that raised it, unless the error came
+            # before any command was accepted
+            if 'typedCommandId' in msg:
+                error_text = f"[error in the user's terminal from {typed_command_of(msg)!r}: {msg_content_full}]"
+            else:
+                error_text = f"[error in the user's terminal: {msg_content_full}]"
+            transcript.append({
+                'role': 'user',
+                'content': [{'type': 'text', 'text': error_text}],
+                '_speaker_sid': msg_sid,
+                '_event_id': str(msg['id']),
+            })
+            logger.info(f"       -> INCLUDED as error")
         else:
-            logger.info(f"       -> SKIPPED (type != 'chat'|'description')")
+            logger.info(f"       -> SKIPPED (type != 'command'|'chat'|'description'|'error')")
     logger.info(f"=== END FILTERING: {len(transcript)} messages included ===")
 
     filtered_dump_file = os.path.join(require_membership(game_name, game_key), 'filtered_transcript.json')

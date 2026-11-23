@@ -225,7 +225,8 @@ async def _show_first_sightings(
             continue
 
         # Tie the portrait to the bot's sid first so its chat bubbles show it as an avatar
-        await atlantis.client_command(f"/avatar set {bot_sid}", data={"image": bot_avatar_data(game_name, game_key, bot_sid)}, shell="caller")
+        # Written sid-scoped, so it reaches all the user's terminals from this tool's own shell
+        await atlantis.client_command(f"/avatar set {bot_sid}", data={"image": bot_avatar_data(game_name, game_key, bot_sid)})
         await atlantis.client_image(
             bot_image_file(game_name, game_key, bot_sid),
             sid=bot_sid,
@@ -607,12 +608,14 @@ def roster_visible_event_ids(
     raw_transcript: List[Dict[str, Any]],
     slot_key: str,
 ) -> Set[str]:
-    """Ids of the chat/description events the slot witnessed.
+    """Ids of the chat/description/command/error events the slot witnessed.
 
     Replays the transcript in order, tracking every slot's location from its
     movement lines; an event is witnessed when it happened in the room the
     slot was standing in at that moment. A leaver still sees their own exit,
-    an arriver their own entrance.
+    an arriver their own entrance. A typed command or its error happened in
+    its user's terminal, so it is witnessed where that user stands, like
+    their chat.
     """
     lines = _presence_lines(game_name, roster)
     speakers = _speaker_slot_keys(roster)
@@ -631,7 +634,7 @@ def roster_visible_event_ids(
                 visible.add(str(msg["id"]))
             if kind == _MOVE_LEFT:
                 where[mover] = None
-        elif msg_type == "chat":
+        elif msg_type in ("chat", "command", "error"):
             sid = str(msg.get("sid") or "")
             if sid not in speakers:
                 # Not a roster member, so not standing anywhere: nobody witnessed it

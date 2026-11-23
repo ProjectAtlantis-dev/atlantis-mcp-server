@@ -173,19 +173,17 @@ async def fetch_lobster_transcript(
         )
         logger.info(f"🦞 fetch_lobster_transcript: got {len(raw_transcript) if isinstance(raw_transcript, list) else '?'} entries")
     finally:
-        try:
-            logger.info("🦞 fetch_lobster_transcript: /silent off")
-            await server.send_awaitable_client_command(
-                client_id_for_routing=cloud_client_id,
-                request_id=lobster_request_id,
-                command="/silent off",
-                command_data={},
-                seq_num=seq_start + 2,
-                entry_point_name="lobster_transcript_silent_off",
-                caller_sid=caller_sid,
-            )
-        except Exception as silent_off_error:
-            logger.warning(f"🦞 Failed to disable silent mode after lobster transcript fetch: {silent_off_error}")
+        # A failure here leaves the terminal silent, so it must surface
+        logger.info("🦞 fetch_lobster_transcript: /silent off")
+        await server.send_awaitable_client_command(
+            client_id_for_routing=cloud_client_id,
+            request_id=lobster_request_id,
+            command="/silent off",
+            command_data={},
+            seq_num=seq_start + 2,
+            entry_point_name="lobster_transcript_silent_off",
+            caller_sid=caller_sid,
+        )
 
     if not isinstance(raw_transcript, list):
         raise ValueError(f"Unexpected transcript payload type: {type(raw_transcript).__name__}")

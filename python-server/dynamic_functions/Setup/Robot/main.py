@@ -24,6 +24,15 @@ APP_NAME = Path(__file__).absolute().parents[1].name
 SETUP_BG_PATH = Path(__file__).absolute().parents[4] / "builder.jpg"
 
 
+def _caller_terminal() -> str:
+    """The terminal that called this tool. /chat commands name it: a command sent
+    into the terminal itself would pass for the user's own input."""
+    shell = atlantis.get_caller_shell_path()
+    if not shell:
+        raise RuntimeError("No caller shell; this must run from the user's terminal")
+    return shell
+
+
 @visible
 @index
 async def index():
@@ -49,7 +58,7 @@ async def on_enter():
     if not script_folder:
         raise RuntimeError("No script folder; on_enter must run as a dynamic function")
     app_folder = posixpath.dirname(script_folder)
-    await atlantis.client_command("/chat bind " + json.dumps(app_folder), shell="caller")
+    await atlantis.client_command(f"/chat bind {json.dumps(app_folder)} {json.dumps(_caller_terminal())}")
 
     return "Setup entered"
 
@@ -72,7 +81,7 @@ async def on_exit():
     await atlantis.client_command("/cursor clear")
 
     # Detach the calling terminal from the app folder's chat shell; the chat shell stays
-    await atlantis.client_command("/chat unbind", shell="caller")
+    await atlantis.client_command(f"/chat unbind {json.dumps(_caller_terminal())}")
 
     return "Setup exited"
 

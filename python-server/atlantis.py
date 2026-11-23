@@ -1099,7 +1099,8 @@ async def _client_command(
         is_private: If True, send only to requesting client.
         notification_params: Internal-only params flattened beside messageType/data.
         shell: Shell name, type, numeric path, or "exec" (default) / "caller".
-               Unavailable targets use the caller's terminal.
+               Unavailable targets use the caller's terminal. A command
+               message there is rejected by Node (see client_command).
 
     Returns:
         The result returned by the client for the command.
@@ -1177,9 +1178,20 @@ async def client_command(
     """Send a command and wait for its result.
 
     Use a name such as shell="d_map" for a specific open tab, or a type such
-    as shell="display" for the first open tab of that type. Unavailable targets
-    use the caller's terminal. The default "exec" retains isolated tool execution.
+    as shell="display" for the first open tab of that type. The default "exec"
+    retains isolated tool execution.
+
+    A command never runs in the caller's terminal (shell="caller", or a target
+    that resolves to it): there it would pass for the user's own input, so Node
+    rejects it. To act on the caller, name its terminal in the command
+    (get_caller_shell_path(), e.g. /chat bind <key> <terminal> or /env peek
+    <terminal>); to type for the user on purpose, use /chatter <shell> <text>.
     """
+    if shell.strip() == "caller":
+        raise ValueError(
+            "client_command cannot run in the caller's terminal; name the terminal in the "
+            "command instead (get_caller_shell_path()), or use /chatter <shell> <text>"
+        )
     return await _client_command(
         command,
         data=data,

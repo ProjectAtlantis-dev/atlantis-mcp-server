@@ -22,6 +22,15 @@ FOO_PATH = Path(__file__).absolute().parents[1] / "foo.py"
 VISITORS_FILE = "visitors.json"
 
 
+def _caller_terminal() -> str:
+    """The terminal that called this tool. /chat commands name it: a command sent
+    into the terminal itself would pass for the user's own input."""
+    shell = atlantis.get_caller_shell_path()
+    if not shell:
+        raise RuntimeError("No caller shell; this must run from the user's terminal")
+    return shell
+
+
 @visible
 @index
 async def index():
@@ -47,7 +56,7 @@ async def on_enter():
     if not script_folder:
         raise RuntimeError("No script folder; on_enter must run as a dynamic function")
     app_folder = posixpath.dirname(script_folder)
-    await atlantis.client_command("/chat bind " + json.dumps(app_folder), shell="caller")
+    await atlantis.client_command(f"/chat bind {json.dumps(app_folder)} {json.dumps(_caller_terminal())}")
 
     return "Demo entered"
 
@@ -70,7 +79,7 @@ async def on_exit():
     await atlantis.client_command("/cursor clear")
 
     # Detach the calling terminal from the app folder's chat shell; the chat shell stays
-    await atlantis.client_command("/chat unbind", shell="caller")
+    await atlantis.client_command(f"/chat unbind {json.dumps(_caller_terminal())}")
 
     return "Demo exited"
 
@@ -86,7 +95,7 @@ async def get_status():
 
     username = _caller()
     prefix, typing = await _typing_rules()
-    steps = _check_steps(username, prefix)
+    steps = _check_steps(username)
 
     if username in _read_json(_game_path(VISITORS_FILE)):
         seen = f"You have already met {username} in this game; carry on from where you are."
@@ -109,7 +118,7 @@ async def get_status():
                      "covers every folder on their search path, "
                      f"which they can see with {prefix}path show.")
     else:
-        lines.append(f"Next (step {current}): {steps[current - 1]['fix']}")
+        lines.append(f"Next (step {current}): {steps[current - 1]['fix'].replace('{sh}', prefix)}")
     lines.append("If the user would rather explore on their own, call list_demo_tools.")
     return "\n".join(lines)
 
@@ -136,8 +145,8 @@ async def _typing_rules() -> tuple[str, str]:
     shell = atlantis.get_caller_shell_path()
     if not shell:
         raise RuntimeError("No caller shell; get_status must run from the user's terminal")
-    ui = await atlantis.client_command(f"/env peek {shell} ui")
-    path = await atlantis.client_command(f"/env peek {shell} path")
+    ui = await atlantis.client_command(f"/env peek {json.dumps(shell)} ui")
+    path = await atlantis.client_command(f"/env peek {json.dumps(shell)} path")
     folder = "/" + "/".join(path["current"])
     script_folder = atlantis.get_script_folder()
     if not script_folder:
@@ -162,9 +171,9 @@ async def _typing_rules() -> tuple[str, str]:
     return prefix, f"{rules} {where}"
 
 
-def _check_steps(username: str, prefix: str) -> list[dict]:
-    """One {done, state, fix, waitsOn} per DEMO_STEPS entry, in order, with
-    each fix's commands written with the user's command prefix"""
+def _check_steps(username: str) -> list[dict]:
+    """One {done, state, fix, waitsOn} per DEMO_STEPS entry, in order; a fix
+    keeps its {sh} markers for the caller to fill with the command prefix"""
     confirmed = _read_json(_game_path(PROGRESS_FILE)).get(username, {})
     steps: list[dict] = []
     for number, (name, key, fix) in enumerate(DEMO_STEPS, 1):
@@ -177,7 +186,7 @@ def _check_steps(username: str, prefix: str) -> list[dict]:
                           "fix": None, "waitsOn": None})
         else:
             steps.append({"done": False, "state": "not done yet.",
-                          "fix": fix.replace("{sh}", prefix), "waitsOn": None})
+                          "fix": fix, "waitsOn": None})
     return steps
 
 
@@ -203,11 +212,9 @@ DEMO_STEPS = [
     ("read foo's source", "source", (
         "have them type {sh}cat foo, which shows the source code of the foo function they just ran. "
         "Ask whether they see it, and wait. Then explain this is the same code as the file "
-        f"{FOO_PATH}, which they can open and edit in VS Code. Point out the @public decorator on "
-        "foo: it means anyone can run this function, which lets you share things with other teams "
-        "very quickly, though others cannot see or change its code without more permissions. Then "
-        "point out that the function's docstring is the description {sh}ls shows for foo, \"Add two "
-        "integers\". " + _confirm("source"))),
+        f"{FOO_PATH}, which they can open and edit in VS Code. "
+        "Point out that the function's docstring is the description {sh}ls shows for foo, "
+        "\"Add two integers\". " + _confirm("source"))),
     ("edit foo", "edit", (
         f"ask them to edit foo in {FOO_PATH} themselves so it returns x + y + 100, save the file, "
         "and type @foo(3,4) again. The server reloads functions when a file is saved, so no "
@@ -217,6 +224,11 @@ DEMO_STEPS = [
         "have them type @myImage, which shows how functions return images; ask whether they see "
         "the image, and wait. Then have them type @myVideo, which shows how functions return "
         "video; ask whether they see it play, and wait. " + _confirm("media"))),
+    # SQL over embedded commands: a bracket must hold a tool call ([@myTable]); a
+    # bare [myTable] fails with "Command or tool not recognized: mytable". Tested
+    # 2026-11-23 through Lobster: where/like, order by, (select ...)[0] and a join
+    # of two brackets all work. Untested: brackets holding tools with arguments,
+    # Multix commands, or nested selects; check those by hand before adding them.
     ("see tables", "table", (
         "have them type @myTable: it returns a list of anime heroines, and Atlantis shows "
         "tabular data like this as a table. Ask whether they see the table, and wait. Then have "
@@ -226,28 +238,27 @@ DEMO_STEPS = [
         "creators and a thumbnail of each, because a column holding an image data URI shows as a "
         "picture. Ask whether they see the thumbnails, and wait. Then tell them any table can be "
         "queried with SQL: wrapping a command in square brackets turns its output into a table to "
-        "select from. Have them type {sh}select * from [myTable] where name like 'M%', which shows "
+        "select from. Have them type {sh}select * from [@myTable] where name like 'M%', which shows "
         "only the heroines whose names start with M. Ask whether they see the filtered table, and "
-        "wait. Then have them type {sh}select * from [myTableWithImages] where name like 'M%' order "
+        "wait. Then have them type {sh}select * from [@myTableWithImages] where name like 'M%' order "
         "by name desc, which runs the same filter on the table with thumbnails, sorted by name in "
         "reverse. Ask whether they see the sorted table with images, and wait. Then have them pull "
         "out just the first row by wrapping that query in parentheses and indexing it: "
-        "{sh}(select * from [myTableWithImages] where name like 'M%' order by name desc)[0]. A single "
+        "{sh}(select * from [@myTableWithImages] where name like 'M%' order by name desc)[0]. A single "
         "record shows as JSON instead of a table, and its image field is the raw base64 data URI "
         "rather than a picture. Ask whether they see the JSON, and wait. Then "
         "have them pull just that row's image by adding .image: "
-        "{sh}(select * from [myTableWithImages] where name like 'M%' order by name desc)[0].image. "
+        "{sh}(select * from [@myTableWithImages] where name like 'M%' order by name desc)[0].image. "
         "Ask whether they see the image, and wait. Then show that tables can be joined, like in "
         "any database: naming each bracketed command with AS lets the query match rows across "
-        "them. Have them type {sh}select t.name, t.series, i.creator from [myTable] AS t join "
-        "[myTableWithImages] AS i on t.name = i.name, which puts each heroine's series from the "
+        "them. Have them type {sh}select t.name, t.series, i.creator from [@myTable] AS t join "
+        "[@myTableWithImages] AS i on t.name = i.name, which puts each heroine's series from the "
         "first table next to her creator from the second. Ask whether they see the joined table, "
         "and wait. " + _confirm("table"))),
     ("say hello", "hello", (
         "tell them they are past the halfway point of the demo. Then have them type @hello, which "
         "greets them by their Atlantis username. Ask whether they see the greeting, and wait. "
-        "Then point out that since a function knows exactly who is calling it, it can also "
-        "control access: decide who may run it, or show each caller only their own data. "
+        "Then point out that a function knows exactly who is calling it. "
         + _confirm("hello"))),
     ("open the code editor", "editor", (
         "have them type {sh}edit hello, which opens the built-in Multix code editor on the hello "

@@ -12,7 +12,9 @@ import atlantis
 logger = logging.getLogger("dynamic_function")
 
 # Robot/ holds what Chat and the bot use for the app folder it sits in: the
-# hooks and status Chat drives, and the bot's own tools (the walkthrough). That app folder's name is the Chat game name.
+# hooks and status Chat drives, and the bot's own tools (the walkthrough). That
+# app folder's name is the Chat game name. Chat itself keeps who the bot has met
+# and tells it how the user types (see Chat/turn.py, _robot_status).
 APP_NAME = Path(__file__).absolute().parents[1].name
 # Data for the Chat game this app joins (Chat/<APP_NAME>/Data)
 DATA_PATH = Path(__file__).absolute().parents[2] / "Chat" / APP_NAME / "Data"
@@ -26,14 +28,10 @@ DATA_PATH = Path(__file__).absolute().parents[2] / "Chat" / APP_NAME / "Data"
 PROGRESS_FILE = "progress.json"
 FOO_PATH = Path(__file__).absolute().parents[1] / "foo.py"
 HELLO_PATH = Path(__file__).absolute().parents[1] / "hello.py"
-# In each game's folder: who this game's bot has met, {username: {lastSeen}}.
-# Bot memory lives with the game, so a new game starts with a bot that has met nobody.
-VISITORS_FILE = "visitors.json"
 
 
 def _caller_terminal() -> str:
-    """The terminal that called this tool. /chat commands name it: a command sent
-    into the terminal itself would pass for the user's own input."""
+    """The terminal that called this tool, whose transcript proves what they ran"""
     shell = atlantis.get_caller_shell_path()
     if not shell:
         raise RuntimeError("No caller shell; this must run from the user's terminal")
@@ -53,21 +51,8 @@ async def on_enter():
     """
     Runs when entering chat
     """
-    logger.info(f"Executing Demo on_enter...")
-
-    await atlantis.set_background(str(Path(__file__).absolute().parents[1] / "lobby.jpeg"), vertical_align="center")
-
-    # The app folder name is the Chat game name; preflight and chat read it from the cursor
-    await atlantis.client_command("/cursor join", {"game_name": APP_NAME})
-
-    # Point the calling terminal at the app folder's chat shell (upserted by Node, keyed by folder)
-    script_folder = atlantis.get_script_folder()
-    if not script_folder:
-        raise RuntimeError("No script folder; on_enter must run as a dynamic function")
-    app_folder = posixpath.dirname(script_folder)
-    await atlantis.client_command(f"/chat bind {json.dumps(app_folder)} {json.dumps(_caller_terminal())}")
-
-    return "Demo entered"
+    from dynamic_functions.Chat.zone import zone_enter
+    return await zone_enter(Path(__file__).absolute().parents[1] / "lobby.jpeg")
 
 
 @visible
@@ -76,45 +61,30 @@ async def on_exit():
     """
     Runs when leaving chat
     """
-    logger.info(f"Executing Demo on_exit...")
-
-    # Walk out of the room while this folder's chat is still bound
-    from dynamic_functions.Chat.roster import roster_leave
-    await roster_leave(APP_NAME)
-
-    await atlantis.clear_background()
-
-    # Drop the game cursor joined in on_enter
-    await atlantis.client_command("/cursor clear")
-
-    # Detach the calling terminal from the app folder's chat shell; the chat shell stays
-    await atlantis.client_command(f"/chat unbind {json.dumps(_caller_terminal())}")
-
-    return "Demo exited"
+    from dynamic_functions.Chat.zone import zone_exit
+    return await zone_exit()
 
 
 @visible
-async def get_status():
+async def get_status(command_prefix: str, current_folder: str):
     """
-    Demo status for the current user: who they are, whether you have met them
-    in this game, every walkthrough step with how far they are, what the last
-    thing they ran should show, and exactly what to do next. Chat runs this
-    before every bot round, so it only reads.
+    Demo walkthrough status for the current user: every step with how far
+    they are, what the last thing they ran should show, and exactly what to
+    do next. Chat runs this before every bot round, passing the prefix a
+    Multix command takes where they type and the folder they are in. It only
+    reads; Chat tells the bot who the user is and how they type.
     """
     logger.info(f"Executing get_status...")
+    if command_prefix not in ("", "/"):
+        raise ValueError(f"command_prefix must be '' or '/', got {command_prefix!r}")
 
-    username = _caller()
-    prefix, typing = await _typing_rules()
-    walk = await _walk(username)
-
-    if username in _read_json(_game_path(VISITORS_FILE)):
-        seen = f"You have already met {username} in this game; carry on from where you are."
-    else:
-        seen = (f"You have not met {username}. Call remember_visitor with the name {username!r}, "
-                "then introduce yourself and start the walkthrough.")
-
-    lines = [f"The user is {username}. {seen}", typing]
-    lines += _walk_lines(walk, prefix)
+    walk = await _walk(_caller())
+    lines: list[str] = []
+    app_folder = _app_folder()
+    if current_folder != app_folder:
+        lines.append(f"They are not in the Demo folder; before anything else, have them type "
+                     f"{command_prefix}cd {app_folder} and wait.")
+    lines += _walk_lines(walk, command_prefix)
     lines.append("If the user would rather explore on their own, call list_demo_tools. If they ask "
                  "to start the walkthrough over, call reset_demo_walkthrough.")
     return "\n".join(lines)
@@ -123,17 +93,12 @@ async def get_status():
 @visible
 async def record_turn():
     """
-    Record what this turn established: that the bot has met the current user
-    in this game, and every walkthrough action the server saw them finish (the
-    terminal transcript only reaches back to when the bot arrived, so progress
-    must be kept). Chat runs this once a bot's reply has gone out.
+    Record every walkthrough action the server saw the current user finish
+    (the terminal transcript only reaches back to when the bot arrived, so
+    progress must be kept). Chat runs this once a bot's reply has gone out,
+    after it records the visit itself.
     """
     username = _caller()
-    visitors_path = _game_path(VISITORS_FILE)
-    visitors = _read_json(visitors_path)
-    visitors[username] = {"lastSeen": _now()}
-    _write_json(visitors_path, visitors)
-
     walk = await _walk(username)
     entry: dict[str, Any] = {"actions": walk.proofs}
     if walk.after is not None:
@@ -149,7 +114,7 @@ async def record_turn():
     progress = _read_json(progress_path)
     progress[username] = entry
     _write_json(progress_path, progress)
-    return f"Recorded {username}'s visit and {len(walk.proofs)} finished walkthrough action(s)"
+    return f"Recorded {len(walk.proofs)} finished walkthrough action(s) for {username}"
 
 
 @visible
@@ -167,38 +132,12 @@ async def reset_walkthrough():
     return f"Reset {username}'s Demo walkthrough to step 1"
 
 
-async def _typing_rules() -> tuple[str, str]:
-    """(command prefix, how the user types and where they are) from the
-    caller's shell env: ui.appMode is set when they type in the chat window,
-    where a Multix command needs a leading /; a terminal takes it bare.
-    """
-    shell = atlantis.get_caller_shell_path()
-    if not shell:
-        raise RuntimeError("No caller shell; get_status must run from the user's terminal")
-    ui = await atlantis.client_command(f"/env peek {json.dumps(shell)} ui")
-    path = await atlantis.client_command(f"/env peek {json.dumps(shell)} path")
-    folder = "/" + "/".join(path["current"])
+def _app_folder() -> str:
+    """The Demo folder as a /user/remote/... path, as the user's shell names it"""
     script_folder = atlantis.get_script_folder()
     if not script_folder:
-        raise RuntimeError("No script folder; get_status must run as a dynamic function")
-    app_folder = posixpath.dirname(script_folder)
-
-    if ui.get("appMode") is True:
-        prefix = "/"
-        rules = ("The user types in the chat window: plain text goes to the chat, a line starting "
-                 "with / runs a Multix command and a line starting with @ calls a tool, so every "
-                 "command below starts with /.")
-    else:
-        prefix = ""
-        rules = ("The user types in a Multix terminal, not the chat window: a line runs as a "
-                 "Multix command exactly as typed and a line starting with @ calls a tool. Never "
-                 "tell them to put / in front of a command.")
-    if folder == app_folder:
-        where = f"Their current folder is the Demo folder, {folder}."
-    else:
-        where = (f"Their current folder is {folder}, not the Demo folder; before anything else, "
-                 f"have them type {prefix}cd {app_folder} and wait.")
-    return prefix, f"{rules} {where}"
+        raise RuntimeError("No script folder; this must run as a dynamic function")
+    return posixpath.dirname(script_folder)
 
 
 # ---------------------------------------------------------------------------
@@ -495,6 +434,8 @@ def _walk_lines(walk: Walk, prefix: str) -> list[str]:
                      f"Help them with whatever they ask. {other_tools}")
         return lines
     if walk.current is None:
+        if walk.last is None:
+            raise RuntimeError("The walkthrough is complete but no action was finished; DEMO_STEPS is empty")
         lines.append(f"They just ran {shown(walk.last)}, the last step, which shows "
                      f"{walk.last.shows.replace('{sh}', prefix)} The walkthrough is complete: tell "
                      f"them so. {other_tools}")
@@ -538,7 +479,7 @@ def _game_path(filename: str) -> Path:
 
 
 def _now() -> str:
-    return datetime.now().isoformat(timespec="seconds")
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def _read_json(path: Path) -> dict:

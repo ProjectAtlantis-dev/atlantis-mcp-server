@@ -4,6 +4,8 @@ import json
 import os
 import time as _t
 
+from datetime import datetime, timezone
+
 from dotenv import dotenv_values
 from mcp.shared.exceptions import McpError
 from openai import OpenAI, omit
@@ -17,8 +19,8 @@ from .runner import _game_init_script
 from .tool import (
     logger,
     AtlantisSearchToolT, OpenAITool, ToolLookupInfo,
-    _repair_json, coerce_args_to_schema, convert_discovery_rows, convert_folder_rows,
-    convert_search_tools,
+    _repair_json, _signature_name, coerce_args_to_schema, convert_discovery_rows,
+    convert_folder_rows, convert_search_tools,
 )
 from utils import format_json_log
 
@@ -100,49 +102,151 @@ async def _search_rows(query: str) -> Any:
     return await silent_command("/search", {"content": query})
 
 
-# A zone's own bot tools live in its app's Robot/Tools folder; the app folder
-# is named for the game. Every tool there is loaded into every bot round.
-_ZONE_TOOLS_FOLDER = "Robot/Tools"
+# A zone is a game whose app has a Robot folder, named as ROBOT in
+# <game_name>/init.py (e.g. "$Demo/Robot"). For a zone, Chat itself:
+#   - remembers who the zone's bot has met, per game (visitors.json)
+#   - tells the bot how the user types and which folder they are in
+#   - runs the Robot's get_status(command_prefix, current_folder) every round
+#   - loads every tool in the Robot's Tools/ folder into every round, plus
+#     the folders its tool_folders returns, if it has one (Setup names the
+#     Robot/Tools of each package it installs)
+#   - runs the Robot's record_turn, if it has one, after each reply
+# A game without a Robot (Greenland) gets none of this.
+_ROBOT_TOOLS_FOLDER = "Tools"
+_ROBOT_STATUS_TOOL = "get_status"
+_ROBOT_AFTER_TURN_TOOL = "record_turn"
+_ROBOT_TOOL_FOLDERS_TOOL = "tool_folders"
+# In each zone game's folder: who its bot has met, {username: {lastSeen}}
+_VISITORS_FILENAME = "visitors.json"
 
 
-async def _zone_tools(game_name: str) -> Tuple[List[OpenAITool], Dict[str, ToolLookupInfo]]:
-    """The zone's bot tools, listed fresh: a game without the folder has none."""
-    folder_term = f"${game_name}/{_ZONE_TOOLS_FOLDER}"
+def _game_robot(game_name: str) -> Optional[str]:
+    """The game's Robot folder term, or None when the game is not a zone"""
+    robot = getattr(_game_init_script(game_name), "ROBOT", None)
+    if robot is None:
+        return None
+    if not isinstance(robot, str) or robot[:1] not in ('%', '$', '~'):
+        raise ValueError(f"Game {game_name!r} ROBOT must be an anchored folder term, got {robot!r}")
+    return robot
+
+
+async def _ls(folder_term: str) -> List[Dict[str, Any]]:
     rows = await silent_command("/ls", {"searchTerm": f"{folder_term}/*"})
     if not isinstance(rows, list):
         raise TypeError(f"/ls {folder_term}/* returned {type(rows).__name__}, expected a list")
-    return convert_folder_rows(rows, folder_term)
+    return rows
 
 
-async def _game_status(game_name: str) -> Optional[Dict[str, str]]:
-    """Run the game's status tool so every turn starts from fresh state,
-    instead of trusting the bot to ask for it.
+async def _robot_has(robot: str, function_name: str) -> bool:
+    """Whether the Robot folder itself defines function_name"""
+    return any(row.get("name") and _signature_name(row["name"]) == function_name
+               for row in await _ls(robot))
 
-    A game names its tool as STATUS_TOOL in <game_name>/init.py (by convention
-    the get_status in its app's Robot folder). It runs every round, so it must
-    only read state; recording what the bot did belongs in AFTER_TURN_TOOL.
-    A game without one is skipped.
-    """
-    status_tool = getattr(_game_init_script(game_name), "STATUS_TOOL", None)
-    if not status_tool:
-        logger.warning(f"Game {game_name!r} has no STATUS_TOOL in its init.py; turn runs without status")
+
+async def _robot_tools(robot: Optional[str]) -> Tuple[List[OpenAITool], Dict[str, ToolLookupInfo]]:
+    """The zone's bot tools, listed fresh: its Robot's Tools/, then each
+    folder its tool_folders names. A game without a Robot has none."""
+    if robot is None:
+        return [], {}
+    folders = [f"{robot}/{_ROBOT_TOOLS_FOLDER}"]
+    if await _robot_has(robot, _ROBOT_TOOL_FOLDERS_TOOL):
+        named = await silent_command(f"{robot}/{_ROBOT_TOOL_FOLDERS_TOOL}")
+        if not isinstance(named, list) or not all(isinstance(folder, str) for folder in named):
+            raise TypeError(f"{robot}/{_ROBOT_TOOL_FOLDERS_TOOL} must return a list of folder terms, got {named!r}")
+        folders += named
+
+    openai_tools: List[OpenAITool] = []
+    tool_lookup: Dict[str, ToolLookupInfo] = {}
+    for folder_term in folders:
+        tools, lookup = convert_folder_rows(await _ls(folder_term), folder_term)
+        for tool in tools:
+            name = tool["function"]["name"]
+            if name in tool_lookup:
+                raise ValueError(f"Tool {name!r} in {folder_term} clashes with {tool_lookup[name]['searchTerm']}")
+            openai_tools.append(tool)
+            tool_lookup[name] = lookup[name]
+    return openai_tools, tool_lookup
+
+
+def _caller_username() -> str:
+    username = atlantis.get_caller()
+    if not username:
+        raise RuntimeError("No caller identity in this bot turn")
+    return username
+
+
+def _visitors_path(game_name: str, game_key: str) -> str:
+    from .game import require_membership
+    return os.path.join(require_membership(game_name, game_key), _VISITORS_FILENAME)
+
+
+def _read_visitors(game_name: str, game_key: str) -> Dict[str, Any]:
+    path = _visitors_path(game_name, game_key)
+    visitors = _read_json(path, {})
+    if not isinstance(visitors, dict):
+        raise ValueError(f"{path} must hold a JSON object")
+    return visitors
+
+
+async def _user_terminal() -> Tuple[str, str, str]:
+    """(command prefix, current folder, how the user types) from the caller's
+    shell env: ui.appMode is set when they type in the chat window, where a
+    Multix command needs a leading /; a terminal takes it bare."""
+    shell = atlantis.get_caller_shell_path()
+    if not shell:
+        raise RuntimeError("No caller shell; a zone's bot turn must run from the user's terminal")
+    ui = await silent_command(f"/env peek {json.dumps(shell)} ui")
+    path = await silent_command(f"/env peek {json.dumps(shell)} path")
+    if not isinstance(ui, dict) or not isinstance(path, dict):
+        raise TypeError(f"/env peek of shell {shell!r} returned {ui!r} and {path!r}, expected objects")
+    folder = "/" + "/".join(path["current"])
+
+    if ui.get("appMode") is True:
+        return "/", folder, (
+            "The user types in the chat window: plain text goes to the chat, a line starting "
+            "with / runs a Multix command and a line starting with @ calls a tool, so every "
+            "Multix command you give them starts with /.")
+    return "", folder, (
+        "The user types in a Multix terminal, not the chat window: a line runs as a Multix "
+        "command exactly as typed and a line starting with @ calls a tool. Never tell them to "
+        "put / in front of a command.")
+
+
+async def _robot_status(game_name: str, game_key: str, robot: Optional[str]) -> Optional[Dict[str, str]]:
+    """What the zone's bot must know at the start of every round, fetched
+    fresh instead of trusting the bot to ask: who the user is and whether it
+    has met them, how they type and where they are, then the Robot's own
+    status. get_status runs every round, so it must only read state."""
+    if robot is None:
         return None
-    status = await silent_command(status_tool)
+    username = _caller_username()
+    if username in _read_visitors(game_name, game_key):
+        seen = f"You have already met {username} in this game; carry on from where you are."
+    else:
+        seen = f"You have not met {username}; introduce yourself."
+    prefix, folder, typing = await _user_terminal()
+
+    status_tool = f"{robot}/{_ROBOT_STATUS_TOOL}"
+    status = await silent_command(status_tool, {"command_prefix": prefix, "current_folder": folder})
     if not isinstance(status, str):
         raise TypeError(f"{status_tool} must return a string, got {type(status).__name__}")
-    return {'role': 'system', 'content': f"Current status, fetched for this turn by {status_tool}:\n{status}"}
+    lines = [f"The user is {username}. {seen}", f"{typing} Their current folder is {folder}.", status]
+    return {'role': 'system', 'content': "Current status, fetched for this turn:\n" + "\n".join(lines)}
 
 
-async def _game_after_turn(game_name: str) -> None:
-    """Run the game's AFTER_TURN_TOOL once a bot's reply has gone out, so the
-    game records that turn (e.g. that the bot has now met the caller).
-
-    Named in <game_name>/init.py like STATUS_TOOL. A game without one is skipped.
-    """
-    after_turn_tool = getattr(_game_init_script(game_name), "AFTER_TURN_TOOL", None)
-    if not after_turn_tool:
-        logger.warning(f"Game {game_name!r} has no AFTER_TURN_TOOL in its init.py; turn is not recorded")
+async def _robot_after_turn(game_name: str, game_key: str, robot: Optional[str]) -> None:
+    """Once a zone bot's reply has gone out: remember that it has met the
+    user in this game, then run the Robot's record_turn if it has one."""
+    if robot is None:
         return
+    username = _caller_username()
+    visitors = _read_visitors(game_name, game_key)
+    visitors[username] = {"lastSeen": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    _write_json(_visitors_path(game_name, game_key), visitors)
+
+    if not await _robot_has(robot, _ROBOT_AFTER_TURN_TOOL):
+        return
+    after_turn_tool = f"{robot}/{_ROBOT_AFTER_TURN_TOOL}"
     result = await silent_command(after_turn_tool)
     logger.info(f"{after_turn_tool}: {result}")
 
@@ -299,7 +403,7 @@ def _make_tool_binder(
 
 async def _build_round_tools(
     *,
-    game_name: str,
+    robot: Optional[str],
     tools: List[AtlantisSearchToolT],
     tool_argument_overrides: Dict[str, Dict[str, Any]],
     transcript: List[Dict[str, Any]],
@@ -312,7 +416,7 @@ async def _build_round_tools(
     made this turn, rerun against the system as it is now. The bot's own
     tools come first, then its zone's, then search."""
     openai_tools, tool_lookup = convert_search_tools(tools)
-    zone_tools, zone_lookup = await _zone_tools(game_name)
+    zone_tools, zone_lookup = await _robot_tools(robot)
     for tool in zone_tools:
         name = tool["function"]["name"]
         if name in tool_lookup:
@@ -475,6 +579,7 @@ async def run_turn(
     # The bot's own searches this turn, rerun every round to rebuild its tools
     searched_queries: List[str] = []
     accumulated_text = ""
+    robot = _game_robot(game_name)
 
     try:
         for turn_count in range(1, max_turns + 1):
@@ -486,14 +591,14 @@ async def run_turn(
             # Tools and status are rebuilt every round: the last round's tool
             # calls may have changed what exists and where the game stands
             openai_tools, tool_lookup, tool_bindings, bind = await _build_round_tools(
-                game_name=game_name,
+                robot=robot,
                 tools=tools or [],
                 tool_argument_overrides=tool_argument_overrides or {},
                 transcript=transcript,
                 searched_queries=searched_queries,
                 discovery_open=discovery_open,
             )
-            status_message = await _game_status(game_name)
+            status_message = await _robot_status(game_name, game_key, robot)
             status_messages = [status_message] if status_message else []
 
             api_messages: List[Dict[str, Any]] = [
@@ -788,7 +893,7 @@ async def run_turn(
 
     # Only a turn that actually said something counts as the bot having been there
     if accumulated_text:
-        await _game_after_turn(game_name)
+        await _robot_after_turn(game_name, game_key, robot)
 
     await silently(atlantis.client_log(
         f"run_turn done: bot_sid={bot_sid!r} chars={len(accumulated_text or '')}"

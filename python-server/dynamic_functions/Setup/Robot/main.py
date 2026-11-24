@@ -1,36 +1,23 @@
-import json
 import logging
-import posixpath
 from pathlib import Path
 
 import atlantis
 
-from dynamic_functions.Setup.main import (
-    DATA_PATH,
-    SETUP_STEPS,
-    _caller,
-    _check_steps,
-    _now,
-    _read_json,
-    _write_json,
-)
+from dynamic_functions.Setup.main import check_steps, terrain_installed
 
 logger = logging.getLogger("dynamic_function")
 
 # Robot/ holds the hooks and status that Chat drives for the app folder it sits
-# in. That app folder's name is the Chat game name.
-APP_NAME = Path(__file__).absolute().parents[1].name
+# in. That app folder's name is the Chat game name. Chat itself keeps who the
+# bot has met in each game and tells it how the user types (see Chat/turn.py,
+# _robot_status).
+#
+# Setup is the package installer: it puts packages on this machine, and each
+# package's own Robot sets that package up (status, checks, tools), keeping
+# its progress globally, since setup describes this machine. A Robot cannot
+# install itself, so the install steps stay in Setup/main.py.
 # Placeholder background: builder.jpg in the project root
 SETUP_BG_PATH = Path(__file__).absolute().parents[4] / "builder.jpg"
-
-
-def _caller_terminal() -> str:
-    """The terminal that called this tool. /chat commands name it: a command sent
-    into the terminal itself would pass for the user's own input."""
-    shell = atlantis.get_caller_shell_path()
-    if not shell:
-        raise RuntimeError("No caller shell; this must run from the user's terminal")
-    return shell
 
 
 @visible
@@ -46,21 +33,8 @@ async def on_enter():
     """
     Runs when entering chat
     """
-    logger.info(f"Executing Setup on_enter...")
-
-    await atlantis.set_background(str(SETUP_BG_PATH), vertical_align="center")
-
-    # The app folder name is the Chat game name; preflight and chat read it from the cursor
-    await atlantis.client_command("/cursor join", {"game_name": APP_NAME})
-
-    # Point the calling terminal at the app folder's chat shell (upserted by Node, keyed by folder)
-    script_folder = atlantis.get_script_folder()
-    if not script_folder:
-        raise RuntimeError("No script folder; on_enter must run as a dynamic function")
-    app_folder = posixpath.dirname(script_folder)
-    await atlantis.client_command(f"/chat bind {json.dumps(app_folder)} {json.dumps(_caller_terminal())}")
-
-    return "Setup entered"
+    from dynamic_functions.Chat.zone import zone_enter
+    return await zone_enter(SETUP_BG_PATH)
 
 
 @visible
@@ -69,43 +43,27 @@ async def on_exit():
     """
     Runs when leaving chat
     """
-    logger.info(f"Executing Setup on_exit...")
-
-    # Walk out of the room while this folder's chat is still bound
-    from dynamic_functions.Chat.roster import roster_leave
-    await roster_leave(APP_NAME)
-
-    await atlantis.clear_background()
-
-    # Drop the game cursor joined in on_enter
-    await atlantis.client_command("/cursor clear")
-
-    # Detach the calling terminal from the app folder's chat shell; the chat shell stays
-    await atlantis.client_command(f"/chat unbind {json.dumps(_caller_terminal())}")
-
-    return "Setup exited"
+    from dynamic_functions.Chat.zone import zone_exit
+    return await zone_exit()
 
 
 @visible
-async def get_status():
+async def get_status(command_prefix: str, current_folder: str):
     """
-    Setup status for the current user: who they are, whether you have met
-    them in this game, every setup step with whether it is done, and exactly what to
-    do next. Chat runs this before every bot round, so it only reads.
+    Setup status for the current user: every setup step with whether it is
+    done, and exactly what to do next. Chat runs this before every bot round,
+    passing the prefix a Multix command takes where they type and the folder
+    they are in. It only reads; Chat tells the bot who the user is and how
+    they type.
     """
     logger.info(f"Executing get_status...")
+    if command_prefix not in ("", "/"):
+        raise ValueError(f"command_prefix must be '' or '/', got {command_prefix!r}")
 
-    username = _caller()
-    steps = await _check_steps(username)
-
-    if username in _read_json(_game_visitors_path()):
-        seen = f"You have already been helping {username} in this game."
-    else:
-        seen = f"You have not met {username}."
-
+    steps = await check_steps()
     current = next((number for number, step in enumerate(steps, 1) if not step["done"]), None)
-    lines = [f"The user is {username}. {seen}", f"Setup has {len(SETUP_STEPS)} steps:"]
-    for number, ((name, _, _), step) in enumerate(zip(SETUP_STEPS, steps), 1):
+    lines = [f"Setup installs the packages; it has {len(steps)} steps:"]
+    for number, step in enumerate(steps, 1):
         if step["done"]:
             label = "done"
         elif number == current:
@@ -114,38 +72,38 @@ async def get_status():
             label = f"waiting on step {step['waitsOn']}"
         else:
             label = "to do"
-        lines.append(f"{number}. [{label}] {name}: {step['state']}")
+        lines.append(f"{number}. [{label}] {step['name']}: {step['state']}")
     if current is None:
-        lines.append("Next: setup is complete; tell the user they are ready to use Terrain.")
+        lines.append("Setup's own steps are done.")
     else:
         lines.append(f"Next (step {current}): {steps[current - 1]['fix']}")
+
+    # Each package sets itself up through its own Robot; Setup only installs
+    # them, so it shows their status after its own
+    for package, robot in (await _package_robots()).items():
+        status = await atlantis.client_command(
+            f"@{robot}/get_status", {"command_prefix": command_prefix, "current_folder": current_folder})
+        if not isinstance(status, str):
+            raise TypeError(f"@{robot}/get_status returned {type(status).__name__}, expected a string")
+        lines += ["", f"## {package}", status]
+    lines += ["", "Work on one Next at a time, Setup's own first, then each package in the order "
+                  "shown. Once every section is done, tell the user they are ready to use Terrain."]
     return "\n".join(lines)
 
 
 @visible
-async def record_visit():
+async def tool_folders() -> list[str]:
     """
-    Record that the bot has been helping the current user in this game. Chat
-    runs this once a bot's reply has gone out.
+    The package tool folders Chat loads into each of Astrid's rounds next to
+    Setup/Robot/Tools: each package's Robot/Tools.
     """
-    username = _caller()
-    visitors_path = _game_visitors_path()
-    visitors = _read_json(visitors_path)
-    visitors[username] = {"lastSeen": _now()}
-    _write_json(visitors_path, visitors)
-    return f"Recorded {username}'s visit"
+    return [f"{robot}/Tools" for robot in (await _package_robots()).values()]
 
 
-def _game_visitors_path() -> Path:
-    """This game's record of who its bot has met: {username: {lastSeen}}.
-
-    Bot memory lives with the game, so a new game starts with a bot that has
-    met nobody. The game folder must already exist (Chat creates it on join).
-    """
-    game_uuid = atlantis.get_game_uuid()
-    if not game_uuid:
-        raise RuntimeError("No game_uuid; this must be called from the Setup chat")
-    game_dir = DATA_PATH / "games" / game_uuid
-    if not game_dir.is_dir():
-        raise FileNotFoundError(f"No game folder for game {game_uuid!r} at {game_dir}")
-    return game_dir / "visitors.json"
+async def _package_robots() -> dict[str, str]:
+    """Each installed package's Robot, by package name, in setup order.
+    Media ships with this server; Terrain is here once step 2 cloned it."""
+    robots = {"Media": "$Media/Robot"}
+    if await terrain_installed():
+        robots["Terrain"] = "$Terrain/Robot"
+    return robots

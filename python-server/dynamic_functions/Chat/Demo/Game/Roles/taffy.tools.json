@@ -1,8 +1,0 @@
-[
-  {
-    "tool_name": "remember_visitor",
-    "tool_app": "Chat",
-    "tool_description": "Remember the user's name once you know it, so you recognize them in this game from now on. Call this before addressing them by that name.",
-    "input_schema": "{\"type\": \"object\", \"properties\": {\"name\": {\"type\": \"string\", \"description\": \"The user's name\"}}, \"required\": [\"name\"]}"
-  }
-]

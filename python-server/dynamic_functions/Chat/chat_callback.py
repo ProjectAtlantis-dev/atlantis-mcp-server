@@ -20,7 +20,7 @@ from .game import (
 )
 from .roster import _load_game_roster, roster_alone_text, roster_join_bot, roster_return, roster_visible_event_ids
 from .scene import scene_slot_default_location
-from .turn import bot_turn
+from .turn import _game_robot, bot_turn
 
 logger = logging.getLogger("dynamic_function")
 
@@ -317,7 +317,15 @@ def _load_identity_knowledge(game_name: str, game_key: str) -> Dict[str, Dict[st
 
 
 def _known_human_names(game_name: str, game_key: str, bot_sid: str) -> Dict[str, str]:
-    return dict(_load_identity_knowledge(game_name, game_key).get(bot_sid, {}))
+    known = dict(_load_identity_knowledge(game_name, game_key).get(bot_sid, {}))
+    # In a zone people play themselves under their own username, so the
+    # process knows who is here: every bot sees them by name, with nothing to
+    # learn and nothing lost when another bot covers the shift
+    if _game_robot(game_name) is not None:
+        for row in _load_game_roster(game_name, game_key):
+            if not _is_ai(row) and row.get("sid") and row.get("displayName"):
+                known[str(row["sid"])] = str(row["displayName"])
+    return known
 
 
 def _mark_identity_known(

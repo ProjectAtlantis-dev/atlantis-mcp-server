@@ -56,15 +56,25 @@ Untyped parameters are strings, and parameters with defaults are optional.
     subtree (the folder needs an `@index`). Only the nearest folder with a hook
     runs; the ones above it don't.
 - **Robot folder:** an app keeps the tools its chat drives (`@enter`, `@exit`,
-  `get_status`, `record_visit`) in a `Robot/` subfolder, e.g.
+  `get_status`, `record_turn`) in a `Robot/` subfolder, e.g.
   `Setup/Robot/main.py`. Hooks there belong to the app folder above it, so
   `cd Setup` runs `Setup/Robot/on_enter`. `Robot/` needs its own `main.py`
   with a `@visible` `index()`, like any folder. Bots are never offered Robot
-  tools. `Chat/<game>/init.py` names two of them:
-  - `STATUS_TOOL` (e.g. `$Setup/Robot/get_status`) runs before every bot
-    round, so it must only read state.
-  - `AFTER_TURN_TOOL` (e.g. `$Setup/Robot/record_visit`) runs once after a
-    bot's reply goes out.
+  tools. `Chat/<game>/init.py` makes the game a zone by naming the folder,
+  `ROBOT = "$Setup/Robot"`. Chat then:
+  - runs `get_status(command_prefix, current_folder)` before every bot round,
+    so it must only read state. Chat adds who the user is, whether the bot
+    has met them in this game, and how they type.
+  - runs `record_turn`, if the Robot has one, once after a bot's reply goes
+    out. Chat records the visit itself.
+  - loads every tool in `Robot/Tools/` into every bot round, plus the
+    folders the Robot's `tool_folders`, if it has one, returns.
+  - Setup is the package installer: `Setup/Robot` shows each installed
+    package's own `<Package>/Robot/get_status` after its own steps, and its
+    `tool_folders` names each package's `Robot/Tools`. Package Robots
+    (`Media/Robot`, `Terrain/Robot`) have no hooks; a Robot can't install
+    itself, so cloning a package stays in Setup.
+  - The hooks call `Chat.zone`'s `zone_enter(background)` and `zone_exit()`.
 - **Structure:** `@index`, `@text("md")`, `@location(...)`, `@price(...)`,
   `@copy`, `@dynamic`.
 - **Modifiers:** `@exclude` (hidden from fuzzy search), `@button`.

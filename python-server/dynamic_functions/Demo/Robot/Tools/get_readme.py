@@ -7,7 +7,7 @@ logger = logging.getLogger("dynamic_function")
 
 @visible
 async def get_readme() -> str:
-    """The full Multix guide. Users open it themselves with /cd ../Home, then @readme."""
+    """The full Multix guide: commands, paths and globs, tool prefixes, search, named parameters, SQL select, cursors and troubleshooting. Answer Multix questions from it, not from memory. Users read it themselves with `cd ../Home`, then `@readme`."""
     logger.info("Executing get_readme...")
     # The commands a user types for it, run in this tool's own shell. The
     # shell is not in terminal mode, so the tool call needs its @.

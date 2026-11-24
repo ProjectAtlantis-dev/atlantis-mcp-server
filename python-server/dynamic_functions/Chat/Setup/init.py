@@ -8,10 +8,8 @@ from ..runner import roster_exists, start_owned_stopped_game
 
 SCENE = "setup"
 OWNER_SLOT = "Owner"
-# Run before every bot turn (see turn._game_status)
-STATUS_TOOL = "$Setup/Robot/get_status"
-# Run once after each bot reply goes out (see turn._game_after_turn)
-AFTER_TURN_TOOL = "$Setup/Robot/record_visit"
+# This game is a zone: Chat drives the Robot folder (see turn._game_robot)
+ROBOT = "$Setup/Robot"
 
 
 async def game_init(game_name: str, game_key: str) -> None:
@@ -25,8 +23,8 @@ async def game_init(game_name: str, game_key: str) -> None:
         raise RuntimeError("No caller identity in this call context")
     await bind_caller_to_slot(game_name, game_key, OWNER_SLOT, display_name=caller)
 
-    # The owner starts unknown to every bot: they introduce themselves and the
-    # bot learns them through remember_visitor, which is how the visitor is authed.
+    # Every bot here knows the owner by that name: in a zone the process, not the
+    # bot, remembers who is here (see chat_callback._known_human_names).
 
     # No camera: Setup's on_enter owns the background, and a follower would repaint it on spawn.
     #await camera_follow(game_name, game_key, OWNER_SLOT)

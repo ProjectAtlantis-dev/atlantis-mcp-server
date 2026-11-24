@@ -11,7 +11,7 @@ OWNER_SLOT = "Owner"
 # Run before every bot turn (see turn._game_status)
 STATUS_TOOL = "$Demo/Robot/get_status"
 # Run once after each bot reply goes out (see turn._game_after_turn)
-AFTER_TURN_TOOL = "$Demo/Robot/record_visit"
+AFTER_TURN_TOOL = "$Demo/Robot/record_turn"
 
 
 async def game_init(game_name: str, game_key: str) -> None:

@@ -1,8 +1,11 @@
 import json
 import logging
 import posixpath
-from datetime import datetime
+import re
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, Optional
 
 import atlantis
 
@@ -13,10 +16,16 @@ logger = logging.getLogger("dynamic_function")
 APP_NAME = Path(__file__).absolute().parents[1].name
 # Data for the Chat game this app joins (Chat/<APP_NAME>/Data)
 DATA_PATH = Path(__file__).absolute().parents[2] / "Chat" / APP_NAME / "Data"
-# In each game's folder, per user: when they confirmed each walkthrough step.
+# In each game's folder, per user, their walkthrough:
+#   actions: {action key: {event, at}}, the command event that finished each
+#   after:   the last transcript event id when they reset it; only commands
+#            after it count (absent until a reset)
+#   ended:   when the bot was first told it is complete, set by the reply that
+#            told them (absent until then)
 # Progress lives with the game, so a new game starts the walkthrough over.
 PROGRESS_FILE = "progress.json"
 FOO_PATH = Path(__file__).absolute().parents[1] / "foo.py"
+HELLO_PATH = Path(__file__).absolute().parents[1] / "hello.py"
 # In each game's folder: who this game's bot has met, {username: {lastSeen}}.
 # Bot memory lives with the game, so a new game starts with a bot that has met nobody.
 VISITORS_FILE = "visitors.json"
@@ -88,14 +97,15 @@ async def on_exit():
 async def get_status():
     """
     Demo status for the current user: who they are, whether you have met them
-    in this game, every walkthrough step with whether it is done, and exactly
-    what to do next. Chat runs this before every bot round, so it only reads.
+    in this game, every walkthrough step with how far they are, what the last
+    thing they ran should show, and exactly what to do next. Chat runs this
+    before every bot round, so it only reads.
     """
     logger.info(f"Executing get_status...")
 
     username = _caller()
     prefix, typing = await _typing_rules()
-    steps = _check_steps(username)
+    walk = await _walk(username)
 
     if username in _read_json(_game_path(VISITORS_FILE)):
         seen = f"You have already met {username} in this game; carry on from where you are."
@@ -103,38 +113,58 @@ async def get_status():
         seen = (f"You have not met {username}. Call remember_visitor with the name {username!r}, "
                 "then introduce yourself and start the walkthrough.")
 
-    current = next((number for number, step in enumerate(steps, 1) if not step["done"]), None)
-    lines = [f"The user is {username}. {seen}", typing, f"The Demo walkthrough has {len(DEMO_STEPS)} steps:"]
-    for number, ((name, _, _), step) in enumerate(zip(DEMO_STEPS, steps), 1):
-        if step["done"]:
-            label = "done"
-        elif number == current:
-            label = "NEXT"
-        else:
-            label = f"waiting on step {step['waitsOn']}"
-        lines.append(f"{number}. [{label}] {name}: {step['state']}")
-    if current is None:
-        lines.append("Next: the walkthrough is complete. Offer to find them any other tool: search "
-                     "covers every folder on their search path, "
-                     f"which they can see with {prefix}path show.")
-    else:
-        lines.append(f"Next (step {current}): {steps[current - 1]['fix'].replace('{sh}', prefix)}")
-    lines.append("If the user would rather explore on their own, call list_demo_tools.")
+    lines = [f"The user is {username}. {seen}", typing]
+    lines += _walk_lines(walk, prefix)
+    lines.append("If the user would rather explore on their own, call list_demo_tools. If they ask "
+                 "to start the walkthrough over, call reset_demo_walkthrough.")
     return "\n".join(lines)
 
 
 @visible
-async def record_visit():
+async def record_turn():
     """
-    Record that the bot has met the current user in this game. Chat runs this
-    once a bot's reply has gone out.
+    Record what this turn established: that the bot has met the current user
+    in this game, and every walkthrough action the server saw them finish (the
+    terminal transcript only reaches back to when the bot arrived, so progress
+    must be kept). Chat runs this once a bot's reply has gone out.
     """
     username = _caller()
     visitors_path = _game_path(VISITORS_FILE)
     visitors = _read_json(visitors_path)
     visitors[username] = {"lastSeen": _now()}
     _write_json(visitors_path, visitors)
-    return f"Recorded {username}'s visit"
+
+    walk = await _walk(username)
+    entry: dict[str, Any] = {"actions": walk.proofs}
+    if walk.after is not None:
+        entry["after"] = walk.after
+    # The status this reply was written from said the walkthrough is complete
+    # unless the final command landed while the bot was writing it; then this
+    # reply did not say so, and the next status still says it is finished.
+    if walk.ended is not None:
+        entry["ended"] = walk.ended
+    elif walk.current is None:
+        entry["ended"] = _now()
+    progress_path = _game_path(PROGRESS_FILE)
+    progress = _read_json(progress_path)
+    progress[username] = entry
+    _write_json(progress_path, progress)
+    return f"Recorded {username}'s visit and {len(walk.proofs)} finished walkthrough action(s)"
+
+
+@visible
+async def reset_walkthrough():
+    """
+    Start the current user's Demo walkthrough over from step 1: forget what
+    they finished, and count only commands they type from now on.
+    """
+    username = _caller()
+    transcript = await _transcript()
+    progress_path = _game_path(PROGRESS_FILE)
+    progress = _read_json(progress_path)
+    progress[username] = {"actions": {}, "after": max((event["id"] for event in transcript), default=0)}
+    _write_json(progress_path, progress)
+    return f"Reset {username}'s Demo walkthrough to step 1"
 
 
 async def _typing_rules() -> tuple[str, str]:
@@ -171,121 +201,318 @@ async def _typing_rules() -> tuple[str, str]:
     return prefix, f"{rules} {where}"
 
 
-def _check_steps(username: str) -> list[dict]:
-    """One {done, state, fix, waitsOn} per DEMO_STEPS entry, in order; a fix
-    keeps its {sh} markers for the caller to fill with the command prefix"""
-    confirmed = _read_json(_game_path(PROGRESS_FILE)).get(username, {})
-    steps: list[dict] = []
-    for number, (name, key, fix) in enumerate(DEMO_STEPS, 1):
-        # The walkthrough is a sequence: each step needs the one before it
-        if number > 1 and not steps[-1]["done"]:
-            steps.append({"done": False, "state": f"needs step {number - 1} first.",
-                          "fix": None, "waitsOn": number - 1})
-        elif key in confirmed:
-            steps.append({"done": True, "state": f"the user finished it on {confirmed[key]}.",
-                          "fix": None, "waitsOn": None})
-        else:
-            steps.append({"done": False, "state": "not done yet.",
-                          "fix": fix, "waitsOn": None})
-    return steps
+# ---------------------------------------------------------------------------
+# The walkthrough
+# ---------------------------------------------------------------------------
+#
+# Every action is one command the user types in their terminal, so the server
+# sees for itself when it ran: Node's /transcript get holds each command typed
+# there and names, on every error, the typedCommandId it came from. Nothing
+# waits on the bot to report progress. What a command should show is told to
+# the bot only once it has run, so it cannot describe a result ahead of time.
+
+@dataclass(frozen=True)
+class Action:
+    key: str
+    # The forms that count, {sh} marking where a Multix command takes its
+    # prefix; the first is the one the bot shows
+    commands: tuple[str, ...]
+    # What the bot tells them before they type it
+    intro: str
+    # What it should show, told only once it has run (one or more sentences)
+    shows: str
+    # A file they must save after the action before this one, then run the
+    # command after saving
+    saved: Optional[Path] = None
+    # (tool, args, value): the server runs the tool and it must return value
+    returns: Optional[tuple[str, dict, Any]] = None
 
 
-def _confirm(key: str) -> str:
-    return f"Only after they confirm, call confirm_demo_step with step \"{key}\"."
+@dataclass(frozen=True)
+class Step:
+    name: str
+    actions: tuple[Action, ...]
 
 
-# (name, confirm_demo_step key, what to do next). Ported from the parked MCP
-# onboarding (atlantis_nodejs resources/mcp/onboarding-demo.md). {sh} marks where
-# a Multix command needs its prefix: "/" when the user types in the chat window,
-# nothing in a terminal (see _typing_rules).
-DEMO_STEPS = [
-    ("list the Demo tools", "ls", (
-        "have them type {sh}ls, which lists the functions in the Demo folder. Ask whether they see the list. "
-        "End your turn and wait. " + _confirm("ls"))),
-    ("run foo", "foo", (
-        "ask whether they would like a quick introduction to the Multix shell, and wait. If yes, "
-        "explain in a few plain sentences: Multix is where you type commands to explore and run "
-        "tools, and its folders hold functions rather than ordinary files; {sh}pwd shows the current "
-        "folder and {sh}ls lists its functions. Then have them type @foo(3,4), which calls the foo "
-        "function and should return 7. Ask them to confirm they got 7, and wait; resolve any error "
-        "first. " + _confirm("foo"))),
-    ("read foo's source", "source", (
-        "have them type {sh}cat foo, which shows the source code of the foo function they just ran. "
-        "Ask whether they see it, and wait. Then explain this is the same code as the file "
-        f"{FOO_PATH}, which they can open and edit in VS Code. "
-        "Point out that the function's docstring is the description {sh}ls shows for foo, "
-        "\"Add two integers\". " + _confirm("source"))),
-    ("edit foo", "edit", (
-        f"ask them to edit foo in {FOO_PATH} themselves so it returns x + y + 100, save the file, "
-        "and type @foo(3,4) again. The server reloads functions when a file is saved, so no "
-        "restart is needed, and it should now return 107. Do not make the edit for them. End your "
-        "turn and wait for them to confirm 107; resolve any error first. " + _confirm("edit"))),
-    ("see images and video", "media", (
-        "have them type @myImage, which shows how functions return images; ask whether they see "
-        "the image, and wait. Then have them type @myVideo, which shows how functions return "
-        "video; ask whether they see it play, and wait. " + _confirm("media"))),
+# Ported from the parked MCP onboarding (atlantis_nodejs resources/mcp/onboarding-demo.md).
+_SELECT_SORTED = "select * from [@myTableWithImages] where name like 'M%' order by name desc"
+DEMO_STEPS = (
+    Step("list the Demo tools", (
+        Action("ls", ("{sh}ls",),
+               "Tell them {sh}ls lists the functions in the folder they are in, the Demo folder.",
+               "the Demo functions, each with its description."),
+    )),
+    Step("run foo", (
+        Action("foo", ("@foo(3,4)",),
+               "Ask whether they would like a quick introduction to the Multix shell, and wait. If "
+               "yes, explain in a few plain sentences: Multix is where you type commands to explore "
+               "and run tools, and its folders hold functions rather than ordinary files; {sh}pwd "
+               "shows the current folder and {sh}ls lists its functions. Then tell them @foo(3,4) "
+               "calls the foo function with 3 and 4.",
+               "7: foo adds its two numbers."),
+    )),
+    Step("read foo's source", (
+        Action("source", ("{sh}cat foo",),
+               "Tell them {sh}cat shows the source code of a function, here foo, which they just ran.",
+               f"the source code of foo. Explain that this is the same code as the file {FOO_PATH}, "
+               "which they can open and edit in VS Code, and that the function's docstring is the "
+               "description {sh}ls shows for foo, \"Add two integers\"."),
+    )),
+    Step("edit foo", (
+        Action("edit", ("@foo(3,4)",),
+               f"Ask them to edit foo in {FOO_PATH} themselves so it returns x + y + 100, and save "
+               "the file. The server reloads functions when a file is saved, so no restart is "
+               "needed. Do not make the edit for them. Then have them run foo again.",
+               "107: their edit is live without a restart.",
+               saved=FOO_PATH, returns=("@$Demo/foo", {"x": 3, "y": 4}, 107)),
+    )),
+    Step("see images and video", (
+        Action("image", ("@myImage",),
+               "Tell them myImage shows how functions return images.",
+               "an image."),
+        Action("video", ("@myVideo",),
+               "Tell them myVideo shows how functions return video.",
+               "a video playing."),
+    )),
     # SQL over embedded commands: a bracket must hold a tool call ([@myTable]); a
     # bare [myTable] fails with "Command or tool not recognized: mytable". Tested
     # 2026-11-23 through Lobster: where/like, order by, (select ...)[0] and a join
     # of two brackets all work. Untested: brackets holding tools with arguments,
     # Multix commands, or nested selects; check those by hand before adding them.
-    ("see tables", "table", (
-        "have them type @myTable: it returns a list of anime heroines, and Atlantis shows "
-        "tabular data like this as a table. Ask whether they see the table, and wait. Then have "
-        "them type {sh}cat myTable to see its source: it just returns a list of rows, one dictionary "
-        "per row with the same keys, and Atlantis renders that as a table. Ask whether they see "
-        "it, and wait. Then have them type @myTableWithImages: the same heroines with their "
-        "creators and a thumbnail of each, because a column holding an image data URI shows as a "
-        "picture. Ask whether they see the thumbnails, and wait. Then tell them any table can be "
-        "queried with SQL: wrapping a command in square brackets turns its output into a table to "
-        "select from. Have them type {sh}select * from [@myTable] where name like 'M%', which shows "
-        "only the heroines whose names start with M. Ask whether they see the filtered table, and "
-        "wait. Then have them type {sh}select * from [@myTableWithImages] where name like 'M%' order "
-        "by name desc, which runs the same filter on the table with thumbnails, sorted by name in "
-        "reverse. Ask whether they see the sorted table with images, and wait. Then have them pull "
-        "out just the first row by wrapping that query in parentheses and indexing it: "
-        "{sh}(select * from [@myTableWithImages] where name like 'M%' order by name desc)[0]. A single "
-        "record shows as JSON instead of a table, and its image field is the raw base64 data URI "
-        "rather than a picture. Ask whether they see the JSON, and wait. Then "
-        "have them pull just that row's image by adding .image: "
-        "{sh}(select * from [@myTableWithImages] where name like 'M%' order by name desc)[0].image. "
-        "Ask whether they see the image, and wait. Then show that tables can be joined, like in "
-        "any database: naming each bracketed command with AS lets the query match rows across "
-        "them. Have them type {sh}select t.name, t.series, i.creator from [@myTable] AS t join "
-        "[@myTableWithImages] AS i on t.name = i.name, which puts each heroine's series from the "
-        "first table next to her creator from the second. Ask whether they see the joined table, "
-        "and wait. " + _confirm("table"))),
-    ("say hello", "hello", (
-        "tell them they are past the halfway point of the demo. Then have them type @hello, which "
-        "greets them by their Atlantis username. Ask whether they see the greeting, and wait. "
-        "Then point out that a function knows exactly who is calling it. "
-        + _confirm("hello"))),
-    ("open the code editor", "editor", (
-        "have them type {sh}edit hello, which opens the built-in Multix code editor on the hello "
-        "function. Unlike {sh}cat hello, which only shows the source, edit lets them change the "
-        "function and save it. Ask whether they see the editor, and wait. Point out that hello uses "
-        "the atlantis package, which provides many commands such as get_caller(). Then ask them to "
-        "close the editor; closing does not save. Wait for them to confirm. " + _confirm("editor"))),
-    ("run the editor in the background", "background", (
-        "explain that while the editor was open, the terminal was waiting on it. Have them type "
-        "{sh}edit hello & instead: like Unix, a trailing & runs the command in the background, so the "
-        "editor opens and the terminal stays free. Ask whether the editor opened while the terminal "
-        "is still usable, and wait. " + _confirm("background"))),
-    ("run commands from the editor", "command", (
-        "in the editor, have them make a fresh blank line above @visible and press Cmd+Right Arrow "
-        "(Ctrl+Right Arrow on Windows or Linux) on it, which inserts a # % command comment; hello.py "
-        "may already have example # % comments, which run the same way. Have them type ls after the "
-        "% and press Cmd+Right Arrow again to run it from the editor: the terminal lists the Demo "
-        "functions with their descriptions. Ask whether they see the list, and wait. Then have them "
-        "change the command to hello and run it; ask whether they see the greeting, and wait. Then "
-        "have them change the docstring under def hello() to something new and save with Cmd+S "
-        "(Ctrl+S on Windows or Linux): the docstring is the description ls shows. Wait. Then have "
-        "them change the command to ls hello and run it; ask whether they see the new description, "
-        "and wait. Then have them close the editor and type {sh}clear to clear the terminal, and wait. "
-        "Tell them the Demo walkthrough is done. Only after they confirm the list, the greeting, the "
-        "new description and a cleared terminal, call confirm_demo_step with step \"command\".")),
-]
-DEMO_STEP_KEYS = [key for _, key, _ in DEMO_STEPS]
+    Step("see tables", (
+        Action("table", ("@myTable",),
+               "Tell them myTable returns a list of anime heroines.",
+               "a table of anime heroines: Atlantis shows tabular data like this as a table."),
+        Action("table_source", ("{sh}cat myTable",),
+               "Have them look at the source of myTable.",
+               "that myTable just returns a list of rows, one dictionary per row with the same keys, "
+               "and Atlantis renders that as a table."),
+        Action("table_images", ("@myTableWithImages",),
+               "Tell them myTableWithImages returns the same heroines with their creators and a "
+               "thumbnail of each.",
+               "a thumbnail picture in each row: a column holding an image data URI shows as a picture."),
+        Action("select", ("{sh}select * from [@myTable] where name like 'M%'",),
+               "Tell them any table can be queried with SQL: wrapping a command in square brackets "
+               "turns its output into a table to select from. This query keeps only the heroines "
+               "whose names start with M.",
+               "only the heroines whose names start with M."),
+        Action("select_sorted", ("{sh}" + _SELECT_SORTED,),
+               "Tell them this runs the same filter on the table with thumbnails, sorted by name in "
+               "reverse.",
+               "the heroines whose names start with M, with thumbnails, sorted by name in reverse."),
+        Action("first_row", ("{sh}(" + _SELECT_SORTED + ")[0]",),
+               "Tell them wrapping that query in parentheses and indexing it pulls out just the "
+               "first row.",
+               "a single record, which shows as JSON instead of a table, so its image field is the "
+               "raw base64 data URI rather than a picture."),
+        Action("first_image", ("{sh}(" + _SELECT_SORTED + ")[0].image",),
+               "Tell them adding .image pulls just that row's image.",
+               "the image itself."),
+        Action("join", ("{sh}select t.name, t.series, i.creator from [@myTable] AS t join "
+                        "[@myTableWithImages] AS i on t.name = i.name",),
+               "Tell them tables can be joined, like in any database: naming each bracketed command "
+               "with AS lets the query match rows across them.",
+               "each heroine's series from the first table next to her creator from the second."),
+    )),
+    Step("say hello", (
+        Action("hello", ("@hello",),
+               "Tell them they are past the halfway point of the demo, and that hello greets whoever "
+               "calls it.",
+               "a greeting with their Atlantis username. Point out that a function knows exactly "
+               "who is calling it."),
+    )),
+    Step("open the code editor", (
+        Action("editor", ("{sh}edit hello",),
+               "Tell them {sh}edit opens the built-in Multix code editor on a function: unlike "
+               "{sh}cat, which only shows the source, it lets them change the function and save it.",
+               "the code editor open on hello. Point out that hello uses the atlantis package, "
+               "which provides many commands such as get_caller()."),
+    )),
+    Step("run the editor in the background", (
+        Action("background", ("{sh}edit hello &",),
+               "Have them close the editor; closing does not save. Explain that while the editor "
+               "was open, the terminal was waiting on it; like Unix, a trailing & runs a command in "
+               "the background, so the editor opens and the terminal stays free.",
+               "the editor open while the terminal is still free to use."),
+    )),
+    Step("run commands from the editor", (
+        Action("editor_ls", ("{sh}ls",),
+               "In the editor, have them make a fresh blank line above @visible and press "
+               "Cmd+Right Arrow (Ctrl+Right Arrow on Windows or Linux) on it, which inserts a # % "
+               "command comment; hello.py may already have example # % comments, which run the same "
+               "way. They type the command after the % and press Cmd+Right Arrow again to run it "
+               "from the editor.",
+               "the Demo functions with their descriptions, in the terminal."),
+        Action("editor_hello", ("hello", "@hello"),
+               "Have them change the command in that # % comment and run it from the editor the "
+               "same way.",
+               "the greeting, in the terminal."),
+        Action("docstring", ("{sh}ls hello",),
+               "Have them change the docstring under def hello() to something new and save with "
+               "Cmd+S (Ctrl+S on Windows or Linux): the docstring is the description ls shows. Then "
+               "have them change the # % command and run it from the editor.",
+               "hello with the new description they wrote.",
+               saved=HELLO_PATH),
+        Action("clear", ("{sh}clear",),
+               "Have them close the editor.",
+               "a cleared terminal."),
+    )),
+)
+_ACTION_KEYS = [action.key for step in DEMO_STEPS for action in step.actions]
+if len(set(_ACTION_KEYS)) != len(_ACTION_KEYS):
+    raise ValueError("DEMO_STEPS action keys must be unique")
+
+
+@dataclass(frozen=True)
+class Walk:
+    # Proof of every action finished, by key: the command event that did it
+    proofs: dict[str, dict]
+    # (step index, action index) of the first unfinished action; None when done
+    current: Optional[tuple[int, int]]
+    # The last action finished, None before the first
+    last: Optional[Action]
+    # Why what they ran for the current action does not count yet, with
+    # {command} where its command goes
+    problem: Optional[str]
+    # Only commands after this transcript event id count (set by a reset)
+    after: Optional[int]
+    # When the bot was first told the walkthrough is complete
+    ended: Optional[str]
+
+
+async def _walk(username: str) -> Walk:
+    """Where the user is in the walkthrough: the actions recorded in this game,
+    then whatever the commands in their terminal prove since. Each action must
+    come after the one before it."""
+    entry = _read_json(_game_path(PROGRESS_FILE)).get(username, {"actions": {}})
+    if not isinstance(entry, dict) or "actions" not in entry or not set(entry) <= {"actions", "after", "ended"}:
+        raise ValueError(f"{PROGRESS_FILE} holds {entry!r} for {username}, which is not a walkthrough; "
+                         "it predates the current walkthrough, so start a new game")
+    stored = entry["actions"]
+    for key, proof in stored.items():
+        if key not in _ACTION_KEYS or not isinstance(proof, dict) or set(proof) != {"event", "at"}:
+            raise ValueError(f"{PROGRESS_FILE} holds {key!r}: {proof!r}, which is not a walkthrough "
+                             "action proof; it predates the current walkthrough, so start a new game")
+    after = entry.get("after")
+    ended = entry.get("ended")
+    ran = [event for event in await _ran_commands() if after is None or event["id"] > after]
+
+    proofs: dict[str, dict] = {}
+    before: Optional[dict] = None
+    last: Optional[Action] = None
+    for step_index, step in enumerate(DEMO_STEPS):
+        for action_index, action in enumerate(step.actions):
+            proof = stored.get(action.key)
+            problem = None
+            if proof is None:
+                used = {proof["event"] for proof in proofs.values()}
+                proof, problem = await _attempt(action, before, [event for event in ran if event["id"] not in used])
+            if proof is None:
+                return Walk(proofs, (step_index, action_index), last, problem, after, ended)
+            proofs[action.key] = proof
+            before, last = proof, action
+    return Walk(proofs, None, last, None, after, ended)
+
+
+async def _transcript() -> list[dict]:
+    """Every event in the caller's terminal"""
+    transcript = await atlantis.client_command(f"/transcript get {json.dumps(_caller_terminal())}")
+    if not isinstance(transcript, list):
+        raise TypeError(f"/transcript get returned {type(transcript).__name__}, expected a list")
+    return transcript
+
+
+async def _ran_commands() -> list[dict]:
+    """Commands typed in the caller's terminal that raised no error, oldest
+    first. Node names on each error the typedCommandId it came from."""
+    transcript = await _transcript()
+    failed = {event["typedCommandId"] for event in transcript
+              if event.get("type") == "error" and "typedCommandId" in event}
+    return sorted((event for event in transcript
+                   if event.get("type") == "command" and event["id"] not in failed),
+                  key=lambda event: event["id"])
+
+
+async def _attempt(action: Action, before: Optional[dict], ran: list[dict]) -> tuple[Optional[dict], Optional[str]]:
+    """(proof, None) when a command they ran after the action before this one
+    finishes it, else (None, why not yet), the reason None when they have not
+    run it at all. `ran` holds no command that already proved another action."""
+    forms = {_command_key(command.replace("{sh}", "")) for command in action.commands}
+    matching = [event for event in ran if _command_key(event["content"]) in forms]
+    typed = [event for event in matching if before is None or event["id"] > before["event"]]
+    if not typed:
+        if matching:
+            return None, ("They ran {command} earlier, before the step before it was done, so it "
+                          "does not count: have them run it again now.")
+        return None, None
+
+    if action.saved:
+        saved_at = datetime.fromtimestamp(action.saved.stat().st_mtime, timezone.utc)
+        if before is not None and saved_at <= datetime.fromisoformat(before["at"]):
+            return None, (f"They ran {{command}}, but have not saved {action.saved.name} since the "
+                          "step before, so the change is not made yet.")
+        typed = [event for event in typed if datetime.fromisoformat(event["created_at"]) > saved_at]
+        if not typed:
+            return None, f"They saved {action.saved.name}, but have not run {{command}} since."
+
+    if action.returns:
+        tool, args, value = action.returns
+        result = await atlantis.client_command(tool, args)
+        if result != value:
+            return None, (f"They ran {{command}}, but it returns {result!r} right now, not {value!r}: "
+                          f"the change in {action.saved.name if action.saved else tool} is not right yet.")
+
+    return {"event": typed[0]["id"], "at": typed[0]["created_at"]}, None
+
+
+def _command_key(text: str) -> str:
+    """How typed commands compare: without the / the chat window needs, in any
+    case or spacing, and without () on a tool call with no arguments"""
+    key = re.sub(r"\s+", "", text).lower().removeprefix("/")
+    return key.removesuffix("()") if key.startswith("@") else key
+
+
+def _walk_lines(walk: Walk, prefix: str) -> list[str]:
+    """The walkthrough part of the status"""
+    def shown(action: Action) -> str:
+        return f"`{action.commands[0].replace('{sh}', prefix)}`"
+
+    lines = [f"The Demo walkthrough has {len(DEMO_STEPS)} steps:"]
+    for number, step in enumerate(DEMO_STEPS, 1):
+        done = sum(action.key in walk.proofs for action in step.actions)
+        if done == len(step.actions):
+            label = "done"
+        elif walk.current is not None and walk.current[0] == number - 1:
+            label = "NEXT" if len(step.actions) == 1 else f"NEXT, {done} of {len(step.actions)} done"
+        else:
+            label = "not started"
+        lines.append(f"{number}. [{label}] {step.name}")
+
+    other_tools = ("Offer to find them any other tool: search covers every folder on their search "
+                   f"path, which they can see with {prefix}path show.")
+    if walk.ended is not None:
+        lines.append(f"They finished the walkthrough at {walk.ended}, and you have told them so. "
+                     f"Help them with whatever they ask. {other_tools}")
+        return lines
+    if walk.current is None:
+        lines.append(f"They just ran {shown(walk.last)}, the last step, which shows "
+                     f"{walk.last.shows.replace('{sh}', prefix)} The walkthrough is complete: tell "
+                     f"them so. {other_tools}")
+        return lines
+
+    if walk.last is not None:
+        lines.append(f"The last thing they ran was {shown(walk.last)}; it should show "
+                     f"{walk.last.shows.replace('{sh}', prefix)} If they have not said yet whether "
+                     "they see that, ask, and wait.")
+
+    step_index, action_index = walk.current
+    action = DEMO_STEPS[step_index].actions[action_index]
+    lines.append(f"Next (step {step_index + 1}): {action.intro.replace('{sh}', prefix)} Then have "
+                 f"them type {shown(action)}, and end your turn. The server sees when it has run and "
+                 "only then tells you what it shows, so do not say beforehand.")
+    if walk.problem:
+        lines.append(walk.problem.replace("{command}", shown(action)))
+    return lines
 
 
 def _caller() -> str:

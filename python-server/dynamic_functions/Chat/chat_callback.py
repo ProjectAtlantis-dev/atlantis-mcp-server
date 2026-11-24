@@ -231,7 +231,13 @@ def _last_bot_speaker(raw_transcript: List[Dict[str, Any]], bot_sids: List[str])
 
 
 def _last_chat_signature(raw_transcript: List[Dict[str, Any]]) -> str:
+    """The latest input that calls this callback: a chat line, or an error the
+    user raised by typing a command (Node calls the callback for those too, and
+    names their typedCommandId; an error outside any command does not call it)."""
     for msg in reversed(raw_transcript):
+        if msg.get("type") == "error" and "typedCommandId" in msg:
+            timestamp = str(msg.get("created_at") or msg.get("created_at_str") or "")
+            return "|".join(["error", str(msg["id"]), timestamp])
         if msg.get("type") != "chat":
             continue
         sid = str(msg.get("sid") or "")

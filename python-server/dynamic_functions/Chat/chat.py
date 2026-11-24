@@ -24,6 +24,11 @@ def analyze_participants(raw_transcript: List[Dict[str, Any]]) -> Dict[str, Any]
     last_speaker: Optional[str] = None
 
     for msg in raw_transcript:
+        # An error the user raised by typing a command calls the callback too (Node
+        # names its typedCommandId), so that user is the one the bots now answer
+        if msg.get('type') == 'error' and 'typedCommandId' in msg:
+            last_speaker = msg['sid']
+            continue
         if msg.get('type') != 'chat':
             continue
         sid = msg.get('sid')

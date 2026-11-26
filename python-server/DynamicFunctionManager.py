@@ -131,6 +131,27 @@ def button(title: str):
 
     return decorator
 
+# --- Keyword Decorator Definitions ---
+# Pure markers: the loader reads the keywords from the source (AST) and sends
+# them to the cloud as one comma-delimited 'keyword' annotation.
+def keyword(name: str):
+    """Tag a function with a search keyword.
+
+    Usage: @keyword("weather")
+    """
+    if not isinstance(name, str):
+        raise TypeError("@keyword name must be a string")
+    return _mcp_identity_decorator
+
+def keywords(names: list):
+    """Tag a function with several search keywords.
+
+    Usage: @keywords(["weather", "forecast"])
+    """
+    if not isinstance(names, list) or not names or not all(isinstance(n, str) for n in names):
+        raise TypeError("@keywords names must be a non-empty list of strings")
+    return _mcp_identity_decorator
+
 # --- App Decorator Definition ---
 def app(func):
     """
@@ -357,6 +378,8 @@ class DynamicFunctionManager:
             ("app", app),
             ("location", location),
             ("button", button),
+            ("keyword", keyword),
+            ("keywords", keywords),
             ("tick", tick),
             ("protected", protected),
             ("index", index),
@@ -1054,6 +1077,8 @@ class DynamicFunctionManager:
                     location_name_from_decorator = None # Initialize location_name
                     button_title_from_decorator = None # Initialize button_title
                     text_content_type_from_decorator = None # Initialize text_content_type
+                    keywords_from_decorator: List[str] = [] # Accumulated from @keyword / @keywords
+                    has_invalid_keyword = False
                     protection_name_from_decorator = None # Initialize protection_name
                     is_index_from_decorator = False # Initialize is_index
                     is_copyable_from_decorator = False # Initialize is_copyable
@@ -1202,6 +1227,25 @@ class DynamicFunctionManager:
                                             logger.error(f"❌ @text decorator used on {func_def_node.name} but content type was not found or not a string.")
                                         # Add 'text' to decorator_names
                                         decorator_names.append('text')
+                                    elif decorator_func_name == 'keyword':
+                                        # @keyword("name"): exactly one positional string
+                                        args = decorator_node.args
+                                        if len(args) == 1 and not decorator_node.keywords and isinstance(args[0], ast.Constant) and isinstance(args[0].value, str):
+                                            keywords_from_decorator.append(args[0].value)
+                                        else:
+                                            has_invalid_keyword = True
+                                            logger.error(f"❌ @keyword decorator for {func_def_node.name} expects a single string, e.g. @keyword(\"name\").")
+                                        decorator_names.append('keyword')
+                                    elif decorator_func_name == 'keywords':
+                                        # @keywords(["a", "b"]): exactly one positional non-empty list of strings
+                                        args = decorator_node.args
+                                        if (len(args) == 1 and not decorator_node.keywords and isinstance(args[0], ast.List) and args[0].elts
+                                                and all(isinstance(e, ast.Constant) and isinstance(e.value, str) for e in args[0].elts)):
+                                            keywords_from_decorator.extend(e.value for e in args[0].elts)  # pyright: ignore[reportAttributeAccessIssue]
+                                        else:
+                                            has_invalid_keyword = True
+                                            logger.error(f"❌ @keywords decorator for {func_def_node.name} expects a non-empty list of strings, e.g. @keywords([\"a\", \"b\"]).")
+                                        decorator_names.append('keywords')
                                     else: # It's a call decorator but not 'app', 'location', 'protected', 'price', or 'text'
                                         decorator_names.append(decorator_func_name)
                                 else: # Decorator call but func is not a simple Name (e.g. @obj.deco())
@@ -1243,6 +1287,7 @@ class DynamicFunctionManager:
                         "price_per_call": price_per_call_from_decorator, # Add extracted price_per_call
                         "price_per_sec": price_per_sec_from_decorator, # Add extracted price_per_sec
                         "text_content_type": text_content_type_from_decorator, # Add extracted text content type (e.g. "markdown")
+                        "keyword": None if has_invalid_keyword else ",".join(sorted(keywords_from_decorator, key=str.lower)) or None, # comma-delimited; Node treats it as plain text. None + keyword decorator = invalid
                         "is_dynamic": is_dynamic_from_decorator, # Add extracted is_dynamic flag
                         "source_fingerprint": self._function_source_fingerprint(code_buffer, func_def_node),
                     }
@@ -1548,13 +1593,16 @@ async def {name}():
                                 has_invalid_protected = "protected" in decorators_from_info and not protection_name
                                 has_invalid_button = "button" in decorators_from_info and not button_title
                                 has_invalid_text = "text" in decorators_from_info and not text_content_type
+                                has_invalid_keyword = ("keyword" in decorators_from_info or "keywords" in decorators_from_info) and not func_info.get("keyword")
 
                                 # Skip functions with invalid required decorator args
-                                if has_invalid_protected or has_invalid_button or has_invalid_text:
+                                if has_invalid_protected or has_invalid_button or has_invalid_text or has_invalid_keyword:
                                     if has_invalid_protected:
                                         skip_reason = "invalid @protected (missing required protection name)"
                                     elif has_invalid_button:
                                         skip_reason = "invalid @button (missing required title string)"
+                                    elif has_invalid_keyword:
+                                        skip_reason = "invalid @keyword / @keywords (expects a string / non-empty list of strings)"
                                     else:
                                         skip_reason = "invalid @text (missing required content type string)"
 
@@ -2406,6 +2454,8 @@ async def {name}():
                         module.__dict__['location'] = location
                         # Add button decorator which takes parameters
                         module.__dict__['button'] = button
+                        module.__dict__['keyword'] = keyword
+                        module.__dict__['keywords'] = keywords
                         # Add visible decorator
                         module.__dict__['visible'] = visible
                         module.__dict__['homepage'] = homepage

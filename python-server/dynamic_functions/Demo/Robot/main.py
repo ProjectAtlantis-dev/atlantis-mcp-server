@@ -7,7 +7,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+import aiohttp
 import atlantis
+
+from dynamic_functions.Chat.jev import system_one
 
 logger = logging.getLogger("dynamic_function")
 
@@ -26,6 +29,9 @@ DATA_PATH = Path(__file__).absolute().parents[2] / "Chat" / APP_NAME / "Data"
 #            told them (absent until then)
 # Progress lives with the game, so a new game starts the walkthrough over.
 PROGRESS_FILE = "progress.json"
+# Also per user: the behavior chosen for their latest message (see Behaviors)
+#   {event, behavior, utilities}: the transcript event it was chosen for
+BEHAVIOR_FILE = "behavior.json"
 FOO_PATH = Path(__file__).absolute().parents[1] / "foo.py"
 HELLO_PATH = Path(__file__).absolute().parents[1] / "hello.py"
 
@@ -68,25 +74,27 @@ async def on_exit():
 @visible
 async def get_status(command_prefix: str, current_folder: str):
     """
-    Demo walkthrough status for the current user: every step with how far
-    they are, what the last thing they ran should show, and exactly what to
-    do next. Chat runs this before every bot round, passing the prefix a
-    Multix command takes where they type and the folder they are in. It only
-    reads; Chat tells the bot who the user is and how they type.
+    Demo status for the current user: the behavior chosen for their latest
+    message, and what to do under it. Chat runs this before every bot round,
+    passing the prefix a Multix command takes where they type and the folder
+    they are in. It writes only the behavior chosen for a message, once, so
+    every round of one reply works under the same behavior; Chat tells the
+    bot who the user is and how they type.
     """
     logger.info(f"Executing get_status...")
     if command_prefix not in ("", "/"):
         raise ValueError(f"command_prefix must be '' or '/', got {command_prefix!r}")
 
-    walk = await _walk(_caller())
+    username = _caller()
+    walk = await _walk(username)
+    behavior = await _behavior(username, walk)
     lines: list[str] = []
     app_folder = _app_folder()
     if current_folder != app_folder:
         lines.append(f"They are not in the Demo folder; before anything else, have them type "
                      f"{command_prefix}cd {app_folder} and wait.")
-    lines += _walk_lines(walk, command_prefix)
-    lines.append("If the user would rather explore on their own, call list_demo_tools. If they ask "
-                 "to start the walkthrough over, call reset_demo_walkthrough.")
+    lines += BEHAVIOR_LINES[behavior](walk, command_prefix)
+    lines.append("If they ask to start the walkthrough over, call reset_demo_walkthrough.")
     return "\n".join(lines)
 
 
@@ -416,7 +424,9 @@ def _walk_lines(walk: Walk, prefix: str) -> list[str]:
     def shown(action: Action) -> str:
         return f"`{action.commands[0].replace('{sh}', prefix)}`"
 
-    lines = [f"The Demo walkthrough has {len(DEMO_STEPS)} steps:"]
+    if walk.ended is not None:
+        raise RuntimeError("The walkthrough ended; the demo behavior must not be chosen")
+    lines = [f"You are taking them through the Demo walkthrough, which has {len(DEMO_STEPS)} steps:"]
     for number, step in enumerate(DEMO_STEPS, 1):
         done = sum(action.key in walk.proofs for action in step.actions)
         if done == len(step.actions):
@@ -427,18 +437,12 @@ def _walk_lines(walk: Walk, prefix: str) -> list[str]:
             label = "not started"
         lines.append(f"{number}. [{label}] {step.name}")
 
-    other_tools = ("Offer to find them any other tool: search covers every folder on their search "
-                   f"path, which they can see with {prefix}path show.")
-    if walk.ended is not None:
-        lines.append(f"They finished the walkthrough at {walk.ended}, and you have told them so. "
-                     f"Help them with whatever they ask. {other_tools}")
-        return lines
     if walk.current is None:
         if walk.last is None:
             raise RuntimeError("The walkthrough is complete but no action was finished; DEMO_STEPS is empty")
         lines.append(f"They just ran {shown(walk.last)}, the last step, which shows "
                      f"{walk.last.shows.replace('{sh}', prefix)} The walkthrough is complete: tell "
-                     f"them so. {other_tools}")
+                     f"them so. {_other_tools(prefix)}")
         return lines
 
     if walk.last is not None:
@@ -454,6 +458,159 @@ def _walk_lines(walk: Walk, prefix: str) -> list[str]:
     if walk.problem:
         lines.append(walk.problem.replace("{command}", shown(action)))
     return lines
+
+
+def _other_tools(prefix: str) -> str:
+    return ("Offer to find them any other tool: search covers every folder on their search "
+            f"path, which they can see with {prefix}path show.")
+
+
+def _assist_lines(walk: Walk, prefix: str) -> list[str]:
+    """The status while Taffy helps with something besides the walkthrough"""
+    lines = ["Right now they want something other than the next walkthrough step: help them with "
+             "exactly what they asked, one step at a time."]
+    if walk.ended is not None:
+        lines.append(f"They finished the walkthrough at {walk.ended}, and you have told them so. "
+                     f"{_other_tools(prefix)}")
+        return lines
+    if walk.current is None:
+        raise RuntimeError("The walkthrough is complete but not yet told; the assist behavior must not be chosen")
+    step_index = walk.current[0]
+    lines.append(f"They are on step {step_index + 1} of the {len(DEMO_STEPS)}-step Demo walkthrough "
+                 f"({DEMO_STEPS[step_index].name}). Once what they asked is dealt with, you may offer "
+                 f"to pick it up again; do not push it. If they would rather explore on their own, "
+                 f"have them type {prefix}ls.")
+    return lines
+
+
+# ---------------------------------------------------------------------------
+# Behaviors
+# ---------------------------------------------------------------------------
+#
+# Taffy's behavior tree is a root utility selector over two leaves: demo (the
+# walkthrough) and assist (whatever else they ask). Once per user message, Jev
+# judges how well that message fits each behavior; code turns the judgments
+# into utilities and picks the highest. The status for every round of the
+# reply then comes from the chosen behavior alone.
+
+BEHAVIOR_LINES = {"demo": _walk_lines, "assist": _assist_lines}
+
+# Added to the active behavior's utility, so a borderline message does not
+# flip her from one behavior to the other and back
+INERTIA = 0.15
+
+_BEHAVIOR_QUESTIONS = {
+    "demo": {
+        "type": "noul",
+        "instructions": "Does the user's `user_message` go along with the Demo walkthrough: doing, "
+                        "answering or reporting back on what Taffy's `taffy_last` asked of them, agreeing "
+                        "to go on, or asking for the next step? `walkthrough` says where they are in it.",
+        "criteria": {
+            "true": "The message follows the walkthrough, reports on its current step, agrees to "
+                    "continue, or is a greeting or small talk that asks for nothing else.",
+            "false": "The message asks for something the walkthrough step is not about.",
+        },
+    },
+    "assist": {
+        "type": "noul",
+        "instructions": "Does the user's `user_message` ask for something other than the walkthrough "
+                        "step in Taffy's `taffy_last`: a question about something else, a different tool "
+                        "or task, or exploring on their own? `walkthrough` says where they are in it.",
+        "criteria": {
+            "true": "The message asks about or wants to do something the current walkthrough step "
+                    "is not about, or says they would rather look around on their own.",
+            "false": "The message is about the walkthrough step, or asks for nothing at all.",
+        },
+    },
+}
+
+
+async def _behavior(username: str, walk: Walk) -> str:
+    """The behavior for the user's latest message: chosen once per message,
+    then reused by every round of the reply to it"""
+    path = _game_path(BEHAVIOR_FILE)
+    chosen = _read_json(path)
+    previous = chosen.get(username)
+    transcript = await _transcript()
+    message = _latest_user_event(transcript, username)
+    event = message["id"] if message else None
+    if previous is not None and previous["event"] == event:
+        return previous["behavior"]
+
+    utilities = await _utilities(walk, transcript, message, previous["behavior"] if previous else None)
+    behavior = max(utilities, key=utilities.get)
+    logger.info(f"Demo behavior for {username} at event {event}: {behavior} {utilities}")
+    chosen[username] = {"event": event, "behavior": behavior, "utilities": utilities}
+    _write_json(path, chosen)
+    return behavior
+
+
+async def _utilities(walk: Walk, transcript: list[dict], message: Optional[dict], active: Optional[str]) -> dict[str, float]:
+    """Each behavior's utility for this message. The walkthrough leads until
+    they are told it is complete; after that only assist is left. Before the
+    user has said anything, the walkthrough leads."""
+    if walk.ended is not None:
+        return {"assist": 1.0}
+    if walk.current is None:
+        # The last step just ran: the demo behavior tells them it is complete
+        return {"demo": 1.0}
+    if message is None:
+        return {"demo": 1.0}
+
+    step_index, action_index = walk.current
+    state = {
+        "user_message": _event_text(message),
+        "taffy_last": _latest_bot_line(transcript, message),
+        # What the step covers, so a question it answers counts as the walkthrough
+        "walkthrough": {"current_step": DEMO_STEPS[step_index].name,
+                        "step_guidance": DEMO_STEPS[step_index].actions[action_index].intro.replace("{sh}", ""),
+                        "step_number": step_index + 1, "steps": len(DEMO_STEPS)},
+    }
+    async with aiohttp.ClientSession() as session:
+        answers = await system_one(session, state, _BEHAVIOR_QUESTIONS)
+    utilities = {key: round(answers[key]["noul"], 3) for key in _BEHAVIOR_QUESTIONS}
+    if active is not None:
+        utilities[active] = round(utilities[active] + INERTIA, 3)
+    return utilities
+
+
+def _latest_user_event(transcript: list[dict], username: str) -> Optional[dict]:
+    """The user's latest chat line, typed command or command error: what this
+    reply answers. None before they have said or typed anything."""
+    for event in reversed(transcript):
+        if event.get("sid") != username:
+            continue
+        kind = event.get("type")
+        if kind == "command" or (kind == "error" and "typedCommandId" in event):
+            return event
+        if kind == "chat" and str(event.get("content") or "").strip():
+            return event
+    return None
+
+
+def _event_text(event: dict) -> str:
+    kind = event["type"]
+    if kind == "command":
+        return f"[typed in their terminal: {event['content']}]"
+    if kind == "error":
+        return f"[error in their terminal: {event['content']}]"
+    return str(event["content"])
+
+
+def _latest_bot_line(transcript: list[dict], before: dict) -> Optional[str]:
+    """Taffy's last chat line before the user's message, None before she has spoken"""
+    for event in reversed(transcript):
+        if event["id"] >= before["id"] or event.get("type") != "chat":
+            continue
+        sid = event.get("sid")
+        if not sid or sid in ("system", before["sid"]):
+            continue
+        if "thinking" in str(event.get("who") or "").lower():
+            continue
+        content = str(event.get("content") or "").strip()
+        if content:
+            return content
+    return None
 
 
 def _caller() -> str:

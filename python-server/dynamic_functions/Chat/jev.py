@@ -1,8 +1,9 @@
 """Client for TypeSafe's System One API (Jev), mirroring atlantis_nodejs
 src/selftyped/Jev.ts: plain HTTP, answers keyed by the caller's question ids.
 
-Configured in Media/.env (gitignored; read on every call, so edits apply
-without a restart):
+Chat owns it so every app can judge with it (Media's gallery search, a
+Robot's behavior chooser). Configured in Chat/.env (gitignored; read on every
+call, so edits apply without a restart):
 
     TYPESAFE_API_KEY=apikey_...
     JEV_MODEL=jev-latest      # optional
@@ -18,16 +19,22 @@ from dotenv import dotenv_values
 logger = logging.getLogger("dynamic_function")
 
 JEV_URL = "https://api.typesafe.ai/v1/systemone"
-_MEDIA_ENV = Path(__file__).resolve().parent / ".env"
+JEV_ENV_PATH = Path(__file__).resolve().parent / ".env"
+
+
+def typesafe_key() -> str | None:
+    """Chat/.env's TYPESAFE_API_KEY, or None while it is missing or blank"""
+    if not JEV_ENV_PATH.is_file():
+        return None
+    return (dotenv_values(JEV_ENV_PATH).get("TYPESAFE_API_KEY") or "").strip() or None
 
 
 async def system_one(session: aiohttp.ClientSession, state, questions: dict) -> dict:
     """POST one System One request and return its answers by question id."""
-    env = dotenv_values(_MEDIA_ENV) if _MEDIA_ENV.is_file() else {}
-    api_key = env.get("TYPESAFE_API_KEY")
-    if not api_key:
-        raise RuntimeError(f"TYPESAFE_API_KEY is not set in {_MEDIA_ENV}")
-    model = env.get("JEV_MODEL") or "jev-latest"
+    api_key = typesafe_key()
+    if api_key is None:
+        raise RuntimeError(f"TYPESAFE_API_KEY is not set in {JEV_ENV_PATH}")
+    model = dotenv_values(JEV_ENV_PATH).get("JEV_MODEL") or "jev-latest"
     start = time.monotonic()
     async with session.post(
         JEV_URL,

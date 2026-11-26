@@ -1100,6 +1100,11 @@ class DynamicAdditionServer(Server):
                             if button_title_from_info is not None:
                                 tool_annotations["button_title"] = button_title_from_info
 
+                            # Add keyword (comma-delimited text from @keyword / @keywords) if present
+                            keyword_from_info = func_info.get("keyword")
+                            if keyword_from_info is not None:
+                                tool_annotations["keyword"] = keyword_from_info
+
                             # Add protection_name to annotations if present in function_info
                             protection_name_from_info = func_info.get("protection_name")
                             if protection_name_from_info is not None:
@@ -3849,6 +3854,8 @@ class ServiceClient:
                         visibility_str += f" {CYAN_COLOR}[@button(\"{button_title}\")]{RESET_COLOR}"
                     else:
                         visibility_str += f" {CYAN_COLOR}[@button]{RESET_COLOR}"
+                if 'keyword' in decorators or 'keywords' in decorators:
+                    visibility_str += f" {GREY_COLOR}[keyword:{tool.annotations.keyword}]{RESET_COLOR}"  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
                 if 'copy' in decorators:
                     visibility_str += f" {CYAN_COLOR}[@copy]{RESET_COLOR}"
                 if 'exclude' in decorators:

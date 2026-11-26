@@ -11,6 +11,8 @@ from pathlib import Path
 
 from dotenv import dotenv_values
 
+from dynamic_functions.Chat.jev import JEV_ENV_PATH, typesafe_key
+
 logger = logging.getLogger("dynamic_function")
 
 # Media's Robot sets Media up on this machine: image descriptions from a local
@@ -34,7 +36,7 @@ VISION_MODEL_FILES = {
 }
 VISION_DOWNLOAD_LOG_PATH = VISION_MODEL_PATH / "download.log"
 CAPTION_SETTINGS = {"CAPTION_BASE_URL": "http://127.0.0.1:8093/v1", "CAPTION_MODEL": "qwen3-vl-8b"}
-# jev.py reads TYPESAFE_API_KEY from Media/.env for gallery search
+# Chat/jev.py reads TYPESAFE_API_KEY from Chat/.env (JEV_ENV_PATH) for gallery search
 TYPESAFE_KEYS_URL = "https://console.typesafe.ai/keys"
 # Lists the account's models: proves the key without spending a System One request
 TYPESAFE_MODELS_URL = "https://api.typesafe.ai/v1/models"
@@ -136,15 +138,15 @@ async def _check_caption_server() -> dict:
 async def _check_typesafe_key() -> dict:
     key = typesafe_key()
     if key is None:
-        return {"state": f"{MEDIA_ENV_PATH} has no TYPESAFE_API_KEY.", "fix": (
+        return {"state": f"{JEV_ENV_PATH} has no TYPESAFE_API_KEY.", "fix": (
             f"gallery search uses Jev, TypeSafe's judgment model, to match images to what the user "
             f"asks for. The user needs a TypeSafe API key. Call open_typesafe_console to open "
             f"{TYPESAFE_KEYS_URL} in a browser tab, where they sign in and create a key. Then have "
-            f"them add TYPESAFE_API_KEY=<their key> to {MEDIA_ENV_PATH} themselves. Tell them never "
+            f"them add TYPESAFE_API_KEY=<their key> to {JEV_ENV_PATH} themselves. Tell them never "
             f"to paste the key into the chat. End your turn and wait until they say it is done.")}
     checked = read_json(CHECKS_PATH).get("typesafeKey")
     if checked is None or checked["digest"] != key_digest(key):
-        return {"state": f"{MEDIA_ENV_PATH} has a TYPESAFE_API_KEY, but this key has not been checked.",
+        return {"state": f"{JEV_ENV_PATH} has a TYPESAFE_API_KEY, but this key has not been checked.",
                 "fix": "call check_typesafe_key; it lists the account's TypeSafe models."}
     return {"state": f"the TypeSafe key worked on {checked['checkedAt']}.", "fix": None}
 
@@ -191,13 +193,6 @@ def vision_download_state() -> dict:
         return {"done": False, "pid": None, "state": (
             f"the vision model download stopped at {progress}:\n{tail(VISION_DOWNLOAD_LOG_PATH.read_text(errors='replace'), 5)}")}
     return {"done": False, "pid": None, "state": f"the vision model is not downloaded ({VISION_MODEL_PATH})."}
-
-
-def typesafe_key() -> str | None:
-    """Media/.env's TYPESAFE_API_KEY, or None while it is missing or blank"""
-    if not MEDIA_ENV_PATH.is_file():
-        return None
-    return (dotenv_values(MEDIA_ENV_PATH).get("TYPESAFE_API_KEY") or "").strip() or None
 
 
 def key_digest(key: str) -> str:

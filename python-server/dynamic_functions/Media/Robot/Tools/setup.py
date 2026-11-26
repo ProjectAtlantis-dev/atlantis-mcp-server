@@ -14,6 +14,7 @@ import urllib.request
 import atlantis
 from dotenv import set_key
 
+from dynamic_functions.Chat.jev import JEV_ENV_PATH, typesafe_key
 from dynamic_functions.Media.Robot.main import (
     CAPTION_SETTINGS,
     CHECKS_PATH,
@@ -34,7 +35,6 @@ from dynamic_functions.Media.Robot.main import (
     open_tab,
     read_json,
     tail,
-    typesafe_key,
     vision_download_state,
     write_json,
 )
@@ -138,14 +138,14 @@ async def open_typesafe_console():
 @visible
 async def check_typesafe_key():
     """
-    Prove the TypeSafe API key in Media/.env works by listing the account's
+    Prove the TypeSafe API key in Chat/.env works by listing the account's
     models.
     """
     logger.info("Executing check_typesafe_key...")
 
     key = typesafe_key()
     if key is None:
-        raise RuntimeError(f"Cannot check the key: {MEDIA_ENV_PATH} has no TYPESAFE_API_KEY")
+        raise RuntimeError(f"Cannot check the key: {JEV_ENV_PATH} has no TYPESAFE_API_KEY")
 
     def get() -> tuple[int, bytes]:
         request = urllib.request.Request(TYPESAFE_MODELS_URL, headers={"Authorization": f"Bearer {key}"})
@@ -159,7 +159,7 @@ async def check_typesafe_key():
     if http_status == 401:
         raise RuntimeError(
             f"TypeSafe rejected the key (HTTP 401). Have the user check or replace TYPESAFE_API_KEY "
-            f"in {MEDIA_ENV_PATH}.")
+            f"in {JEV_ENV_PATH}.")
     if not 200 <= http_status < 300:
         raise RuntimeError(
             f"TypeSafe returned HTTP {http_status}: {body[:200]!r}. This is not proof the key is bad; "

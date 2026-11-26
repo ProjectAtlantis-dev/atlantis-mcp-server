@@ -95,7 +95,7 @@ async def get_status(command_prefix: str, current_folder: str):
 async def tool_folders() -> list[str]:
     """
     The package tool folders Chat loads into each of Astrid's rounds next to
-    Setup/Robot/Tools: each package's Robot/Tools.
+    Setup's own tools: each package's Robot/Tools.
     """
     return [f"{robot}/Tools" for robot in (await _package_robots()).values()]
 

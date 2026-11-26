@@ -2,6 +2,7 @@ import atlantis
 import copy
 import json
 import os
+import posixpath
 import time as _t
 
 from datetime import datetime, timezone
@@ -20,7 +21,7 @@ from .tool import (
     logger,
     AtlantisSearchToolT, OpenAITool, ToolLookupInfo,
     _repair_json, _signature_name, coerce_args_to_schema, convert_discovery_rows,
-    convert_folder_rows, convert_search_tools,
+    convert_folder_rows, convert_search_tools, ROBOT_FOLDER,
 )
 from utils import format_json_log
 
@@ -107,9 +108,14 @@ async def _search_rows(query: str) -> Any:
 #   - remembers who the zone's bot has met, per game (visitors.json)
 #   - tells the bot how the user types and which folder they are in
 #   - runs the Robot's get_status(command_prefix, current_folder) every round
-#   - loads every tool in the Robot's Tools/ folder into every round, plus
-#     the folders its tool_folders returns, if it has one (Setup names the
-#     Robot/Tools of each package it installs)
+#   - loads the zone's own tools into every round, from one of two places:
+#       1. the Robot has a Tools/ folder (Demo): only those. The app folder
+#          holds what humans run, and the bot gets a curated set on top.
+#       2. the Robot has no Tools/ folder (Setup): the app folder's own tools,
+#          the same ones humans see there. Its logic is exposed in the open,
+#          and Chat does not check how each tool is marked.
+#     plus, in either mode, the folders its tool_folders returns, if it has
+#     one (Setup names the Robot/Tools of each package it installs)
 #   - runs the Robot's record_turn, if it has one, after each reply
 # A game without a Robot (Greenland) gets none of this.
 _ROBOT_TOOLS_FOLDER = "Tools"
@@ -137,19 +143,37 @@ async def _ls(folder_term: str) -> List[Dict[str, Any]]:
     return rows
 
 
+def _defines(rows: List[Dict[str, Any]], function_name: str) -> bool:
+    """Whether /ls rows of a folder include the function function_name"""
+    return any(row.get("name") and _signature_name(row["name"]) == function_name for row in rows)
+
+
 async def _robot_has(robot: str, function_name: str) -> bool:
     """Whether the Robot folder itself defines function_name"""
-    return any(row.get("name") and _signature_name(row["name"]) == function_name
-               for row in await _ls(robot))
+    return _defines(await _ls(robot), function_name)
+
+
+def _robot_app(robot: str) -> str:
+    """The app folder term a Robot folder term sits in ($Setup/Robot -> $Setup)"""
+    app, name = posixpath.split(robot)
+    if name != ROBOT_FOLDER or not app:
+        raise ValueError(f"Robot term must name an app's {ROBOT_FOLDER} folder, got {robot!r}")
+    return app
 
 
 async def _robot_tools(robot: Optional[str]) -> Tuple[List[OpenAITool], Dict[str, ToolLookupInfo]]:
-    """The zone's bot tools, listed fresh: its Robot's Tools/, then each
-    folder its tool_folders names. A game without a Robot has none."""
+    """The zone's bot tools, listed fresh: its Robot's Tools/ when it has one,
+    else the app folder's own tools; then each folder its tool_folders names.
+    A game without a Robot has none."""
     if robot is None:
         return [], {}
-    folders = [f"{robot}/{_ROBOT_TOOLS_FOLDER}"]
-    if await _robot_has(robot, _ROBOT_TOOL_FOLDERS_TOOL):
+    robot_rows = await _ls(robot)
+    # /ls names a subfolder in its dir field ("Tools/"), with no name
+    if any(row.get("dir") == f"{_ROBOT_TOOLS_FOLDER}/" for row in robot_rows):
+        folders = [f"{robot}/{_ROBOT_TOOLS_FOLDER}"]
+    else:
+        folders = [_robot_app(robot)]
+    if _defines(robot_rows, _ROBOT_TOOL_FOLDERS_TOOL):
         named = await silent_command(f"{robot}/{_ROBOT_TOOL_FOLDERS_TOOL}")
         if not isinstance(named, list) or not all(isinstance(folder, str) for folder in named):
             raise TypeError(f"{robot}/{_ROBOT_TOOL_FOLDERS_TOOL} must return a list of folder terms, got {named!r}")
@@ -216,7 +240,8 @@ async def _robot_status(game_name: str, game_key: str, robot: Optional[str]) -> 
     """What the zone's bot must know at the start of every round, fetched
     fresh instead of trusting the bot to ask: who the user is and whether it
     has met them, how they type and where they are, then the Robot's own
-    status. get_status runs every round, so it must only read state."""
+    status. get_status runs every round, so it may write only what it
+    derives once per user message (a Robot memoizing its choice of behavior)."""
     if robot is None:
         return None
     username = _caller_username()
@@ -409,12 +434,14 @@ async def _build_round_tools(
     transcript: List[Dict[str, Any]],
     searched_queries: List[str],
     discovery_open: bool,
-) -> Tuple[List[OpenAITool], Dict[str, ToolLookupInfo], Dict[str, Dict[str, Any]], ToolBinder]:
+) -> Tuple[List[OpenAITool], Dict[str, ToolLookupInfo], Dict[str, Dict[str, Any]], ToolBinder, Optional[Dict[str, str]]]:
     """One round's tool list, rebuilt from scratch so a tool run last round
     cannot leave it stale: the bot's inventory, bound to the current cursor,
     plus what the recent conversation asks for and every search the bot has
     made this turn, rerun against the system as it is now. The bot's own
-    tools come first, then its zone's, then search."""
+    tools come first, then its zone's, then search. Also returns a system
+    note saying what the search of the recent conversation found, so the bot
+    knows when nothing fits instead of guessing."""
     openai_tools, tool_lookup = convert_search_tools(tools)
     zone_tools, zone_lookup = await _robot_tools(robot)
     for tool in zone_tools:
@@ -435,35 +462,35 @@ async def _build_round_tools(
     # Pre-load the tools the recent conversation asks for, so the bot can call
     # them this round instead of searching first
     recent = _recent_spoken_text(transcript, _PRELOAD_SEARCH_LINES)
-    for query in ([recent] if recent else []) + searched_queries:
-        loaded = await _execute_discovery_tool(
-            "search", {"query": query}, openai_tools, tool_lookup, bind,
-        )
-        logger.info(f"Round search for {query[:200]!r}: {loaded}")
-    return openai_tools, tool_lookup, tool_bindings, bind
+    found_note = None
+    if recent:
+        found, _added = await _discover(recent, openai_tools, tool_lookup, bind)
+        logger.info(f"Round search for {recent[:200]!r}: {found}")
+        found_note = {'role': 'system', 'content': (
+            f"Tools that fit what was just said, in your tools this round: {', '.join(found)}."
+            if found else
+            "No tool on the user's search path fits what was just said. If they asked "
+            "for a tool, say plainly that there is none; never offer one you have not seen."
+        )}
+    for query in searched_queries:
+        found, _added = await _discover(query, openai_tools, tool_lookup, bind)
+        logger.info(f"Round search for {query[:200]!r}: {found}")
+    return openai_tools, tool_lookup, tool_bindings, bind, found_note
 
 
-async def _execute_discovery_tool(
-    tool_key: str,
-    arguments: Dict[str, Any],
+async def _discover(
+    value: str,
     openai_tools: List[OpenAITool],
     tool_lookup: Dict[str, ToolLookupInfo],
     bind: ToolBinder,
-) -> str:
-    """Run search and add newly discovered tools to this model turn.
+) -> Tuple[List[str], List[str]]:
+    """Run /search and add newly discovered tools to this model turn.
 
-    Each added tool is bound first, so the model never sees or fills the
-    parameters this turn supplies.
+    Returns the names of every callable tool found and a "name: description"
+    line for each one newly added. Each added tool is bound first, so the
+    model never sees or fills the parameters this turn supplies.
     """
-    if tool_key != "search":
-        raise ValueError(f"Unsupported discovery tool: {tool_key!r}")
-
-    argument_name = "query"
     command = "/search"
-    value = str(arguments.get(argument_name) or "").strip()
-    if not value:
-        raise ValueError(f"{tool_key} requires {argument_name!r}")
-
     results = await _search_rows(value)
     logger.info(
         f"{command} {value[:200]!r} returned "
@@ -475,11 +502,6 @@ async def _execute_discovery_tool(
 
     # Rows the bot may not call (disconnected, Robot folders) count as nothing
     discovered_tools, discovered_lookup = convert_discovery_rows(results)
-    if not discovered_tools:
-        return (
-            f"Nothing on your search path provides {value!r}; tools outside it "
-            f"may still exist. Do not retry with synonyms."
-        )
     added: List[str] = []
     for tool in discovered_tools:
         name = tool["function"]["name"]
@@ -494,7 +516,35 @@ async def _execute_discovery_tool(
     for name, lookup in discovered_lookup.items():
         if name not in tool_lookup:
             tool_lookup[name] = lookup
+    # Search never hands out Robot rows, but a match on a zone tool the bot
+    # already holds is still a match
+    matched = {_signature_name(row["tool"]) for row in results if row.get("tool")}
+    held = [name for name, lookup in tool_lookup.items()
+            if lookup["functionName"] in matched and name not in discovered_lookup]
+    return [tool["function"]["name"] for tool in discovered_tools] + held, added
 
+
+async def _execute_discovery_tool(
+    tool_key: str,
+    arguments: Dict[str, Any],
+    openai_tools: List[OpenAITool],
+    tool_lookup: Dict[str, ToolLookupInfo],
+    bind: ToolBinder,
+) -> str:
+    """The bot's search tool: run it and say what it added to this turn."""
+    if tool_key != "search":
+        raise ValueError(f"Unsupported discovery tool: {tool_key!r}")
+    argument_name = "query"
+    value = str(arguments.get(argument_name) or "").strip()
+    if not value:
+        raise ValueError(f"{tool_key} requires {argument_name!r}")
+
+    found, added = await _discover(value, openai_tools, tool_lookup, bind)
+    if not found:
+        return (
+            f"Nothing on your search path provides {value!r}; tools outside it "
+            f"may still exist. Do not retry with synonyms."
+        )
     if not added:
         return f"{tool_key} found tools for {value!r}, but they were already loaded."
     return "Added tools to this turn:\n" + "\n".join(f"- {item}" for item in added)
@@ -534,6 +584,10 @@ def _parse_tool_arguments(raw_args: str, tool_key: str) -> Dict[str, Any]:
         if repaired is not None:
             return repaired
         raise ValueError(f"Could not parse tool arguments as JSON: {e}")
+
+
+
+
 
 @visible
 async def run_turn(
@@ -590,7 +644,7 @@ async def run_turn(
 
             # Tools and status are rebuilt every round: the last round's tool
             # calls may have changed what exists and where the game stands
-            openai_tools, tool_lookup, tool_bindings, bind = await _build_round_tools(
+            openai_tools, tool_lookup, tool_bindings, bind, found_note = await _build_round_tools(
                 robot=robot,
                 tools=tools or [],
                 tool_argument_overrides=tool_argument_overrides or {},
@@ -599,7 +653,7 @@ async def run_turn(
                 discovery_open=discovery_open,
             )
             status_message = await _robot_status(game_name, game_key, robot)
-            status_messages = [status_message] if status_message else []
+            status_messages = [m for m in (status_message, found_note) if m]
 
             api_messages: List[Dict[str, Any]] = [
                 {'role': 'system', 'content': system_prompt}

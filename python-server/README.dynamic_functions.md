@@ -67,8 +67,11 @@ Untyped parameters are strings, and parameters with defaults are optional.
     has met them in this game, and how they type.
   - runs `record_turn`, if the Robot has one, once after a bot's reply goes
     out. Chat records the visit itself.
-  - loads every tool in `Robot/Tools/` into every bot round, plus the
-    folders the Robot's `tool_folders`, if it has one, returns.
+  - loads the zone's own tools into every bot round. If the Robot has a
+    `Tools/` folder (Demo), the bot gets only those, a curated set on top
+    of what humans run. If it has none (Setup), the bot gets the app
+    folder's own tools, the same ones humans see there. Either way, Chat
+    adds the folders the Robot's `tool_folders` returns, if it has one.
   - Setup is the package installer: `Setup/Robot` shows each installed
     package's own `<Package>/Robot/get_status` after its own steps, and its
     `tool_folders` names each package's `Robot/Tools`. Package Robots
@@ -78,6 +81,10 @@ Untyped parameters are strings, and parameters with defaults are optional.
 - **Structure:** `@index`, `@text("md")`, `@location(...)`, `@price(...)`,
   `@copy`, `@dynamic`.
 - **Modifiers:** `@exclude` (hidden from fuzzy search), `@button`.
+- **Keywords:** `@keyword("name")` and `@keywords(["a", "b"])` tag a tool
+  with search keywords. They don't make it visible. All keywords on a function
+  go to the cloud as one comma-delimited `keyword` annotation (`"a,b"`). Bad
+  arguments skip the function.
 
 `@app` is obsolete, because the folder name is the app.
 

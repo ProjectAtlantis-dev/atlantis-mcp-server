@@ -27,7 +27,7 @@ import atlantis
 from PIL import Image, ImageOps
 
 from .caption import ensure_caption, read_caption, start_caption
-from .jev import system_one
+from dynamic_functions.Chat.jev import system_one
 from .storage import media_folder, number_media
 
 logger = logging.getLogger("dynamic_function")

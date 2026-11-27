@@ -3262,7 +3262,8 @@ class DynamicAdditionServer(Server):
                         request_id=request_id,
                         cloud_client_id=cloud_client_id,
                         lobster_request_id=lobster_req_id,
-                        caller_sid=atlantis.get_default_owner()
+                        caller_sid=atlantis.get_default_owner(),
+                        terminal_shell_path=lobster_shell,
                     )
                 except Exception as e:
                     logger.error(f"❌ Error sending {tool_name} to cloud: {e}")

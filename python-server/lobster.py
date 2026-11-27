@@ -146,9 +146,12 @@ async def fetch_lobster_transcript(
     cloud_client_id: str,
     lobster_request_id: Optional[str],
     caller_sid: Optional[str],
+    terminal_shell_path: Optional[str],
     seq_start: int = 2,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """Fetch transcript from the cloud client using the same sequence as Bot Kitty."""
+    """Fetch the chat transcript added since Lobster's terminal last fetched."""
+    if terminal_shell_path is None:
+        raise ValueError("fetch_lobster_transcript needs terminal_shell_path: it keys the transcript delta (no lobsterShell event received?)")
     logger.info("🦞 fetch_lobster_transcript: /silent on")
     await server.send_awaitable_client_command(
         client_id_for_routing=cloud_client_id,
@@ -161,11 +164,13 @@ async def fetch_lobster_transcript(
     )
 
     try:
-        logger.info("🦞 fetch_lobster_transcript: /transcript chat")
+        # Only what is new since this terminal's last fetch (Node keys the high-water mark by terminal shell path)
+        delta_command = f"/transcript delta {json.dumps(terminal_shell_path)}"
+        logger.info(f"🦞 fetch_lobster_transcript: {delta_command}")
         raw_transcript = await server.send_awaitable_client_command(
             client_id_for_routing=cloud_client_id,
             request_id=lobster_request_id,
-            command="/transcript chat",
+            command=delta_command,
             command_data={},
             seq_num=seq_start + 1,
             entry_point_name="lobster_transcript_get",
@@ -208,6 +213,7 @@ async def handle_local_lobster_tool_call(
     cloud_client_id: str,
     lobster_request_id: Optional[str],
     caller_sid: Optional[str],
+    terminal_shell_path: Optional[str],
 ) -> Dict[str, Any]:
     """Execute a local lobster tool call through the cloud client and return an MCP response."""
     logger.info(f"Sending lobster tool '{tool_name}' to cloud client {cloud_client_id}")
@@ -272,6 +278,7 @@ async def handle_local_lobster_tool_call(
         cloud_client_id=cloud_client_id,
         lobster_request_id=lobster_request_id,
         caller_sid=caller_sid,
+        terminal_shell_path=terminal_shell_path,
     )
     logger.info(
         f"Pulled lobster transcript with {len(raw_transcript)} raw entries and {len(transcript)} filtered messages"

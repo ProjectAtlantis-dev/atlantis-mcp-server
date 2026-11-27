@@ -8,7 +8,7 @@ Lobster connects your MCP client to the local Python server. Its command and cha
 
 🦞 **The human sees more than you do.** Everything Lobster sends is rendered in the user's Atlantis terminal, including images, video and HTML. You only get the text: images and video reach you as placeholders such as `[image shown to the user]` or `[image/png shown to the user]` (in a table column), and HTML as an `html` entry with empty `content` (or `[non-text content was sent]`) and an empty `returnValue`. That means the command ran and the user can see the output; it is not a failure. Ask the user what they see instead of debugging it, and prefer commands that return text or structured data when you need the result yourself. Never tell a bot or the user that media displayed when you could not see it. Errors from your own test calls show in the user's terminal too, so say when an error they see was deliberate.
 
-Lobster wraps each call in `/silent on`, `/transcript chat` and `/silent off` to keep the user's terminal uncluttered. Expect these in the transcript and ignore them.
+Lobster wraps each call in `/silent on`, `/transcript delta <caller sid>` and `/silent off` to keep the user's terminal uncluttered. Expect these in the transcript and ignore them.
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |

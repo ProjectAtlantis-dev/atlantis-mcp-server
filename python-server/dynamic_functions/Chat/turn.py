@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 
 from dotenv import dotenv_values
 from mcp.shared.exceptions import McpError
-from openai import OpenAI, omit
+from openai import AsyncOpenAI, omit
 from openai.types.chat import ChatCompletionFunctionToolParam
 from pathlib import Path
 from typing import Callable, List, Dict, Any, Optional, Tuple, cast
@@ -624,7 +624,10 @@ async def run_turn(
         f"run_turn start: bot_sid={bot_sid!r} display={bot_display_name!r} "
         f"model={model!r} transcript={len(transcript)} tools={len(tools or [])}"
     ))
-    client = OpenAI(api_key=api_key, base_url=base_url)
+    # Async, so the event loop keeps running while the model streams: other
+    # tool calls are served, and an interrupt's notifications/cancelled can
+    # cancel this task at any await, including the wait for the next chunk
+    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
     stream_talk_id = None
     stream_think_id = None
     max_turns = 10
@@ -709,7 +712,7 @@ async def run_turn(
             accumulated_text = ""
 
             t_api = _t.monotonic()
-            stream = client.chat.completions.create(
+            stream = await client.chat.completions.create(
                 model=model,
                 messages=cast(Any, api_messages),
                 # Chat's OpenAITool is the SDK's function tool with type typed as str
@@ -731,7 +734,7 @@ async def run_turn(
             usage: Optional[Dict[str, Any]] = None
             stream_aborted = False
 
-            for chunk in stream:
+            async for chunk in stream:
                 generation_id = generation_id or chunk.id
                 served_model = served_model or chunk.model
                 served_provider = served_provider or getattr(chunk, "provider", None)
@@ -768,6 +771,7 @@ async def run_turn(
                         if streamed_count >= 512:
                             logger.warning("Aborting stream — chunk limit reached")
                             stream_aborted = True
+                            await stream.close()
                             break
 
                 # Tool call fragments
@@ -943,7 +947,11 @@ async def run_turn(
                 break
 
     finally:
-        await _close_streams(stream_talk_id, stream_think_id)
+        try:
+            await _close_streams(stream_talk_id, stream_think_id)
+        finally:
+            # Also drops a stream left open by a cancelled or failed round
+            await client.close()
 
     # Only a turn that actually said something counts as the bot having been there
     if accumulated_text:
